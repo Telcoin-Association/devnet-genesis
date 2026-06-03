@@ -1,0 +1,17 @@
+# binary
+telcoin
+
+# validator configs
+telcoin-network.yaml
+
+# keys
+*.key
+
+# env
+.env
+.env.makefile
+
+# one-off logs from update.sh
+logs
+archive
+**/.DS_Store
