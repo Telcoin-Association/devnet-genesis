@@ -38,6 +38,30 @@ mkdir -p "${OUTPUT_PATH}"
 
 REMOTE_CONFIG_APACHE="/tmp/config-apache.sh"
 
+# =========================================
+# Manual-DNS step: print the node → external IP table
+# =========================================
+# DNS for devnet is external/manual. Print each node's current external IP so
+# the operator can confirm (or create) the A records before the cert pass below
+# re-runs certbot. Ephemeral IPs change on instance stop/start, so re-check here.
+echo "========================================="
+echo "Current external IPs — ensure these A records exist & resolve:"
+echo "========================================="
+for i in "${!INSTANCE_NAMES[@]}"; do
+    natIP=$(gcloud compute instances describe "${INSTANCE_NAMES[$i]}" \
+        --project="${PROJECT_ID}" \
+        --zone="${ZONES[$i]}" \
+        --format='get(networkInterfaces[0].accessConfigs[0].natIP)' 2>/dev/null)
+    if [ -z "${natIP}" ]; then
+        natIP="(unavailable)"
+    fi
+    printf '  %s.%s\t→  %s\n' "${NODE_NAMES[$i]}" "${BASE_DOMAIN}" "${natIP}"
+done
+echo "========================================="
+echo ""
+echo "Proceeding with the Apache/SSL repair pass (certbot succeeds once DNS resolves)..."
+echo ""
+
 # Single-quoted: neither this shell nor gcloud expand anything; the remote
 # bash sees the literal text. Don't introduce $vars or `cmds` here.
 RESET_SCRIPT='set +e
@@ -121,8 +145,10 @@ run_node() {
 
         echo ""
         echo ">>> Phase 3b: run config-apache.sh"
+        # Pass domain/email through sudo (sudo's env_reset would otherwise strip
+        # them); config-apache.sh reads BASE_DOMAIN / LETSENCRYPT_EMAIL.
         gcloud compute ssh "${instance}" --zone="${zone}" \
-            --command="sudo bash ${REMOTE_CONFIG_APACHE}" 2>&1
+            --command="sudo BASE_DOMAIN='${BASE_DOMAIN}' LETSENCRYPT_EMAIL='${LETSENCRYPT_EMAIL}' bash ${REMOTE_CONFIG_APACHE}" 2>&1
         local config_rc=$?
 
         echo ""

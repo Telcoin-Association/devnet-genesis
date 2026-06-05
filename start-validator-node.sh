@@ -41,9 +41,17 @@ sleep 1
 # unexpectedly shutsdown
 sudo docker rm telcoin
 
-TN_PRIMARY_LISTENER_ADDR=$(curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/TN_PRIMARY_LISTENER_ADDR)
-TN_WORKER_LISTENER_ADDR=$(curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/TN_WORKER_LISTENER_ADDR)
-HEALTHCHECK_TCP_PORT=$(curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/HEALTHCHECK_TCP_PORT)
+# Derive the listener (internal-facing) multiaddrs live every run. GCP assigns
+# the internal IP dynamically, so re-reading it here means an IP change (e.g.
+# after an instance stop/start) is picked up automatically on restart. Ports
+# come from instance attributes set in create-instances.sh.
+INTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+PRIMARY_UDP_PORT=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/PRIMARY_UDP_PORT)
+WORKER_UDP_PORT=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/WORKER_UDP_PORT)
+HEALTHCHECK_TCP_PORT=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/HEALTHCHECK_TCP_PORT)
+
+TN_PRIMARY_LISTENER_ADDR="/ip4/${INTERNAL_IP}/udp/${PRIMARY_UDP_PORT}/quic-v1"
+TN_WORKER_LISTENER_ADDR="/ip4/${INTERNAL_IP}/udp/${WORKER_UDP_PORT}/quic-v1"
 
 echo "overwriting external config multiaddr to use  primary addr: ${TN_PRIMARY_LISTENER_ADDR}"
 echo "overwriting external config multiaddr to use  worker addr: ${TN_WORKER_LISTENER_ADDR}"

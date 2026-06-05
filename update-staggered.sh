@@ -22,8 +22,13 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     # Create log file for this instance
     LOG_FILE="${OUTPUT_PATH}/${INSTANCE_NAMES[$i]}_$timestamp.log"
 
-    UPDATE_SCRIPT_PATH="${START_VALIDATOR_NODE_SCRIPT}"
-    NODE_TYPE="VALIDATOR"
+    role="${NODE_ROLES[$i]}"
+    NODE_TYPE=$(echo "${role}" | tr '[:lower:]' '[:upper:]')
+    if [ "${role}" = "observer" ]; then
+        UPDATE_SCRIPT_PATH="${START_OBSERVER_NODE_SCRIPT}"
+    else
+        UPDATE_SCRIPT_PATH="${START_VALIDATOR_NODE_SCRIPT}"
+    fi
 
     # Log the start time, instance type, and script being used
     echo "Starting job on ${INSTANCE_NAMES[$i]} [${NODE_TYPE}] using script: ${UPDATE_SCRIPT_PATH}"

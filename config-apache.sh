@@ -1,53 +1,53 @@
 #!/bin/bash
 #
-# this script configures certbot and the apache server
+# this script configures certbot and the apache server for a single domain:
+#   ${HOSTNAME}.${BASE_DOMAIN}   e.g. node1.devnet.telcoin.network
+#
+# BASE_DOMAIN and LETSENCRYPT_EMAIL are passed as exported env by the caller
+# (genesis.sh / dns.sh). They default to the devnet values if unset, so the
+# script is safe to run standalone.
+
+# retrieve hostname (set in startup.sh)
+source /etc/environment
+
+# defaults if the caller didn't export them
+BASE_DOMAIN="${BASE_DOMAIN:-devnet.telcoin.network}"
+LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-devs@telcoin.org}"
+
+NODE_DOMAIN="${HOSTNAME}.${BASE_DOMAIN}"
+
+echo "Hostname from source: ${HOSTNAME}"
+echo "Issuing letsencrypt certificate using certbot for: ${NODE_DOMAIN}"
 
 # install certbot
 sudo apt install certbot python3-certbot-apache -y
 
-echo "Issuing letsencrypt certificate using certbot for: ${HOSTNAME}"
-
-# retrieve hostname (set in startup.sh)
-source /etc/environment
-echo "Hostname from source: ${HOSTNAME}"
-
-# Define both domains
-ADIRI_DOMAIN="${HOSTNAME}.adiri.tel"
-TELCOIN_DOMAIN="${HOSTNAME}.telcoin.network"
-
 # First, add ServerName to the default HTTP config if it doesn't exist
 if ! grep -q "ServerName" /etc/apache2/sites-available/000-default.conf; then
-    sudo sed -i "/<VirtualHost \*:80>/a \\    ServerName ${ADIRI_DOMAIN}\\n    ServerAlias ${TELCOIN_DOMAIN}" /etc/apache2/sites-available/000-default.conf
+    sudo sed -i "/<VirtualHost \*:80>/a \\    ServerName ${NODE_DOMAIN}" /etc/apache2/sites-available/000-default.conf
 fi
 
 # Create default SSL config if it doesn't exist
 if [ ! -f "/etc/apache2/sites-available/000-default-le-ssl.conf" ]; then
     sudo cp /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-available/000-default-le-ssl.conf
     sudo sed -i 's/<VirtualHost \*:80>/<VirtualHost *:443>/' /etc/apache2/sites-available/000-default-le-ssl.conf
-    sudo sed -i "/<VirtualHost \*:443>/a \\    ServerName ${ADIRI_DOMAIN}\\n    ServerAlias ${TELCOIN_DOMAIN}\\n    SSLEngine on" /etc/apache2/sites-available/000-default-le-ssl.conf
+    sudo sed -i "/<VirtualHost \*:443>/a \\    ServerName ${NODE_DOMAIN}\\n    SSLEngine on" /etc/apache2/sites-available/000-default-le-ssl.conf
 else
     # If SSL config exists but doesn't have ServerName, add it
     if ! grep -q "ServerName" /etc/apache2/sites-available/000-default-le-ssl.conf; then
-        sudo sed -i "/<VirtualHost \*:443>/a \\    ServerName ${ADIRI_DOMAIN}\\n    ServerAlias ${TELCOIN_DOMAIN}" /etc/apache2/sites-available/000-default-le-ssl.conf
-    fi
-    # If SSL config doesn't have ServerAlias for telcoin.network, add it
-    if ! grep -q "${TELCOIN_DOMAIN}" /etc/apache2/sites-available/000-default-le-ssl.conf; then
-        sudo sed -i "/ServerName/a \\    ServerAlias ${TELCOIN_DOMAIN}" /etc/apache2/sites-available/000-default-le-ssl.conf
+        sudo sed -i "/<VirtualHost \*:443>/a \\    ServerName ${NODE_DOMAIN}" /etc/apache2/sites-available/000-default-le-ssl.conf
     fi
 fi
 
 # Enable necessary modules
 sudo a2enmod proxy proxy_http ssl rewrite headers setenvif
 
-# Try to obtain certificate for both domains
-echo "Requesting certificates for both domains..."
-sudo certbot --apache --non-interactive --agree-tos --email devs@telcoin.org -d ${ADIRI_DOMAIN} -d ${TELCOIN_DOMAIN} -v || {
-    echo "Combined certificate request failed. Trying individual requests..."
-
-    # If combined request fails, try individual requests
-    sudo certbot --apache --non-interactive --agree-tos --email devs@telcoin.org -d ${ADIRI_DOMAIN} -v || echo "Failed to get certificate for ${ADIRI_DOMAIN}"
-    sudo certbot --apache --non-interactive --agree-tos --email devs@telcoin.org -d ${TELCOIN_DOMAIN} -v || echo "Failed to get certificate for ${TELCOIN_DOMAIN}"
-}
+# Try to obtain certificate for the node domain. This fails until the operator
+# points ${NODE_DOMAIN} at this instance's external IP (HTTP-01 challenge); the
+# caller treats that as non-fatal and ./dns.sh re-runs this once DNS resolves.
+echo "Requesting certificate for ${NODE_DOMAIN}..."
+sudo certbot --apache --non-interactive --agree-tos --email "${LETSENCRYPT_EMAIL}" -d "${NODE_DOMAIN}" -v \
+    || echo "Failed to get certificate for ${NODE_DOMAIN}"
 
 # Apache Server Setup
 # Define variables for file paths
@@ -166,8 +166,7 @@ sudo systemctl status apache2 --no-pager
 echo ""
 echo "Setup complete for ${HOSTNAME}"
 echo ""
-echo "RPC endpoints available at:"
-echo "  - https://${ADIRI_DOMAIN}"
-echo "  - https://${TELCOIN_DOMAIN}"
+echo "RPC endpoint available at:"
+echo "  - https://${NODE_DOMAIN}"
 echo ""
 echo "Note: Health checks should be configured to connect directly to port 43174"

@@ -10,6 +10,12 @@
 # use global vars
 source ./config.sh
 
+# Observer node-info is pulled here, NOT into genesis/validators/. `telcoin
+# genesis` builds the committee from EVERY file in genesis/validators/, so the
+# observer's key must be kept out of that dir to keep the committee at 4. Kept
+# aside so it can later be staked into a future committee via ConsensusRegistry.
+OBSERVER_LOCAL_PATH="./genesis/observers/"
+
 # Create logs directory if it doesn't exist
 LOGS_DIR="./logs"
 timestamp=$(date +"%Y%m%d_%H%M%S")
@@ -27,43 +33,73 @@ echo "========================================="
 echo "PHASE 1: Pulling validator files from remote hosts"
 echo "========================================="
 
-# move public information to shared folder
-if [ ! -d "${GENESISDIR}" ]; then
-    echo "creating share dir: ${GENESISDIR}"
-    mkdir -p ${GENESISDIR}
-else
-    echo "${GENESISDIR} already present"
-fi
+# Prepare local dirs. Validators' node-info land in genesis/validators/ (the
+# committee source); the observer's lands in genesis/observers/.
+for d in "${GENESISDIR}" "${OBSERVER_LOCAL_PATH}"; do
+    if [ ! -d "${d}" ]; then
+        echo "creating dir: ${d}"
+        mkdir -p "${d}"
+    else
+        echo "${d} already present"
+    fi
+done
 
 # set permissions for docker container
 chmod -R 777 $(dirname ${GENESISDIR})
 
-# Arrays for parallel pulling (optional - you could parallelize this too)
+# Arrays for parallel pulling. pull_instances tracks which instance each pid
+# belongs to so the wait loop can report correctly even though only a subset
+# of instances may be pulled into each dir.
 pull_pids=()
+pull_instances=()
 pull_exit_statuses=()
 
-# Loop through each server and pull validator files
-for i in "${!VALIDATOR_NAMES[@]}"; do
-    LOG_FILE="${OUTPUT_PATH}/pull_${VALIDATOR_NAMES[$i]}_${timestamp}.log"
+# Pull node-info from each server, routed by role:
+#   validator → genesis/validators/ (committee is built from this dir)
+#   observer  → genesis/observers/  (kept out of the committee)
+for i in "${!INSTANCE_NAMES[@]}"; do
+    instance="${INSTANCE_NAMES[$i]}"
+    role="${NODE_ROLES[$i]}"
+
+    if [ "${role}" = "observer" ]; then
+        dest="${OBSERVER_LOCAL_PATH}"
+    else
+        dest="${LOCAL_PATH}"
+    fi
+
+    LOG_FILE="${OUTPUT_PATH}/pull_${instance}_${timestamp}.log"
 
     # Pull files in background (optional parallelization)
     (
-        echo "=== Pulling files from ${VALIDATOR_NAMES[$i]} at $(date) ==="
+        echo "=== Pulling files from ${instance} [${role}] at $(date) ==="
         echo "Zone: ${ZONES[$i]}"
+        echo "Dest: ${dest}"
 
-        gcloud compute scp "${VALIDATOR_NAMES[$i]}:${REMOTE_VALIDATORS_PATH}/*" "${LOCAL_PATH}" --zone "${ZONES[$i]}" 2>&1
+        # Retry transient failures: parallel first-time SSH connections race on
+        # gcloud's key-propagation metadata update, and the loser can hit
+        # "Permission denied (publickey)" (exit 255) until the key lands.
+        max_attempts=3
+        for attempt in $(seq 1 $max_attempts); do
+            gcloud compute scp "${instance}:${REMOTE_VALIDATORS_PATH}/*" "${dest}" --zone "${ZONES[$i]}" 2>&1
+            exit_code=$?
+            [ $exit_code -eq 0 ] && break
+            if [ $attempt -lt $max_attempts ]; then
+                echo "Attempt ${attempt}/${max_attempts} failed (exit ${exit_code}); retrying in 10s..."
+                sleep 10
+            fi
+        done
 
-        exit_code=$?
         if [ $exit_code -eq 0 ]; then
-            echo "=== Successfully pulled files from ${VALIDATOR_NAMES[$i]} at $(date) ==="
+            echo "=== Successfully pulled files from ${instance} at $(date) ==="
         else
-            echo "=== FAILED to pull files from ${VALIDATOR_NAMES[$i]} with exit code $exit_code at $(date) ==="
+            echo "=== FAILED to pull files from ${instance} with exit code $exit_code at $(date) ==="
         fi
         exit $exit_code
     ) > "$LOG_FILE" 2>&1 &
 
     pull_pids+=($!)
-    echo "Started pulling from ${VALIDATOR_NAMES[$i]} (PID: ${pull_pids[-1]})"
+    pull_instances+=("${instance}")
+    echo "Started pulling from ${instance} [${role}] → ${dest} (PID: ${pull_pids[-1]})"
 done
 
 # Wait for all pulls to complete
@@ -75,10 +111,10 @@ for i in "${!pull_pids[@]}"; do
     pull_exit_statuses+=($exit_status)
 
     if [ $exit_status -ne 0 ]; then
-        echo "❌ Failed to pull from ${VALIDATOR_NAMES[$i]}"
+        echo "❌ Failed to pull from ${pull_instances[$i]}"
         pull_failed=true
     else
-        echo "Successfully pulled from ${VALIDATOR_NAMES[$i]}"
+        echo "Successfully pulled from ${pull_instances[$i]}"
     fi
 done
 
@@ -104,13 +140,15 @@ COMMITTEE_LOG="${OUTPUT_PATH}/committee_creation_${timestamp}.log"
     echo "Using Docker image: ${DOCKER_IMAGE}"
     echo ""
 
-    # NOTE: this is 6hr epochs
-    docker run -v ./:/code --workdir /code ${DOCKER_IMAGE} \
+    # 1hr epochs so the observer can be tested rotating into the committee fast.
+    # --platform linux/amd64: the image is amd64; pin it for Apple-silicon hosts.
+    # Committee = 4 (only the 4 validators' node-info are in genesis/validators/).
+    docker run --platform linux/amd64 -v ./:/code --workdir /code ${DOCKER_IMAGE} \
         /usr/local/bin/telcoin genesis \
         --datadir ./ \
         --bls-passphrase-source stdin \
         --accounts /code/testnet_accounts.yaml \
-        --epoch-duration-in-secs 21600 \
+        --epoch-duration-in-secs 3600 \
         --min-header-delay-ms 1000 \
         --max-header-delay-ms 3000 2>&1
 
@@ -158,7 +196,15 @@ deploy_exit_statuses=()
 for i in "${!INSTANCE_NAMES[@]}"; do
     LOG_FILE="${OUTPUT_PATH}/deploy_${INSTANCE_NAMES[$i]}_${timestamp}.log"
 
-    NODE_TYPE="VALIDATOR"
+    role="${NODE_ROLES[$i]}"
+    NODE_TYPE=$(echo "${role}" | tr '[:lower:]' '[:upper:]')
+    # Pick the start script by role. All 5 receive genesis/committee/parameters
+    # (the observer needs them to sync); only the start command differs.
+    if [ "${role}" = "observer" ]; then
+        START_SCRIPT="${START_OBSERVER_NODE_SCRIPT}"
+    else
+        START_SCRIPT="${START_VALIDATOR_NODE_SCRIPT}"
+    fi
 
     # Deploy to instance in background
     (
@@ -203,10 +249,10 @@ for i in "${!INSTANCE_NAMES[@]}"; do
         fi
         echo "Upload committee script executed"
 
-        # Start validator node
-        echo "Starting VALIDATOR node..."
+        # Start node (validator or observer per role)
+        echo "Starting ${NODE_TYPE} node..."
         gcloud compute ssh "${INSTANCE_NAMES[$i]}" --zone="${ZONES[$i]}" \
-            --command="export DOCKER_IMAGE='${DOCKER_IMAGE}'; bash -s" < "${START_VALIDATOR_NODE_SCRIPT}" 2>&1
+            --command="export DOCKER_IMAGE='${DOCKER_IMAGE}'; bash -s" < "${START_SCRIPT}" 2>&1
 
         if [ $? -ne 0 ]; then
             echo "Failed to start node"
@@ -214,15 +260,18 @@ for i in "${!INSTANCE_NAMES[@]}"; do
         fi
         echo "Node started"
 
-        # Configure Apache
+        # Configure Apache + certbot. NON-FATAL: certbot's HTTP-01 challenge
+        # fails until the operator points node{N}.${BASE_DOMAIN} at this IP, so
+        # a failure here is expected on first deploy. Run ./dns.sh to finalize
+        # certs once DNS resolves.
         echo "Configuring Apache server..."
         gcloud compute ssh "${INSTANCE_NAMES[$i]}" --zone="${ZONES[$i]}" \
-            --command="bash -s" < "${CONFIG_APACHE_SCRIPT}" 2>&1
+            --command="export BASE_DOMAIN='${BASE_DOMAIN}' LETSENCRYPT_EMAIL='${LETSENCRYPT_EMAIL}'; bash -s" < "${CONFIG_APACHE_SCRIPT}" 2>&1
         if [ $? -ne 0 ]; then
-            echo "Failed to configure Apache"
-            exit 1
+            echo "WARNING: Apache/certbot did not complete (DNS may not resolve yet). Continuing; run ./dns.sh after DNS is set."
+        else
+            echo "Apache configured"
         fi
-        echo "Apache configured"
 
         echo ""
         echo "=== Deployment to ${INSTANCE_NAMES[$i]} ($NODE_TYPE) completed successfully at $(date) ==="
@@ -248,7 +297,7 @@ for i in "${!deploy_pids[@]}"; do
     exit_status=$?
     deploy_exit_statuses+=($exit_status)
 
-    NODE_TYPE="VALIDATOR"
+    NODE_TYPE=$(echo "${NODE_ROLES[$i]}" | tr '[:lower:]' '[:upper:]')
 
     LOG_FILE="${OUTPUT_PATH}/deploy_${INSTANCE_NAMES[$i]}_${timestamp}.log"
 
@@ -294,11 +343,20 @@ if [ ${#failed_deployments[@]} -gt 0 ]; then
     done
 fi
 
-validator_count=${#INSTANCE_NAMES[@]}
+validator_count=0
+observer_count=0
+for role in "${NODE_ROLES[@]}"; do
+    if [ "${role}" = "observer" ]; then
+        ((observer_count++))
+    else
+        ((validator_count++))
+    fi
+done
 
 echo ""
 echo "Node types deployed:"
 echo "  - Validators: $validator_count"
+echo "  - Observers:  $observer_count"
 
 echo ""
 echo "Logs saved to: ${OUTPUT_PATH}"

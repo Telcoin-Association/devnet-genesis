@@ -1,7 +1,8 @@
 #!/bin/bash
 #
 # Provision the Global External Application Load Balancer that fronts the
-# adiri validators at https://rpc.telcoin.network/.
+# devnet nodes at https://rpc.devnet.telcoin.network/ (resource names and
+# hostname come from config.sh — LB_* vars).
 #
 # Each gcloud call is wrapped `describe || create` so the script is idempotent
 # and safe to re-run after a partial failure. Order follows the dependency

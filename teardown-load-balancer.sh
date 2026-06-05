@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Tear down the Global External Application Load Balancer for
-# rpc.telcoin.network in reverse dependency order. Each delete is best-effort
+# rpc.devnet.telcoin.network in reverse dependency order. Each delete is best-effort
 # — "not found" is treated as success so the script is safe to re-run.
 #
 # Order (reverse of setup):

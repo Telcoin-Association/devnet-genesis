@@ -68,7 +68,7 @@ echo "HOSTNAME=${HOSTNAME}" | sudo tee -a /etc/environment
 echo "DOCKER_IMAGE=${DOCKER_IMAGE}" | sudo tee -a /etc/environment
 
 # Ensure the hostname is in /etc/hosts
-grep -q "${HOSTNAME}" /etc/hosts || echo "127.0.1.1 ${HOSTNAME} ${HOSTNAME}.telcoin.network" | sudo tee -a /etc/hosts
+grep -q "${HOSTNAME}" /etc/hosts || echo "127.0.1.1 ${HOSTNAME} ${HOSTNAME}.devnet.telcoin.network" | sudo tee -a /etc/hosts
 
 # The rest of your existing startup script follows...
 
@@ -99,8 +99,35 @@ echo "Docker is now ready."
 
 # Fetch custom metadata 'EXECUTION_ADDRESS'
 EXECUTION_ADDRESS=$(curl -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/EXECUTION_ADDRESS")
-TN_PRIMARY_EXTERNAL_ADDR=$(curl -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/TN_PRIMARY_EXTERNAL_ADDR")
-TN_WORKER_EXTERNAL_ADDR=$(curl -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/TN_WORKER_EXTERNAL_ADDR")
+
+# Self-discover this instance's assigned external IP from the metadata service.
+# GCP hands out an ephemeral external IP at boot; retry briefly in case the
+# network-interface metadata is not yet populated when startup.sh runs.
+EXTERNAL_IP=""
+for attempt in $(seq 1 10); do
+    EXTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip")
+    if [ -n "${EXTERNAL_IP}" ]; then
+        break
+    fi
+    echo "external IP not yet available (attempt ${attempt}/10); sleeping..."
+    sleep 2
+done
+
+if [ -z "${EXTERNAL_IP}" ]; then
+    echo "ERROR: could not determine external IP from metadata service — aborting keygen" >&2
+    exit 1
+fi
+echo "discovered external IP: ${EXTERNAL_IP}"
+
+# UDP ports travel as instance attributes (set in create-instances.sh)
+PRIMARY_UDP_PORT=$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/PRIMARY_UDP_PORT")
+WORKER_UDP_PORT=$(curl -s -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/WORKER_UDP_PORT")
+
+# Build the external (peer-facing) multiaddrs baked into node-info.yaml. These
+# are advertised to the committee; the listener addrs (internal IP) are derived
+# live at start time by start-*-node.sh.
+TN_PRIMARY_EXTERNAL_ADDR="/ip4/${EXTERNAL_IP}/udp/${PRIMARY_UDP_PORT}/quic-v1"
+TN_WORKER_EXTERNAL_ADDR="/ip4/${EXTERNAL_IP}/udp/${WORKER_UDP_PORT}/quic-v1"
 
 # Check if the fetched address is empty
 if [ -z "${EXECUTION_ADDRESS}" ]; then
