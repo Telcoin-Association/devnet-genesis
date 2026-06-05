@@ -1,0 +1,12 @@
+---
+name: node-V9ByaD6Kmdc
+bls_public_key: zxTojkznPGq8HH5m1MmaQS5sH2shsgpTYPpqcDmcm4x615EnJGbDdjaNcpiVM39RrN9T414gMoxe22SZKUMqb1g7oFhXWoVrnfQYggUB5Nwh8X3MCD4MHH5Nj6cwpH3MUzW
+p2p_info:
+  primary:
+    network_address: /ip4/34.40.223.197/udp/49590/quic-v1/p2p/12D3KooWLav6uYJKsaBzv83cVpQTGVpHYZRFVkCoRLgfjjgM1Z8Q
+    network_key: 4XTTMBubkkgmQUwKewnW2crJHR6Tx2EQhcxp39Z6RmyHsyKuW
+  worker:
+    network_address: /ip4/34.40.223.197/udp/49594/quic-v1/p2p/12D3KooWEVz97y15GkUe4M4L3aH5i28ySoAKhvFds1aJY51avpTi
+    network_key: 4XTTM5pfny7U9t7cJ61WkAcAurcndvU9mq8rsbDz4aJd7tbEp
+execution_address: "0x7489025dfbaad94f2366d88a62989147d9c8b5d3"
+proof_of_possession: 7YL6v8pRHHsgXPbZ4GVUSqB7jdgQ2oxmdFh7eNoAcdh4LQV52ZAcxuP3EPmJtsNa31

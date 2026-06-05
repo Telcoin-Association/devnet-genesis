@@ -1,0 +1,12 @@
+---
+name: node-Y7AbKRGUkrc
+bls_public_key: 274eLSnXiQGg5zHCZLf95h1LkRiCeS1ReZmYiXtwX9FHijfUZnrC1SnrVFYBUH2t4HYfaoif6BGnTx5F8dpDv239PeTQ7GWAvXiCEHZDtxbhd9CBbD4kxxQaG15veKWrhEoE
+p2p_info:
+  primary:
+    network_address: /ip4/34.158.84.185/udp/49590/quic-v1/p2p/12D3KooWMnvWacmmbaEAvPEMpf2QmJXLk5TDhNQx6BatGEUaC3ko
+    network_key: 4XTTMD7cARmErCwMpx3gmwgvEuuB1DkSfpb2BpPzeJU679pXu
+  worker:
+    network_address: /ip4/34.158.84.185/udp/49594/quic-v1/p2p/12D3KooWQ9aczh96ubNmPo3kjJmHL1jhS2a87msSzpgNiEDi2yRu
+    network_key: 4XTTMFUGGqqcBWxWRRTWArLf7UcPMuhZaEzUgj368kTqEzkD1
+execution_address: "0xefaacf04b92298a88200aa50aa6bb7bfce587b17"
+proof_of_possession: 6t7fTHgXLV4rRM8Pacukh3SV2REda9j7yHx3MzJJ3LhEezLPCYr77WjKKTJfMep35w

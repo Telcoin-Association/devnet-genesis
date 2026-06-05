@@ -1,0 +1,12 @@
+---
+name: node-VtmqyXx7waF
+bls_public_key: 22WDuPEBur5em1KYHoCjTkYBoB9YHMDC57CwGuhskumf5vvcZTQj47Vwmfy1yxsJbgS8hVyNHYHFPR2V6g5nyAofZgBXXkRdkoNfKdDHRZ87mzsiqBMzxBLeUKUCZJCYJFuP
+p2p_info:
+  primary:
+    network_address: /ip4/35.203.91.24/udp/49590/quic-v1/p2p/12D3KooWNjCVNbeHnC2XmZjcPbb6GjmVcEZnqBTRgQJPWxXcTiHj
+    network_key: 4XTTME3t9Dk7NPZABoEC2WdUvRLRA5uZExQ4fQci9ZC99RV4q
+  worker:
+    network_address: /ip4/35.203.91.24/udp/49594/quic-v1/p2p/12D3KooWNm4WaYBTQvqSnaXKmHmhzydeezXawrBcCcJVBrQQdbMo
+    network_key: 4XTTME5kARgeY2Hy6pEyjtKfY9aHK8fX354nqvpiFE61wbN8u
+execution_address: "0x0033a370616805b1fd275b7ffab83fc41d665ccb"
+proof_of_possession: 7bX87KeurqJtAMbFHEDJxsXjWn8fZqMj6soXAoqtPszKtzKWf9Jb3stxYLRzvTuXwR

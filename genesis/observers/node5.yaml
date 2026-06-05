@@ -1,0 +1,12 @@
+---
+name: node-WLuCSWHsLT2
+bls_public_key: 23S2k6d7y9mrEFQTw85Kkts1YLXGuDMo7M5Z7vjDyVXWPXErACTbabyRAh5B1bKxyDUGqAW44MELLhSDQdKdGBjbC3WjdrbaawXLGYxjEXft6JYmRZbXxwodjeTspNzd2stR
+p2p_info:
+  primary:
+    network_address: /ip4/34.147.201.198/udp/49590/quic-v1/p2p/12D3KooWBws4dfnVhNfMdnbBVNZ32ou9kfDaErxzm5PgpCqag5jj
+    network_key: 4XTTM3GYiUpFaJjo1fT3bcQSsBQYpELD2N5aEVHoSrST7drWq
+  worker:
+    network_address: /ip4/34.147.201.198/udp/49594/quic-v1/p2p/12D3KooWGjyDusEME4PyT8jrkdxdiYJrhUHioXWa5ETBgiBEXPkh
+    network_key: 4XTTM84esm1hRqRXdUoCGsfrTs8xXB9HAvk7ooSrwiwnmVAXo
+execution_address: "0x89dab9f6fdc569c1bcdbd6493f25b7040b55dc79"
+proof_of_possession: 75KAKhSxtLDhpWFxSW4Eix1K6iZtsRsSwmAA3KcbE58kBj15mCAzmsfbaYULJcGMTE
