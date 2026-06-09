@@ -2,6 +2,11 @@
 # GLOBAL VARIABLES
 #
 
+# Absolute path to this repo's root. Every script/file path exported below is
+# anchored to it, so shared scripts in common/ resolve their inputs regardless
+# of the caller's working directory.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 #
 # Docker Image
 #
@@ -77,12 +82,12 @@ export GENESISDIR="genesis/validators/"
 export LOCAL_PATH="./genesis/validators/"
 export REMOTE_VALIDATORS_PATH="/home/share"
 export REMOTE_SHARE_PATH="/home/share/"
-export GENESIS_FILE="./genesis/genesis.yaml"
+export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
 export PARAMETERS_FILE="./parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
-export UPLOAD_COMMITTEE_SCRIPT="./copy-committee.sh"
-export START_VALIDATOR_NODE_SCRIPT="./start-validator-node.sh"
+export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
+export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/start-validator-node.sh"
 # Used for the observer node (NODE_ROLES==observer); scripts pick the start
 # script by role.
-export START_OBSERVER_NODE_SCRIPT="./start-observer-node.sh"
+export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/start-observer-node.sh"
 export CONFIG_APACHE_SCRIPT="./config-apache.sh"
