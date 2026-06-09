@@ -4,8 +4,9 @@
 
 # Absolute path to this repo's root. Every script/file path exported below is
 # anchored to it, so shared scripts in common/ resolve their inputs regardless
-# of the caller's working directory.
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# of the caller's working directory. ${BASH_SOURCE[0]:-$0} resolves this file's
+# own path under both bash (the deploy scripts) and zsh (manual `source`).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 #
 # Docker Image
@@ -76,6 +77,18 @@ export LB_FORWARDING_RULE="devnet-rpc-fr"
 export LB_GLOBAL_IP_NAME="devnet-rpc-ip"
 export LB_FIREWALL_RULE="devnet-lb-allow-health-check"
 #
+# Governance / mint toolkit (shared Makefile + mint*.sh in common/)
+#
+# RPC the Safe/mint tooling talks to — devnet's own load balancer. (mint-role.sh
+# previously hardcoded the TESTNET RPC; parameterizing it here fixes that bug.)
+export RPC_URL="https://rpc.devnet.telcoin.network"
+# Canonical TN system Safe (multisig) precompile — identical on every TN network.
+export SAFE_ADDR="0x00000000000000000000000000000000000007a0"
+# StablecoinManager deployment that holds the TEL mint role.
+# VERIFY: this address was inherited from testnet and may differ on devnet —
+# confirm the devnet StablecoinManager before any send.
+export STABLECOIN_MANAGER="0x981be5999e322cb3f21511d043e8c314fda5da55"
+#
 # PATHS
 #
 export GENESISDIR="genesis/validators/"
@@ -83,7 +96,7 @@ export LOCAL_PATH="./genesis/validators/"
 export REMOTE_VALIDATORS_PATH="/home/share"
 export REMOTE_SHARE_PATH="/home/share/"
 export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
-export PARAMETERS_FILE="./parameters.yaml"
+export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
 export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
 export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/start-validator-node.sh"
