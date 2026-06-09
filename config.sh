@@ -2,6 +2,12 @@
 # GLOBAL VARIABLES
 #
 
+# Absolute path to this repo's root. Every script/file path exported below is
+# anchored to it, so shared scripts in common/ resolve their inputs regardless
+# of the caller's working directory. ${BASH_SOURCE[0]:-$0} resolves this file's
+# own path under both bash (the deploy scripts) and zsh (manual `source`).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
 #
 # Docker Image
 #
@@ -48,7 +54,7 @@ export MACHINE_TYPE="e2-custom-4-8192"
 #   gcloud projects describe tn-devnet --format='value(projectNumber)'
 export SERVICE_ACCOUNT="1095385745561-compute@developer.gserviceaccount.com"
 export IMAGE="projects/debian-cloud/global/images/debian-12-bookworm-v20251111"
-export STARTUP_SCRIPT_PATH="startup.sh"
+export STARTUP_SCRIPT_PATH="${REPO_ROOT}/common/startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
 export DEFAULT_HEALTHCHECK_TCP_PORT=43174
@@ -57,6 +63,16 @@ export DEFAULT_HEALTHCHECK_TCP_PORT=43174
 #
 export BASE_DOMAIN="devnet.telcoin.network"
 export LETSENCRYPT_EMAIL="devs@telcoin.org"
+# Cert-domain SUFFIXES — config-apache.sh issues node{N}.<suffix> for each (the
+# first is the ServerName / cert lineage). Devnet serves a single domain.
+export CERT_DOMAINS=("${BASE_DOMAIN}")
+#
+# Genesis
+#
+# Epoch duration baked into genesis (devnet: 1h).
+export EPOCH_DURATION_SECS=3600
+# Explicit chain id passed to `telcoin genesis --chainid`.
+export CHAIN_ID=32285
 #
 # Global L7 Load Balancer (rpc.devnet.telcoin.network)
 #
@@ -71,18 +87,30 @@ export LB_FORWARDING_RULE="devnet-rpc-fr"
 export LB_GLOBAL_IP_NAME="devnet-rpc-ip"
 export LB_FIREWALL_RULE="devnet-lb-allow-health-check"
 #
+# Governance / mint toolkit (shared Makefile + mint*.sh in common/)
+#
+# RPC the Safe/mint tooling talks to — devnet's own load balancer. (mint-role.sh
+# previously hardcoded the TESTNET RPC; parameterizing it here fixes that bug.)
+export RPC_URL="https://rpc.devnet.telcoin.network"
+# Canonical TN system Safe (multisig) precompile — identical on every TN network.
+export SAFE_ADDR="0x00000000000000000000000000000000000007a0"
+# StablecoinManager deployment that holds the TEL mint role.
+# VERIFY: this address was inherited from testnet and may differ on devnet —
+# confirm the devnet StablecoinManager before any send.
+export STABLECOIN_MANAGER="0x981be5999e322cb3f21511d043e8c314fda5da55"
+#
 # PATHS
 #
 export GENESISDIR="genesis/validators/"
 export LOCAL_PATH="./genesis/validators/"
 export REMOTE_VALIDATORS_PATH="/home/share"
 export REMOTE_SHARE_PATH="/home/share/"
-export GENESIS_FILE="./genesis/genesis.yaml"
-export PARAMETERS_FILE="./parameters.yaml"
+export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
+export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
-export UPLOAD_COMMITTEE_SCRIPT="./copy-committee.sh"
-export START_VALIDATOR_NODE_SCRIPT="./start-validator-node.sh"
+export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
+export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/common/start-validator-node.sh"
 # Used for the observer node (NODE_ROLES==observer); scripts pick the start
 # script by role.
-export START_OBSERVER_NODE_SCRIPT="./start-observer-node.sh"
-export CONFIG_APACHE_SCRIPT="./config-apache.sh"
+export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/common/start-observer-node.sh"
+export CONFIG_APACHE_SCRIPT="${REPO_ROOT}/common/config-apache.sh"

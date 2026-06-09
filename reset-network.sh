@@ -21,15 +21,15 @@ fi
 
 # 3. Wipe DB state (stops containers, clears old chainId=2017 chain data).
 echo "==> Wiping databases..."
-./wipe-databases.sh || { echo "Wipe failed; aborting."; exit 1; }
+./common/wipe-databases.sh || { echo "Wipe failed; aborting."; exit 1; }
 
 # 4. Push the new genesis.yaml to every node (overwrites the stale on-disk copy).
 echo "==> Pushing new genesis (chainId ${EXPECTED_CHAIN_ID})..."
-./replace-genesis.sh || { echo "Genesis push failed; aborting."; exit 1; }
+./common/replace-genesis.sh || { echo "Genesis push failed; aborting."; exit 1; }
 
 # 5. Restart every container against the new genesis.
 echo "==> Restarting nodes..."
-./update.sh || { echo "Restart failed; check logs."; exit 1; }
+./common/update.sh || { echo "Restart failed; check logs."; exit 1; }
 
 echo "Reset complete. Network is at chainId ${EXPECTED_CHAIN_ID}."
-echo "Verify with: ./download-logs.sh  (or curl eth_chainId -> 0x$(printf '%x' "${EXPECTED_CHAIN_ID}"))"
+echo "Verify with: ./common/download-logs.sh  (or curl eth_chainId -> 0x$(printf '%x' "${EXPECTED_CHAIN_ID}"))"

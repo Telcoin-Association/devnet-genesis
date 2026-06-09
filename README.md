@@ -1,12 +1,40 @@
-# Adiri Testnet
+# Telcoin Devnet
 
-Adiri Testnet is deployed to Google Cloud Compute VMs running Debian 11.
+Telcoin Devnet is deployed to Google Cloud Compute VMs running Debian 11.
 
 The current docker image is publicly available at `us-docker.pkg.dev/telcoin-network/tn-public/adiri`.
 
 MC is the "Master of Ceremony". MC is required until decentralized discovery is supported.
 
 MC can use a VCS for nodes to commit validator information or `ssh` if managing nodes. The network needs `committee.yaml` in the `genesis` directory of the `datadir` to start the network.
+
+## Shared deploy scripts (`common/` submodule)
+
+Most deploy and operations scripts are shared with the other Telcoin networks and live in
+[`deploy-networks-common`](https://github.com/Telcoin-Association/deploy-networks-common-),
+mounted here as the **`common/`** git submodule. Only this repo's `config.sh` (per-network
+settings) and `genesis/` state are unique to devnet.
+
+Clone with the submodule, or fetch it after cloning:
+
+```bash
+git clone --recurse-submodules <repo-url>
+# or, if you already cloned without it:
+git submodule update --init
+```
+
+`config.sh` is the single indirection point: it computes `REPO_ROOT` and exports every
+script and file path as an absolute path (`START_VALIDATOR_NODE_SCRIPT`, `CONFIG_APACHE_SCRIPT`,
+`PARAMETERS_FILE`, … → `common/…`), so the shared scripts resolve their inputs from any
+working directory. Run shared scripts as `./common/<name>.sh` (e.g. `./common/genesis.sh`,
+`./common/update.sh`).
+
+To pull shared-script updates into this repo:
+
+```bash
+cd common && git pull origin main && cd ..
+git add common && git commit -m "bump deploy-networks-common"
+```
 
 ## Steps to deploy the network on Google Cloud Compute
 
