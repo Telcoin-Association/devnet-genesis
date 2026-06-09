@@ -146,6 +146,7 @@ COMMITTEE_LOG="${OUTPUT_PATH}/committee_creation_${timestamp}.log"
     docker run --platform linux/amd64 -v ./:/code --workdir /code ${DOCKER_IMAGE} \
         /usr/local/bin/telcoin genesis \
         --datadir ./ \
+        --chainid 32285 \
         --bls-passphrase-source stdin \
         --accounts /code/testnet_accounts.yaml \
         --epoch-duration-in-secs 3600 \
