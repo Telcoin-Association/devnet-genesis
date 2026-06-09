@@ -54,7 +54,7 @@ export MACHINE_TYPE="e2-custom-4-8192"
 #   gcloud projects describe tn-devnet --format='value(projectNumber)'
 export SERVICE_ACCOUNT="1095385745561-compute@developer.gserviceaccount.com"
 export IMAGE="projects/debian-cloud/global/images/debian-12-bookworm-v20251111"
-export STARTUP_SCRIPT_PATH="startup.sh"
+export STARTUP_SCRIPT_PATH="${REPO_ROOT}/common/startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
 export DEFAULT_HEALTHCHECK_TCP_PORT=43174
@@ -63,6 +63,16 @@ export DEFAULT_HEALTHCHECK_TCP_PORT=43174
 #
 export BASE_DOMAIN="devnet.telcoin.network"
 export LETSENCRYPT_EMAIL="devs@telcoin.org"
+# Cert-domain SUFFIXES — config-apache.sh issues node{N}.<suffix> for each (the
+# first is the ServerName / cert lineage). Devnet serves a single domain.
+export CERT_DOMAINS=("${BASE_DOMAIN}")
+#
+# Genesis
+#
+# Epoch duration baked into genesis (devnet: 1h).
+export EPOCH_DURATION_SECS=3600
+# Explicit chain id passed to `telcoin genesis --chainid`.
+export CHAIN_ID=32285
 #
 # Global L7 Load Balancer (rpc.devnet.telcoin.network)
 #
@@ -99,8 +109,8 @@ export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
 export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
 export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
-export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/start-validator-node.sh"
+export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/common/start-validator-node.sh"
 # Used for the observer node (NODE_ROLES==observer); scripts pick the start
 # script by role.
-export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/start-observer-node.sh"
-export CONFIG_APACHE_SCRIPT="./config-apache.sh"
+export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/common/start-observer-node.sh"
+export CONFIG_APACHE_SCRIPT="${REPO_ROOT}/common/config-apache.sh"
