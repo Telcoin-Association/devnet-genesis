@@ -116,3 +116,47 @@ export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/common/start-validator-node.sh"
 # script by role.
 export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/common/start-observer-node.sh"
 export CONFIG_APACHE_SCRIPT="${REPO_ROOT}/common/config-apache.sh"
+#
+# Observability (Wave 1: centralized logs)
+# ----------------------------------------
+# Self-hosted Loki + Grafana + Caddy on a dedicated "obs" VM in tn-devnet. The 4
+# validators + observer ship reth JSON logs to it via a per-node Alloy sidecar,
+# gated on OBS_INGEST_TOKEN. Same common/ tooling adiri uses; see
+# common/observability/README.md. Names are project-scoped, so reusing the adiri
+# secret/disk/IP names in the tn-devnet project is fine.
+#
+# Central obs VM
+export OBS_INSTANCE_NAME="obs-devnet"
+export OBS_REGION="us-west2"                  # co-located with validator-1-devnet (us-west2-a)
+export OBS_ZONE="us-west2-a"
+export OBS_MACHINE_TYPE="e2-standard-2"
+export OBS_HOSTNAME="obs.devnet.telcoin.network"   # A record -> OBS static IP (out of band)
+export OBS_STATIC_IP_NAME="obs-devnet-ip"     # reserved by common/create-obs-instance.sh
+export OBS_DATA_DISK_NAME="obs-devnet-data"   # persistent disk for Loki chunks + Grafana DB
+export OBS_DATA_DISK_SIZE=100                 # GB; devnet 1h epochs, shorter retention than adiri
+# Image FAMILY (not a dated build) so the VM always provisions on the latest
+# non-deprecated Debian 12 image — a pinned dated image goes deprecated over time
+# and makes `gcloud compute instances create` print a deprecation warning.
+export OBS_IMAGE="projects/debian-cloud/global/images/family/debian-12"
+# Log-push endpoint and bearer-token plumbing. OBS_PUSH_URL is seeded into each
+# node's metadata by seed-node-token.sh — that is what points devnet's nodes at
+# THIS obs VM rather than the adiri default baked into start-*-node.sh.
+export OBS_PUSH_URL="https://${OBS_HOSTNAME}/loki/api/v1/push"
+export OBS_SECRET_NAME="obs-ingest-token"          # Secret Manager (tn-devnet): Loki ingest token
+export OBS_GRAFANA_SECRET_NAME="obs-grafana-admin" # Secret Manager (tn-devnet): Grafana admin pw
+# Disk-usage alerting on the obs data disk. The Ops Agent (installed by
+# startup-obs.sh) ships agent.googleapis.com/disk/percent_used; the policy created
+# by common/observability/setup-obs-disk-alert.sh fires when /mnt/obs-data crosses
+# the threshold, mailing OBS_ALERT_EMAIL. Defaults to the Let's Encrypt contact.
+export OBS_ALERT_EMAIL="${OBS_ALERT_EMAIL:-${LETSENCRYPT_EMAIL}}"  # devs@telcoin.org
+export OBS_DISK_ALERT_THRESHOLD=85   # %; alert when obs-data crosses this
+# Admin source ranges for Grafana on a static-IP network. UNUSED on devnet: with
+# ephemeral node IPs, setup-obs-firewall.sh opens :443 to 0.0.0.0/0 (token-gated),
+# so there is nothing to allowlist. Kept defined for the shared script's set -u.
+export OBS_ADMIN_IPS="${OBS_ADMIN_IPS:-}"
+# Firewall model: tn-devnet has NO global network firewall policy (its
+# setup-firewall.sh uses classic VPC firewall-rules on the `default` network).
+# So setup-obs-firewall.sh takes its EPHEMERAL branch (VPC rules on the `obs`
+# tag) and this var is intentionally empty. If tn-devnet ever adopts a global
+# policy, set its name here and the script's static branch would apply instead.
+export OBS_FIREWALL_POLICY=""
