@@ -60,6 +60,10 @@ export STARTUP_SCRIPT_PATH="${REPO_ROOT}/common/startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
 export DEFAULT_HEALTHCHECK_TCP_PORT=43174
+# External uptime monitor (Kuma VM static IP) allowed to TCP-probe the health port.
+# Mirrors the cloud rule allow-validator-healthcheck-from-kuma at the host nft layer.
+# Empty = no host-fw monitor rule (preserves pre-lockdown behavior).
+export HEALTHCHECK_MONITOR_SRC="104.155.184.201/32"
 #
 # DNS / TLS
 #
