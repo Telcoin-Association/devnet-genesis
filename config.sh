@@ -44,7 +44,7 @@ export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
 export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
 # Per-node hostnames → node{N}.${BASE_DOMAIN}
 export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
-export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0x89dab9f6fdc569c1bcdbd6493f25b7040b55dc79")
+export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0x77640d4f8439e34ec92acf69de7efa65d1508608")
 export PROJECT_ID="tn-devnet"
 # All gcloud calls in scripts that source this file target PROJECT_ID,
 # regardless of the operator's `gcloud config` default. Explicit --project
@@ -164,3 +164,5 @@ export OBS_ADMIN_IPS="${OBS_ADMIN_IPS:-}"
 # tag) and this var is intentionally empty. If tn-devnet ever adopts a global
 # policy, set its name here and the script's static branch would apply instead.
 export OBS_FIREWALL_POLICY=""
+# wireguard vpn
+export TN_USE_VPN=1
