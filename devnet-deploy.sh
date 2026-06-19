@@ -1,0 +1,208 @@
+#!/bin/bash
+#
+# devnet-deploy.sh — the one-time Ubuntu-migration runbook, expressed as a guided,
+# resumable script. It SEQUENCES the real provisioning sub-scripts (and pauses for
+# the handful of operator-manual steps) so a fresh devnet can be stood up end to
+# end in the right order.
+#
+# This triggers MUTATING fleet/GCP operations through its sub-scripts, so it
+# requires explicit confirmation: pass --yes, or type DEPLOY at the interactive
+# prompt. Nothing runs until you confirm.
+#
+# Steps (each is a named function; the runner executes them in order under set -e):
+#    1. reserve static IPs            ./common/reserve-static-ips.sh
+#    2. create instances              ./common/create-instances.sh
+#    3. wait for first-boot bootstrap on EVERY node (setup-validator.sh present + docker)
+#    4. MANUAL: create DNS A-records node{N}.${BASE_DOMAIN} -> each static IP   [pause]
+#    5. keygen                        ./devnet-keygen.sh
+#    6. build genesis                 ./devnet-genesis-build.sh
+#    7. finalize (stage + start)      ./devnet-finalize.sh
+#    8. obs VM                        ./common/create-obs-instance.sh --wipe-data
+#    9. per-node observability        ./devnet-observability.sh
+#   10. MANUAL: enable UFW once per node via IAP/console, then ./devnet-firewall.sh  [pause]
+#   11. GCP/VPC firewall rules        ./setup-firewall.sh
+#   12. DNS/Caddy + load balancer     ./common/dns.sh ; ./common/setup-load-balancer.sh
+#
+# Resume / piecemeal:
+#   ./devnet-deploy.sh --yes              # full run, steps 1..12
+#   ./devnet-deploy.sh --yes --from 5     # resume at step 5 to the end
+#   ./devnet-deploy.sh --yes --only 9     # run ONLY step 9
+#
+# This script authors the sequence; it reaches nodes only via the lib's IAP
+# helpers (step 3's readiness poll). It does NOT run anything until confirmed.
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "${REPO_DIR}/devnet-lib.sh"
+
+LAST_STEP=12
+BOOTSTRAP_TIMEOUT_SECS=600   # per-node first-boot wait (apt docker-ce + clone scripts)
+BOOTSTRAP_POLL_SECS=15
+
+# --- args ----------------------------------------------------------------------
+CONFIRM=0
+FROM=1
+ONLY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --yes) CONFIRM=1 ;;
+        --from) FROM="${2:?--from needs a step number}"; shift ;;
+        --from=*) FROM="${1#*=}" ;;
+        --only) ONLY="${2:?--only needs a step number}"; shift ;;
+        --only=*) ONLY="${1#*=}" ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from <n>, --only <n>)" >&2; exit 1 ;;
+    esac
+    shift
+done
+
+# Validate numeric ranges.
+is_step() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le "${LAST_STEP}" ]; }
+is_step "${FROM}" || { echo "❌ --from must be 1..${LAST_STEP}" >&2; exit 1; }
+if [ -n "${ONLY}" ]; then
+    is_step "${ONLY}" || { echo "❌ --only must be 1..${LAST_STEP}" >&2; exit 1; }
+fi
+
+# --- per-step implementations --------------------------------------------------
+step_1()  { echo ">>> Step 1: reserve static IPs";        "${REPO_DIR}/common/reserve-static-ips.sh"; }
+step_2()  { echo ">>> Step 2: create instances";          "${REPO_DIR}/common/create-instances.sh"; }
+
+step_3()  {
+    echo ">>> Step 3: wait for first-boot bootstrap on EVERY node (docker + setup-validator.sh)"
+    local probe="test -x ${TN_NODE_SCRIPTS_DIR}/setup-validator.sh && command -v docker >/dev/null && echo READY"
+    local i inst zone waited out ready
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
+        echo "    polling ${inst} (${zone})..."
+        waited=0; ready=0
+        while [ "${waited}" -lt "${BOOTSTRAP_TIMEOUT_SECS}" ]; do
+            out="$(tn_iap_ssh "${inst}" "${zone}" "${probe}" 2>/dev/null || true)"
+            if printf '%s' "${out}" | grep -q READY; then
+                echo "      ✓ ${inst} READY (after ${waited}s)"
+                ready=1; break
+            fi
+            sleep "${BOOTSTRAP_POLL_SECS}"
+            waited=$((waited + BOOTSTRAP_POLL_SECS))
+            echo "      …${inst} not ready yet (${waited}s/${BOOTSTRAP_TIMEOUT_SECS}s)"
+        done
+        if [ "${ready}" -ne 1 ]; then
+            echo "❌ ${inst} did not finish first-boot bootstrap within ${BOOTSTRAP_TIMEOUT_SECS}s." >&2
+            echo "   Inspect serial console: gcloud compute instances get-serial-port-output ${inst} --zone=${zone} --project=${PROJECT_ID}" >&2
+            return 1
+        fi
+    done
+    echo "    all nodes READY"
+}
+
+step_4()  {
+    cat <<EOF
+>>> Step 4: MANUAL — create DNS A-records
+
+  For each node, point node{N}.${BASE_DOMAIN} at that instance's RESERVED static IP.
+  The static IPs were printed by Step 1 (common/reserve-static-ips.sh); re-list with:
+
+    gcloud compute addresses list --project=${PROJECT_ID} \\
+      --filter="name~'-devnet-ip\$'" --format='table(name, region, address)'
+
+  Map:
+EOF
+    local i
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        printf '    %-8s -> static IP of %s\n' "${NODE_NAMES[$i]}.${BASE_DOMAIN}" "${INSTANCE_NAMES[$i]}"
+    done
+    pause_for_operator
+}
+
+step_5()  { echo ">>> Step 5: keygen";                    "${REPO_DIR}/devnet-keygen.sh"; }
+step_6()  { echo ">>> Step 6: build genesis";             "${REPO_DIR}/devnet-genesis-build.sh"; }
+step_7()  { echo ">>> Step 7: finalize (stage + start)";  "${REPO_DIR}/devnet-finalize.sh"; }
+step_8()  { echo ">>> Step 8: obs VM (+ wipe data)";      "${REPO_DIR}/common/create-obs-instance.sh" --wipe-data; }
+step_9()  { echo ">>> Step 9: per-node observability";    "${REPO_DIR}/devnet-observability.sh"; }
+
+step_10() {
+    cat <<EOF
+>>> Step 10: MANUAL — enable UFW once per node, then apply host consensus rules
+
+  devnet-firewall.sh never runs 'ufw enable'. Enable UFW ONCE on each node from an
+  IAP/console session, allowing SSH FIRST so you don't lock yourself out:
+
+    sudo ufw allow 22/tcp && sudo ufw --force enable
+
+  Do this for every instance:
+EOF
+    local i
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        printf '    - %s (%s)\n' "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}"
+    done
+    pause_for_operator
+    echo "    applying host consensus rules via devnet-firewall.sh"
+    "${REPO_DIR}/devnet-firewall.sh"
+}
+
+step_11() { echo ">>> Step 11: GCP/VPC firewall rules";   "${REPO_DIR}/setup-firewall.sh"; }
+step_12() {
+    echo ">>> Step 12: DNS/Caddy reverse-proxy + load balancer"
+    "${REPO_DIR}/common/dns.sh"
+    "${REPO_DIR}/common/setup-load-balancer.sh"
+}
+
+# pause_for_operator — block until ENTER (skipped only if stdin isn't a TTY, e.g.
+# piped, so an unattended run of a manual step fails loud rather than hanging).
+pause_for_operator() {
+    if [ ! -t 0 ]; then
+        echo "❌ this is a MANUAL step but stdin is not a TTY — run it interactively, or use --from to resume past it after doing it by hand." >&2
+        exit 1
+    fi
+    read -r -p "    Press ENTER when this manual step is complete (Ctrl-C to abort)... " _
+}
+
+# --- confirmation gate ---------------------------------------------------------
+echo "=========================================="
+echo "devnet ONE-TIME deploy runbook"
+echo "Project:  ${PROJECT_ID}"
+echo "Domain:   ${BASE_DOMAIN}"
+if [ -n "${ONLY}" ]; then
+    echo "Scope:    ONLY step ${ONLY}"
+else
+    echo "Scope:    steps ${FROM}..${LAST_STEP}"
+fi
+echo "This triggers MUTATING GCP/fleet operations via sub-scripts."
+echo "=========================================="
+
+if [ "${CONFIRM}" -ne 1 ]; then
+    if [ ! -t 0 ]; then
+        echo "❌ refusing to run unattended without --yes. Re-run with --yes." >&2
+        exit 1
+    fi
+    read -r -p "Type DEPLOY to continue: " ans
+    [ "${ans}" = "DEPLOY" ] || { echo "Aborted."; exit 1; }
+fi
+
+# --- runner --------------------------------------------------------------------
+run_step() {
+    local n="$1"
+    echo ""
+    echo "##########################################"
+    "step_${n}"
+    echo "## step ${n} done"
+    echo "##########################################"
+}
+
+if [ -n "${ONLY}" ]; then
+    run_step "${ONLY}"
+else
+    n="${FROM}"
+    while [ "${n}" -le "${LAST_STEP}" ]; do
+        run_step "${n}"
+        n=$((n + 1))
+    done
+fi
+
+echo ""
+echo "=========================================="
+if [ -n "${ONLY}" ]; then
+    echo "Step ${ONLY} complete."
+else
+    echo "Deploy runbook complete (steps ${FROM}..${LAST_STEP})."
+fi
+echo "=========================================="
