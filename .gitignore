@@ -7,6 +7,9 @@ telcoin-network.yaml
 # keys
 *.key
 
+# BLS keystore passphrase + other operator secrets (devnet-lib.sh reads .secrets/bls-passphrase)
+.secrets/
+
 # env
 .env
 .env.makefile
