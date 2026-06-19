@@ -1,12 +1,14 @@
 ---
-name: node-VtmqyXx7waF
-bls_public_key: 22WDuPEBur5em1KYHoCjTkYBoB9YHMDC57CwGuhskumf5vvcZTQj47Vwmfy1yxsJbgS8hVyNHYHFPR2V6g5nyAofZgBXXkRdkoNfKdDHRZ87mzsiqBMzxBLeUKUCZJCYJFuP
+name: node-VbwGF5TRFV8
+bls_public_key: 21uYeqCmbU89hTvHqcwLwYE9WJFkmSpq2pzdY7uhtQK9q4dQHidVvqhY7bP9nsQC9iQ29uBPbPoS97QxZowuf8Xr4gJiMfHuN2EsBCHsRWCRu8y8Q3qf2YuSM4M3dJYFTk66
 p2p_info:
   primary:
-    network_address: /ip4/35.203.91.24/udp/49590/quic-v1/p2p/12D3KooWNjCVNbeHnC2XmZjcPbb6GjmVcEZnqBTRgQJPWxXcTiHj
-    network_key: 4XTTME3t9Dk7NPZABoEC2WdUvRLRA5uZExQ4fQci9ZC99RV4q
+    network_address: /ip4/34.19.189.1/udp/49590/quic-v1/p2p/12D3KooWGgcL9G65c1NYANxzcPFKHqgW4AuLLkcveVge11N5RhYZ
+    network_key: 4XTTM81HyzQZADNWCC3RQjR99SSLAXqtnTyEANi6Q3EycPUKf
+    rpc: ~
   worker:
-    network_address: /ip4/35.203.91.24/udp/49594/quic-v1/p2p/12D3KooWNm4WaYBTQvqSnaXKmHmhzydeezXawrBcCcJVBrQQdbMo
-    network_key: 4XTTME5kARgeY2Hy6pEyjtKfY9aHK8fX354nqvpiFE61wbN8u
+    network_address: /ip4/34.19.189.1/udp/49594/quic-v1/p2p/12D3KooWGks9rBHGuDfuvVcabkFo4L3Dvz3dZQiHJ8WihWyx2jvu
+    network_key: 4XTTM85YohKkMWaoZxA4zin9dCvgtQf35gdKX2LvUjkbUzWi1
+    rpc: ~
 execution_address: "0x0033a370616805b1fd275b7ffab83fc41d665ccb"
-proof_of_possession: 7bX87KeurqJtAMbFHEDJxsXjWn8fZqMj6soXAoqtPszKtzKWf9Jb3stxYLRzvTuXwR
+proof_of_possession: 73Hs8LdLhV4p4CmWihd1wZGr9cQqvrEVwDoTjYRUbpv3S6dA1BJn4Aap7isMik5JLY

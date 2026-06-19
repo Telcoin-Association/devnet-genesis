@@ -58,9 +58,14 @@ tn_select_indices() {
 # does local -> remote, so the down-copy is spelled out here.
 tn_iap_scp_down() {
     local inst="$1" zone="$2" remote_src="$3" local_dest="$4"
-    gcloud compute scp "${inst}:${remote_src}" "${local_dest}" \
-        --zone="${zone}" --project="${PROJECT_ID}" \
-        --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+        # remote -> local: tn_scp rewrites the "NAME:path" src to tnadmin@<overlay-ip>:path.
+        tn_scp "${inst}" "${inst}:${remote_src}" "${local_dest}"
+    else
+        gcloud compute scp "${inst}:${remote_src}" "${local_dest}" \
+            --zone="${zone}" --project="${PROJECT_ID}" \
+            --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    fi
 }
 
 echo ">>> resolving BLS passphrase (never logged)"

@@ -126,6 +126,35 @@ if [ "${missing}" -ne 0 ]; then
     exit 1
 fi
 
+# ----------------------------------------------------------------------------
+# Step 5: devnet-only override — governance Safe single-signer threshold.
+# genesis.yaml is regenerated from scratch on every build by the pinned image
+# (telcoin genesis ...), so this MUST be re-applied post-build — a hand-edit to
+# the committed file would just be overwritten. Rewrites ONLY storage slot
+# 0x..04 (the Safe threshold) of the Safe at SAFE_ADDR, scoped to that account's
+# alloc block so no other contract's slot 0x..04 is touched. Fails loud if the
+# slot is gone (e.g. a future genesis-format change) instead of silently
+# shipping the image's default threshold. Idempotent: re-runs are no-ops.
+# devnet-finalize.sh ships GENESIS_OUT unchanged, so this patched file is what
+# reaches every node.
+# ----------------------------------------------------------------------------
+SAFE_ADDR='0x00000000000000000000000000000000000007a0'
+THR_SLOT='0x0000000000000000000000000000000000000000000000000000000000000004'
+THR_VAL='0x0000000000000000000000000000000000000000000000000000000000000001'   # 1 signer
+
+echo ">>> step 5: devnet override — set Safe ${SAFE_ADDR} threshold to 1 signer"
+tmp="$(mktemp)"
+SAFE_ADDR="${SAFE_ADDR}" SLOT="${THR_SLOT}" VAL="${THR_VAL}" awk '
+  $0 ~ ("^  \"" ENVIRON["SAFE_ADDR"] "\":")    { in_safe=1; print; next }    # enter Safe alloc block
+  in_safe && /^  "0x[0-9a-fA-F]+":[ ]*$/       { in_safe=0 }                 # next alloc entry: leave block
+  in_safe && $0 ~ ("\"" ENVIRON["SLOT"] "\":") { sub(/"0x[0-9a-fA-F]+"[ ]*$/, "\"" ENVIRON["VAL"] "\""); done=1 }
+  { print }
+  END { if (!done) exit 3 }
+' "${GENESIS_OUT}" > "${tmp}" \
+  || { echo "❌ Safe override: threshold slot ${THR_SLOT} not found in ${GENESIS_OUT}" >&2; rm -f "${tmp}"; exit 1; }
+mv "${tmp}" "${GENESIS_OUT}"
+echo "    ✓ governance Safe threshold set to 1 signer (slot 0x..04 = ...0001)"
+
 echo ""
 echo "========================================="
 echo "genesis build complete"

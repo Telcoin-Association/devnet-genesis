@@ -12,7 +12,7 @@
 # Steps (each is a named function; the runner executes them in order under set -e):
 #    1. reserve static IPs            ./common/reserve-static-ips.sh
 #    2. create instances              ./common/create-instances.sh
-#    3. wait for first-boot bootstrap on EVERY node (setup-validator.sh present + docker)
+#    3. wait for first-boot bootstrap on EVERY node (serial-console completion marker)
 #    4. MANUAL: create DNS A-records node{N}.${BASE_DOMAIN} -> each static IP   [pause]
 #    5. keygen                        ./devnet-keygen.sh
 #    6. build genesis                 ./devnet-genesis-build.sh
@@ -68,16 +68,28 @@ step_1()  { echo ">>> Step 1: reserve static IPs";        "${REPO_DIR}/common/re
 step_2()  { echo ">>> Step 2: create instances";          "${REPO_DIR}/common/create-instances.sh"; }
 
 step_3()  {
-    echo ">>> Step 3: wait for first-boot bootstrap on EVERY node (docker + setup-validator.sh)"
-    local probe="test -x ${TN_NODE_SCRIPTS_DIR}/setup-validator.sh && command -v docker >/dev/null && echo READY"
-    local i inst zone waited out ready
+    echo ">>> Step 3: wait for first-boot bootstrap on EVERY node (serial-console completion marker)"
+    # Readiness is verified by reading each node's SERIAL CONSOLE via the GCP API
+    # (get-serial-port-output) for devnet-startup.sh's completion marker — NOT by probing
+    # over IAP SSH. The serial read travels the GCP REST API and needs no SSH/IAP path to
+    # the node, so Step 3 stays reliable even when the operator's local IAP tunnel is down.
+    # NOTE: this confirms the startup-script FINISHED (docker installed + node scripts
+    # cloned). The later per-node steps (keygen/finalize/observability/firewall) still run
+    # commands ON the node over IAP SSH and need that path working. The marker is emitted at
+    # first boot, so run Step 3 right after Step 2 while it is fresh in the (rolling) buffer.
+    local marker="devnet-startup.sh complete"
+    local i inst zone waited ready out
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
         echo "    polling ${inst} (${zone})..."
         waited=0; ready=0
         while [ "${waited}" -lt "${BOOTSTRAP_TIMEOUT_SECS}" ]; do
-            out="$(tn_iap_ssh "${inst}" "${zone}" "${probe}" 2>/dev/null || true)"
-            if printf '%s' "${out}" | grep -q READY; then
+            # Capture-then-match (not `… | grep -q`): grep -q exits on first hit and would
+            # SIGPIPE the large serial stream, which `set -o pipefail` turns into a false
+            # negative. A bash glob over the captured text has no such pipe hazard.
+            out="$(gcloud compute instances get-serial-port-output "${inst}" \
+                     --zone="${zone}" --project="${PROJECT_ID}" 2>/dev/null || true)"
+            if [[ "${out}" == *"${marker}"* ]]; then
                 echo "      ✓ ${inst} READY (after ${waited}s)"
                 ready=1; break
             fi
@@ -91,7 +103,7 @@ step_3()  {
             return 1
         fi
     done
-    echo "    all nodes READY"
+    echo "    all nodes READY (serial-console completion marker present on all)"
 }
 
 step_4()  {

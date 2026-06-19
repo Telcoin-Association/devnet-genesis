@@ -105,6 +105,17 @@ for i in "${INDICES[@]}"; do
     fi
     echo ">>> [${node}] genesis staged in ${gdir}"
 
+    # The node binds its P2P listeners to the INTERNAL IP (mirrors devnet-keygen.sh's
+    # --listener-*). Without these, setup --phase=finalize writes EMPTY
+    # PRIMARY/WORKER_LISTENER_MULTIADDR and the node builds a bare /p2p/<peerid> multiaddr
+    # -> "Multiaddr is not supported" at epoch start (start_epoch.rs).
+    intIP="$(tn_node_int_ip "${inst}" "${zone}")"
+    if [ -z "${intIP}" ]; then
+        echo "❌ [${node}] could not resolve internal IP for listener multiaddrs"
+        failed+=("${node}")
+        continue
+    fi
+
     # --- Step 2: finalize (writes systemd unit + starts the node) -----------
     finalize_args=(
         --json
@@ -115,6 +126,8 @@ for i in "${INDICES[@]}"; do
         --genesis-dir "${gdir}"
         --data-dir "${ddir}"
         --service-user "${SERVICE_USER}"
+        --listener-primary "/ip4/${intIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
+        --listener-worker "/ip4/${intIP}/udp/${DEFAULT_WORKER_UDP_PORT}/quic-v1"
     )
     if [ "${role}" = "observer" ]; then
         finalize_args+=(--instance 5)

@@ -2,16 +2,35 @@
 #
 # devnet-lib.sh — shared helpers for the devnet-*.sh per-node driver scripts.
 #
-# Source it (it sources config.sh for you). Every node is reached over IAP — the
-# always-on `wg-allow-iap-ssh` door (35.235.240.0/20 -> tcp:22) — which works
-# post-lockdown and regardless of the wireguard overlay's state. Do NOT source
-# common/wgvpn/lib/wg-ssh-lib.sh from these drivers: its TN_USE_VPN=1 shim ignores
-# --tunnel-through-iap and forces the (possibly-down) overlay (see tasks/lessons.md).
+# Source it (it sources config.sh for you). By default every node is reached over IAP —
+# the always-on `wg-allow-iap-ssh` door (35.235.240.0/20 -> tcp:22) — which works
+# post-lockdown and regardless of the wireguard overlay's state.
+#
+# Break-glass: set TN_SSH_TRANSPORT=overlay to route the per-node ssh/scp helpers over the
+# WireGuard overlay instead — for when the IAP transport itself is broken locally (e.g.
+# gcloud's bundled lightweight websocket client dropping the tunnel). The overlay path reuses
+# tn_ssh/tn_scp from common/wgvpn/lib/wg-ssh-lib.sh, sourced with its TN_USE_VPN=1 gcloud shim
+# SUPPRESSED (that shim hijacks every `gcloud compute ssh/scp` and ignores --tunnel-through-iap;
+# see tasks/lessons.md). Default (iap) leaves every call site byte-identical.
 
 # Resolve + source config.sh relative to this file (overridable via CONFIG_FILE).
 DEVNET_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck source=/dev/null
 source "${CONFIG_FILE:-${DEVNET_LIB_DIR}/config.sh}"
+
+# Transport selector for the per-node helpers below. Default 'iap'; 'overlay' reroutes
+# tn_iap_ssh/_stdin/_scp (and devnet-keygen.sh's tn_iap_scp_down) over the WireGuard
+# overlay. When overlay, source wg-ssh-lib.sh for tn_ssh/tn_scp/tn_overlay_ip — but with
+# its TN_USE_VPN=1 gcloud shim suppressed (save/clear/restore), so the global
+# `gcloud compute ssh|scp` shim is NOT installed (it would hijack the REST-only gcloud
+# describe/serial calls and ignore --tunnel-through-iap; see tasks/lessons.md).
+export TN_SSH_TRANSPORT="${TN_SSH_TRANSPORT:-iap}"
+if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+    _tn_save_vpn="${TN_USE_VPN:-}"; TN_USE_VPN=0
+    # shellcheck source=/dev/null
+    source "${DEVNET_LIB_DIR}/common/wgvpn/lib/wg-ssh-lib.sh"
+    TN_USE_VPN="${_tn_save_vpn}"; unset _tn_save_vpn
+fi
 
 # Standard SSH flags: IAP tunnel, fail fast, accept new host keys (the fleet is
 # re-created, so a pinned known_hosts entry would otherwise block reconnects).
@@ -22,23 +41,37 @@ TN_SSH_FLAGS=(--tunnel-through-iap --ssh-flag="-o ConnectTimeout=20" --ssh-flag=
 # the remote shell; callers that need sudo should include it in the string.
 tn_iap_ssh() {
     local inst="$1" zone="$2" cmd="$3"
-    gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
-        "${TN_SSH_FLAGS[@]}" --command="${cmd}"
+    if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+        tn_ssh "${inst}" "${cmd}"
+    else
+        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+            "${TN_SSH_FLAGS[@]}" --command="${cmd}"
+    fi
 }
 
 # tn_iap_ssh_stdin <instance> <zone>  — pipe a script on stdin to `bash -s` on the
 # node (for multi-line remote scripts). Usage: tn_iap_ssh_stdin n z <<'EOF' ... EOF
 tn_iap_ssh_stdin() {
     local inst="$1" zone="$2"
-    gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
-        "${TN_SSH_FLAGS[@]}" --command="sudo bash -s"
+    if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+        # tn_ssh forwards stdin when a command is given, so the `... <<EOF` piping pattern works.
+        tn_ssh "${inst}" "sudo bash -s"
+    else
+        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+            "${TN_SSH_FLAGS[@]}" --command="sudo bash -s"
+    fi
 }
 
 # tn_iap_scp <local-src> <instance> <zone> <remote-dest>
 tn_iap_scp() {
     local src="$1" inst="$2" zone="$3" dest="$4"
-    gcloud compute scp "${src}" "${inst}:${dest}" --zone="${zone}" --project="${PROJECT_ID}" \
-        --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+        # tn_scp rewrites the "NAME:path" token to tnadmin@<overlay-ip>:path; src stays local.
+        tn_scp "${inst}" "${src}" "${inst}:${dest}"
+    else
+        gcloud compute scp "${src}" "${inst}:${dest}" --zone="${zone}" --project="${PROJECT_ID}" \
+            --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    fi
 }
 
 # tn_node_ext_ip / tn_node_int_ip <instance> <zone> — the node's external (static,

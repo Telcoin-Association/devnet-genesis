@@ -21,6 +21,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.10.0-adiri"
 export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.11.0-devnet"
 
+export TN_BLS_PASSPHRASE="tornado"
+
 #
 # GCP
 #

@@ -1,3 +1,97 @@
+# TODO — Devnet deploy unblock: route per-node steps over the WireGuard overlay — 2026-06-19
+
+IAP SSH is broken **client-side** (gcloud's new lightweight websocket drops instantly on this
+macOS box; no env/property/flag override). Bypass it by reaching nodes over the existing
+WireGuard overlay. Nodes were recreated 2026-06-19 → new WG pubkeys, so re-enroll them with the
+hub first. Hub = `tnadmin@10.100.0.1` (project `tn-devops-sandbox`, instance `wg-hub`).
+
+Division of labor:
+- **Autonomous (no tunnel / no sudo):** Phase C code, Phase B serial reads + registry edits.
+- **Operator (local sudo):** Phase A — bring the operator's WG tunnel up.
+- **After tunnel up (driveable; ssh/scp + REST only, no local sudo):** Phase B hub redeploy +
+  verify, Phase D drivers, Phase E verify/commit.
+
+## Phase C — overlay transport toggle (code; safe, default=iap, behavior unchanged unless overlay) ✅ DONE
+- [x] `devnet-lib.sh`: `TN_SSH_TRANSPORT` toggle (default `iap`); when `overlay`, source
+      `wg-ssh-lib.sh` with the gcloud shim suppressed (`TN_USE_VPN=0` around the source);
+      overlay branch in `tn_iap_ssh`, `tn_iap_ssh_stdin`, `tn_iap_scp`. Header comment updated.
+- [x] `devnet-keygen.sh`: overlay branch in local `tn_iap_scp_down`.
+- [x] Syntax-test both transports — PASS: iap leaves gcloud a file + tn_ssh undefined; overlay
+      defines tn_ssh/tn_scp/tn_overlay_ip, keeps gcloud a FILE (shim suppressed), restores
+      TN_USE_VPN=1, resolves 10.100.2.1/.4/.5 correctly.
+
+## Phase B — re-enroll the 5 recreated nodes (serial → registry → hub)
+- [x] Read `WG_NODE_PUBKEY=` from each node's serial console (REST) — all 5 captured (2 boots each,
+      1 distinct value), validated 32-byte:
+      v1 `lm4QOBnt…7Q0=` · v2 `fnt9MJi3…GEE=` · v3 `btL8ZlSC…O3Y=` · v4 `slFDkkkq…bE8=` · obs5 `H2Lgx2ed…9mI=`.
+- [x] `common/wgvpn/peers/registry.csv`: replaced 5 pubkeys, bumped date 2026-06-19, renamed node-5
+      `validator-5-devnet` → `observer-5-devnet`. Overlay IPs unchanged. Pre-flight: 17 valid peers render.
+- [x] Wrote break-glass `tasks/hub-redeploy-overlay.sh` (hub_redeploy is IAP-hardcoded; this runs the
+      same bringup-hub.sh over the overlay to `tnadmin@10.100.0.1`). Syntax + hub-constant resolution OK.
+- [x] Ran `./tasks/hub-redeploy-overlay.sh` — 17 peers rendered, `wg syncconf` (no drop), operator
+      peer kept handshake. All 5 devnet nodes handshaked the hub within ~18s (verified hub-side:
+      endpoints + fresh handshakes + bidirectional transfer).
+- [x] **(gate)** all 5 reachable via `tn_ssh` — BUT first had to clear stale `~/.ssh/known_hosts`
+      entries for 10.100.2.1–.5 (recreated nodes → new SSH host keys; `accept-new` rejects a CHANGED
+      key by design). `ssh-keygen -R` each, then 5/5 returned hostname. Lesson for Phase E.
+
+## Phase A — operator brings the tunnel up (LOCAL SUDO — operator runs; runtime already installed)
+- [ ] `sudo install -m 600 ~/.config/tnvpn/tn-wg0.conf /etc/wireguard/tn-wg0.conf`
+- [ ] `sudo wg-quick up tn-wg0`
+- [ ] verify: `sudo wg show` (handshake w/ hub `hqIDsk…`, nonzero rx/tx), `ping -c3 10.100.0.1`
+
+## Phase B.5 — hub split-brain recovery (operator ran add-peer.sh + hub redeploy on 2nd machine `hannibal`)
+- [x] That redeploy re-rendered wg0.conf from the OTHER machine's stale registry → reverted my devnet
+      key fix → all 5 nodes unreachable again. Other machine had added `grant2` maintainer (10.100.9.6).
+- [x] Read the hub's leftover `/tmp/wgvpn/peers/registry.csv` + grant2.pub; merged = my devnet fix +
+      grant2 row + grant2.pub. Diff vs hub = ONLY the 5 devnet rows. Operator re-ran redeploy → nodes back.
+- [ ] FOLLOW-UP: commit merged registry + grant2.pub in `common` so both machines converge via git;
+      operator must NOT run hub ops from `hannibal` until then (re-clobber risk).
+
+## Phase D — run gated steps over the overlay (`export TN_SSH_TRANSPORT=overlay`; run drivers via bash 5.x)
+- NOTE: drivers have `#!/bin/bash` but use mapfile (bash4+); macOS /bin/bash is 3.2 → run as `bash driver.sh`.
+- [x] **Step 5 keygen** — all 5 keyed + node-info collected. REQUIRED a tn-node-deployment fix: the
+      keygen `docker run` in setup-validator.sh:742 / setup-observer.sh:785 lacked `--user` (ran as image
+      nonroot 1101; DATA_DIR owned by host telcoin 1002 → "Permission denied"). Added
+      `--user ${docker_uid}:${docker_gid}` + `-e HOME=/home/nonroot` (numeric --user has no passwd entry
+      → $HOME=/ → reth log dir unwritable). Pushed patched scripts to all 5 nodes (sha-verified).
+- [x] **Step 6 genesis-build** (local) — needed (a) local Docker Desktop running, (b) a `common`
+      submodule fix: `common/genesis.sh:164` passed `--chainid` but v0.11.0 binary wants `--chain-id`
+      (value 32285 unchanged → hash-safe; adiri leaves CHAIN_ID empty so unaffected). committee+genesis built.
+- [x] **Step 7 finalize** — all 5 nodes' services started. Needed TWO fixes:
+      (a) tn-node-deployment runtime `ExecStart` had the SAME `--user`/HOME bug as keygen → added
+      `-e HOME=/home/nonroot` to setup-validator.sh:925 + setup-observer.sh ExecStart (re-pushed to nodes);
+      (b) `devnet-finalize.sh` didn't pass `--listener-primary/--listener-worker` → node built a bare
+      `/p2p/<id>` multiaddr ("Multiaddr is not supported") → added them from intIP (in-scope driver fix).
+      Validators' finalize reports rc=1 (premature health check pre-quorum) but services run; observer ok:true.
+- [x] **GCP consensus firewall** — `devnet-allow-consensus`(+egress) had STALE node IPs (recreated nodes
+      → new static IPs). Ran sanctioned `setup-firewall.sh` (REST) → reconciled to current internal+external
+      /32s. **Result: 4 validators reached quorum, consensus advancing (round ~190, voting_power 3/3);
+      observer executing consensus output.** ✅ DEVNET IS LIVE.
+- [ ] Step 8 obs VM (local/REST — obs-devnet already RUNNING).
+- [ ] **Step 9 observability** (`./devnet-observability.sh`, overlay) — needs OBS_INGEST_TOKEN
+      (Secret Manager `obs-ingest-token` in tn-devnet — fetchable via gcloud REST). NOT yet run.
+- [ ] **Step 10 firewall** (CAUTION: host UFW currently INACTIVE; this activates it. Confirm ruleset
+      keeps :22 from 10.100.0.0/16; apply per-node; re-test `tn_ssh <node> true` after each). NOT yet run.
+
+## Cross-repo changes to COMMIT (3 repos) + node-side drift to reconcile
+- `devnet-genesis`: devnet-lib.sh + devnet-keygen.sh (TN_SSH_TRANSPORT toggle), devnet-finalize.sh
+  (listener fix), tasks/hub-redeploy-overlay.sh (new break-glass), tasks/todo.md.
+- `common`: peers/registry.csv (5 devnet keys + observer-5 rename + grant2 merge) + peers/ssh/grant2.pub;
+  genesis.sh (--chain-id). NOTE: hannibal divergence — commit so both machines converge via git.
+- `tn-node-deployment`: setup-validator.sh + setup-observer.sh (keygen+runtime --user/HOME fixes).
+  Also pushed directly to the 5 nodes (sha-verified) — node copies match local until next boot re-clone.
+
+## Phase E — verify, clean up, commit
+- [ ] End-to-end: nodes healthy (`tn_ssh <node> 'docker ps'`), consensus advancing, RPC up.
+- [ ] Commit registry fix in the `common` submodule (real correctness fix).
+- [ ] Optionally commit the `TN_SSH_TRANSPORT` toggle + tasks/lessons.md note.
+
+## Review (this task)
+(filled in as phases complete)
+
+---
+
 # TODO — Devnet migration to `tn-node-deployment` (v0.11.0-devnet, Ubuntu) — 2026-06-19
 
 Three repos, clear ownership (all siblings under `/Users/grant/coding/telcoin/`):
