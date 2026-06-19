@@ -45,6 +45,12 @@ export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" 
 # Per-node hostnames → node{N}.${BASE_DOMAIN}
 export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
 export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0x77640d4f8439e34ec92acf69de7efa65d1508608")
+# Reserved static external IPs — one per instance, PARALLEL to INSTANCE_NAMES. The
+# Ubuntu migration pins these so the GCP consensus /32 rules + DNS A-records survive
+# node restart/reuse (fixes the ephemeral-IP churn). Reserve them once with
+# common/reserve-static-ips.sh BEFORE common/create-instances.sh.
+export USE_STATIC_IPS=1
+export STATIC_IP_NAMES=("validator-1-devnet-ip" "validator-2-devnet-ip" "validator-3-devnet-ip" "validator-4-devnet-ip" "observer-5-devnet-ip")
 export PROJECT_ID="tn-devnet"
 # All gcloud calls in scripts that source this file target PROJECT_ID,
 # regardless of the operator's `gcloud config` default. Explicit --project
@@ -55,8 +61,16 @@ export MACHINE_TYPE="e2-custom-4-8192"
 # The numeric prefix is the project number; confirm it matches tn-devnet with:
 #   gcloud projects describe tn-devnet --format='value(projectNumber)'
 export SERVICE_ACCOUNT="1095385745561-compute@developer.gserviceaccount.com"
-export IMAGE="projects/debian-cloud/global/images/debian-12-bookworm-v20251111"
-export STARTUP_SCRIPT_PATH="${REPO_ROOT}/common/startup.sh"
+# OS: Ubuntu 24.04 LTS (noble). The tn-node-deployment per-node model targets
+# Ubuntu/Debian and devnet-startup.sh installs docker-ce from
+# download.docker.com/linux/ubuntu. Family verified present in ubuntu-os-cloud.
+# (NOTE: OBS_IMAGE stays Debian — common/observability obs-vm startup hardcodes the
+# Debian docker apt repo; see OBS_IMAGE below.)
+export IMAGE="projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64"
+# Per-node GCP startup-script. Devnet drives tn-node-deployment, so this is devnet's
+# OWN startup (apt docker-ce + telcoin user + clone node scripts + wgvpn overlay),
+# NOT common/startup.sh (which moved to the adiri repo).
+export STARTUP_SCRIPT_PATH="${REPO_ROOT}/devnet-startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
 export DEFAULT_HEALTHCHECK_TCP_PORT=43174
@@ -79,6 +93,23 @@ export CERT_DOMAINS=("${BASE_DOMAIN}")
 export EPOCH_DURATION_SECS=3600
 # Explicit chain id passed to `telcoin genesis --chainid`.
 export CHAIN_ID=32285
+#
+# Node deployment model (tn-node-deployment)
+# ------------------------------------------
+# Devnet drives per-node actions (keygen, finalize, observability, firewall) through
+# the Association's tn-node-deployment tooling (run ON each node via the devnet-*.sh
+# drivers), while this repo owns fleet/GCP orchestration. These parameterize the drivers.
+export NODE_DEPLOY_MODE="tn-node-deployment"
+export TN_INSTALL_METHOD="docker"                          # node runs the telcoin docker image
+export SERVICE_USER="telcoin"                              # systemd service + data-dir owner on node
+export TN_NODE_SCRIPTS_DIR="/home/${SERVICE_USER}/telcoin-node-scripts"  # install.sh target on node
+export VALIDATOR_DATA_DIR="/var/lib/telcoin/validator"     # DATA_DIR: chain data + node-keys/ live here
+export OBSERVER_DATA_DIR="/var/lib/telcoin/observer"
+export TN_CHAIN_SUBDIR="devnet"                            # chain-configs/<subdir> the node looks under
+# Where devnet-finalize.sh stages committee/genesis/parameters so setup-validator.sh
+# --genesis-dir finds them (matches setup-*.sh ${CONFIG_DIR}/chain-configs/<subdir>).
+export VALIDATOR_GENESIS_DIR="/etc/telcoin/validator/chain-configs/devnet"
+export OBSERVER_GENESIS_DIR="/etc/telcoin/observer/chain-configs/devnet"
 #
 # Global L7 Load Balancer (rpc.devnet.telcoin.network)
 #
@@ -115,11 +146,10 @@ export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
 export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
 export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
-export START_VALIDATOR_NODE_SCRIPT="${REPO_ROOT}/common/start-validator-node.sh"
-# Used for the observer node (NODE_ROLES==observer); scripts pick the start
-# script by role.
-export START_OBSERVER_NODE_SCRIPT="${REPO_ROOT}/common/start-observer-node.sh"
-export CONFIG_APACHE_SCRIPT="${REPO_ROOT}/common/config-apache.sh"
+# NOTE: the docker-image node-start scripts (start-validator-node.sh,
+# start-observer-node.sh, config-apache.sh) moved out of common/ into the adiri repo.
+# Devnet drives per-node actions through tn-node-deployment (devnet-keygen.sh /
+# devnet-finalize.sh), so those path vars are intentionally removed here.
 #
 # Observability (Wave 1: centralized logs)
 # ----------------------------------------
@@ -141,11 +171,25 @@ export OBS_DATA_DISK_SIZE=100                 # GB; devnet 1h epochs, shorter re
 # Image FAMILY (not a dated build) so the VM always provisions on the latest
 # non-deprecated Debian 12 image — a pinned dated image goes deprecated over time
 # and makes `gcloud compute instances create` print a deprecation warning.
+# DELIBERATELY Debian (NOT Ubuntu like the validator IMAGE): obs-vm/startup-obs.sh
+# hardcodes the Debian docker apt repo (download.docker.com/linux/debian); on Ubuntu
+# the docker-ce install fails and obs bring-up times out. Porting obs to Ubuntu is a
+# separate, localized change to startup-obs.sh.
 export OBS_IMAGE="projects/debian-cloud/global/images/family/debian-12"
 # Log-push endpoint and bearer-token plumbing. OBS_PUSH_URL is seeded into each
 # node's metadata by seed-node-token.sh — that is what points devnet's nodes at
 # THIS obs VM rather than the adiri default baked into start-*-node.sh.
 export OBS_PUSH_URL="https://${OBS_HOSTNAME}/loki/api/v1/push"
+# Metrics remote-write endpoint (Prometheus). Mirrors OBS_PUSH_URL; passed to
+# tn-node-deployment's Alloy via setup-observability.sh --metrics-push-url so devnet
+# metrics ship to THIS obs VM. (FIX: was referenced by seed-node-token.sh but undefined.)
+export OBS_METRICS_PUSH_URL="https://${OBS_HOSTNAME}/api/v1/write"
+# Per-node observability opt-ins — DEFAULT-ON for devnet (logs+metrics+health+dashboard).
+# devnet-observability.sh gates each setup-observability.sh --enable-* on these.
+export TN_OBS_ENABLE_LOGS="${TN_OBS_ENABLE_LOGS:-1}"
+export TN_OBS_ENABLE_METRICS="${TN_OBS_ENABLE_METRICS:-1}"
+export TN_OBS_ENABLE_HEALTH="${TN_OBS_ENABLE_HEALTH:-1}"
+export TN_OBS_ENABLE_DASHBOARD="${TN_OBS_ENABLE_DASHBOARD:-1}"
 export OBS_SECRET_NAME="obs-ingest-token"          # Secret Manager (tn-devnet): Loki ingest token
 export OBS_GRAFANA_SECRET_NAME="obs-grafana-admin" # Secret Manager (tn-devnet): Grafana admin pw
 # Disk-usage alerting on the obs data disk. The Ops Agent (installed by
@@ -166,3 +210,13 @@ export OBS_ADMIN_IPS="${OBS_ADMIN_IPS:-}"
 export OBS_FIREWALL_POLICY=""
 # wireguard vpn
 export TN_USE_VPN=1
+# Devnet host-firewall model: UFW is the SINGLE authoritative host firewall, so the
+# wgvpn overlay must NOT lay a policy-drop nftables table (else UFW∩nft = an
+# intersection trap). WG_NODE_FIREWALL=0 = overlay only; devnet-startup.sh passes it
+# to common/wgvpn/node/wg-node-bootstrap.sh. (The pre-existing WG_NODE_ENFORCE gates
+# *activation* of an already-installed table, default 0 — a different switch, left as-is.)
+export WG_NODE_FIREWALL=0
+# Uptime monitor (Kuma) allowed to TCP-probe the health port (43174). Canonical source
+# = HEALTHCHECK_MONITOR_SRC above; mirrored to tn-node-deployment's TN_KUMA_SRC so the
+# host UFW health rule and the GCP rule agree on one /32.
+export TN_KUMA_SRC="${HEALTHCHECK_MONITOR_SRC}"
