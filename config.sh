@@ -85,9 +85,13 @@ export HEALTHCHECK_MONITOR_SRC="104.155.184.201/32"
 #
 export BASE_DOMAIN="devnet.telcoin.network"
 export LETSENCRYPT_EMAIL="devs@telcoin.org"
-# Cert-domain SUFFIXES — config-apache.sh issues node{N}.<suffix> for each (the
-# first is the ServerName / cert lineage). Devnet serves a single domain.
+# Cert-domain SUFFIXES — config-caddy.sh issues node{N}.<suffix> for each (the
+# first is the cert lineage). Devnet serves a single domain.
 export CERT_DOMAINS=("${BASE_DOMAIN}")
+# Caddy RPC reverse-proxy script driven by dns.sh: scp'd to each node + run as root, it reads
+# the node's .node-meta RPC_PORT/WS_PORT and proxies https/wss to the right loopback ports.
+# Lives in common/ (shared with adiri). Required by dns.sh + genesis.sh's Caddy step.
+export CONFIG_CADDY_SCRIPT="${REPO_ROOT}/common/config-caddy.sh"
 #
 # Genesis
 #

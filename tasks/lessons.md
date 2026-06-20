@@ -314,3 +314,40 @@ a mid-pattern `$` as an anchor). Use `grep -F` for literal flag/port strings. (B
 **Why it matters:** a faithful render is the gate before touching a live validator (a malformed wrapper
 crash-loops the node). These traps make the harness silently render the WRONG thing — or look like a code
 bug — while the code is fine. Recognizing them keeps the gate trustworthy.
+
+## Phase 4 live rollout (RPC edge): six surprises the plan didn't predict (2026-06-20)
+
+Driving the devnet Phase 4 rollout over the overlay surfaced these — each cost a detour:
+
+- **"Client IAP is broken" was an EXPIRED gcloud token.** The finalize driver's `tn_node_int_ip`
+  (`gcloud compute instances describe`) failed with "Reauthentication failed. cannot prompt during
+  non-interactive execution." The overlay (SSH/SCP) worked fine; only the gcloud REST surface was dead.
+  After the operator ran `gcloud auth login`, IAP-to-obs ALSO worked (the prior "IAP broken" belief was
+  partly stale auth). **Check `gcloud auth print-access-token` before blaming the transport** — an expired
+  token reads as a hang/transport failure across every gcloud REST/IAP call.
+- **A validator `--phase=finalize` exits rc=1 *benignly*.** It writes the unit/wrapper/.node-meta and the
+  service runs + RPC responds, then exits 1 only because the post-start on-chain check sees an empty
+  `VALIDATOR_ADDRESS` (finalize passes no `--validator-address`). Observers return ok:true (no address).
+  Drivers under `set -e` abort on this. **Verify the actual finalize RESULT (wrapper has `--ws`, .node-meta
+  ports written, service active) instead of trusting the rc.**
+- **reth's WS port is empirically 8554 on the observer** (`--instance 5`) — `ss -tlnp` confirmed
+  `127.0.0.1:8554`, matching `8546 + instance*2-2` from source, NOT the plan's 8550. The formula-from-source
+  beat the formula-from-the-plan.
+- **config-caddy derived the cert domain from bash `$HOSTNAME`** — the GCP kernel hostname, inconsistent
+  across a fleet (some boxes resolve it to the full `…c.<proj>.internal` FQDN). Certs were requested for
+  garbage domains. Fix: dns.sh passes the fleet `NODE_NAME`; config-caddy prefers it, else the SHORT
+  hostname. Then `node{N}.<suffix>` certs issued immediately (the `node{N}` DNS already resolved).
+- **config-caddy never opened the host firewall, so the RPC edge was dead behind ufw.** After
+  `firewall-setup.sh --enable`, external :80/:443 were dropped (verified: external POST to a node :80 timed
+  out) and the LB health probe on :43174 was blocked. The plan *claimed* config-caddy "already runs ufw
+  allow 80/443" — it didn't. A locked-down host firewall and a public edge must be reconciled explicitly:
+  config-caddy now opens 80/443 + :43174-from-LB-ranges when ufw is active.
+- **`--healthcheck 43174` binds NOTHING** — `ss -tlnp` shows no :43174 listener at all (so the kuma uptime
+  monitor's :43174 probes have been hitting a closed port too). The GCP LB health check must target a port
+  the node actually serves: switched it to the real backend port **:80** (Caddy) → backends went HEALTHY.
+  Flag for the team: reth's `--healthcheck` flag (or the deployment's assumption about it) is broken.
+- **The LB managed cert + `rpc.<suffix>` are the one operator-only step.** `devnet.telcoin.network` is not
+  in a Cloud-DNS zone this account can reach (API off on tn-devnet; only adiri's zone elsewhere), yet
+  `node{N}.devnet…` already resolved (pre-created records). The aggregate `rpc.devnet.telcoin.network` →
+  LB-IP A-record must be created by whoever owns that DNS; the Google-managed LB cert only provisions after
+  it resolves. Everything else (per-node HTTPS+WSS) is fully self-service over the overlay.

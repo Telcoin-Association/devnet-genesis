@@ -67,8 +67,17 @@ over TN_SSH_TRANSPORT=overlay):
 - [x] Step 12 CODE: dns.sh overlay branch (common 9a0053c) + config-caddy.sh per-node port resolution
       (common f905061, observer wss -> :8554). LIVE: dns.sh over overlay (re)applies Caddy + verifies
       eth_blockNumber + WSS-101; setup-load-balancer.sh builds LB; create node{1..5} + rpc A-records.
-- [ ] GATE (live): https://node{N} + https://rpc serve eth_blockNumber; wss://node{N} 101; rpc -> LB IP;
-      consensus advancing + restarts=0 fleet-wide after each step.
+- [x] LIVE DONE (2026-06-20, over overlay): Phase 2 obs redeployed (metrics /api/v1/write FIXED ->
+      tn_info=5 all nodes, max_line_size 2MiB, logs flowing; prometheus data-dir crash-loop fixed).
+      --ws LIVE on all 5 (loopback RPC+WS: val 8545/8546, obs 8541/8554; consensus never lost quorum,
+      restarts clean). UFW active fleet-wide (lockout-safe, SSH re-verified each). VPC: public 8545 dropped.
+      Caddy edge LIVE: https://node{N}.devnet.telcoin.network eth_blockNumber=200 + wss://node{N} 101 on all
+      5 (LE certs issued). LB built: rpc IP 34.96.110.84, all 5 backends HEALTHY (health-check moved :43174
+      -> :80 since reth's --healthcheck binds nothing). Surfaced+fixed 6 bugs (see lessons 2026-06-20).
+- [ ] OPERATOR (only remaining step): create rpc.devnet.telcoin.network  A  ->  34.96.110.84 in the DNS
+      provider for devnet.telcoin.network (not a Cloud-DNS zone reachable from this account). Then the LB's
+      Google-managed cert auto-provisions (5-60m) and https://rpc.devnet.telcoin.network serves via the LB.
+      Also flag: reth --healthcheck 43174 binds no listener (kuma uptime monitor probes a closed port).
 
 ## Review — Phase 2 follow-ups + Phase 4 code (2026-06-20)
 
