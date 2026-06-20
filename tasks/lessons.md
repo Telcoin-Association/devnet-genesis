@@ -186,3 +186,131 @@ Authoring the devnet→tn-node-deployment migration across 3 repos surfaced four
 - **tn-node-deployment keygen `node-info.yaml` and `common/genesis.sh`'s committee input are the SAME
   `NodeInfo` struct** (both from the `telcoin` binary) — the migration's make-or-break integration point is a
   no-op rename: `cp <node>/node-info.yaml genesis/validators/nodeN.yaml`. No field transform.
+
+## Devnet observability rollout (step 9): a "running" report that lied + a cap-drop trap (2026-06-19)
+
+Bringing the per-node Alloy sidecar online surfaced four traps:
+
+- **`setup-observability.sh` prints "Telemetry shipper running (telcoin-alloy.service)" without actually
+  checking the service is healthy.** The canary reported success while Alloy was crash-looping (systemd had
+  given up after 5 restarts). NEVER trust a setup script's own "running" line — verify `systemctl is-active
+  <unit>` == active, `docker ps` shows the container Up, and it's *shipping* (`loki_write_sent_bytes_total`
+  on 127.0.0.1:12345/metrics > 0, queryable in Loki). Same shape as the obs-recovery lesson: the first green
+  signal is not success.
+- **`--cap-drop=ALL` + a bind mount UNDER an image-owned dir = unwritable even as container-root.** The
+  grafana/alloy docker unit mounted the data dir at `/var/lib/alloy/data`; the image owns `/var/lib/alloy`
+  as user 473:473 mode 0770. `--cap-drop=ALL` strips CAP_DAC_OVERRIDE, so container-root (uid 0, "other"
+  on that dir) can't traverse it → `Error: failed to create the remotecfg service: mkdir /var/lib/alloy/data:
+  permission denied`. Fix = mount + `--storage.path` at a path whose parents are root-traversable
+  (`/var/lib/telcoin-alloy`, parent `/var/lib` is root:root) — keeps every hardening flag. Diagnose by
+  reproducing the EXACT `docker run` flags WITH and WITHOUT `--cap-drop=ALL` (`--entrypoint /bin/sh -c
+  'touch …'`): `id` alone shows root and misleads; the cap-drop toggle is the tell. The native (non-docker)
+  install path was unaffected (it writes the host dir directly).
+- **Same credential, two routes, different verdict → the gap is SERVER-side.** `/loki/api/v1/push` accepts
+  the OBS_INGEST_TOKEN (204) but `/api/v1/write` (Prometheus remote-write) 401s it ("Invalid API key").
+  config.alloy sends `bearer_token = sys.env("OBS_INGEST_TOKEN")` for BOTH and is byte-identical to adiri's
+  working agent → the node is correct; obs-devnet's metrics route auth is misconfigured. Don't chase a
+  node-side fix when one of two sibling routes works with the same token.
+- **A label that should vary was hardcoded.** `obs_label_sourcing` pinned `TN_CHAIN="adiri"` even though
+  config.alloy reads it via `sys.env("TN_CHAIN")`; devnet telemetry landed under `chain="adiri"`. Map
+  identity labels from the active NETWORK, keeping the existing value for the established network
+  (testnet→adiri) so its telemetry stays byte-identical. Grep a "fixed to X" comment as a smell.
+- **reth can emit a single ~1.1MB log line** (> Loki's 256KB `max_entry_size`) → Loki 400s just that entry;
+  normal lines still ship. Surfaces as scary-looking errors in the Alloy journal that are NOT a config break.
+
+## BLS Docker LoadCredential: a one-line goal with three cascading gotchas (2026-06-19)
+
+Goal: stop baking `-e "TN_BLS_PASSPHRASE=<cleartext>"` into the docker systemd unit (visible in
+`systemctl cat` — a live validator's unit literally showed the passphrase). Mirror the source path's
+LoadCredential wrapper for docker. Applying it to LIVE validators surfaced three traps the plan missed:
+
+- **`--phase=finalize` does NOT restart an already-running service — it runs `systemctl start` (a no-op
+  when active).** So finalize rewrites the unit file + `daemon-reload`, but the RUNNING process keeps the
+  OLD unit until something actually restarts it. Verify the new unit by reading the FILE
+  (`systemctl cat`), not `systemctl show` (loaded/in-memory), and plan an explicit restart to activate it.
+- **Re-finalize silently DROPS obs reth flags.** `ENABLE_OBSERVABILITY/METRICS/HEALTHCHECK_MONITOR` are
+  hardcoded false and only set by interactive-testnet `prompt_testnet_addons` — json `--phase=finalize`
+  can't enable them, so `tn_node_launch_flags` returns empty and the regenerated unit loses
+  `--log.file.format json`/`--metrics`/`--healthcheck`. Re-run `setup-observability.sh` AFTER finalize to
+  re-inject them (its `obs_ensure_reth_flags` appends to the `--http` line). Net effect: finalize's no-op
+  `start` + obs's real `restart` = ONE restart that activates LoadCredential AND the obs flags together.
+- **Moving `docker run` into a wrapper breaks in-place obs flag injection.** `tn_node_launch_target`
+  returned the UNIT for docker (that's where `docker run`/`--http` used to live); the wrapper relocates it,
+  so injection finds no `--http` target. Companion fix: return the wrapper for docker when it exists. Any
+  change that relocates the launch line must update everything that patches that line.
+- **Process for a security-critical live change:** render the generated unit+wrapper from the edited
+  heredocs with realistic values and assert on them (LoadCredential present, no embedded value, wrapper
+  reads `$CREDENTIALS_DIRECTORY`, `-e NAME` name-only) BEFORE touching a node. Heredoc `\<newline>` is
+  removed in unquoted heredocs (per bash manual) → backslash-continued `docker run` collapses to a valid
+  one-liner. **A healthy node that rejoins consensus after the restart is the end-to-end proof LoadCredential
+  delivered the right passphrase** — a wrong/missing one fails BLS-key decrypt and the node crashes.
+- **Provide a secret to a driver without logging it:** read it from the node's own mode-600 file into a
+  shell var in the SAME invocation that uses it (`PASS="$(... sudo cat .../bls-passphrase)"; export …`),
+  never echo it; the driver passes it via `sudo env VAR=…` and logs only the redacted twin.
+
+## reth `--instance` port math: HTTP down by 1, WS up by 2 — and both bind loopback by default (2026-06-20)
+
+**Context:** enabling reth `--ws` on devnet + teaching Caddy each node's WS backend port. The plan
+hypothesized the observer (`--instance 5`) WS port was `8546 + (instance-1)` = 8550. **Wrong.**
+
+**Actual derivation** (reth `RpcServerArgs::adjust_instance_ports`, `crates/node/core/src/args/rpc_server.rs`):
+- `http_port -= instance - 1`   → instance 1 = 8545, instance 5 (observer) = **8541**
+- `ws_port   += instance*2 - 2` → instance 1 = 8546, instance 5 (observer) = **8554** (NOT 8550)
+- `auth_port += instance*100 - 100`
+
+WS moves UP at 2× step while HTTP moves DOWN at 1× — they are NOT mirror images. Compute
+`WS_PORT=$(( 8546 + (instance*2 - 2) ))`, persist to `.node-meta` for config-caddy to read, and still
+confirm the live bind with `ss -tlnp` (a fork could change the formula).
+
+**Also:** telcoin's `crates/tn-reth/src/rpc_server_args.rs` defaults BOTH `http_addr` and `ws_addr` to
+`Ipv4Addr::LOCALHOST`. So devnet RPC was **already loopback-only** (never publicly exposed) — the public
+`tcp:8545` in the VPC `devnet-allow-web` rule was dead weight, safe to drop. Explicit `--http.addr/--ws.addr
+127.0.0.1` is defensive (pins intent, survives a default change), not a behavior change for HTTP.
+
+**Why it matters:** the 8550 guess would have pointed Caddy's wss:// proxy at a dead port on the observer
+and the WSS-101 handshake would fail with no obvious cause. Reading the actual `adjust_instance_ports`
+source — not reth docs, not the plan — is the only reliable way ("measure before trusting", fork edition).
+
+## Loki's per-line cap is `max_line_size`; bind-mounted config needs an explicit reload after `compose up -d` (2026-06-20)
+
+**Two obs server-side traps, both checked against the deployed versions (Loki 3.3.2; obs-vm/docker-compose.yml):**
+
+- **The Loki key is `max_line_size`** (default `262144` = 256 KB) under `limits_config` — the plan said
+  `max_entry_size`, which is NOT a Loki key. A wrong key either silently no-ops (reth's ~1.1 MB lines keep
+  400-dropping) or trips Loki's strict config parse and crash-loops the container. Set `max_line_size:
+  2097152` (2 MiB); leave `max_line_size_truncate` off so long lines stay whole. Verify the key against the
+  Loki config reference for the deployed version, not memory.
+- **The metrics 401 was NOT a missing Caddy route.** The committed Caddyfile already had the token-gated
+  `/api/v1/write` block. The LIVE Caddy ran a STALE config: `docker compose up -d` does NOT recreate a
+  container when only a *bind-mounted file's contents* changed (it diffs the service spec, not mount
+  contents), so a redeploy kept the old Caddyfile → metrics fell through to the Grafana catch-all →
+  Grafana's "Invalid API key". Fix: after `up -d`, explicitly reload each config-bearing service —
+  `caddy reload` (graceful), `compose kill -s SIGHUP prometheus`, `restart loki` (no live reload). Applies
+  to ANY bind-mounted config: editing the file + redeploying is a no-op until the process re-reads it.
+
+**Why it matters:** both present as "committed config is correct but the live system disagrees" — the gap is
+the redeploy mechanics, not the config. Chasing the (correct) committed config never finds it.
+
+## Render-verifying setup-script heredocs by sourcing the real function: three traps (2026-06-20)
+
+**Goal:** prove the generated wrapper/unit/.node-meta from the EDITED `step_create_service` heredocs
+(validator+observer × docker+native) without hand-copying them (drift-proof). Source the real `setup-*.sh`
+(with `main "$@"` stripped) and call `step_create_service`. Three traps cost iterations:
+
+- **Top-level default assignments clobber pre-source env.** `INSTALL_METHOD=""`, `INSTALL_DIR=/opt/telcoin`
+  run at source time, overwriting vars exported BEFORE sourcing. Set the test globals AFTER `source`.
+- **`readonly` consts abort reassignment under `set -e`.** `lib/common.sh` marks `DEFAULT_INSTALL_DIR` (etc.)
+  readonly; reassigning it errors and, under the script's `set -euo pipefail`, kills the subshell before the
+  render runs. Don't touch readonlys (use the writable twin `INSTALL_DIR`), and `set +e +u +o pipefail`
+  after sourcing so `:-`-guarded unset vars don't abort.
+- **A stripped temp copy misresolves `lib/common.sh`.** `setup-*.sh` sources `${SCRIPT_DIR}/lib/common.sh`
+  with `SCRIPT_DIR=$(dirname BASH_SOURCE)`; a copy under the scratchpad makes that path absent, so the real
+  `apply_kuma_rule`/`allow_overlay_ssh` are undefined and silently skipped — which made a firewall call-order
+  test LOOK like a lockout bug. `sed` the `source` line to the real absolute path in the temp copy.
+
+**Bonus:** `grep -c '--http ${launch_flags}'` returns 0 — `$`/`{` are regex metacharacters (BSD grep treats
+a mid-pattern `$` as an anchor). Use `grep -F` for literal flag/port strings. (Bit me twice this session.)
+
+**Why it matters:** a faithful render is the gate before touching a live validator (a malformed wrapper
+crash-loops the node). These traps make the harness silently render the WRONG thing — or look like a code
+bug — while the code is fine. Recognizing them keeps the gate trustworthy.

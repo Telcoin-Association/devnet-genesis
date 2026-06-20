@@ -6,7 +6,7 @@
 #   devnet-allow-consensus         INGRESS ALLOW udp:49590,49594  from node IPs only     pri 1000
 #   devnet-allow-consensus-egress  EGRESS  ALLOW udp:49590,49594  to node IPs only       pri 1000
 #   devnet-deny-consensus-egress   EGRESS  DENY  udp:49590,49594  to 0.0.0.0/0           pri 1100
-#   devnet-allow-web               INGRESS ALLOW tcp:80,443,8545  from 0.0.0.0/0         pri 1000
+#   devnet-allow-web               INGRESS ALLOW tcp:80,443       from 0.0.0.0/0         pri 1000
 #   devnet-allow-health-check      INGRESS ALLOW tcp:43174        from Google HC ranges  pri 1000
 #
 # Posture:
@@ -20,9 +20,10 @@
 #     allow-all: without it, the egress ALLOW above would be meaningless.
 #     ALLOW (1000) beats DENY (1100) beats the implied allow (65535).
 #     Only udp:49590/49594 egress is denied — DNS, NTP, apt, etc. untouched.
-#   - 8545 stays public (requested raw RPC), 80 is required for certbot
-#     http-01 (Let's Encrypt probe IPs are unpublished) and is the LB backend
-#     named port, 443 is Apache TLS RPC.
+#   - 8545 is NOT public: reth binds RPC/WS to loopback and Caddy fronts them on
+#     443 (TLS), so the node serves RPC only via the Caddy edge -- never a raw
+#     public :8545. 80 is required for certbot http-01 (Let's Encrypt probe IPs
+#     are unpublished) and is the LB backend named port; 443 is the Caddy TLS RPC.
 #   - Ingress needs no deny backstop: the VPC's implied ingress rule is
 #     already deny-all.
 #
@@ -162,15 +163,15 @@ ensure_fw_rule "devnet-deny-consensus-egress" \
     "devnet consensus egress deny backstop (implied egress is allow-all)"
 
 #
-# 4. Web: certbot HTTP-01 (80), Apache TLS (443), raw RPC (8545) — public ingress
+# 4. Web: certbot HTTP-01 (80) + Caddy TLS RPC/WSS (443) — public ingress
 #
 echo ""
-echo ">>> Step 4: devnet-allow-web (INGRESS tcp:80,tcp:443,tcp:8545 from 0.0.0.0/0)"
+echo ">>> Step 4: devnet-allow-web (INGRESS tcp:80,tcp:443 from 0.0.0.0/0)"
 ensure_fw_rule "devnet-allow-web" \
     "INGRESS" "ALLOW" "1000" \
-    "tcp:80,tcp:443,tcp:8545" \
+    "tcp:80,tcp:443" \
     "0.0.0.0/0" \
-    "devnet web: certbot http-01, apache TLS, raw RPC"
+    "devnet web: certbot http-01 + Caddy TLS RPC/WSS (reth binds loopback)"
 
 #
 # 5. Per-node health-check probes from Google ranges

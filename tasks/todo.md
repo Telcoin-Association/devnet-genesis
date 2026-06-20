@@ -1,3 +1,113 @@
+# TODO — Devnet: restore SSH (grant2), deploy obs, secure BLS, bring RPC online — 2026-06-19
+
+Closing the 4 loose ends after `devnet-deploy.sh` stopped before step 9. Execute in order; gate after each.
+Reach nodes over the WireGuard overlay (`utun6`=10.100.9.6=hannibal/grant2); GCP REST/API works fine.
+
+## Phase 1 — Restore SSH for grant2 (metadata break-glass)  [LOW RISK] ✅ DONE
+- [x] Pre-flight: VPN up (hub+node1 ping ok); local tnvpn key pubkey == plan's grant2 key; all 5 nodes' `ssh-keys` metadata ABSENT (safe to set, no clobber); OS Login off (project+instance); baseline node1 probe = `Permission denied (publickey)` (node doesn't trust grant2; hub does).
+- [x] 1. Injected `tnadmin:<grant2-pubkey>` into all 5 nodes' instance `ssh-keys` metadata (Updated x5).
+- [x] 2. Cleared stale `known_hosts` for 10.100.2.1–.5.
+- [x] 3. Verified all 5 return hostname over `tn_ssh` (5/5, attempt 1).
+- [x] 4. Persisted into `.tnvpn` via `sync_keys_to_registry_nodes` — 6 key lines installed on all 5.
+- [x] 5. Removed metadata break-glass (canary node1 first, verified .tnvpn path holds, then 2-5); trust now `.tnvpn`-only.
+- [x] GATE PASSED: 5/5 hostname over tn_ssh AFTER metadata removal; `authorized_keys.tnvpn`=6 lines incl. tnvpn-grant@hannibal on all 5; sshd AuthorizedKeysFile honors `.ssh/authorized_keys.tnvpn`.
+
+## Phase 2 — Step 9 per-node observability  [LOW RISK] ✅ LOGS DONE / metrics blocked server-side
+- [x] Canaried node1 -> discovered Alloy was crash-looping fleet-wide (driver reported "running" falsely).
+- [x] Root-caused + fixed TWO tn-node-deployment bugs (branch fix/obs-alloy-docker-storage-and-chain-label, commit d16bb34):
+      (A) Alloy docker storage dir mounted under image's 473:473-owned /var/lib/alloy; --cap-drop=ALL strips
+          CAP_DAC_OVERRIDE so container-root can't traverse it -> "mkdir /var/lib/alloy/data: permission denied".
+          Fix: mount + --storage.path at ${OBS_DATA_DIR} (/var/lib/telcoin-alloy, parent /var/lib traversable),
+          matching the native unit; all hardening flags kept. (B) TN_CHAIN hardcoded "adiri" -> map from NETWORK
+          (testnet stays adiri byte-identical; devnet->devnet).
+- [x] Pushed fixed lib/observability.sh to all 5 nodes (sha c4b2d66, verified); re-ran obs node-by-node
+      (1 validator restart each, quorum 3/4 held; each rejoined consensus before next).
+- [x] GATE (logs): all 5 Alloy active + shipping; Loki {job="telcoin-node"} shows all 5 with chain=devnet
+      (28 streams/10m, zero adiri leakage). ✅
+- [x] FOLLOW-UP #1 CODE DONE (live redeploy pending tunnel): metrics 401 root cause was NOT a missing Caddy
+      route — the committed Caddyfile already has the token-gated /api/v1/write block. The LIVE Caddy was
+      serving a STALE config: `docker compose up -d` doesn't recreate a container when only a bind-mounted
+      file's CONTENTS change, so redeploys kept an old Caddyfile lacking the route -> Grafana catch-all ->
+      "Invalid API key". FIX (common 8ef0e9d): bringup-remote.sh now reloads each config-bearing service
+      after `up -d` (caddy reload / SIGHUP prometheus / restart loki). Also parameterized prometheus
+      `monitor:` per-network (OBS_MONITOR=obs-devnet). LIVE: re-run create-obs-instance.sh -> verify
+      /api/v1/write 204 + tn_info series.
+- [x] FOLLOW-UP #2 CODE DONE (live redeploy pending): reth's ~1.1MB lines exceed Loki's per-line cap. The key
+      is `max_line_size` (NOT `max_entry_size`); default 262144=256KB. FIX (common 8ef0e9d): loki-config.yaml
+      max_line_size=2097152 (2MiB), lossless (no truncate). Documented in obs README for self-hosters.
+      LIVE: redeploy obs -> force a >256KB line ingests (no 400).
+
+## Phase 3 — BLS Docker LoadCredential fix upstream + re-finalize  ✅ DONE
+- [x] tn-node-deployment branch `fix/tn-node-deployment-docker-fixes` (3 commits, LOCAL — operator pushes/PRs):
+      d16bb34 (obs alloy storage+chain, Phase 2), a09fd68 (BLS Docker LoadCredential in setup-validator.sh +
+      setup-observer.sh — wrapper reads $CREDENTIALS_DIRECTORY, `-e TN_BLS_PASSPHRASE` name-only, README updated),
+      0154f38 (tn_node_launch_target → docker wrapper, so obs flag injection still works post-wrapper).
+- [x] Render-validated the loadcredential wrapper+unit locally before any deploy (bash -n + 5 assertions PASS).
+- [x] DISCOVERED + handled: (a) `--json --phase=finalize` can't emit obs reth flags (ENABLE_* are interactive-
+      testnet-only) → re-finalize alone drops obs; (b) the wrapper moves `docker run` out of the unit, breaking
+      obs_ensure_reth_flags injection → fixed via tn_node_launch_target. Method (user-chosen): finalize (writes
+      LoadCredential unit; `start` is a no-op while running) THEN obs re-run (injects obs flags into the wrapper +
+      ONE real `systemctl restart` that activates everything).
+- [x] Rolled node-by-node over overlay (canary node1 → 2 → 3 → 4 → observer-5). Each: push setup script +
+      lib/common.sh (sha-verified) → finalize → obs → verified consensus rejoin BEFORE next. genesis re-stage
+      verified byte-identical (no-op). Passphrase read from each node's own file, never echoed.
+- [x] GATE PASSED: all 5 units `LoadCredential=bls-passphrase:…`, ZERO embedded passphrase (was `=tornado`);
+      chain advancing (epoch 7, all 5 in lockstep, restarts=0/oom=false per node); all 5 still ship to Loki
+      (chain=devnet); obs flags present in every wrapper. A healthy rejoined node PROVES LoadCredential
+      delivers the passphrase (else BLS decrypt fails). Branch is local — operator pushes + opens PR.
+
+## Phase 4 — Public RPC edge (steps 10–12)  [RISKIEST: SSH-lockout + IAP dep — confirm first]
+CODE DONE this session (2026-06-20); LIVE rollout is tunnel-gated (operator brings up WG, then driveable
+over TN_SSH_TRANSPORT=overlay):
+- [x] Step 10 CODE: firewall-setup.sh `--json --enable` (lockout-safe, tn-node-deployment bc44be9) +
+      devnet-firewall.sh `--enable` mode (one node at a time, SSH re-verify, ABORT on loss). LIVE: run
+      `./devnet-firewall.sh --enable` over overlay (observer canary first), `tn_ssh <n> true` after each.
+- [x] Step 11 CODE: setup-firewall.sh drops public tcp:8545 from devnet-allow-web (reth binds loopback,
+      Caddy fronts RPC). LIVE: re-run setup-firewall.sh to reconcile IPs + confirm 80/443.
+- [x] Step 12 CODE: dns.sh overlay branch (common 9a0053c) + config-caddy.sh per-node port resolution
+      (common f905061, observer wss -> :8554). LIVE: dns.sh over overlay (re)applies Caddy + verifies
+      eth_blockNumber + WSS-101; setup-load-balancer.sh builds LB; create node{1..5} + rpc A-records.
+- [ ] GATE (live): https://node{N} + https://rpc serve eth_blockNumber; wss://node{N} 101; rpc -> LB IP;
+      consensus advancing + restarts=0 fleet-wide after each step.
+
+## Review — Phase 2 follow-ups + Phase 4 code (2026-06-20)
+
+ALL CODE for the remaining Phase 2 follow-ups + Phase 4 landed + statically/render-verified; committed on
+`main` in all 3 repos (NOT pushed, no co-author). LIVE rollout is tunnel-gated (client IAP broken on this
+Mac; operator brings up WG, then drive it over TN_SSH_TRANSPORT=overlay).
+
+Commits:
+- tn-node-deployment (main): fast-forwarded the 3 docker-fix commits (d16bb34/a09fd68/0154f38) onto main,
+  then 7bd1351 (reth --ws + --http.addr/--ws.addr 127.0.0.1 in all 4 launch heredocs; WS_PORT derived +
+  persisted to .node-meta), bc44be9 (firewall-setup.sh lockout-safe --json --enable).
+- common (main): 8ef0e9d (Loki max_line_size 2MiB + bringup reloads config-bearing services + per-network
+  prometheus monitor), f905061 (config-caddy.sh resolves RPC/WS ports from .node-meta), 9a0053c (dns.sh
+  TN_SSH_TRANSPORT=overlay branch).
+- devnet-genesis (main): submodule bumps (common 9a0053c, tn-node-deployment bc44be9) + config.sh
+  OBS_MONITOR=obs-devnet + setup-firewall.sh (drop public tcp:8545) + devnet-firewall.sh --enable + tasks/*.
+
+Plan corrections caught by verifying against source (not trusting the plan):
+1. reth WS port = 8546 + instance*2-2 (observer 8554), NOT 8546+(instance-1) (=8550) — reth
+   rpc_server.rs adjust_instance_ports.
+2. Loki key is `max_line_size`, not `max_entry_size`.
+3. metrics 401 = stale LIVE Caddyfile (bind-mount + `compose up -d` doesn't recreate), not a missing route.
+4. reth already binds RPC/WS to loopback by default -> public 8545 was dead weight (safe drop); --ws was OFF.
+
+Render/static verification (all PASS): 4-variant heredoc render (BLS LoadCredential intact, --ws/loopback,
+.node-meta 8545/8546 + 8541/8554); config-caddy port-resolution precedence; dns.sh both transports;
+firewall --json --enable lockout order (SSH+overlay+kuma before enable); devnet-firewall --enable
+abort-on-SSH-loss. bash -n on every edited script; Loki + Prometheus YAML valid.
+
+Docker+native parity: every tn-node-deployment change touched all four launch heredocs (docker+native ×
+TPM+LoadCredential) and render-verified for both install methods; .node-meta write + port derivation are
+install-method agnostic.
+
+REMAINING (live, tunnel-gated — see Phase 2/4 LIVE notes above): operator `wg-quick up tn-wg0`; then
+Phase 2 (redeploy obs; verify 204 + tn_info + big-line ingest); Phase 4 over overlay (--ws restart
+node-by-node + ss -tlnp; UFW enable; VPC reconcile; Caddy/LB/DNS), each gated on consensus rejoin + restarts=0.
+
+---
+
 # TODO — Devnet deploy unblock: route per-node steps over the WireGuard overlay — 2026-06-19
 
 IAP SSH is broken **client-side** (gcloud's new lightweight websocket drops instantly on this

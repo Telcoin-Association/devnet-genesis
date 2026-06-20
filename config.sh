@@ -186,6 +186,10 @@ export OBS_PUSH_URL="https://${OBS_HOSTNAME}/loki/api/v1/push"
 # tn-node-deployment's Alloy via setup-observability.sh --metrics-push-url so devnet
 # metrics ship to THIS obs VM. (FIX: was referenced by seed-node-token.sh but undefined.)
 export OBS_METRICS_PUSH_URL="https://${OBS_HOSTNAME}/api/v1/write"
+# Prometheus external-label identity for THIS obs VM. create-obs-instance.sh passes it to
+# bringup-remote.sh, which rewrites prometheus.yml's `monitor:` label on deploy (the shared
+# obs bundle ships the adiri default; unset => stays obs-adiri). Keeps devnet metrics distinct.
+export OBS_MONITOR="obs-devnet"
 # Per-node observability opt-ins — DEFAULT-ON for devnet (logs+metrics+health+dashboard).
 # devnet-observability.sh gates each setup-observability.sh --enable-* on these.
 export TN_OBS_ENABLE_LOGS="${TN_OBS_ENABLE_LOGS:-1}"

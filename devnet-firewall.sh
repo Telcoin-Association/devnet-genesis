@@ -1,31 +1,33 @@
 #!/bin/bash
 #
-# devnet-firewall.sh — apply the HOST (UFW) consensus rules on each validator by
-# driving its tn-node-deployment firewall-setup.sh over IAP. This is the host-fw
-# companion to setup-firewall.sh (which manages the GCP/VPC layer).
+# devnet-firewall.sh — manage the HOST (UFW) firewall on each node by driving its
+# tn-node-deployment firewall-setup.sh over the lib transport (IAP by default, or the
+# WireGuard overlay when TN_SSH_TRANSPORT=overlay). Companion to setup-firewall.sh
+# (which manages the GCP/VPC layer).
 #
-# *** PRECONDITION: UFW must already be ENABLED once, interactively, per node ***
-# from an IAP/console session (sudo ufw allow 22/tcp && sudo ufw --force enable).
-# This script NEVER runs `ufw enable`/`ufw disable`; it only ever calls
-# firewall-setup.sh --json, which by construction can only toggle the three
-# permitted ports (49590/udp, 49594/udp, 43174/tcp) and STRUCTURALLY cannot touch
-# sshd — so it can never lock you out of the IAP door.
+# Two modes:
+#   (default)  apply consensus ingress rules on an ALREADY-enabled UFW:
+#                - validator: open primary (49590/udp) + worker (49594/udp)
+#                - observer:  none (it dials OUT; health 43174/tcp is opened by
+#                             --enable-health in devnet-observability.sh, not here)
+#              Goes through firewall-setup.sh --json --port, which STRUCTURALLY cannot
+#              touch sshd. After applying, --json --status asserts the ports show open.
 #
-# Per node:
-#   - validator: open consensus primary (49590/udp) + worker (49594/udp).
-#   - observer:  NO consensus ingress rule — the observer dials OUT to validators
-#                and listens for nothing inbound on the consensus ports. Health
-#                (43174/tcp) is opened by --enable-health in devnet-observability.sh,
-#                NOT here.
-# After applying, re-query --json --status and assert 49590/49594 show open on
-# each validator; warn (do not hard-fail) if the status text doesn't confirm them.
+#   --enable   lockout-safe host-UFW bring-up (Step 10), ONE NODE AT A TIME: run
+#              firewall-setup.sh --json --enable (it allows SSH + the overlay
+#              10.100.0.0/16 + the kuma monitor BEFORE `ufw --force enable`, and opens
+#              validator P2P), then RE-VERIFY SSH still works before touching the next
+#              node — ABORT immediately if SSH is lost. Removes the old "enable UFW by
+#              hand first" precondition.
 #
-# Reaches nodes only via the lib's IAP helpers. Optional instance-name subset; no
-# args = whole fleet.
+# Reaches nodes via the lib's transport helpers (tn_iap_ssh -> IAP or overlay).
+# Optional instance-name subset; no args = whole fleet.
 #
 # Usage:
-#   ./devnet-firewall.sh                       # all nodes
+#   ./devnet-firewall.sh                       # consensus ports, all nodes (UFW already enabled)
+#   ./devnet-firewall.sh --enable              # lockout-safe UFW enable, all nodes, one at a time
 #   ./devnet-firewall.sh validator-2-devnet    # one (or more) by name
+#   ./devnet-firewall.sh --enable observer-5-devnet
 
 set -euo pipefail
 
@@ -33,8 +35,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 
 FW="${TN_NODE_SCRIPTS_DIR}/firewall-setup.sh"
 
-# --- optional instance subset (positional args) --------------------------------
-SELECTED=("$@")
+# --- args: optional --enable (lockout-safe host-UFW bring-up) + instance subset ---
+ENABLE_HOST_FW=0
+SELECTED=()
+for a in "$@"; do
+    case "$a" in
+        --enable) ENABLE_HOST_FW=1 ;;
+        *)        SELECTED+=("$a") ;;
+    esac
+done
 if [ "${#SELECTED[@]}" -gt 0 ]; then
     for want in "${SELECTED[@]}"; do
         found=0
@@ -50,6 +59,48 @@ tn_fw_selected() {
     for s in "${SELECTED[@]}"; do [ "${s}" = "${inst}" ] && return 0; done
     return 1
 }
+
+# --- --enable: lockout-safe host-UFW bring-up, ONE NODE AT A TIME -----------------
+# Delegates the actual enable to firewall-setup.sh --json --enable (which allows SSH +
+# overlay + kuma BEFORE `ufw --force enable`). After each node, a NEW SSH connection must
+# succeed or we ABORT — so a lockout can never propagate past the first affected node.
+if [ "${ENABLE_HOST_FW}" -eq 1 ]; then
+    echo "=========================================="
+    echo "devnet HOST firewall (UFW) — lockout-safe ENABLE (one node at a time)"
+    echo "Project:    ${PROJECT_ID}"
+    echo "Method:     firewall-setup.sh --json --enable (SSH + overlay + kuma allowed BEFORE enable)"
+    echo "Safety:     re-verify SSH after each node; ABORT on loss (no further nodes touched)"
+    [ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
+    echo "=========================================="
+    erc=0
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
+        tn_fw_selected "${inst}" || continue
+        echo ""
+        echo ">>> ${inst} (${zone}): sudo ${FW} --json --enable"
+        if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${FW} --json --enable")"; then
+            echo "    result: ${json}"
+        else
+            echo "    ❌ enable failed on ${inst}" >&2
+            erc=1
+            continue
+        fi
+        # CRITICAL lockout check: a fresh SSH connection must still succeed before moving on.
+        if tn_iap_ssh "${inst}" "${zone}" true >/dev/null 2>&1; then
+            echo "    ✓ SSH still reachable after enable"
+        else
+            echo "    ❌❌ SSH LOST after enabling UFW on ${inst} — ABORTING (no further nodes touched)" >&2
+            exit 2
+        fi
+    done
+    echo ""
+    if [ "${erc}" -eq 0 ]; then
+        echo "host UFW enabled (lockout-safe) on all targeted nodes."
+    else
+        echo "host UFW enable finished WITH ERRORS — see ❌ lines above." >&2
+    fi
+    exit "${erc}"
+fi
 
 echo "=========================================="
 echo "devnet HOST firewall (UFW) consensus rules"
