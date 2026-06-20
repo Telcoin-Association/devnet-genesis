@@ -69,16 +69,21 @@ if [ "${ENABLE_HOST_FW}" -eq 1 ]; then
     echo "devnet HOST firewall (UFW) — lockout-safe ENABLE (one node at a time)"
     echo "Project:    ${PROJECT_ID}"
     echo "Method:     firewall-setup.sh --json --enable (SSH + overlay + kuma allowed BEFORE enable)"
+    echo "LB health:  $([ -n "${GOOGLE_HC_RANGES:-}" ] && echo "open ${DEFAULT_HEALTHCHECK_TCP_PORT}/tcp to Google HC ranges (${GOOGLE_HC_RANGES})" || echo "none (GOOGLE_HC_RANGES empty)")"
     echo "Safety:     re-verify SSH after each node; ABORT on loss (no further nodes touched)"
     [ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
     echo "=========================================="
+    # Open the health port to the GCP LB health-check ranges as part of the lockout-safe
+    # enable (firewall-setup.sh -> apply_lb_hc_rule). Empty -> omitted -> generic enable.
+    lb_hc_env=""
+    [ -n "${GOOGLE_HC_RANGES:-}" ] && lb_hc_env="env TN_LB_HC_RANGES='${GOOGLE_HC_RANGES}' "
     erc=0
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
         tn_fw_selected "${inst}" || continue
         echo ""
-        echo ">>> ${inst} (${zone}): sudo ${FW} --json --enable"
-        if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${FW} --json --enable")"; then
+        echo ">>> ${inst} (${zone}): sudo ${lb_hc_env}${FW} --json --enable"
+        if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${lb_hc_env}${FW} --json --enable")"; then
             echo "    result: ${json}"
         else
             echo "    ❌ enable failed on ${inst}" >&2

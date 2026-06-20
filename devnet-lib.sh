@@ -123,3 +123,47 @@ tn_setup_script_for_role() {
     [ "$1" = "observer" ] && printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-observer.sh" \
                           || printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-validator.sh"
 }
+
+# wait_healthy <instance> <zone> <service> — gate a node HEALTHY only when, ON THE NODE,
+# the systemd unit is active AND the healthcheck TCP endpoint responds. One SSH round-trip
+# per poll, up to HEALTH_TIMEOUT_SECS (default 120) every HEALTH_POLL_SECS (default 5).
+#
+# Loopback probe (curl 127.0.0.1:${DEFAULT_HEALTHCHECK_TCP_PORT}, matching the UI helper):
+# the firewall only admits the Kuma VM / Google HC ranges, so an operator-side EXTERNAL probe
+# would be (correctly) blocked — external reachability is confirmed separately via Uptime Kuma
+# and `gcloud compute backend-services get-health`. The probe distinguishes "unit not active"
+# from "active but port not bound" (the latter is exactly the no-listener bug this gate guards
+# against). Returns 1 on timeout. Stricter replacement for the old is-active-only wait.
+wait_healthy() {
+    local inst="$1" zone="$2" svc="$3"
+    local timeout="${HEALTH_TIMEOUT_SECS:-120}" poll="${HEALTH_POLL_SECS:-5}"
+    local port="${DEFAULT_HEALTHCHECK_TCP_PORT:-43174}"
+    local waited=0 result
+    # systemctl + curl run ON THE NODE: escape $ so the command substitution happens remotely;
+    # ${svc}/${port} expand locally. The remote always exits 0 (a final echo), so SSH success
+    # reflects transport, not node health — which we read from the echoed token instead.
+    local remote
+    remote="st=\$(systemctl is-active '${svc}' 2>/dev/null); \
+if [ \"\$st\" != active ]; then echo \"INACTIVE:\$st\"; \
+elif curl -fsS --max-time 3 \"http://127.0.0.1:${port}\" >/dev/null 2>&1; then echo HEALTHY; \
+else echo NOLISTEN; fi"
+    while [ "${waited}" -lt "${timeout}" ]; do
+        result="$(tn_iap_ssh "${inst}" "${zone}" "${remote}" 2>/dev/null || true)"
+        result="$(printf '%s' "${result}" | tr -d '[:space:]')"
+        case "${result}" in
+            *HEALTHY)
+                echo "      ✓ ${svc} on ${inst} active AND :${port} responds (after ${waited}s)"
+                return 0 ;;
+            *INACTIVE:*)
+                echo "      …${svc} on ${inst} not active yet (state='${result##*INACTIVE:}', ${waited}s/${timeout}s)" ;;
+            *NOLISTEN)
+                echo "      …${svc} on ${inst} active but :${port} not responding yet (${waited}s/${timeout}s)" ;;
+            *)
+                echo "      …${svc} on ${inst} health unknown ('${result:-no-output}', ${waited}s/${timeout}s)" ;;
+        esac
+        sleep "${poll}"
+        waited=$((waited + poll))
+    done
+    echo "      ❌ ${svc} on ${inst} did not reach HEALTHY (active + :${port} responding) within ${timeout}s" >&2
+    return 1
+}

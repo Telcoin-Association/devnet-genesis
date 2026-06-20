@@ -46,7 +46,7 @@ export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
 export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
 # Per-node hostnames → node{N}.${BASE_DOMAIN}
 export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
-export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0x77640d4f8439e34ec92acf69de7efa65d1508608")
+export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0xb4e5ed8167873a3cf3c405aa7155948db869dbe3")
 # Reserved static external IPs — one per instance, PARALLEL to INSTANCE_NAMES. The
 # Ubuntu migration pins these so the GCP consensus /32 rules + DNS A-records survive
 # node restart/reuse (fixes the ephemeral-IP churn). Reserve them once with
@@ -76,10 +76,18 @@ export STARTUP_SCRIPT_PATH="${REPO_ROOT}/devnet-startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
 export DEFAULT_HEALTHCHECK_TCP_PORT=43174
-# External uptime monitor (Kuma VM static IP) allowed to TCP-probe the health port.
-# Mirrors the cloud rule allow-validator-healthcheck-from-kuma at the host nft layer.
-# Empty = no host-fw monitor rule (preserves pre-lockdown behavior).
+# External uptime monitor (Kuma VM public IP, tn-dev-sandbox project) allowed to TCP-probe
+# the health port. Drives BOTH layers: the host-ufw monitor rule (via devnet-firewall.sh ->
+# firewall-setup.sh apply_kuma_rule) AND the VPC rule devnet-allow-healthcheck-from-kuma
+# (setup-firewall.sh Step 5b). 104.155.184.201 is the Kuma VM (confirmed).
+# Empty = no monitor rule at either layer (preserves pre-lockdown behavior).
 export HEALTHCHECK_MONITOR_SRC="104.155.184.201/32"
+# Google Cloud health-check probe source ranges (for the global RPC load balancer's TCP
+# health check on the health port). Single source of truth: the VPC rule devnet-allow-health-check
+# (setup-firewall.sh Step 5) AND the host-ufw allow (devnet-firewall.sh passes this as
+# TN_LB_HC_RANGES to firewall-setup.sh --enable). Both layers must admit these or LB backends
+# stay unhealthy even with the listener up. Stable, Google-published ranges.
+export GOOGLE_HC_RANGES="130.211.0.0/22,35.191.0.0/16,209.85.152.0/22,209.85.204.0/22"
 #
 # DNS / TLS
 #

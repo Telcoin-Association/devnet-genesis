@@ -10,11 +10,13 @@
 #
 # Per node the cycle is:
 #   (a) wipe chain data    -> ./devnet-wipe.sh --yes <instance>   (keys persist)
+#                             SKIPPED under --no-wipe (re-finalize only; chain preserved).
 #   (b) redeploy software  -> ./devnet-finalize.sh <instance>     (re-pull/restage
 #                              the possibly-new DOCKER_IMAGE; finalize accepts an
-#                              optional instance subset — see its --help)
-#   (c) settle ~10s, then poll `systemctl is-active <svc>` until the node reports
-#       active before moving to the next node.
+#                              optional instance subset — see its --help). This step
+#                              re-bakes the `telcoin node` launch flags either way.
+#   (c) settle ~10s, then gate on wait_healthy (devnet-lib.sh): the unit must be active
+#       AND the on-node healthcheck endpoint (:43174) must respond before the next node.
 #
 # Keygen is SKIPPED entirely — keys persist across the wipe, and keygen would
 # refuse to clobber an existing keystore. This script ALSO never runs any
@@ -29,7 +31,8 @@
 # logs/metrics for the new image; Grafana + Caddy preserved).
 #
 # Usage:
-#   ./devnet-update.sh                 # staggered redeploy, all nodes
+#   ./devnet-update.sh                 # staggered redeploy, all nodes (wipes chain each)
+#   ./devnet-update.sh --no-wipe       # staggered RE-FINALIZE, chain preserved (health-gated)
 #   ./devnet-update.sh --wipe-obs      # also wipe obs logs/metrics first
 #   ./devnet-update.sh --yes           # alias accepted; this script is already non-interactive
 
@@ -43,16 +46,18 @@ FINALIZE_SCRIPT="${REPO_DIR}/devnet-finalize.sh"
 OBS_WIPE_SCRIPT="${REPO_DIR}/common/observability/wipe-obs-data.sh"
 
 STAGGER_SECS=10          # pause between validators (BFT settle window)
-HEALTH_TIMEOUT_SECS=120  # max wait for a node to report `systemctl is-active` == active
+HEALTH_TIMEOUT_SECS=120  # max wait for a node to reach HEALTHY (active + :43174 responding); read by wait_healthy
 HEALTH_POLL_SECS=5
 
 # --- args ----------------------------------------------------------------------
 WIPE_OBS=0
+NO_WIPE=0
 for arg in "$@"; do
     case "${arg}" in
         --wipe-obs) WIPE_OBS=1 ;;
+        --no-wipe)  NO_WIPE=1 ;;   # re-finalize WITHOUT wiping chain data (preserve the chain)
         --yes) : ;;  # accepted for symmetry; this script is non-interactive already
-        *) echo "❌ unknown argument '${arg}' (supported: --wipe-obs, --yes)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '${arg}' (supported: --wipe-obs, --no-wipe, --yes)" >&2; exit 1 ;;
     esac
 done
 
@@ -65,7 +70,8 @@ echo "=========================================="
 echo "devnet STAGGERED redeploy (no instance recreate, keys preserved)"
 echo "Image:     ${DOCKER_IMAGE}"
 echo "Order:     validators one-at-a-time (${STAGGER_SECS}s apart), observer LAST"
-echo "Health:    poll systemctl is-active up to ${HEALTH_TIMEOUT_SECS}s/node"
+echo "Chain:     $([ "${NO_WIPE}" -eq 1 ] && echo 'PRESERVED (--no-wipe: re-finalize only)' || echo 'WIPED then re-finalized')"
+echo "Health:    gate on active + :${DEFAULT_HEALTHCHECK_TCP_PORT} responding, up to ${HEALTH_TIMEOUT_SECS}s/node"
 echo "Wipe obs:  $([ "${WIPE_OBS}" -eq 1 ] && echo yes || echo no)"
 echo "=========================================="
 
@@ -77,27 +83,12 @@ if [ "${WIPE_OBS}" -eq 1 ]; then
     "${OBS_WIPE_SCRIPT}" --yes || { echo "❌ obs data wipe failed — aborting before touching nodes." >&2; exit 1; }
 fi
 
-# wait_active <instance> <zone> <service> — poll until the unit is active, or fail.
-wait_active() {
-    local inst="$1" zone="$2" svc="$3"
-    local waited=0 state
-    while [ "${waited}" -lt "${HEALTH_TIMEOUT_SECS}" ]; do
-        # is-active exits non-zero when not active; capture the text either way.
-        state="$(tn_iap_ssh "${inst}" "${zone}" "systemctl is-active '${svc}' || true")"
-        state="$(printf '%s' "${state}" | tr -d '[:space:]')"
-        if [ "${state}" = "active" ]; then
-            echo "      ✓ ${svc} is active on ${inst} (after ${waited}s)"
-            return 0
-        fi
-        echo "      …${svc} on ${inst} is '${state:-unknown}' (waited ${waited}s/${HEALTH_TIMEOUT_SECS}s)"
-        sleep "${HEALTH_POLL_SECS}"
-        waited=$((waited + HEALTH_POLL_SECS))
-    done
-    echo "      ❌ ${svc} on ${inst} did not reach 'active' within ${HEALTH_TIMEOUT_SECS}s" >&2
-    return 1
-}
+# Health gate is wait_healthy (active + :43174 responding) from devnet-lib.sh — shared with
+# reset-network.sh, and reading HEALTH_TIMEOUT_SECS / HEALTH_POLL_SECS set above.
 
-# redeploy_one <index> — wipe + finalize + health-gate a single node.
+# redeploy_one <index> — [wipe] + finalize + health-gate a single node. With --no-wipe the
+# wipe is skipped, turning this into a staggered RE-FINALIZE that preserves the chain (the
+# finalize step is what re-bakes the launch flags either way).
 redeploy_one() {
     local i="$1"
     local inst="${INSTANCE_NAMES[$i]}"
@@ -112,15 +103,19 @@ redeploy_one() {
     echo ">>> redeploy ${inst} (${zone}, role=${role}, service=${svc})"
     echo "------------------------------------------"
 
-    echo "    (a) wipe chain data (keys preserved)"
-    "${WIPE_SCRIPT}" --yes "${inst}" || { echo "    ❌ wipe failed on ${inst} — aborting run." >&2; return 1; }
+    if [ "${NO_WIPE}" -eq 1 ]; then
+        echo "    (a) --no-wipe: SKIP chain wipe (chain preserved)"
+    else
+        echo "    (a) wipe chain data (keys preserved)"
+        "${WIPE_SCRIPT}" --yes "${inst}" || { echo "    ❌ wipe failed on ${inst} — aborting run." >&2; return 1; }
+    fi
 
     echo "    (b) redeploy software via finalize (image ${DOCKER_IMAGE})"
     "${FINALIZE_SCRIPT}" "${inst}" || { echo "    ❌ finalize failed on ${inst} — aborting run." >&2; return 1; }
 
-    echo "    (c) settle ${STAGGER_SECS}s then poll service health"
+    echo "    (c) settle ${STAGGER_SECS}s then gate on endpoint health"
     sleep "${STAGGER_SECS}"
-    wait_active "${inst}" "${zone}" "${svc}" || { echo "    ❌ ${inst} did not come back healthy — aborting run." >&2; return 1; }
+    wait_healthy "${inst}" "${zone}" "${svc}" || { echo "    ❌ ${inst} did not come back healthy — aborting run." >&2; return 1; }
 }
 
 # --- Pass 1: validators, one at a time, with a stagger pause between -----------

@@ -43,9 +43,10 @@ set -u
 
 source ./config.sh
 
-# Documented Google health-check / LB probe source ranges.
+# Documented Google health-check / LB probe source ranges — single source of truth in
+# config.sh (GOOGLE_HC_RANGES, also passed to the host UFW via devnet-firewall.sh).
 # https://cloud.google.com/load-balancing/docs/health-check-concepts#ip-ranges
-GOOGLE_HC_RANGES="130.211.0.0/22,35.191.0.0/16,209.85.152.0/22,209.85.204.0/22"
+: "${GOOGLE_HC_RANGES:?GOOGLE_HC_RANGES must be set in config.sh}"
 
 echo "=========================================="
 echo "Reconciling devnet firewall rules (network=default, tag=validator)"
@@ -183,6 +184,25 @@ ensure_fw_rule "devnet-allow-health-check" \
     "tcp:${DEFAULT_HEALTHCHECK_TCP_PORT}" \
     "${GOOGLE_HC_RANGES}" \
     "devnet node health-check probes from Google HC ranges"
+
+#
+# 5b. Direct health-check probes from the external Uptime Kuma VM
+#     (tn-dev-sandbox project — NOT in the Google HC ranges, so it needs its own rule).
+#     Dedicated rule (not folded into Step 5) so the Kuma source is obvious and auditable.
+#     Host-ufw parity is handled by HEALTHCHECK_MONITOR_SRC in config.sh -> devnet-firewall.sh.
+#
+if [ -n "${HEALTHCHECK_MONITOR_SRC:-}" ]; then
+    echo ""
+    echo ">>> Step 5b: devnet-allow-healthcheck-from-kuma (INGRESS tcp:${DEFAULT_HEALTHCHECK_TCP_PORT} from ${HEALTHCHECK_MONITOR_SRC})"
+    ensure_fw_rule "devnet-allow-healthcheck-from-kuma" \
+        "INGRESS" "ALLOW" "1000" \
+        "tcp:${DEFAULT_HEALTHCHECK_TCP_PORT}" \
+        "${HEALTHCHECK_MONITOR_SRC}" \
+        "devnet node health-check probes from the Uptime Kuma VM"
+else
+    echo ""
+    echo ">>> Step 5b: skipped (HEALTHCHECK_MONITOR_SRC empty — no external Kuma probe rule)"
+fi
 
 #
 # 6. Print effective state so the operator can eyeball-verify

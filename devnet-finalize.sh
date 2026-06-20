@@ -128,6 +128,10 @@ for i in "${INDICES[@]}"; do
         --service-user "${SERVICE_USER}"
         --listener-primary "/ip4/${intIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
         --listener-worker "/ip4/${intIP}/udp/${DEFAULT_WORKER_UDP_PORT}/quic-v1"
+        # Bake `--healthcheck 43174` into the launch command so the node opens the health
+        # listener that Uptime Kuma + the GCP LB probe. Honored by both setup-{validator,observer}.sh
+        # (devnet evaluates the opt-in via tn_node_launch_flags' is_testnet_like gate).
+        --enable-healthcheck-monitor
     )
     if [ "${role}" = "observer" ]; then
         finalize_args+=(--instance 5)
