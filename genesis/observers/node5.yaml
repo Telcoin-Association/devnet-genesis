@@ -10,5 +10,5 @@ p2p_info:
     network_address: /ip4/35.242.150.70/udp/49594/quic-v1/p2p/12D3KooWPC2Lc2bCwadqWbcutwiZjDq5VkL1xZS1b5mLBnSLoVvQ
     network_key: 4XTTMEWhzTB4HYwmVYG5L1ycPspUjyRKU5n3FKJB6E23smGhW
     rpc: ~
-execution_address: "0x77640d4f8439e34ec92acf69de7efa65d1508608"
-proof_of_possession: 5rgBuSZAHU2Wmqwh8G6k6czgRhfZzr6P1X5KBZo3qTgYneV1NQdiD7JwqJSUizFxKK
+execution_address: "0xb4e5ed8167873a3cf3c405aa7155948db869dbe3"
+proof_of_possession: 7A9MwJopnaZTuEV51FP42KurpkbcuQDiKmAK3VEKXv8WCnnSg3EpjkshVmNM6wtf5G
