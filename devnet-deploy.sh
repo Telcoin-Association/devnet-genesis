@@ -22,9 +22,10 @@
 #   10. MANUAL: enable UFW once per node via IAP/console, then ./devnet-firewall.sh  [pause]
 #   11. GCP/VPC firewall rules        ./setup-firewall.sh
 #   12. DNS/Caddy + load balancer     ./common/dns.sh ; ./common/setup-load-balancer.sh
+#   13. admin dashboards (default ON)  ./devnet-dashboards.sh ; ./common/dns.sh   (opt out: TN_ADMIN_DASHBOARD=0)
 #
 # Resume / piecemeal:
-#   ./devnet-deploy.sh --yes              # full run, steps 1..12
+#   ./devnet-deploy.sh --yes              # full run, steps 1..13 (step 13 skips unless opted in)
 #   ./devnet-deploy.sh --yes --from 5     # resume at step 5 to the end
 #   ./devnet-deploy.sh --yes --only 9     # run ONLY step 9
 #
@@ -36,7 +37,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${REPO_DIR}/devnet-lib.sh"
 
-LAST_STEP=12
+LAST_STEP=13
 BOOTSTRAP_TIMEOUT_SECS=600   # per-node first-boot wait (apt docker-ce + clone scripts)
 BOOTSTRAP_POLL_SECS=15
 
@@ -156,6 +157,19 @@ step_12() {
     echo ">>> Step 12: DNS/Caddy reverse-proxy + load balancer"
     "${REPO_DIR}/common/dns.sh"
     "${REPO_DIR}/common/setup-load-balancer.sh"
+}
+step_13() {
+    echo ">>> Step 13: admin dashboard (Node Manager UI) — install + expose read-only"
+    # Mandatory by default (config.sh TN_ADMIN_DASHBOARD=1). Opt out only with TN_ADMIN_DASHBOARD=0.
+    if [ "${TN_ADMIN_DASHBOARD:-1}" != "1" ]; then
+        echo "    TN_ADMIN_DASHBOARD=0 (explicitly opted out) — skipping."
+        return 0
+    fi
+    # No secret handling here: common/dns.sh fetches the basic_auth hash from Secret Manager
+    # itself (one-time setup: ./devnet-admin-secret.sh). Install the UI backend FIRST, then
+    # re-apply Caddy so the admin vhost points at a service that already answers on :8080.
+    "${REPO_DIR}/devnet-dashboards.sh"   # (1) install/refresh the UI fleet-wide (backend live FIRST)
+    "${REPO_DIR}/common/dns.sh"          # (2) re-apply Caddy; dns.sh auto-fetches the hash + emits the vhost
 }
 
 # pause_for_operator — block until ENTER (skipped only if stdin isn't a TTY, e.g.

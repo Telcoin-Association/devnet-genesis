@@ -351,3 +351,29 @@ Driving the devnet Phase 4 rollout over the overlay surfaced these — each cost
   `node{N}.devnet…` already resolved (pre-created records). The aggregate `rpc.devnet.telcoin.network` →
   LB-IP A-record must be created by whoever owns that DNS; the Google-managed LB cert only provisions after
   it resolves. Everything else (per-node HTTPS+WSS) is fully self-service over the overlay.
+
+## Render-gating a Caddyfile feature: prove byte-identical-when-off, and inject `$`-secrets via ENV not a sourced assignment (2026-06-25)
+
+Adding the OPTIONAL admin-dashboard vhost to `config-caddy.sh` (gated `TN_ADMIN_DASHBOARD=1`,
+`basic_auth` with a bcrypt hash). The live RPC path is sacred, so the gate was: render the Caddyfile from
+the REAL old (`git show HEAD:…`) and new scripts with the flag OFF, `diff` must be empty.
+
+- **A gated append can be made byte-identical-when-off WITHOUT needing `caddy fmt`.** Splicing `${ADMIN_BLOCK}`
+  (empty when off) onto its own line in the heredoc, replacing the existing blank line, renders the exact same
+  bytes as before — `}\n` + `\n` (empty expansion) + `# next` = the original `}\n\n# next`. So the RPC-safety
+  `diff` is empty even pre-`fmt`, provable on a box with no `caddy` installed. Design the off-path to collapse
+  to the original whitespace and the gate needs no external tool.
+- **`common/` is a SUBMODULE — `git show HEAD:common/config-caddy.sh` from the parent fails** ("exists on disk,
+  but not in HEAD"). Read the baseline from the submodule's own git: `git -C common show HEAD:config-caddy.sh`.
+- **When render-testing a value that contains `$` (bcrypt `$2a$14$…`, a password), inject it via the
+  ENVIRONMENT, never as a line in a sourced harness.** A sourced `TN_ADMIN_AUTH_HASH=$2a$14$abc` line is
+  re-parsed by bash: `$2`/`$1`/`$abc` expand to empty → the hash silently became `a4`. That is a HARNESS bug,
+  not a code bug — the production path passes the hash as a `sudo env` value, and a *variable's value is never
+  re-expanded* (which is exactly why the feature is safe). Mirror that in the test: `export VAR='$2a$14$…';
+  bash harness` (or run under the var), and assert with `grep -F` against a saved file (nested `case`/`"..."`
+  patterns re-mangle the `$`). Bit me on two separate assertions this session before I switched to env+grep -F.
+- **A plan's `: "${SECRET:=$(fetch)}"` one-liner hides a fail-open.** Under `set -e`, a failed command-sub
+  inside `${:=}` does NOT abort — a failed/empty Secret-Manager fetch silently yields an empty hash, and the
+  builder's "basic_auth only if hash non-empty" guard then drops auth entirely → a PUBLIC unauthenticated
+  dashboard. Resolve secrets explicitly and fail loud on fetch-error AND on empty, when the whole point of the
+  step is to gate access. The verification expecting `401` is the tell that empty-hash is never the intended path.

@@ -238,3 +238,22 @@ export WG_NODE_FIREWALL=0
 # = HEALTHCHECK_MONITOR_SRC above; mirrored to tn-node-deployment's TN_KUMA_SRC so the
 # host UFW health rule and the GCP rule agree on one /32.
 export TN_KUMA_SRC="${HEALTHCHECK_MONITOR_SRC}"
+#
+# Admin dashboard (Telcoin Node Manager UI) — MANDATORY, zero-config
+# ------------------------------------------------------------------
+# DEFAULT ON. devnet-dashboards.sh installs the Flask UI (telcoin-ui, 127.0.0.1:8080)
+# on every node, and common/dns.sh -> config-caddy.sh fronts it at admin.<node>.${BASE_DOMAIN}.
+# The public Caddy vhost stamps the unforgeable X-TN-Dashboard-Public header so server.py
+# refuses every write — the public path is READ-ONLY. basic_auth gates it with one SHARED
+# credential across all 5 nodes: the username below + a bcrypt hash in GCP Secret Manager.
+# Management (start/stop/edit) stays on the SSH tunnel (tn-node-deployment/open-ui.sh).
+#
+# NO env vars to set: common/dns.sh fetches the hash from Secret Manager itself on every run
+# (TN_ADMIN_HASH_SECRET). One-time setup of that secret: ./devnet-admin-secret.sh.
+# Set TN_ADMIN_DASHBOARD=0 ONLY to explicitly opt out (Caddyfile then byte-identical to RPC-only).
+export TN_ADMIN_DASHBOARD="${TN_ADMIN_DASHBOARD:-1}"        # 1 => install + expose the Node Manager UI (default ON)
+export TN_ADMIN_AUTH_USER="${TN_ADMIN_AUTH_USER:-admin}"    # basic_auth username (shared across nodes)
+export TN_ADMIN_HASH_SECRET="${TN_ADMIN_HASH_SECRET:-devnet-admin-dashboard-hash}"  # GCP Secret Manager: bcrypt hash
+# NOTE: TN_ADMIN_AUTH_HASH (the bcrypt hash itself) is intentionally NOT defaulted here — it is a
+# credential, auto-resolved at rollout by dns.sh from Secret Manager (or honored if pre-exported).
+# It must never be committed or logged.

@@ -1,3 +1,73 @@
+# TODO — Restore admin dashboards on devnet (Node Manager UI at admin.node[1-5]) — 2026-06-25
+
+Install the Telcoin Node Manager UI on all 5 nodes and front it at
+`admin.nodeX.devnet.telcoin.network` via the devnet Caddy — read-only, basic_auth,
+shared bcrypt credential in GCP Secret Manager. Additive + gated; zero RPC impact.
+The public vhost stamps the unforgeable `X-TN-Dashboard-Public` header → server.py
+refuses every write (read-only). Management stays on the SSH tunnel over the overlay.
+
+## Implementation
+- [x] 1. `common/config-caddy.sh` — ADMIN_BLOCK builder before the heredoc; splice
+      `${ADMIN_BLOCK}` between the `${SITE_ADDR}` block and the `:80` comment. Inert when off.
+- [x] 2. `common/dns.sh` — thread `TN_ADMIN_DASHBOARD/_AUTH_USER/_AUTH_HASH` into the
+      per-node sudo call (`:-` defaults for `set -u`); Phase-4 admin probe (200/401 OK).
+- [x] 3. `devnet-dashboards.sh` — NEW UI-rollout driver (mirrors `devnet-observability.sh`);
+      ships pinned `tn-node-deployment/ui/` via tar → `/tmp` → `install-ui.sh --update`. +x set.
+- [x] 4. `devnet-deploy.sh` — gated `step_13`; bump `LAST_STEP=12`→`13`; header step list.
+- [x] 5. `config.sh` — `TN_ADMIN_DASHBOARD` / `TN_ADMIN_AUTH_USER` / `TN_ADMIN_HASH_SECRET` defaults.
+
+## Verification (no node touched) — ALL PASS
+- [x] 6. Pre-flight RPC-safety gate (render from the REAL files, no hand-copy):
+      - GATE 1 (critical): flag OFF, old(HEAD) vs new → `diff` EMPTY, byte-identical = ZERO RPC regression.
+      - GATE 2: flag ON+auth → well-formed admin vhost; bcrypt `$2a$14$…` inserted VERBATIM (no
+        re-expansion); RPC `(rpc)`/`${SITE_ADDR}`/`:80` blocks all intact. Braces balanced.
+      - GATE 3: flag ON, empty hash → no `basic_auth` (AUTH_BLOCK guard); step_13 refuses upstream.
+      - GATE 4: multi-suffix → admin domains comma-joined into one block.
+      - dns.sh threading: bcrypt hash with `$`/`.`/`/` single-quoted + carried VERBATIM (two-layer safe).
+      - (caddy not installed locally → `caddy validate` runs on-node per config-caddy.sh L177+dns.sh.)
+- [x] 7. `bash -n` clean on all 5 files. devnet-deploy.sh: LAST_STEP=13, step_13 present, 13 in-range.
+      step_13 isolation (stubbed, no real deploy): C1 skip-when-off; C2 pre-set hash (no fetch);
+      C3 fetch-from-SM; C4 fail-loud on fetch-fail; C5 refuse on empty-hash; dashboards-before-dns
+      ordering confirmed. devnet-dashboards.sh bogus-subset → fail-fast, no node contact, no leftover tar.
+
+## Review
+DONE + verified, additive + gated, ZERO RPC-path regression (proven by byte-identical render with flag off).
+Code committed: NO (per session scope — user asked to implement, not push/deploy). Pre-flight only; no node touched.
+
+Justified deviation from the plan (hardening, supports the plan's own verification):
+- step_13 resolves the hash explicitly (not the plan's `: "${VAR:=$(...)}"` one-liner) and FAILS LOUD
+  if the Secret Manager fetch errors OR returns empty — refusing to expose an UNAUTHENTICATED public
+  dashboard. The plan's `:=` form would silently swallow a failed fetch (set -e doesn't trip on a
+  command-sub inside `${:=}`) → empty hash → `basic_auth` dropped → public unauth read-only dashboard
+  leaking node health/logs/config. The plan's own verification expects 401 (auth on), so empty-hash is
+  never the intended step_13 path. Uses `tn_secret` (devnet-lib.sh) for consistency with obs.
+
+Pre-existing, NOT mine (leave for operator): `common` submodule also has uncommitted wgvpn/* edits;
+`tn-node-deployment` has uncommitted setup-vpn.sh — both from prior session work. I touched ONLY
+config-caddy.sh + dns.sh (common) and read/tarred ui/ read-only.
+
+## REDESIGN (2026-06-25, per user): MANDATORY + zero-config — no env vars, scripts fetch the secret themselves
+- `config.sh`: `TN_ADMIN_DASHBOARD` default flipped 0→**1** (removed the user's hand-added `TN_ADMIN_DASHBOARD=1` line).
+- `common/dns.sh`: now AUTO-FETCHES the bcrypt hash from Secret Manager once (gcloud) and threads it; on
+  fetch-failure → RPC-only + warn (never unauthenticated, RPC never blocked); pre-set hash honored; admin
+  probe softened to WARN-ONLY (a not-yet-installed UI can't fail the RPC sweep).
+- `devnet-deploy.sh step_13`: default-on (opt out TN_ADMIN_DASHBOARD=0); no secret logic (dns.sh owns it).
+- NEW `devnet-admin-secret.sh`: idempotent one-time secret creation (caddy bcrypt → Secret Manager), prints
+  the password once; `--rotate` adds a version. (The earlier paste failure was just terminal line-wrapping.)
+- Re-verified: bash -n all; config default 1 / opt-out 0; dns.sh fetch success/fallback/override; secret
+  helper exists-noop / absent-create; RPC-safety GATE 1 still byte-identical.
+
+OPERATOR (recurring path is now ENV-VAR-FREE):
+1. ONE-TIME: `./devnet-admin-secret.sh`  (creates the GCP secret + prints the password — store it; needs
+   local `caddy`: `brew install caddy`). `--rotate` to change the password later.
+2. EVERY TIME (no env vars): `./devnet-dashboards.sh && ./common/dns.sh`  (or `./devnet-deploy.sh`).
+   Prefix `TN_SSH_TRANSPORT=overlay` only if IAP is broken.
+3. Verify: `https://admin.node1.devnet.telcoin.network/` → 401; `-u admin:$PW` → 200; POST → 403.
+4. Commit/push devnet-genesis + common, bump submodule pointers (operator owns push/deploy). Leave the
+   unrelated pre-existing `common/wgvpn/*` + `tn-node-deployment/setup-vpn.sh` edits out of the commit.
+
+---
+
 # TODO — Devnet: restore SSH (grant2), deploy obs, secure BLS, bring RPC online — 2026-06-19
 
 Closing the 4 loose ends after `devnet-deploy.sh` stopped before step 9. Execute in order; gate after each.
