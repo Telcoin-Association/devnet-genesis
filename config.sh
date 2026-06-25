@@ -117,13 +117,13 @@ export NODE_DEPLOY_MODE="tn-node-deployment"
 export TN_INSTALL_METHOD="docker"                          # node runs the telcoin docker image
 export SERVICE_USER="telcoin"                              # systemd service + data-dir owner on node
 export TN_NODE_SCRIPTS_DIR="/home/${SERVICE_USER}/telcoin-node-scripts"  # install.sh target on node
-export VALIDATOR_DATA_DIR="/var/lib/telcoin/validator"     # DATA_DIR: chain data + node-keys/ live here
-export OBSERVER_DATA_DIR="/var/lib/telcoin/observer"
+export VALIDATOR_DATA_DIR="/var/lib/telcoin"               # DATA_DIR: chain data + node-keys/ live here (unified, no role subdir)
+export OBSERVER_DATA_DIR="/var/lib/telcoin"
 export TN_CHAIN_SUBDIR="devnet"                            # chain-configs/<subdir> the node looks under
 # Where devnet-finalize.sh stages committee/genesis/parameters so setup-validator.sh
 # --genesis-dir finds them (matches setup-*.sh ${CONFIG_DIR}/chain-configs/<subdir>).
-export VALIDATOR_GENESIS_DIR="/etc/telcoin/validator/chain-configs/devnet"
-export OBSERVER_GENESIS_DIR="/etc/telcoin/observer/chain-configs/devnet"
+export VALIDATOR_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
+export OBSERVER_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
 #
 # Global L7 Load Balancer (rpc.devnet.telcoin.network)
 #

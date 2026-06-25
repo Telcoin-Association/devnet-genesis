@@ -8,8 +8,7 @@
 #   1. scp committee.yaml + genesis.yaml + parameters.yaml to /tmp, then
 #      sudo mv them into the role's genesis dir (root-owned).
 #   2. run setup-validator.sh / setup-observer.sh --phase=finalize ... which
-#      installs the systemd unit (telcoin-validator / telcoin-observer) and
-#      starts the node.
+#      installs the systemd unit (telcoin) and starts the node.
 #
 # SECURITY: same as devnet-keygen.sh — the BLS passphrase is resolved once via
 # tn_require_bls_passphrase and passed as sudo TN_BLS_PASSPHRASE='...'; it is
@@ -133,9 +132,6 @@ for i in "${INDICES[@]}"; do
         # (devnet evaluates the opt-in via tn_node_launch_flags' is_testnet_like gate).
         --enable-healthcheck-monitor
     )
-    if [ "${role}" = "observer" ]; then
-        finalize_args+=(--instance 5)
-    fi
 
     # Passphrase interpolated here — NEVER echo this var; log the redacted twin.
     # `sudo env VAR=...` (see devnet-keygen.sh): guarantees TN_BLS_PASSPHRASE reaches the

@@ -114,9 +114,9 @@ tn_require_bls_passphrase() {
 tn_node_role() { printf '%s' "${NODE_ROLES[$1]}"; }
 
 # tn_data_dir_for_role <role> / tn_genesis_dir_for_role <role> / tn_service_for_role <role>
-tn_data_dir_for_role() { [ "$1" = "observer" ] && printf '%s' "${OBSERVER_DATA_DIR}" || printf '%s' "${VALIDATOR_DATA_DIR}"; }
-tn_genesis_dir_for_role() { [ "$1" = "observer" ] && printf '%s' "${OBSERVER_GENESIS_DIR}" || printf '%s' "${VALIDATOR_GENESIS_DIR}"; }
-tn_service_for_role() { [ "$1" = "observer" ] && printf '%s' "telcoin-observer" || printf '%s' "telcoin-validator"; }
+tn_data_dir_for_role() { printf '%s' "${VALIDATOR_DATA_DIR}"; }
+tn_genesis_dir_for_role() { printf '%s' "${VALIDATOR_GENESIS_DIR}"; }
+tn_service_for_role() { printf %s "telcoin"; }
 
 # tn_setup_script_for_role <role> -> the on-node setup script path (in TN_NODE_SCRIPTS_DIR)
 tn_setup_script_for_role() {

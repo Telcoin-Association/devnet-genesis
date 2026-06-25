@@ -7,7 +7,7 @@
 #
 # Per node it runs (as root, on the node):
 #   setup-validator.sh --phase=keygen ...   (validators)
-#   setup-observer.sh  --phase=keygen --instance 5 ...   (observer)
+#   setup-observer.sh  --phase=keygen ...   (observer)
 # capturing the JSON the keygen emits, then copies <DATA_DIR>/node-info.yaml down
 # to genesis/validators/<nodeN>.yaml (validators) or genesis/observers/<nodeN>.yaml.
 #
@@ -124,10 +124,6 @@ for i in "${INDICES[@]}"; do
         --service-user "${SERVICE_USER}"
         --advertised-name "${node}"
     )
-    # The observer is committee instance 5 and uses the observer data dir.
-    if [ "${role}" = "observer" ]; then
-        keygen_args+=(--instance 5)
-    fi
 
     # The remote command. The passphrase is interpolated here — DO NOT echo this
     # variable. A redacted twin is what we log.
