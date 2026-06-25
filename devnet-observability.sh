@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-observability.sh — roll out the per-node observability sidecar (Alloy:
 # logs + metrics + the health endpoint) across the fleet by driving each node's

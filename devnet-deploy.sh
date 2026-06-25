@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-deploy.sh — the one-time Ubuntu-migration runbook, expressed as a guided,
 # resumable script. It SEQUENCES the real provisioning sub-scripts (and pauses for

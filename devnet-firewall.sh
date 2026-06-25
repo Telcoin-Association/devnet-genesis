@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-firewall.sh — manage the HOST (UFW) firewall on each node by driving its
 # tn-node-deployment firewall-setup.sh over the lib transport (IAP by default, or the

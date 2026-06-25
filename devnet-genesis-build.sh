@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-genesis-build.sh — OPERATOR driver (LOCAL only, no ssh): assemble the
 # committee + genesis from the per-validator node-info collected by

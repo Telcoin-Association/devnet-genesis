@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-wipe.sh — tn-node-deployment-aware chain wipe that PRESERVES keys.
 #

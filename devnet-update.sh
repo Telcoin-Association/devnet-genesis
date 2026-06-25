@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-update.sh — staggered software redeploy across the fleet, WITHOUT
 # recreating any GCP instance and WITHOUT touching keys.
@@ -111,7 +111,28 @@ redeploy_one() {
     fi
 
     echo "    (b) redeploy software via finalize (image ${DOCKER_IMAGE})"
-    "${FINALIZE_SCRIPT}" "${inst}" || { echo "    ❌ finalize failed on ${inst} — aborting run." >&2; return 1; }
+    # A VALIDATOR finalize exits rc=1 BENIGNLY: it writes the wrapper/unit and the service
+    # runs, then fails only the post-start on-chain address check (finalize passes no
+    # --validator-address). So do NOT abort on the finalize rc — wait_healthy (step c) is the
+    # real gate: it confirms the node is active AND actually serving :43174.
+    if ! "${FINALIZE_SCRIPT}" "${inst}"; then
+        echo "    ⓘ finalize rc≠0 (expected for validators: benign on-chain address check) — gating on health instead."
+    fi
+
+    # (b2) Apply the freshly-written wrapper. finalize only WRITES the wrapper/unit; under
+    # --no-wipe the service was never stopped, so finalize's 'start' is a no-op and the OLD
+    # container keeps running (old image, no --healthcheck). An explicit restart swaps in the
+    # new wrapper (new image + flags). The wipe path gets a fresh start for free, so skip it
+    # there. Pre-pull first (both paths) so the start/restart never races the image download
+    # against wait_healthy's timeout.
+    echo "    (b2) pre-pull ${DOCKER_IMAGE}"
+    tn_iap_ssh "${inst}" "${zone}" "sudo docker pull '${DOCKER_IMAGE}'" >/dev/null 2>&1 \
+        || { echo "    ❌ image pull failed on ${inst} — aborting run." >&2; return 1; }
+    if [ "${NO_WIPE}" -eq 1 ]; then
+        echo "         --no-wipe: restart ${svc} to apply the new wrapper (finalize 'start' is a no-op on a running svc)"
+        tn_iap_ssh "${inst}" "${zone}" "sudo systemctl restart '${svc}'" \
+            || { echo "    ❌ restart failed on ${inst} — aborting run." >&2; return 1; }
+    fi
 
     echo "    (c) settle ${STAGGER_SECS}s then gate on endpoint health"
     sleep "${STAGGER_SECS}"

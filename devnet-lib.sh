@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-lib.sh — shared helpers for the devnet-*.sh per-node driver scripts.
 #

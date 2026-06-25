@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-keygen.sh — OPERATOR driver: run tn-node-deployment keygen on every node
 # (or a targeted subset) over IAP SSH, then pull each node's node-info.yaml back
@@ -73,7 +73,9 @@ if ! tn_require_bls_passphrase; then
     exit 1
 fi
 
-mapfile -t INDICES < <(tn_select_indices "$@")
+# macOS /bin/bash is 3.2 and lacks `mapfile`; this read-loop is the portable equivalent.
+INDICES=()
+while IFS= read -r _idx; do INDICES+=("$_idx"); done < <(tn_select_indices "$@")
 echo ">>> keygen targets: ${#INDICES[@]} node(s) — ${INDICES[*]}"
 
 # Local collection dirs for the pulled node-info files.

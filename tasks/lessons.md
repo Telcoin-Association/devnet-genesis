@@ -377,3 +377,65 @@ the REAL old (`git show HEAD:…`) and new scripts with the flag OFF, `diff` mus
   builder's "basic_auth only if hash non-empty" guard then drops auth entirely → a PUBLIC unauthenticated
   dashboard. Resolve secrets explicitly and fail loud on fetch-error AND on empty, when the whole point of the
   step is to gate access. The verification expecting `401` is the tell that empty-hash is never the intended path.
+## CORRECTION: `--healthcheck 43174` is NOT broken — it was never being EMITTED on devnet (2026-06-20)
+
+Supersedes the earlier entry above ("`--healthcheck 43174` binds NOTHING … the flag is broken").
+That was a **misdiagnosis**. Source-level ground truth (telcoin-network):
+
+- `--healthcheck <PORT>` is a real telcoin-network **node CLI** arg (`Option<u16>`,
+  `crates/telcoin-network-cli/src/node.rs`, `env=HEALTHCHECK_TCP_PORT`, `global=true`). It IS NOT a
+  reth flag. The listener spawn is gated only by `if let Some(port) = self.builder.healthcheck`
+  (`crates/node/src/manager/node.rs`). So passing `--healthcheck 43174` DOES bind a :43174 listener.
+
+Why `ss -ltnp` showed no :43174 listener on devnet: the flag was **never on the command line**. The
+deploy path bakes it via `tn_node_launch_flags()` (`tn-node-deployment/lib/common.sh`), which had TWO
+independent suppressors on devnet:
+  1. `is_testnet || return ""` — strict (testnet-only) gate returned empty BEFORE checking the
+     healthcheck opt-in. (Sibling `is_testnet_like` = testnet OR devnet already existed for this.)
+  2. `ENABLE_HEALTHCHECK_MONITOR` defaults false and `--json`/finalize skips `prompt_testnet_addons`,
+     so nothing turned it on.
+→ node launched with NO `--healthcheck` → closed port → Kuma AND the LB health check both failed.
+
+**Fix shipped this session:** gate → `is_testnet_like`; add `--enable-healthcheck-monitor` to
+setup-{validator,observer}.sh parsers; pass it from devnet-finalize.sh. Render-test PROVES devnet+opt-in
+→ `--healthcheck 43174`, devnet+default → empty, testnet unaffected, mainnet still gated off.
+
+**Lesson:** "flag present in the command we *intended* + no listener" ≠ "flag is broken." FIRST prove the
+flag is actually on the live `telcoin node …` argv (`ps`/the rendered wrapper/systemd unit) before blaming
+the binary. A gate upstream of the flag can silently drop it. And before rollout, run the preflight
+(`docker run --rm <DOCKER_IMAGE> node --help | grep -- --healthcheck`) — the only real residual risk now is
+an image too old to know the flag (it would crash-loop), which the staggered abort-on-first-failure catches.
+
+**Also corrected:** the earlier workaround repointed the GCP LB health check to :80 (Caddy). With :43174
+now actually served, the LB's *original* 43174 TCP check (`common/setup-load-balancer.sh`) is correct again
+— but a host-ufw rule was missing: `apply_kuma_rule` admits only the Kuma VM, not the Google HC ranges, so
+LB backends stay unhealthy at the ufw layer even with the listener up. Added `apply_lb_hc_rule`
+(`TN_LB_HC_RANGES`, driven by devnet-firewall.sh from `GOOGLE_HC_RANGES`) to the lockout-safe enable.
+
+## `--no-wipe` re-finalize must RESTART; gate on health, not finalize rc; portability audit (2026-06-20)
+
+Driving `devnet-update.sh --no-wipe` (chain-preserving healthcheck rollout) surfaced three things:
+
+- **`--no-wipe` finalize writes the wrapper but does NOT apply it.** `setup-*.sh --phase=finalize`
+  writes `/opt/telcoin/start-<svc>.sh` + the unit, then `systemctl start` — which is a **no-op when
+  the service is already running**. So after a no-wipe finalize the node KEPT running the OLD
+  container (old image, no `--healthcheck`) even though the wrapper now had the new image + flag.
+  Verified live: service `active`, wrapper had `--healthcheck 43174`, but `ss` showed NO :43174 and
+  `docker ps` showed the OLD image. Fix: under `--no-wipe`, `redeploy_one` now `docker pull`s then
+  `systemctl restart`s to swap in the new wrapper. (The wipe path gets a fresh start for free.)
+- **The benign validator finalize rc=1 aborts the rollout.** As in the Phase-4 lesson, a validator
+  `--phase=finalize` exits rc=1 (post-start on-chain address check, no `--validator-address`) even
+  though the service runs + RPC responds. `devnet-update.sh`/`reset-network.sh` aborted on it before
+  `wait_healthy` ran. Fix: do NOT abort on the finalize rc — `wait_healthy` (active + :43174) is the
+  real gate. `devnet-finalize.sh`'s own summary still prints "failed (1): nodeN" for the benign case;
+  that's cosmetic — trust the health gate.
+- **Bash portability (macOS bash 3.2):** `mapfile` (bash-4) under `#!/bin/bash` killed
+  `devnet-finalize.sh` on the Mac (macOS `/bin/bash`=3.2.57). Fixed the 3 operator `mapfile` sites
+  (env-bash shebang + portable `while read` loop), normalized operator-driver shebangs to
+  `#!/usr/bin/env bash`, and added `tasks/check-bash-portability.sh` (lint: ERROR on bash-4 under
+  `#!/bin/bash`). tn-node-deployment GNU/bash-4 usages are node-side (Linux) — latent, see
+  `tasks/bash-portability-audit.md`. Memory: [[bash-scripts-mac-linux-portable]],
+  [[devnet-on-node-scripts-are-git-clone]], [[devnet-ssh-helpers-need-bash-not-zsh]].
+- **Re-preflight when `DOCKER_IMAGE` changes mid-task.** It changed `v0.11.0-devnet` →
+  `v0.11.1-devnet-pop` between preflight and rollout; both happen to support `--healthcheck`
+  (re-verified), but always re-check `docker run <img> telcoin node --help | grep healthcheck`.

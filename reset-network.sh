@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Reset the devnet to genesis under a new chain id, preserving VMs/IPs/keys.
 # Sequence: verify -> confirm -> wipe chain data (keys preserved) -> finalize (restage + restart).
 #
@@ -60,13 +60,20 @@ reset_indices() {
         done
     done
 }
-mapfile -t RESET_IDX < <(reset_indices)
+# macOS /bin/bash is 3.2 and lacks `mapfile`; this read-loop is the portable equivalent.
+RESET_IDX=()
+while IFS= read -r _idx; do RESET_IDX+=("$_idx"); done < <(reset_indices)
 
 finalize_and_gate() {  # <index> — finalize one node, then gate on endpoint health.
-    local i="$1" inst="${INSTANCE_NAMES[$i]}" zone="${ZONES[$i]}" role svc
+    local i="$1"   # assign i on its own line: a same-statement ${INSTANCE_NAMES[$i]} would
+    local inst="${INSTANCE_NAMES[$i]}" zone="${ZONES[$i]}" role svc  # expand $i before i is set
     role="$(tn_node_role "$i")"; svc="$(tn_service_for_role "$role")"
     echo "--> finalize ${inst} (role=${role}, service=${svc})"
-    ./devnet-finalize.sh "${inst}" || { echo "Finalize failed on ${inst}; check logs."; return 1; }
+    # Pre-pull so the post-wipe fresh start doesn't race the image download against wait_healthy.
+    tn_iap_ssh "${inst}" "${zone}" "sudo docker pull '${DOCKER_IMAGE}'" >/dev/null 2>&1 || true
+    # Validators finalize rc=1 BENIGNLY (post-start on-chain address check passes no address) —
+    # don't abort on the rc; wait_healthy below is the real gate (active + :43174 serving).
+    ./devnet-finalize.sh "${inst}" || echo "  ⓘ finalize rc≠0 (benign for validators) — gating on health."
     wait_healthy "${inst}" "${zone}" "${svc}" || { echo "${inst} did not come back healthy; aborting."; return 1; }
 }
 

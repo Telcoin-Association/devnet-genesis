@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # devnet-finalize.sh — OPERATOR driver: stage the assembled genesis on every node
 # (or a targeted subset) and run the tn-node-deployment FINALIZE phase, which
@@ -65,7 +65,9 @@ if ! tn_require_bls_passphrase; then
     exit 1
 fi
 
-mapfile -t INDICES < <(tn_select_indices "$@")
+# macOS /bin/bash is 3.2 and lacks `mapfile`; this read-loop is the portable equivalent.
+INDICES=()
+while IFS= read -r _idx; do INDICES+=("$_idx"); done < <(tn_select_indices "$@")
 echo ">>> finalize targets: ${#INDICES[@]} node(s) — ${INDICES[*]}"
 
 finalized=()

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Lock down the devnet with tag-based VPC firewall rules on the project's
 # `default` network (target tag `validator`, which every instance carries):

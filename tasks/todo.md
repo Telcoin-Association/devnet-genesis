@@ -490,3 +490,79 @@ telcoin-network. Also: parameterize create-instances.sh:119 disk size via config
 
 Reusable ops scripts created in tasks/ (IAP-based): run-on-all.sh, resize-disk.sh, recover-down-node.sh,
 verify-all.sh, check-progress.sh, diag-epoch.sh, assess.sh, diagnose-health.sh.
+
+---
+
+# Fix devnet healthcheck endpoint + staggered health-gated rollout — 2026-06-20
+
+Root cause: node never opened the :43174 listener on devnet → Kuma TCP monitors + GCP LB health
+check all failed. `--healthcheck 43174` IS the right flag (telcoin-network node CLI), but
+`tn_node_launch_flags()` dropped it on devnet via the strict `is_testnet` gate + no opt-in in the
+json/finalize flow. (Corrects the earlier "flag is broken" misdiagnosis — see lessons.md.)
+
+## Changes (code complete + statically verified; rollout = operator step)
+### §1 Emit the flag on devnet — tn-node-deployment SUBMODULE
+- [x] `lib/common.sh` `tn_node_launch_flags()`: `is_testnet` → `is_testnet_like` (devnet now reaches
+      the per-feature opt-ins; each stays individually `ENABLE_*`-gated, default off).
+- [x] `setup-validator.sh` + `setup-observer.sh` main() parsers: add
+      `--enable-healthcheck-monitor) ENABLE_HEALTHCHECK_MONITOR=true; shift ;;` (overrides the
+      line-43/44 default; env var would NOT work — that default is `=`, not `:=`).
+### §2 Staggered health-gated rollout — devnet-genesis
+- [x] `devnet-lib.sh`: new reusable `wait_healthy <inst> <zone> <svc>` — on-node `systemctl is-active`
+      == active AND `curl -fsS --max-time 3 http://127.0.0.1:43174` (loopback; firewall blocks external).
+- [x] `devnet-update.sh`: `--no-wipe` (skip wipe → staggered RE-FINALIZE, chain preserved); replaced
+      `wait_active` with `wait_healthy`. **Rollout cmd: `./devnet-update.sh --no-wipe`.**
+- [x] `devnet-finalize.sh`: add `--enable-healthcheck-monitor` to `finalize_args` (both roles).
+- [x] `reset-network.sh` (secondary): source devnet-lib.sh; replace bulk finalize with
+      validators-first/observer-last finalize+`wait_healthy` loop.
+### §3 Firewall
+- [x] VPC Step 5 (Google HC) + Step 5b (Kuma) — already in working tree, kept.
+- [x] Host ufw: VERIFIED `apply_kuma_rule` admits ONLY the Kuma VM, NOT the Google HC ranges → LB would
+      stay unhealthy. Added `apply_lb_hc_rule` (submodule `lib/common.sh` + wired into
+      `apply_recommended_firewall`), driven by `TN_LB_HC_RANGES`; `devnet-firewall.sh --enable` passes
+      `GOOGLE_HC_RANGES` (now a single-source constant in config.sh; setup-firewall.sh consumes it).
+### §4 LB — no change (existing 43174 TCP check is correct once the listener is up).
+### §5 health.rs:27 doc comment — OUT OF SCOPE (telcoin-network source not in this repo).
+
+## Verification done (static — no live infra touched)
+- [x] `bash -n` clean on all 11 edited files.
+- [x] Render test vs REAL `lib/common.sh` (10/10): devnet+opt-in→`--healthcheck 43174`;
+      devnet default/unset→empty; testnet unaffected; mainnet still gated; `apply_lb_hc_rule`
+      comma-splits → one `ufw allow … port 43174 proto tcp` per CIDR, no-op on empty, spacing tolerated.
+- [x] Parser arms present, after default, before catch-all (reachable); precedence proven.
+- [x] `wait_healthy` remote cmd well-formed (parses as bash; node-side branches emit HEALTHY /
+      INACTIVE:<state> / NOLISTEN); rc 0 only on HEALTHY; rc 1 on inactive/nolisten/ssh-fail.
+- [x] reset-network ordering: validators-first, observer-last, subset honored.
+
+## Review / rollout prerequisites (OPERATOR)
+- **Push submodule first.** Nodes run a clone of the tn-node-deployment GitHub repo (refreshed via
+  `git pull`/`update-scripts.sh`). The §1/§3 edits must be committed+pushed to that repo's `main` AND
+  pulled onto each node BEFORE `devnet-update.sh --no-wipe`, or finalize re-bakes with STALE scripts (no
+  flag) and silently no-ops the fix.
+- **PREFLIGHT (critical):** `docker run --rm $DOCKER_IMAGE node --help | grep -- --healthcheck`
+  (image = `adiri:v0.11.0-devnet`). An image too old to know the flag would crash-loop; the staggered
+  abort-on-first-failure is the safety net.
+- After 1st validator: on-node `ss -ltnp | grep 43174` + `curl -s http://127.0.0.1:43174` → OK.
+- End-to-end: 5 Kuma monitors green + `gcloud compute backend-services get-health devnet-rpc-backend
+  --global`. If LB stays unhealthy while Kuma is green → host ufw lacks the Google ranges → re-run
+  `./devnet-firewall.sh --enable` (now passes them).
+
+## ✅ ROLLOUT COMPLETE — 2026-06-20 (healthcheck endpoint live on all 5 + portability hardened)
+
+VERIFIED end state (image bumped to adiri:v0.11.1-devnet-pop; preflight-confirmed --healthcheck support):
+- All 5 nodes: service active, :43174 listening, curl OK, new image. (independent on-node sweep)
+- GCP LB `devnet-rpc-backend`: all 5 backends HEALTHY.
+- Host ufw admits Kuma VM + Google HC ranges on :43174 (config-caddy already added the LB ranges;
+  apply_lb_hc_rule is now a fresh-enable safety net). Kuma monitors green (same external path as LB).
+
+Two live-exposed rollout bugs FIXED in devnet-update.sh + reset-network.sh:
+1. `--no-wipe` finalize writes the wrapper but `systemctl start` is a no-op on a running svc → OLD
+   container persisted. Fix: pre-pull + `systemctl restart` under --no-wipe to apply the new wrapper.
+2. Benign validator finalize rc=1 (on-chain address check) aborted the run → gate on wait_healthy, not rc.
+
+Bash portability (separate ask): macOS /bin/bash=3.2 broke `mapfile`. Fixed 3 operator scripts
+(env-bash + read-loop), normalized driver shebangs, added tasks/check-bash-portability.sh lint.
+See tasks/bash-portability-audit.md for the node-script latent findings (decision pending).
+
+OPEN (operator): (a) commit the devnet-genesis parent-repo changes — submodule ff6aee2 already pushed;
+(b) confirm Kuma UI shows 5 green; (c) decide on hardening tn-node-deployment + common/ node scripts.
