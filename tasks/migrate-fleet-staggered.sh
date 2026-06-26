@@ -153,6 +153,15 @@ mkdir -p "$STAGE/lib"
 cp "$MIGRATE_SRC" "$STAGE/migrate-node-naming.sh"
 for f in "${LIB_FILES[@]}"; do [[ -f "${LIB_DIR}/${f}" ]] && cp "${LIB_DIR}/${f}" "$STAGE/lib/${f}"; done
 tar czf "$BUNDLE_TGZ" -C "$STAGE" .
+
+# Local pre-flight: syntax-check the staged script BEFORE shipping it to any node. A
+# parse error (e.g. committed merge-conflict markers) makes the remote script die at
+# rc=2 having executed nothing -- catch it here, on the operator's machine, first.
+if ! bash -n "$STAGE/migrate-node-naming.sh" 2>/dev/null; then
+    err "Staged migrate-node-naming.sh has a SYNTAX ERROR (merge-conflict markers?)."
+    err "Fix it locally (bash -n tn-node-deployment/migrate-node-naming.sh) before rolling out."
+    exit 1
+fi
 MIG_VER="$(grep -m1 'readonly SCRIPT_VERSION=' "$MIGRATE_SRC" | cut -d'"' -f2)"
 
 # --- build the node order: observers first (canary/skip), then validators ----
@@ -251,8 +260,18 @@ for i in "${order[@]}"; do
     echo "$out" | grep -vE '^MIGRATE_RC=' | sed 's/^/    /'
     rc="$(grep -oE 'MIGRATE_RC=[0-9]+' <<<"$out" | tail -1 | cut -d= -f2)"; rc="${rc:-1}"
     if [[ "$rc" != "0" ]]; then
-        err "Migration FAILED on ${name} (rc=${rc}). It self-rolled-back to the legacy"
-        err "service (verify with: bash tasks/verify-all.sh / journalctl -u telcoin-${legacy})."
+        # rc 2 = bash parse error (script never ran a line); 91 = remote mktemp failed;
+        # 92 = tar extract failed. In all three the migration never STARTED, so nothing
+        # was stopped or modified and there is no rollback to speak of -- say so honestly
+        # rather than implying a self-rollback that never armed.
+        if [[ "$rc" == "2" || "$rc" == "91" || "$rc" == "92" ]]; then
+            err "Migration could NOT START on ${name} (rc=${rc}: parse/staging error)."
+            err "${name} was NOT touched -- still on legacy telcoin-${legacy}, nothing to roll back."
+            err "Fix the staged script (bash -n tn-node-deployment/migrate-node-naming.sh) and re-run."
+        else
+            err "Migration FAILED on ${name} (rc=${rc}). It self-rolled-back to the legacy"
+            err "service (verify with: bash tasks/verify-all.sh / journalctl -u telcoin-${legacy})."
+        fi
         err "ABORTING the rollout -- no further nodes touched."
         exit 1
     fi
