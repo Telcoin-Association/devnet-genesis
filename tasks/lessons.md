@@ -1,5 +1,61 @@
 # Lessons
 
+## Bash ERR-trap rollback needs `set -E` (errtrace), not just `set -e` (2026-06-25)
+
+**Symptom (self-caught in review):** `migrate-node-naming.sh` runs every mutation
+step inside a function (`relocate_dir`, `rewrite_unit`, `start_and_verify`, ...)
+under `set -euo pipefail` with `trap on_error ERR` to roll back on failure. But a
+command failing INSIDE a function would exit the script **without** firing the ERR
+trap — so a half-migrated node would NOT be rolled back.
+
+**Root cause:** `set -e` (errexit) DOES abort inside functions, but the ERR *trap*
+is "not inherited by shell functions, command substitutions, or subshells unless
+`-E` (errtrace) is set." `set -euo pipefail` does not include `-E`. So the in-
+function failure aborted via errexit and skipped the trap entirely. Proven:
+`set -euo pipefail` → trap never fires for an in-function `false`; `set -Eeuo
+pipefail` → it fires.
+
+**Fix / rule:** Any node script that relies on a `trap … ERR` handler (rollback,
+cleanup) MUST `set -E`. Add it after sourcing `lib/common.sh` (whose own
+`set -euo pipefail` does not clear `-E`). Verify by forcing a failure inside a
+step and asserting the handler ran. Related: make the script source-safe
+(`if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then main "$@"; fi`) so the step
+functions can be unit-tested without executing the migration.
+Memory: [[bash-scripts-mac-linux-portable]], [[devnet-on-node-scripts-are-git-clone]].
+
+## Editing a version-gated tn-node-deployment file → bump its version constant (2026-06-25)
+
+**Symptom:** Changed `ui/server.py` (the R1/R2 hardening) but left `UI_VERSION`
+untouched. `update-scripts.sh` gates each file on a version constant, so an
+unchanged version means the updater reports "Up to date" and the edit never
+reaches the nodes.
+
+**Root cause:** `update-scripts.sh` compares local-vs-remote of a per-file
+version var (the `SCRIPTS` array: `local_path:remote_path:version_var`). It does
+NOT diff content. No version bump → no detection → no redeploy.
+
+**Fix / rule:**
+- After editing any file listed in `update-scripts.sh`'s `SCRIPTS` array, bump
+  that file's version constant. Key mappings: `ui/server.py` → `UI_VERSION`;
+  most `*.sh` → their own `readonly SCRIPT_VERSION`; `lib/common.sh` →
+  `COMMON_VERSION`; `lib/observability.sh` → `OBSERVABILITY_VERSION`;
+  `lib/testnet-addons.env` → `TESTNET_ADDONS_VERSION`.
+- Bumping `UI_VERSION` is the single gate for the WHOLE UI bundle — it triggers
+  fetching `server.py` + `UI_BUNDLE` companions + `install-ui.sh --update`. UI
+  companion files (static, helper, .service, requirements) have NO version of
+  their own; they ride along on the `UI_VERSION` bump.
+- If you edit `update-scripts.sh` itself (e.g. add a file to `SCRIPTS`/
+  `UI_BUNDLE`), bump ITS `SCRIPT_VERSION` too, or `self_bootstrap` won't pull the
+  new list onto nodes.
+- Files NOT in `SCRIPTS`/any bundle (e.g. `README.md`, dev-only tests) are not
+  shipped by `update-scripts.sh` and need no bump — keep prod-only runtime files
+  in the bundle, dev/CI artifacts out.
+
+**Why it matters:** a silent no-propagation looks like "I shipped the fix" when
+the nodes still run the old code — exactly the failure mode the updater exists to
+prevent.
+
+
 ## gcloud: never put `gcloud alpha` in a non-interactive script (2026-06-10)
 
 **Symptom:** `setup-obs-disk-alert.sh` hung silently at Step 3 after printing

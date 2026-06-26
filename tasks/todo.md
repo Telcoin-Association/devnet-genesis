@@ -1,3 +1,57 @@
+# TODO — Migrate legacy `telcoin-observer` node5 → unified `telcoin` + fix UI validator detection — 2026-06-25
+
+Two pieces in the `tn-node-deployment` submodule (node-side scripts are a git clone gated by
+`update-scripts.sh`, [[bump-version-on-gated-file-edit]]):
+
+## Part A — `migrate-node-naming.sh` (new on-node script)
+- [x] Header `readonly SCRIPT_VERSION="1.0.0"`; source `lib/common.sh` (resolvers + print helpers).
+- [x] Detect legacy unit/role/dirs (scan `telcoin-{validator,observer}.service` directly); idempotent guard + custom-layout guards.
+- [x] Snapshot unit+wrapper+.node-meta to `*.bak.<ts>`; ERR-trap rollback (mv dirs back, restore baks, restart legacy). **Needs `set -E`.**
+- [x] Stop+disable legacy; `docker rm -f` lingering container.
+- [x] Relocate `/etc/telcoin/<role>`→`/etc/telcoin` and `/var/lib/telcoin/<role>`→`/var/lib/telcoin` (collision-guarded, dotglob).
+- [x] Rewrite unit → `telcoin.service` (path subs + Description); rewrite wrapper → `start-telcoin.sh` (path subs + DELETE `--observer`).
+- [x] `.node-meta`: `NODE_TYPE=validator`, `DATA_DIR=/var/lib/telcoin`, optional `VALIDATOR_ADDRESS`; ports unchanged.
+- [x] rm legacy unit+wrapper; daemon-reload; enable+start `telcoin`; verify active + `eth_chainId`; report.
+
+## Part B — UI: detect staked validator via `tn_isValidator`, auto-select validator tab
+- [x] `server.py`: `_b58decode` + `bls_pubkey_to_hex` (base58→0x 96-byte hex; stdlib only).
+- [x] `server.py`: `onchain_is_validator(t,det)` cached ~30s — synced AND `tn_isValidator(hexkey)`==true.
+- [x] `server.py`: `detect_nodes()` remap observer→validator slot (after docker detect; `staked` marker).
+- [x] `server.py`: `/api/nodes` `staked`; `/api/status` `is_validator_onchain`; bump `UI_VERSION` 1.7.65→1.7.66.
+- [x] `static/index.html`: poll-time tab auto-switch when current tab uninstalled; small `staked` badge.
+
+## Version gating + verification
+- [x] `update-scripts.sh`: add `migrate-node-naming.sh` to SCRIPTS; bump its own `SCRIPT_VERSION` (1.1.57→1.1.58).
+- [x] Static: `bash -n`; dry-run sed against node5 fixtures (docker + binary): unified paths, `--name telcoin`, no `--observer`.
+- [x] Static: `py_compile`; unit-test b58 against node5 key (→96-byte hex); `test_public_readonly.py` 7/7.
+- [x] Extra: real `relocate_dir`/`meta_set`/rollback FS tests; `onchain_is_validator`+remap (12 tests); ERR-trap fires rollback.
+
+## Review
+Both pieces landed in the `tn-node-deployment` submodule; all static verification green. Files:
+- **NEW** `migrate-node-naming.sh` (+~430): idempotent, collision-guarded, self-rolling-back migration. **Key
+  fix found in review:** the ERR-trap rollback needs `set -E` (errtrace) — without it the trap is NOT inherited
+  by functions, so a mid-migration failure would exit WITHOUT rolling back. Proven with a focused test.
+  Also added guards that abort (no mutation) on a custom data dir (avoids a slow/dangerous cross-fs db copy)
+  or a non-standard config layout. Made source-safe (`BASH_SOURCE==$0`) so the real functions are unit-testable.
+- `ui/server.py` (+~95): base58→hex, `onchain_is_validator`, `detect_nodes` remap, `/api/nodes` staked,
+  `/api/status` is_validator_onchain, `UI_VERSION`→1.7.66. The remap runs AFTER docker detection so
+  `managed_names` still shields the legacy container from being re-detected as an external node.
+- `ui/static/index.html` (+~10): poll-time auto-switch (only when current tab uninstalled) + staked badge.
+- `update-scripts.sh` (+1, version bump): ships `migrate-node-naming.sh`; self-bootstrap bump ships the new list.
+- `CHANGELOG.md`: two Unreleased entries (migration tool + UI on-chain detection).
+
+Tests: migration sed (docker+binary forms), real `relocate_dir`/`meta_set`/rollback-reverse on a temp tree,
+collision guard, `onchain_is_validator` gating (synced/registered/unsupported/cached), `detect_nodes` remap
+(staked→validator, unstaked stays, real-validator-not-probed), base58 vs node5's real key, route tripwire 7/7.
+
+NEXT (operator — not done here, no commit without ask; submodule deploy is operator-owned):
+1. commit the submodule + bump the parent-repo pointer; 2. on node5: `update-scripts.sh` (pulls the script),
+then `sudo bash migrate-node-naming.sh`; 3. confirm only `telcoin.service` remains, dirs unified, RPC up,
+node rejoins consensus, dashboard validator tab auto-selects. Script is general — other legacy observers can
+follow (node5 first).
+
+---
+
 # TODO — Restore admin dashboards on devnet (Node Manager UI at admin.node[1-5]) — 2026-06-25
 
 Install the Telcoin Node Manager UI on all 5 nodes and front it at
@@ -566,3 +620,53 @@ See tasks/bash-portability-audit.md for the node-script latent findings (decisio
 
 OPEN (operator): (a) commit the devnet-genesis parent-repo changes — submodule ff6aee2 already pushed;
 (b) confirm Kuma UI shows 5 green; (c) decide on hardening tn-node-deployment + common/ node scripts.
+
+---
+
+# Hardening — Admin Dashboard Public/Management Boundary — 2026-06-25
+
+Defense-in-depth for the public read-only boundary in `tn-node-deployment/ui/server.py`.
+Security eval verdict was **sound** (public visitor cannot edit configs); these changes only
+stop a *future* edit from silently regressing the boundary. No runtime behavior change on the
+existing SSH or public paths.
+
+## Plan
+- [x] **R2 — regression test (highest value).** New `ui/test_public_readonly.py` (stdlib
+      `unittest`; only existing dep is Flask). Walks `app.url_map` and: (1) asserts every route is
+      explicitly classified read/write — a tripwire that fails the moment someone adds a route;
+      (2) asserts every write route is refused 403 on the public path; (3) asserts every read route
+      is NOT refused; (4) asserts the SSH path is never refused. Chosen over the `@management`
+      decorator refactor: same R2 protection with zero runtime change / no churn across ~18 route
+      defs (Simplicity + Minimal Impact).
+- [x] **R1 — loopback trust assertion.** `server.py` main block: named `BIND_HOST`/`BIND_PORT`,
+      comment block stating that exposing 8080 by any means grants unauthenticated full control, and
+      a startup guard that refuses to run unless `BIND_HOST` is loopback (127.0.0.1 / ::1).
+- [x] **R2 cross-ref.** One-line pointer from `_is_write_request` to the new test.
+- [x] **R3 — operator docs.** README "External dashboard access": rotate the basic_auth credential;
+      treat it as read-only-grade.
+
+## Verification
+- [x] `python3 -m unittest test_public_readonly` in a flask venv → 7/7 pass.
+- [x] Sanity: injected fake GET write route → completeness assert fails (unclassified) AND
+      writes-refused assert fails (GET not blocked). Both fired as designed.
+- [x] Sanity: `BIND_HOST="0.0.0.0"` → guard logs the refusal and exits 1 (never binds).
+- [x] `python3 -m py_compile server.py` clean.
+
+## Review
+All three recommendations landed; zero runtime behavior change on the existing SSH and public paths
+(verified: SSH path never refused, public reads never refused, public writes still 403). Files
+changed (in the `tn-node-deployment` submodule):
+- `ui/server.py` (+30/-3): R1 guard + comment, R2 docstring cross-ref.
+- `ui/test_public_readonly.py` (new): R2 tripwire, 7 tests, stdlib-only.
+- `README.md` (+1): R3 operator note.
+
+Deliberately did NOT do the `@management` decorator refactor — it would touch ~18 route definitions
+and change request handling for marginal gain over the tripwire test (per Simplicity / Minimal Impact).
+
+Version bump (so update-scripts.sh ships it): `UI_VERSION` 1.7.55 → 1.7.56 in server.py. Verified the
+updater's exact grep extracts 1.7.56. README is not version-gated/shipped (docs); the new test file is
+a dev/CI guard, intentionally left out of UI_BUNDLE so it stays off prod nodes.
+
+NEXT (operator, not done here — no commit without ask): these live in the `tn-node-deployment`
+submodule. To take effect on nodes, commit there, bump the parent-repo submodule pointer, and ship via
+the normal update path. The test file ships harmlessly with `ui/` but is never imported by the service.
