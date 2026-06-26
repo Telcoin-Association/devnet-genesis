@@ -1,3 +1,92 @@
+# TODO — Collapse observer/validator node distinction in tn-node-deployment — 2026-06-26
+
+Target: submodule `tn-node-deployment` on `main`. One node identity; no `--observer` emitted;
+every node provisioned validator-capable; UI auto-selects view from on-chain `tn_isValidator`.
+Commit in submodule → (await go-ahead) push origin/main → bump devnet-genesis pointer.
+
+## Phase 1 — Decouple from the flag (resolver + firewall) [me] ✅ DONE & VERIFIED
+- [ ] `lib/fallback.sh`: delete `_tn_wrapper_has_observer()` + now-unused `_tn_install()`; `tn_resolve_node_type` last-resort default → `observer`
+- [ ] `lib/common.sh`: `check_hardware()` gates on baseline OBSERVER_MIN_*; prints VALIDATOR_MIN_* as info note
+- [ ] `firewall-setup.sh`: open+expect 49590/49594 UDP for ALL installed nodes; drop validator-only gates, observer "close P2P" branches, and the non-validator drift finding
+
+## Phase 2 — Mgmt scripts gate on runtime on-chain status [subagent] ✅ DONE & VERIFIED
+> + 2 follow-up fixes I applied (completing the plan's intent, flagged by the agent):
+>   - `update-node.sh` JSON `--yes` gate re-gated on `node_is_onchain_validator_or_unknown` (was static NODE_TYPE==validator)
+>   - `check-node.sh` local-RPC default: same observer⇒8541 latent bug fixed → derive from .node-meta RPC_PORT (8545)
+> + cosmetic hints in update-node.sh / edit-config.sh → setup-node.sh.
+> (setup-observability.sh / setup-vpn.sh hints left as-is — shims keep them valid, avoid unrelated bumps.)
+- [ ] `check-node.sh`: derive is_validator from registry; absent-from-headers = ERROR only if registered validator; always attempt on-chain when VALIDATOR_ADDRESS set; keep --observer/--validator as manual overrides only
+- [ ] `update-node.sh`: fix RPC_URL to derive from .node-meta RPC_PORT (default 8545); gate committee-window warning on tn_isValidator not NODE_TYPE
+- [ ] `edit-config.sh`: drop NODE_TYPE requirement; operate on single resolved unit
+
+## Phase 3 — Unified setup [me] ✅ DONE & VERIFIED (wrapper-diff = 0)
+> DISCOVERY: `ui/install-ui.sh` copies setup scripts to `/opt/telcoin-ui-update/` for the
+> UI dispatch — added `setup-node.sh` there too (shims exec it). Rides on UI_VERSION bump.
+- [ ] New `setup-node.sh` from setup-validator.sh superset; NODE_TYPE=observer + always VALIDATOR_ADDRESS; no --observer in wrapper; role-neutral framing
+- [ ] `setup-observer.sh` / `setup-validator.sh` → 2-line exec shims
+- [ ] `install.sh`: next-steps → setup-node.sh (keep chmod of shims)
+
+## Phase 4 — Migration (migrate-node-naming.sh) [subagent] ✅ DONE & VERIFIED
+- [ ] Remove incorrect staking warning; update_meta writes NODE_TYPE=observer; rewrite_wrapper keeps --observer strip + reword; rewrite_unit role-neutral Description; NEW step opens 49590/49594 UDP; reword report epilogue; preserve snapshot/rollback
+
+## Phase 5 — UI collapse [subagent] ✅ DONE & VERIFIED (shape test: validator/observer/hint all correct)
+- [ ] `ui/server.py`: bidirectional remap in detect_nodes; drop --observer probe in resolve_node_type (default observer); /api/nodes adds top-level `role` + `node` summary
+- [ ] `ui/static/index.html`: remove two tab buttons; drive state.node=d.role w/ installedType() fallback; view switch flips on on-chain role; setup wizard unified; cosmetic relabels
+
+## Phase 6 — Docs [subagent] ✅ DONE (review diff at integration)
+- [ ] `README.md`: collapse Node Types/hardware/firewall/onboarding into "Run a node" + "Become a validator (optional)"
+- [ ] `CHANGELOG.md`: add Unreleased entry
+
+## Verification (final)
+- [ ] bash -n + shellcheck every changed .sh
+- [ ] py_compile ui/server.py; run ui/test_public_readonly.py
+- [ ] extract JS from index.html → node --check
+- [ ] Wrapper diff proof: setup-node.sh wrapper == setup-validator.sh wrapper, zero diff, no --observer
+- [ ] Resolver unit test (TN_ROOT_PREFIX temp tree): default observer, honors explicit NODE_TYPE
+- [ ] Migration dry-run: source migrate-node-naming.sh, test rewrite_wrapper sed on fixtures
+- [ ] /api/nodes shape test: mock onchain_is_validator → role validator/observer/hint
+
+## Review — 2026-06-26 (all phases complete, verified, committed locally; NOT pushed)
+
+**Outcome achieved.** One node identity. `setup-node.sh` is the canonical installer (built from
+setup-validator.sh, the de-gated superset); `setup-observer.sh`/`setup-validator.sh` are 17-line
+`exec` shims forwarding to it. No `--observer` is emitted into any launch wrapper anywhere — it
+survives ONLY as (a) manual diagnostic overrides on check/update/edit scripts, (b) the token the
+migration STRIPS from legacy wrappers, (c) docs. Firewall opens UDP 49590/49594 on every installed
+node. UI auto-selects validator vs full-node view from on-chain `tn_isValidator` (bidirectional).
+
+**Execution.** Phases 1 & 3 done directly by me; Phases 2/4/5/6 by 4 parallel background subagents,
+each diff-reviewed. I caught + completed two in-scope items the Phase-2 agent flagged (JSON `--yes`
+gate + check-node local-RPC bug) and one plan gap (install-ui.sh must copy setup-node.sh to
+/opt/telcoin-ui-update for the UI-path shims). See [[two deploy paths]] lesson.
+
+**Verification (all green, runnable-here):**
+- `bash -n` on all 13 changed .sh → PASS. `shellcheck -S error` → only 1 finding (update-node.sh
+  SC2259) confirmed PRE-EXISTING in HEAD (untouched line).
+- `py_compile ui/server.py` → PASS. `test_public_readonly.py` → 7/7 PASS (isolated venv).
+- Extracted UI JS → `node --check` PASS.
+- **Wrapper-diff proof**: setup-node.sh's 4 generated wrappers == original setup-validator.sh's,
+  byte-for-byte (modulo attribution comment); zero `--observer`.
+- **Resolver unit test** (TN_ROOT_PREFIX temp tree): default→observer, honors explicit NODE_TYPE,
+  legacy role dirs still resolve, no `--observer` probe fn. 6/6 PASS.
+- **Migration**: rewrite_wrapper `--observer` strip + guard verified (GNU sed); rewrite_unit
+  Description sed proven role-neutral for both legacy forms.
+- **/api/nodes shape test**: role = validator(True)/observer(False)/hint(None), demotion works.
+- **Version-bump audit**: all 12 gated files bumped (caught 3 I'd missed — see [[Version-bump blind spot]]).
+
+**Self-caught issues fixed:** 3 missed version bumps (firewall/common/fallback); install-ui.sh copy
+gap; 2 Phase-2 follow-ups; stale UI setup-wizard intro note.
+
+**Operator-only (cannot verify here):** ufw shows 49590/49594 open post setup/migrate; fresh public
+install → plain dashboard no warnings; stake+activate → dashboard auto-flips; migrate a real legacy
+observer + induced-failure rollback.
+
+**Remaining (awaiting go-ahead):** push submodule `main` → origin/main; bump devnet-genesis pointer.
+Lower-priority follow-ups noted by agents (NOT done, out of scope): unused selector CSS in
+index.html; the `_docker_node_type` PoP heuristic relaxation.
+
+---
+
 # TODO — Migrate legacy `telcoin-observer` node5 → unified `telcoin` + fix UI validator detection — 2026-06-25
 
 Two pieces in the `tn-node-deployment` submodule (node-side scripts are a git clone gated by
