@@ -98,24 +98,35 @@ echo "STATE legacy=${legacy} unified=${unified} rpc_port=${rp:-8545}"
 RS
 }
 
-# Echo: VERIFY active=<state> rpc_port=<n> block=<hex|none> advancing=<yes|no>
-# Polls up to ~60s for the block height to advance (a restarted committee validator
-# needs a moment to resync + rejoin consensus).
+# Echo: VERIFY active=<state> rpc_port=<n> block=<hex|none> chead=<n|none> advancing=<yes|no>
+# "advancing" gates on the CONSENSUS height (tn_latestConsensusHeader.number), which climbs every
+# round even when NO EVM block is produced. On an idle devnet eth_blockNumber is legitimately FLAT
+# (empty consensus outputs), so the old block-height gate gave false "not advancing" halts. We poll
+# consensus height as the liveness signal and fall back to EVM height (covers an active network, or
+# a node without the consensus RPC). EVM height is still reported for info.
 verify_health() {
     tn_ssh "$1" <<'RS'
 rp=$(sudo -n grep -hE '^RPC_PORT=' /etc/telcoin/.node-meta 2>/dev/null | head -1 | cut -d= -f2); rp=${rp:-8545}
 active=$(systemctl is-active telcoin 2>/dev/null || echo inactive)
-rpc(){ curl -s --max-time 6 -X POST -H 'Content-Type: application/json' \
-  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
-  "http://localhost:${rp}" 2>/dev/null | grep -o '0x[0-9a-fA-F]*' | head -1; }
-adv=no; last=""
+call(){ curl -s --max-time 6 -X POST -H 'Content-Type: application/json' \
+  --data "{\"jsonrpc\":\"2.0\",\"method\":\"$1\",\"params\":[],\"id\":1}" "http://localhost:${rp}" 2>/dev/null; }
+# EVM height (hex) -- informational; legitimately FLAT on an idle network.
+evm(){ call eth_blockNumber | grep -o '0x[0-9a-fA-F]*' | head -1; }
+# Consensus height -- authoritative liveness. result.number via python3 (robust to JSON field
+# order; python3 is in the Ubuntu base). Empty if unavailable -> EVM fallback below.
+chead(){ call tn_latestConsensusHeader | python3 -c 'import sys,json
+try: v=json.load(sys.stdin)["result"]["number"]; print(int(v,16) if isinstance(v,str) and v[:2]=="0x" else int(v))
+except Exception: pass' 2>/dev/null; }
+adv=no; cf=""; cl=""; ef=""; el=""
 for _ in 1 2 3 4 5 6; do
-  b=$(rpc)
-  if [ -n "$b" ] && [ -n "$last" ] && [ $((b)) -gt $((last)) ]; then adv=yes; last=$b; break; fi
-  [ -n "$b" ] && last=$b
+  c=$(chead); b=$(evm)
+  [ -n "$c" ] && { [ -z "$cf" ] && cf=$c; cl=$c; }
+  [ -n "$b" ] && { [ -z "$ef" ] && ef=$b; el=$b; }
+  if [ -n "$cl" ] && [ -n "$cf" ] && [ "$cl" -gt "$cf" ] 2>/dev/null; then adv=yes; break; fi
+  if [ -n "$el" ] && [ -n "$ef" ] && [ $((el)) -gt $((ef)) ] 2>/dev/null; then adv=yes; break; fi
   sleep 10
 done
-echo "VERIFY active=${active} rpc_port=${rp} block=${last:-none} advancing=${adv}"
+echo "VERIFY active=${active} rpc_port=${rp} block=${el:-none} chead=${cl:-none} advancing=${adv}"
 RS
 }
 
@@ -141,6 +152,66 @@ rc=$?
 rm -rf "$d" "$tgz"
 echo "MIGRATE_RC=${rc}"
 RS
+}
+
+# --- post-migration per-node Caddy regen (replicates common/dns.sh for ONE node) -------------
+# After a node migrates, reth's RPC/WS move to 8545/8546 but the per-node Caddy snapshot still
+# proxies the OLD ports, so https://node{N}.<suffix>/ AND admin.node{N}.<suffix>/ start 502'ing.
+# Re-run the canonical generator (common/config-caddy.sh) on JUST this node with the same sudo-env
+# contract dns.sh uses. NON-FATAL: RPC on :8545 already passed the health gate; a Caddy hiccup must
+# never abort the staggered rollout -> warn + return 0. Zero-downtime: Caddy is already running on a
+# migrated node, so config-caddy.sh does a graceful `systemctl reload` (no dropped RPC/WS); the
+# Caddyfile is rewritten+revalidated each run, so it is idempotent.
+regen_caddy() {
+    local i="$1"; local node="${NODE_NAMES[$i]}"
+    local secret="${TN_ADMIN_HASH_SECRET:-devnet-admin-dashboard-hash}"
+    local admin_dash="${TN_ADMIN_DASHBOARD:-1}"
+    local admin_user="${TN_ADMIN_AUTH_USER:-admin}"
+    local admin_hash=""
+    info "Regenerating ${node} public Caddy proxy (RPC->8545, WS->8546)..."
+
+    # MANDATORY admin dashboard: fetch the shared bcrypt hash from Secret Manager locally, like
+    # dns.sh. config-caddy.sh emits the admin vhost whenever TN_ADMIN_DASHBOARD=1 and only layers
+    # basic_auth when BOTH user AND hash are non-empty -- so a MISSING hash would publish the admin
+    # vhost UNAUTHENTICATED. Mirror dns.sh's guard: on fetch failure force TN_ADMIN_DASHBOARD=0
+    # (admin vhost simply omitted this run) and warn. Never abort -- the RPC fix is independent.
+    if [[ "$admin_dash" == "1" ]]; then
+        if admin_hash="$(gcloud secrets versions access latest --secret="$secret" \
+                           --project="$PROJECT_ID" 2>/dev/null)" && [[ -n "$admin_hash" ]]; then
+            : # hash resolved -- never printed
+        else
+            warn "${node}: admin hash unreadable (secret '${secret}') -- regenerating RPC-only"
+            warn "(admin vhost skipped, never unauthenticated). Create it once: ./devnet-admin-secret.sh"
+            admin_dash=0; admin_hash=""
+        fi
+    fi
+
+    tn_scp "$i" "$CONFIG_CADDY_SCRIPT" /tmp/config-caddy.sh
+
+    # Run as root with dns.sh's full sudo-env contract + RPC_PORT/WS_PORT pinned to the post-migration
+    # defaults (explicit env OVERRIDES .node-meta in config-caddy.sh -- belt-and-suspenders over the
+    # 8545/8546 that migrate v1.0.4 already wrote into .node-meta). UNQUOTED heredoc so the LOCAL
+    # values expand here; each single-quoted so the remote bash takes them literally (the bcrypt
+    # hash's $/ are safe in '' -- its alphabet has no quote/space/backslash). \$? is escaped so the
+    # REMOTE shell evaluates config-caddy.sh's exit into the sentinel. The hash rides STDIN, so it
+    # never appears in any LOCAL process argv.
+    local out rc
+    out="$(tn_ssh "$i" <<EOF
+sudo -n RPC_PORT='8545' WS_PORT='8546' CERT_DOMAINS='${CERT_DOMAINS[*]}' LETSENCRYPT_EMAIL='${LETSENCRYPT_EMAIL}' TN_RPC_NODE_NAME='${node}' TN_ADMIN_DASHBOARD='${admin_dash}' TN_ADMIN_AUTH_USER='${admin_user}' TN_ADMIN_AUTH_HASH='${admin_hash}' bash /tmp/config-caddy.sh
+echo "CADDY_RC=\$?"
+EOF
+)"
+    rc="$(grep -oE 'CADDY_RC=[0-9]+' <<<"$out" | tail -1 | cut -d= -f2)"; rc="${rc:-1}"
+
+    local admin_state="admin vhost off"; [[ "$admin_dash" == "1" ]] && admin_state="admin vhost on"
+    if [[ "$rc" == "0" ]]; then
+        ok "${node}: Caddy reverse proxy regenerated (RPC/WS -> :8545/:8546; ${admin_state})."
+    else
+        warn "${node}: Caddy regen rc=${rc} -- node RPC on :8545 is up, but ${node}.<suffix> may 502"
+        warn "until you re-run common/dns.sh. Continuing (non-fatal)."
+        echo "$out" | grep -vE '^CADDY_RC=' | sed 's/^/      /'
+    fi
+    return 0
 }
 
 # --- build the migration bundle once -----------------------------------------
@@ -284,21 +355,28 @@ for i in "${order[@]}"; do
     active="$(sed -n 's/.*active=\([^ ]*\).*/\1/p' <<<"$v")"
     advancing="$(sed -n 's/.*advancing=\([^ ]*\).*/\1/p' <<<"$v")"
     block="$(sed -n 's/.*block=\([^ ]*\).*/\1/p' <<<"$v")"
+    chead="$(sed -n 's/.*chead=\([^ ]*\).*/\1/p' <<<"$v")"
     info "  ${v#VERIFY }"
     if [[ "$active" != "active" ]]; then
         err "${name}: telcoin.service is '${active:-unknown}' after migration. ABORTING rollout."
         exit 1
     fi
+
+    # Service up + RPC confirmed on the new port -> repoint THIS node's public Caddy proxy now
+    # (independent of consensus catch-up) so node{N}.<suffix> stops 502'ing on the stale port.
+    regen_caddy "$i"
+
     if [[ "$advancing" != "yes" ]]; then
-        warn "${name}: service active + RPC reachable, but block height not advancing yet (${block})."
-        warn "It may still be resyncing. Do NOT migrate the next node until this one catches up."
+        warn "${name}: service active + RPC reachable, but CONSENSUS is not advancing yet"
+        warn "(chead=${chead:-none}, evm block=${block}). It may still be re-peering/resyncing -- do"
+        warn "NOT migrate the next node until this one is following consensus."
         if [[ "$AUTO_YES" == true ]]; then
             warn "Auto mode: continuing, but watch this node (journalctl -u telcoin -f)."
         elif ! confirm "Proceed to the next node anyway?"; then
             err "Halting rollout so you can inspect ${name}."; exit 1
         fi
     else
-        ok "${name} migrated and advancing (block ${block})."
+        ok "${name} migrated and following consensus (chead ${chead}, evm block ${block})."
     fi
     migrated+=("$name")
 
