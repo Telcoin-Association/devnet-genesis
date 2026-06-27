@@ -186,6 +186,12 @@ regen_caddy() {
         fi
     fi
 
+    # Pre-clean a stale /tmp/config-caddy.sh before scp: /tmp is sticky + world-writable, so
+    # fs.protected_regular=1 blocks our user-level scp (O_CREAT|O_TRUNC) from truncating a file
+    # left by a different identity (e.g. dns.sh's IAP run) → "dest open: Permission denied". root
+    # bypasses the sticky-dir delete rule. Best-effort; reuses the run step's proven `sudo -n` over
+    # tn_ssh's STDIN (bash -s). See tasks/lessons.md "fs.protected_regular"; mirrors dns.sh's pre-scp.
+    tn_ssh "$i" <<<'sudo -n rm -f /tmp/config-caddy.sh' >/dev/null 2>&1 || true
     tn_scp "$i" "$CONFIG_CADDY_SCRIPT" /tmp/config-caddy.sh
 
     # Run as root with dns.sh's full sudo-env contract + RPC_PORT/WS_PORT pinned to the post-migration
