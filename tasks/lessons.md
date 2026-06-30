@@ -1,5 +1,18 @@
 # Lessons
 
+## Operator-self-sufficiency: RPC edge + node-info advertise, three reusable patterns (2026-06-30)
+
+Shipped the public-RPC feature into `install-caddy.sh` (operator repo) + UI parity. Three patterns worth reusing:
+
+- **Single managed config, multiple toggleable blocks → fence + preserve-the-other verbatim.**
+  `/etc/caddy/Caddyfile` now hosts a dashboard vhost AND an RPC vhost, each between `# >>> tn-<name> >>>`/`# <<< tn-<name> <<<` markers, first line still `CADDY_MARKER`. Toggling one block extracts the OTHER block's bytes with `awk '$0==b{f=1;next} $0==e{f=0;next} f'` and re-composes — so the dashboard's bcrypt `$2a$…` hash is NEVER re-parsed (the L411 trap, structurally avoided). Proven byte-stable: extract→recompose→extract is a fixed point, and `caddy validate`+`caddy fmt` are clean on the dual-vhost output. Generalizes to any single-file config with independently-managed sections (validate the COMPOSED file on a temp path before `mv`, so a bad compose never clobbers the live file).
+
+- **Editing one sibling in a structured config: indent-scope it, and test against the REAL serialized form.** The node-info.yaml writer must touch ONLY the *worker* `P2pNode` (the 2nd), never *primary*. A python3 stdlib line editor locates `p2p_info:`(ind 0)→`worker:`(ind 2)→its `rpc:`(ind 4) by indentation, replacing the rpc line + its indent≥6 continuation. Critical: the real keygen emits `rpc: ~` (YAML null tilde), NOT the `rpc: null` the plan assumed — so the null detector must accept `~`/`null`/empty (L538 again). A 43-assertion harness drove it across `~`/null/absent/multiline + worker-at-EOF + **primary-already-has-a-block** (the case that catches "edited the wrong sibling"). Idempotent set AND clear (byte-identical re-run) is the invariant that makes it safe to call from both CLI and a UI button.
+
+- **A config the node validates at boot needs a brick guard, not just a writer.** An invalid `worker.rpc` crash-loops reth (`Restart=on-failure`,`StartLimitBurst=5`). Guard = validate-the-URL-before-writing (regex: scheme + bare host + ≤2048) → back up to `.tn-bak` → write → `systemctl restart` → bounded poll that **fast-fails on `systemctl is-failed`** (catches the crash-loop in ~12s) and rolls back the `.tn-bak`, vs. a slow DB-replay (neither up nor failed) which is non-fatal "advertises once started". Edit the host file for BOTH binary and docker installs (the datadir is bind-mounted). The Caddy vhost is left up on rollback (harmlessly 502s) — decouple the edge from the advertise.
+
+**Orchestration:** lock the producer's interface before launching the consumer. I wrote `install-caddy.sh` myself (the novel/risky piece) to FREEZE its JSON contract (`--json --phase=rpc-{status,check-dns,enable,disable}` + `--rpc-domain`), THEN handed that exact contract to the UI subagent so its helper wrappers + routes mirrored it with zero integration drift. Parallel subagents (migrate+docs, add-ons) ran on disjoint file sets meanwhile; the UI agent (shared `ui/*`) ran solo. Memory: [[bump-version-on-gated-file-edit]], [[two-deploy-paths-ui-and-scripts]].
+
 ## Bash ERR-trap rollback needs `set -E` (errtrace), not just `set -e` (2026-06-25)
 
 **Symptom (self-caught in review):** `migrate-node-naming.sh` runs every mutation

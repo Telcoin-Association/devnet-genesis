@@ -1,3 +1,36 @@
+# TODO — Make `tn-node-deployment` operator-self-sufficient — 2026-06-30
+
+Boundary rule: **no operator-facing script may reference a `common/` script as a runtime step.**
+Each agent bumps the version header of every *tracked* file it edits but does NOT run
+`gen-checksums.sh` (orchestrator runs it once, last). README.md edits owned by orchestrator.
+
+- [x] **Track A**: D1 `migrate-node-naming.sh` (1.0.4→1.1.0; config-caddy.sh dropped from operator guidance, only the maintainer-only provenance comment remains; `restart_ui_if_present` non-fatal at step 11.5) + D2 new `AGENTS.md`.
+- [x] **Track D**: firewall audited (all 6 properties confirmed, no change); WG re-vendored (body byte-identical to canonical, picked up H1 `WG_NODE_FIREWALL` hardening, header sha→b2928a23/date→2026-06-30, docs sync note 14→16 lines); `setup-vpn.sh` 1.2.0→1.3.0; observability audited (no change).
+- [x] **install-caddy.sh** (1.1.4→1.2.0): two-vhost fence manager + node-info.yaml worker-rpc writer + brick guard + ufw. JSON contract `rpc-status|rpc-check-dns|rpc-enable|rpc-disable` + `--rpc-domain` locked & consumed by the UI helper.
+- [x] **Track B+C**: D3 UI parity (instance control 100% removed; `log_file`→/var/log/telcoin/telcoin.log, `wrapper_path`→/opt/telcoin/start-telcoin.sh; 5 cosmetic labels → API `service`) + D4-0 `install-ui.sh` ships `fallback.sh` + D4-6 RPC UI (4 routes, helper wrappers, 4 sudoers, `#rpcCard`+consent). `server.py` UI_VERSION 1.7.67→1.8.0, `install-ui.sh` 1.2.9→1.3.0.
+- [x] **Final**: README pointer + metrics 9000→9101; 34 sidecars regenerated (8 edited tracked files fresh, zero drift); full lint sweep + version audit + maintainer regression — all green.
+
+## Review (2026-06-30)
+
+Implemented across 1 orchestrator-authored file + 3 parallel subagents (Track A migrate+docs, Track D add-ons, Track B+C UI). **12 tracked/doc files changed** (8 tracked → 8 fresh `.sha256`; README/docs/test untracked; new `AGENTS.md`).
+
+**Operator self-sufficiency achieved:** an operator with only `tn-node-deployment/` can migrate a legacy node (no `config-caddy.sh` dead-end — only a clearly-marked maintainer provenance comment remains), expose `https://rpc.nodeN…/`+`wss://` via `install-caddy.sh` (advertised in `node-info.yaml` worker.rpc), and drive it all from CLI **or** UI. `AGENTS.md` records the boundary so future agents don't reintroduce a `common/` runtime dependency.
+
+**Verification (all green):**
+- `bash -n` 5.x **and** `/bin/bash -n` 3.2 + `shellcheck --severity=error` on all 6 edited shell files.
+- `caddy validate` PASS on the generated dual-vhost Caddyfile; `caddy fmt`-clean.
+- node-info writer: **43 assertions** across `rpc: ~` / `null` / absent / multiline + worker-at-EOF + primary-has-block (worker-only, primary/execution untouched, idempotent set+clear).
+- block-fence round-trip preserves the dashboard bcrypt `$`-hash verbatim (L411).
+- URL brick-guard validator: 9 assertions (rejects wrong-scheme/space/path/oversize).
+- `test_public_readonly` **7/7** in a Flask venv: RPC write routes 403 on the public path, status READ allowed.
+- `py_compile` server.py + test; 34 sidecars fresh (zero drift); 5 versioned files bumped; fleet driver verified unaffected (reads migrate version dynamically — no pin to break).
+
+**Could not run live (no test node):** full operator migration sim, RPC E2E restart/advertise, and the 4-0 `fallback.sh` runtime source-check — all verified structurally instead (static script review + the install-ui.sh ship edit). Flagged for on-node confirmation before deploy.
+
+**Not pushed/committed** — working tree only, awaiting operator review.
+
+---
+
 # TODO — Collapse observer/validator node distinction in tn-node-deployment — 2026-06-26
 
 Target: submodule `tn-node-deployment` on `main`. One node identity; no `--observer` emitted;
