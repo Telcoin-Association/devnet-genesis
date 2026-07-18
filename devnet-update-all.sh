@@ -95,7 +95,7 @@ phase0_one() {
     local i="$1"
     local inst="${INSTANCE_NAMES[$i]}" zone="${ZONES[$i]}"
     tn_iap_ssh "${inst}" "${zone}" "$(tn_cmd_refresh_scripts)" || {
-        echo "refresh (or wrapper-aware marker check) FAILED — is tn-node-deployment main pushed to GitHub?"
+        echo "refresh (or wrapper-aware marker check) FAILED — either tn-node-deployment main is not pushed to GitHub, or the node-side command errored (see the lines above)"
         return 1
     }
     echo "scripts clone fresh (wrapper-aware update-node.sh present)"
@@ -164,7 +164,10 @@ run_phase() {
             echo "    ✓ ${inst}: $(tail -1 "${RUN_DIR}/${inst}.${label}.log")"
         else
             fails=$((fails + 1))
-            echo "    ❌ ${inst}: $(tail -1 "${RUN_DIR}/${inst}.${label}.log")"
+            # last 5 lines, not tail -1: the last line is the job's own summary
+            # echo — the actual remote error sits just above it.
+            echo "    ❌ ${inst}: FAILED — last lines of ${RUN_DIR}/${inst}.${label}.log:"
+            tail -5 "${RUN_DIR}/${inst}.${label}.log" | sed 's/^/        /'
         fi
     done
     return "${fails}"
@@ -174,7 +177,7 @@ run_phase() {
 echo ""
 echo ">>> Phase 0: refresh tn-node-deployment clone on ALL nodes (zero service impact)"
 if ! run_phase phase0 phase0_one; then
-    echo "❌ phase 0 failed — aborting with NOTHING touched. Push tn-node-deployment main, re-run." >&2
+    echo "❌ phase 0 failed — aborting with NOTHING touched. Fix the cause in the log tails above, re-run." >&2
     exit 1
 fi
 

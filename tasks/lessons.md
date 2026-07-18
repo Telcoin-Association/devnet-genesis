@@ -1,5 +1,36 @@
 # Lessons
 
+## Remote command chains: EVERY command touching /home/<svc-user> needs sudo; failure paths must show the raw log tail (2026-07-18)
+
+**Symptom:** the v0.12.0-devnet all-at-once rollout aborted in phase 0 on all 5 nodes with
+"is tn-node-deployment main pushed to GitHub?" — but GitHub was fine. The real error, buried
+in the per-node logs, was `grep: /home/telcoin/telcoin-node-scripts/update-node.sh:
+Permission denied`.
+
+**Root cause (two compounding defects):**
+- `tn_cmd_refresh_scripts` built `sudo -u telcoin git …; sudo -u telcoin git … pull && grep -q
+  MARKER <file>` — the git commands were privileged but the trailing grep was NOT, and the SSH
+  login user cannot read under /home/telcoin (0750 home). The `&&` chain failed even though the
+  refresh succeeded. Auditing per-command instead of per-chain is the trap: each `sudo -u` reads
+  as "this chain is privileged" while a bare command hides at the end.
+- `run_phase`'s failure branch printed `tail -1` of the node log — which is the job's own
+  summary echo, not the error. The console then showed only the (wrong) hint, sending
+  diagnosis to GitHub instead of the node.
+
+**Fix / rule:**
+- In a remote command string, audit EVERY command in the chain for privilege, not just the
+  first: anything reading or writing under `/home/<svc-user>` (or any root-only path) needs its
+  own `sudo` (owner-matched `sudo -u <svc-user>` for the user's files). One unprivileged
+  command fails the whole `&&` chain with a misleading verdict.
+- On job failure, print the last ~5 raw log lines (indented), never a single summary line —
+  the real error is usually 1-2 lines above the summary echo. And failure hints must not
+  assert ONE cause; name the candidates and point at the log.
+- Diagnostic tell for this class: the operation's own output says it succeeded ("Already up
+  to date") yet the chain exits non-zero → the failure is a LATER command in the chain, not
+  the operation the hint blames.
+
+Memory: [[devnet-on-node-scripts-are-git-clone]].
+
 ## Operator-self-sufficiency: RPC edge + node-info advertise, three reusable patterns (2026-06-30)
 
 Shipped the public-RPC feature into `install-caddy.sh` (operator repo) + UI parity. Three patterns worth reusing:

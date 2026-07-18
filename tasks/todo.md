@@ -72,6 +72,25 @@ UPDATED/SKIPPED/ROLLED BACK/APPLY FAILED/UNKNOWN/UNHEALTHY with re-run guidance.
 **Could not run live (needs the real fleet):** observer-5 smoke + the actual v0.12.0-devnet
 cut — listed under Rollout above.
 
+## Fix (2026-07-18, later): phase-0 false failure — unprivileged marker grep
+
+The live all-at-once run aborted in phase 0 on ALL 5 nodes even though GitHub main was
+current. Per-node logs showed the pull as `telcoin` succeeded ("Already up to date") and
+then `grep: /home/telcoin/telcoin-node-scripts/update-node.sh: Permission denied` —
+`tn_cmd_refresh_scripts` ran both git commands via `sudo -u telcoin` but the trailing
+marker grep unprivileged, and the SSH login user can't read under /home/telcoin (0750).
+
+- [x] devnet-lib.sh: marker grep now `sudo -u ${SERVICE_USER}` (fixes BOTH drivers; comment
+      states the every-command-privileged rule)
+- [x] devnet-update-all.sh `run_phase`: failure branch prints the last 5 log lines indented
+      (tail -1 only showed the job's own summary echo, hiding the real error)
+- [x] Hints broadened (phase0_one echo + devnet-update.sh phase-0 abort): name both common
+      causes — main not pushed, or the node-side command errored (read the log)
+- [x] Verified: bash -n (5.x + 3.2) + shellcheck -x clean; 16-assertion harness green under
+      /bin/bash 3.2 (refresh expectation updated); offline fake-gcloud fresh-fleet run all
+      UPDATED exit 0; refresh-fail run shows the raw remote error on console and aborts
+      with nothing touched
+
 # TODO — Make `tn-node-deployment` operator-self-sufficient — 2026-06-30
 
 Boundary rule: **no operator-facing script may reference a `common/` script as a runtime step.**

@@ -188,8 +188,11 @@ else echo NOLISTEN; fi"
 # so root's git doesn't refuse with dubious-ownership; the stash is a safety
 # valve for stray on-node edits (never expected — nodes track main; see
 # tasks/lessons.md), deliberately `;`-joined so refresh proceeds regardless.
+# EVERY command in the chain must be privileged: the SSH login user cannot read
+# under /home/telcoin (0750 home dir), so an unprivileged marker grep fails
+# with EACCES even after a successful pull (the 2026-07-18 phase-0 false abort).
 tn_cmd_refresh_scripts() {
-    printf '%s' "sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' stash --include-untracked; sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' pull --ff-only origin main && grep -q TN_UPDATE_VERIFY_TIMEOUT '${TN_NODE_SCRIPTS_DIR}/update-node.sh'"
+    printf '%s' "sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' stash --include-untracked; sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' pull --ff-only origin main && sudo -u ${SERVICE_USER} grep -q TN_UPDATE_VERIFY_TIMEOUT '${TN_NODE_SCRIPTS_DIR}/update-node.sh'"
 }
 
 # tn_cmd_update_check — remote command: report install method + current/latest

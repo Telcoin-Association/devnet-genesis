@@ -150,7 +150,8 @@ if [ "${MODE}" = "image" ]; then
         if ! tn_iap_ssh "${inst}" "${zone}" "$(tn_cmd_refresh_scripts)" >>"${RUN_LOG_DIR}/${inst}.log" 2>&1; then
             echo "❌ scripts refresh (or marker check) failed on ${inst} — see ${RUN_LOG_DIR}/${inst}.log" >&2
             echo "   The wrapper-aware update-node.sh must be on every node BEFORE any image update." >&2
-            echo "   Is tn-node-deployment main pushed to GitHub? Aborting with all services untouched." >&2
+            echo "   Common causes: tn-node-deployment main not pushed to GitHub, or the node-side" >&2
+            echo "   command errored (read the log). Aborting with all services untouched." >&2
             exit 1
         fi
     done
