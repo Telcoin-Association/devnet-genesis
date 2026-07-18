@@ -167,3 +167,66 @@ else echo NOLISTEN; fi"
     echo "      ❌ ${svc} on ${inst} did not reach HEALTHY (active + :${port} responding) within ${timeout}s" >&2
     return 1
 }
+
+# =============================================================================
+# Image-only update helpers (devnet-update.sh image mode + devnet-update-all.sh)
+#
+# The fleet updates docker images through the SAME on-node tooling individual
+# operators use: tn-node-deployment/update-node.sh's --json contract. That
+# script's json_setup_fds sends newline-delimited JSON to stdout and every
+# human-readable line to stderr — so callers must capture STDOUT ONLY for
+# parsing and log stderr to the per-run file.
+#
+# The tn_cmd_* builders expand TN_NODE_SCRIPTS_DIR / DOCKER_IMAGE / SERVICE_USER
+# (config.sh) LOCALLY and single-quote them into the remote command string.
+# =============================================================================
+
+# tn_cmd_refresh_scripts — remote command: fast-forward the node's
+# tn-node-deployment clone to GitHub main, then PROVE the wrapper-aware
+# update-node.sh actually landed (marker: TN_UPDATE_VERIFY_TIMEOUT) before any
+# caller risks downtime with it. git runs as the clone's owner (SERVICE_USER)
+# so root's git doesn't refuse with dubious-ownership; the stash is a safety
+# valve for stray on-node edits (never expected — nodes track main; see
+# tasks/lessons.md), deliberately `;`-joined so refresh proceeds regardless.
+tn_cmd_refresh_scripts() {
+    printf '%s' "sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' stash --include-untracked; sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' pull --ff-only origin main && grep -q TN_UPDATE_VERIFY_TIMEOUT '${TN_NODE_SCRIPTS_DIR}/update-node.sh'"
+}
+
+# tn_cmd_update_check — remote command: report install method + current/latest
+# image tag as one JSON line (keyed by "install_method"). Read-only.
+tn_cmd_update_check() {
+    printf '%s' "sudo bash '${TN_NODE_SCRIPTS_DIR}/update-node.sh' --json --check"
+}
+
+# tn_cmd_update_prepare — remote command: docker-pull DOCKER_IMAGE on the node
+# (ZERO downtime; service untouched). Passes the FULL image ref — used verbatim
+# by update-node.sh's json_prepare_docker.
+tn_cmd_update_prepare() {
+    printf '%s' "sudo bash '${TN_NODE_SCRIPTS_DIR}/update-node.sh' --json --prepare --ref '${DOCKER_IMAGE}'"
+}
+
+# tn_cmd_update_apply <verify-secs> — remote command: stop → swap image in the
+# launch wrapper/unit → restart → on-node health verify within <verify-secs>
+# (auto-rollback to the old image if it times out). `sudo env` (the
+# devnet-finalize.sh pattern) guarantees the var crosses sudoers env_reset.
+tn_cmd_update_apply() {
+    printf '%s' "sudo env TN_UPDATE_VERIFY_TIMEOUT=${1} bash '${TN_NODE_SCRIPTS_DIR}/update-node.sh' --json --apply --yes"
+}
+
+# --- jq-free parsers for update-node.sh's --json stdout ------------------------
+# One self-contained JSON object per line; every value we need is a flat string
+# or bare true/false, so grep/sed/case are enough — no jq dependency on the Mac
+# driver, and the sed stays BSD-safe. Each helper tolerates "no match" (echoes
+# nothing / returns 1) so callers can branch under set -euo pipefail.
+
+# tn_json_done_line <stream> — the LAST terminal {"event":"done",...} line ("" if none).
+tn_json_done_line() { printf '%s\n' "$1" | grep '"event":"done"' | tail -1 || true; }
+
+# tn_json_check_line <stream> — the --check result line ("" if none).
+tn_json_check_line() { printf '%s\n' "$1" | grep '"install_method"' | tail -1 || true; }
+
+# tn_json_str <line> <key> — the string value of "key":"value" ("" if absent).
+tn_json_str() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
+
+# tn_json_true <line> <key> — 0 iff the line contains "key":true.
+tn_json_true() { case "$1" in *"\"$2\":true"*) return 0 ;; *) return 1 ;; esac; }

@@ -1,3 +1,77 @@
+# TODO — v0.12.0-devnet update tooling (image-only default + all-at-once) — 2026-07-18
+
+Plan: make `devnet-update.sh`'s default a SAFE image-only update (the old default wiped
+chain data unless `--no-wipe` was remembered), and add `devnet-update-all.sh` for
+wire-protocol-breaking upgrades (v0.12.0's chain-id-namespaced gossip topics fragment a
+staggered rollout). Both drive the SAME on-node `tn-node-deployment/update-node.sh --json`
+that individual operators use — which required fixing its wrapper-blindness first.
+No network-config migration (verified unnecessary; operator opted to skip).
+
+## Repo 1: tn-node-deployment (pushed to GitHub main: 7b10e97)
+
+- [x] `SCRIPT_VERSION` 1.1.55 → 1.1.56 in update-node.sh
+- [x] `VERIFY_TIMEOUT_SECONDS` env-overridable via `TN_UPDATE_VERIFY_TIMEOUT` (numeric guard, 45 fallback)
+- [x] New `docker_launch_file()` — resolves wrapper vs legacy unit via `tn_node_launch_target`
+- [x] `detect_current_docker_image` greps the resolved launch file (+ 2 error strings)
+- [x] `apply_docker_update` + `json_apply_docker` patch the launch file (backup/sha/perl/grep/restore/rollback)
+- [x] `backup_unit_file`: info line → stderr (was corrupting the `$(...)`-captured backup path)
+- [x] update-scripts.sh 1.1.61 → 1.1.62 (re-bootstrap trigger); `tools/gen-checksums.sh` sidecars fresh
+- [x] README Changelog entry (`### update-node v1.1.56`)
+- [x] `bash -n` + `shellcheck -x --severity=error` clean; advisory warning count unchanged (12 pre-existing)
+- [x] Pushed to origin/main; raw.githubusercontent serves v1.1.56 with the marker
+
+## Repo 2: devnet-genesis
+
+- [x] devnet-lib.sh: `tn_cmd_refresh_scripts` / `tn_cmd_update_check` / `tn_cmd_update_prepare` / `tn_cmd_update_apply <secs>`
+- [x] devnet-lib.sh: jq-free parsers `tn_json_done_line` / `tn_json_check_line` / `tn_json_str` / `tn_json_true` (BSD-sed safe)
+- [x] devnet-update.sh: `MODE=image` default; `--wipe` / `--finalize` explicit; `--no-wipe` deprecated alias → image mode; conflicts error
+- [x] devnet-update.sh: phase 0 refresh clones (marker-gated, aborts before any downtime)
+- [x] devnet-update.sh: `update_one_image` (check → skip-if-current → prepare → apply @120s verify → stagger + wait_healthy; abort on first failure)
+- [x] devnet-update-all.sh: NEW parallel script — phases 0-3, CONFIRM gate, marker files, per-node verdicts, idempotent re-run, exit 0 only if all UPDATED/SKIPPED+healthy
+- [x] Lint: `bash -n` (5.x + macOS 3.2) + `shellcheck -x` clean on all three
+- [x] Submodule pointer bump + commit
+
+## Rollout (operator steps, next)
+
+1. Single-node smoke on observer-5-devnet (no consensus vote): refresh → `--json --check`
+   (non-empty current_ref proves wrapper-aware detect) → `--json --prepare` + `--json --discard`.
+2. `./devnet-update-all.sh` → CONFIRM → summary all UPDATED/SKIPPED.
+3. Post: `sudo docker ps` shows v0.12.0-devnet; `grep v0.12.0 /opt/telcoin/start-telcoin.sh`;
+   check-node.sh clean; consensus height advancing; Grafana/Kuma green.
+   Rollback: revert config.sh:22 to the old tag, re-run devnet-update-all.sh.
+
+## Review (2026-07-18)
+
+**tn-node-deployment (7b10e97):** update-node.sh's docker path read/edited only the systemd
+unit, but current installs carry the image in the root-owned wrapper
+`/opt/telcoin/start-telcoin.sh` — so `--check` returned an empty `current_ref` and
+prepare/apply hard-failed fleet-wide. Fixed via `docker_launch_file()` (delegating to the
+existing `tn_node_launch_target`); every guard and the JSON event contract kept
+byte-compatible. Rode along: `TN_UPDATE_VERIFY_TIMEOUT` override (fleet restarts re-form
+quorum slower than the 45s window → spurious auto-rollback), and the `backup_unit_file`
+stdout-capture fix.
+
+**devnet-genesis:** default `devnet-update.sh` can no longer wipe the chain by omission —
+wipe/finalize are explicit flags, and the new default is check→prepare→apply→health-gate
+per node through the operator tooling. `devnet-update-all.sh` handles protocol-breaking
+cuts: barriers before downtime (refresh + prepare abort with the fleet untouched), apply
+runs all-at-once to a terminal state per node, and the summary classifies
+UPDATED/SKIPPED/ROLLED BACK/APPLY FAILED/UNKNOWN/UNHEALTHY with re-run guidance.
+
+**Verification (all green):**
+- `shellcheck -x` clean (devnet scripts); tn-node CI blocking gate clean, advisory count unchanged.
+- 16-assertion parser/builder harness under macOS `/bin/bash` 3.2 with `set -euo pipefail`.
+- 10 offline end-to-end dry-run scenarios against a fake `gcloud` emulating the `--json`
+  contract: fresh-fleet update, idempotent re-run (all SKIP, phase 2 skipped), ROLLED
+  BACK + UNKNOWN verdicts (exit 1), convergence re-run, prepare-failure abort BEFORE
+  downtime, refresh-failure abort with nothing touched, staggered default flow,
+  `--no-wipe` deprecation → image mode, conflicting-flags error, staggered
+  abort-on-rollback (later nodes untouched).
+- Checksum sidecars verified fresh; raw.githubusercontent.com serves v1.1.56.
+
+**Could not run live (needs the real fleet):** observer-5 smoke + the actual v0.12.0-devnet
+cut — listed under Rollout above.
+
 # TODO — Make `tn-node-deployment` operator-self-sufficient — 2026-06-30
 
 Boundary rule: **no operator-facing script may reference a `common/` script as a runtime step.**
