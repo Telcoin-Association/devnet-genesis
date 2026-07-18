@@ -31,14 +31,19 @@ No network-config migration (verified unnecessary; operator opted to skip).
 - [x] Lint: `bash -n` (5.x + macOS 3.2) + `shellcheck -x` clean on all three
 - [x] Submodule pointer bump + commit
 
-## Rollout (operator steps, next)
+## Rollout — DONE (2026-07-18)
 
-1. Single-node smoke on observer-5-devnet (no consensus vote): refresh → `--json --check`
-   (non-empty current_ref proves wrapper-aware detect) → `--json --prepare` + `--json --discard`.
-2. `./devnet-update-all.sh` → CONFIRM → summary all UPDATED/SKIPPED.
-3. Post: `sudo docker ps` shows v0.12.0-devnet; `grep v0.12.0 /opt/telcoin/start-telcoin.sh`;
-   check-node.sh clean; consensus height advancing; Grafana/Kuma green.
-   Rollback: revert config.sh:22 to the old tag, re-run devnet-update-all.sh.
+1. [x] Single-node smoke on observer-5-devnet: fixed refresh chain exits 0 ("Already up to
+   date" + privileged marker grep OK).
+2. [x] `./devnet-update-all.sh --yes` → all phases green, summary: all 5 nodes UPDATED +
+   healthy, exit 0 (logs/20260718_162345-update-all).
+3. [x] Post-checks: `docker ps` shows adiri:v0.12.0-devnet on all 5; wrapper carries the
+   new ref; consensus ADVANCING on all 5 (consensus_number +6 and committed_round +12 per
+   10s window). NOTE: liveness = consensus_number/committed_round in the telcoin logs —
+   `eth_blockNumber` stays flat on idle devnet (empty non-epoch-closing outputs skip
+   execution). Also: on v0.12.0 the observer binds RPC at :8545/:8546, NOT the old
+   instance-adjusted :8541/:8554.
+   Rollback (if needed): revert config.sh:22 to the old tag, re-run devnet-update-all.sh.
 
 ## Review (2026-07-18)
 

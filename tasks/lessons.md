@@ -29,6 +29,15 @@ Permission denied`.
   to date") yet the chain exits non-zero → the failure is a LATER command in the chain, not
   the operation the hint blames.
 
+**Post-rollout liveness (user correction):** verify devnet liveness via CONSENSUS headers,
+not execution height. `eth_blockNumber` stays flat on an idle devnet — the engine logs
+"skipping execution for empty non-epoch-closing output", so empty blocks never become exec
+blocks. The always-advancing signals are `consensus_number` / `committed_round` in the
+telcoin container logs (sample twice ~10s apart; expect ~+6 / ~+12). A flat eth_blockNumber
+right after a fleet restart is NOT a stall. Bonus v0.12.0 change: the observer now serves
+RPC on :8545/:8546, not the old instance-adjusted :8541/:8554 — probe before assuming the
+port formula. Memory: [[devnet-liveness-is-consensus-not-eth-blocknumber]].
+
 Memory: [[devnet-on-node-scripts-are-git-clone]].
 
 ## Operator-self-sufficiency: RPC edge + node-info advertise, three reusable patterns (2026-06-30)
