@@ -1,6 +1,47 @@
 # Lessons
 
-## Remote command chains: EVERY command touching /home/<svc-user> needs sudo; failure paths must show the raw log tail (2026-07-18)
+## Sustained IAP-SSH polling gets throttled; sparse one-shots keep working (2026-07-20)
+
+**Symptom:** during the v0.12.1-devnet rollout, three successive epoch-crossing watchers
+(two Monitor tasks + one background until-loop, 150-240s cadence with tight retries) failed
+33+ consecutive `tn_iap_ssh` attempts over ~30 min and declared validator-1 unreachable —
+while the node was provably healthy and every sparse one-off check (foreground AND
+background) succeeded 5/5 in the same window.
+
+**Root cause (pattern established, mechanism unproven):** rapid-fire IAP tunnel creation
+from sustained pollers gets throttled/blackholed; each failed poll retry spawns MORE
+tunnels and keeps the throttle hot. Node health was never the problem.
+
+**Fix / rule:** poll IAP-SSH conditions at ≥4 min cadence with ≤1 retry; NEVER declare a
+node down from SSH failures alone — verify with `gcloud compute instances describe`
+(status) + one foreground check first. Prefer `Bash run_in_background` until-loops over
+Monitor for SSH-based waits (background bash loops are not killed by the foreground
+timeout cap), and when in doubt, one direct foreground check beats another polling round.
+
+## Rollout gate greps must read docker logs, not journalctl (2026-07-20)
+
+**Symptom:** the canary gate battery reported `listening`/`CVV`/`publishing epoch record`
+all ZERO on a node that was demonstrably healthy — journalctl for telcoin-alloy.service
+carries no application log lines at all.
+
+**Root cause:** the telcoin app logs go to the container's stdout (docker json-file), not
+the systemd journal; only wrapper noise reaches journalctl.
+
+**Fix / rule:** all on-node log gates use `docker logs --since <window> $(docker ps -q |
+head -1)`. Absence-of-error gates against an empty log source are vacuously green — pair
+every "no bad marker" grep with at least one positive marker (e.g. `publishing epoch
+record`, `Starting subscriber: CVV`) from the same source so an empty/missing source
+fails loudly.
+
+## Backgrounded commands: `; echo EXIT=$?` masks the real exit code (2026-07-20)
+
+**Symptom:** the e2e run that FAILED (`make: *** Error 100`) arrived as a "completed
+(exit code 0)" notification — the trailing `echo` was the last command, so the shell
+reported ITS exit status.
+
+**Fix / rule:** never append `; echo ...` to a backgrounded command; run the bare command
+and read the log's own summary line (nextest `Summary`, make error) before declaring
+green. Corollary: `set -euo pipefail` scripts report honestly; ad-hoc chains don't.
 
 **Symptom:** the v0.12.0-devnet all-at-once rollout aborted in phase 0 on all 5 nodes with
 "is tn-node-deployment main pushed to GitHub?" — but GitHub was fine. The real error, buried

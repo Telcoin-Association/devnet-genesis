@@ -1,4 +1,66 @@
-# TODO — v0.12.0-devnet update tooling (image-only default + all-at-once) — 2026-07-18
+# TODO — v0.12.1-devnet epoch-691 wedge recovery: review-gated fix + rollout — 2026-07-20
+
+Devnet died at epoch-691 close: v0.12.0-devnet (CARGO_FEATURES=faucet) compiled out the
+adiri-gated legacy-ABI ConsensusRegistry routing → every epoch-close reverted
+(gas_used: 21510) → no epoch record → fatal "Missing previous epoch record" on restart,
+fleet-wide. Fix branch `fix/devnet-prefork-registry-v0.12.1` (tn-5 commit `151b40f0`,
+LOCAL — push at operator's discretion): code-hash-keyed legacy routing (no cfg gates),
+epoch-record writes on all 3 close arms, persist-after-save fsync barrier, startup
+registry-ABI probe (fail-fast), deterministic fleet-crash e2e (runtime env hook
+TN_TEST_EXIT_AFTER_BOUNDARY_PERSIST), CI feature-shape matrix.
+
+## Review gate (multi-agent, PASSED)
+
+- [x] Wave 1: tn-pr-reviewer pipeline + 4 hypothesis panels (H1-H8) — 0 Critical,
+      0 diff-introduced High; 1 pre-existing High (M1⊕V1 composed crash window
+      [closing-block executed → record fsync-durable], diff narrows it)
+- [x] Wave 2: findings-verifier over 9 panel survivors — all confirmed; V1 narrowed to
+      hard-kill-only (SIGTERM persists via Drop)
+- [x] Wave 3 verdict: PASS (APPROVE_WITH_FIXES); M2 doc fix + V1 persist() designated
+      pre-build; M1 full re-derivation fix FLAGGED FOR HUMAN (not shipped)
+- [x] Tests: workspace 1100/1100; restart e2e 5/5 (fleet-crash test 322.7s flaky-FAIL →
+      34.2s deterministic PASS after hook); scoped re-review R1+R2 CLEAN
+
+## Rollout (COMPLETE — two clean epoch crossings)
+
+- [x] Image adiri:v0.12.1-devnet built+pushed from 151b40f0; verified (SHA + legacy
+      literal present in binary)
+- [x] Canary validator-1: replay-closed 691, published record, entered 692, all 5 gates
+      green
+- [x] Fleet ./devnet-update-all.sh (operator-run): v2/v3/v4/obs updated, v1 skipped
+- [x] Crossing 1 (692→693, stale-anchored → immediate live close): all 5 nodes, 0 errors
+- [x] Crossing 2 (693→694, fully live): all 5 nodes epoch=694, missrec=0, revert=0,
+      uptimes continuous, epochs.pack byte-identical 418314 on all 5, consensus headers
+      advancing (~1.389M)
+
+## Follow-up tickets (from review + rollout; tn-5 side unless noted)
+
+- [ ] P1: reth hard-kill torn-write boot panic — SIGKILL mid-block-execution →
+      "the hash for the latest block is missing, database is corrupt"
+      (reth node_config.rs:420, checkout d6324d6); PERMANENT until manual repair.
+      Evidence: tn-5/crates/e2e-tests/test_logs/restart_boundary_replay (2026-07-20 run 1)
+- [ ] M1 local record re-derivation in open_epoch_pack missing branch (FLAG FOR HUMAN;
+      design in review pipeline report) + W2-window e2e kill case
+- [ ] Record store: byte-compare on save + divergence alarm; fix false "Over wrote" log +
+      got_epoch_record masking (epoch_votes.rs)
+- [ ] Stale chain-configs/mainnet/genesis.yaml (chain-487, dead third registry) —
+      regenerate with identity check before any mainnet planning
+- [ ] final_state decoupling: derive from closing output or assert number equality
+      (close_epoch.rs:230; invariant now relied on at 3 sites)
+- [ ] Adiri fork-readiness PR: real CONSENSUS_REGISTRY_FORK_EPOCH + post-fork code-hash
+      pin + cfg-not-adiri fail-closed swap arm + const-assert + adiri-shape CI RUN job +
+      test-and-attest.sh feature-shape checks + maintainer-PR skip fix
+- [ ] e2e hardening: legacy-genesis (pre-fork registry) e2e variant; leftover-drain
+      full-run_epoch drive; direct 4-way record-digest assert; find_in_node_run_logs
+      mid-file-error fail-open; per-arm audit logs (M7)
+- [ ] BLS keyfile weak-KDF re-wrap (1 PBKDF2 round; warning on every node start)
+- [ ] Probe diagnostics: route through classified_registry_read (infra fault ≠ build
+      mismatch); optional full post-fork selector mirror
+- [ ] update-node.sh detector labels validators "observer" (cosmetic)
+- [ ] devnet-genesis: regenerate devnet with NEW registry in genesis after the adiri
+      fork test validates (retires the legacy path on devnet)
+
+
 
 Plan: make `devnet-update.sh`'s default a SAFE image-only update (the old default wiped
 chain data unless `--no-wipe` was remembered), and add `devnet-update-all.sh` for
