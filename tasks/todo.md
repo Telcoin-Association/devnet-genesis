@@ -1,3 +1,60 @@
+# TODO — ConsensusRegistry fork rehearsal attempt 3: F=740 CROSSED LIVE, all gates green — 2026-07-22
+
+The fork executed on devnet at 2026-07-22T21:23:57.9Z (epoch-closing block of 739) and the
+fleet has been healthy through TWO post-fork boundaries. Image `adiri:v0.12.1-devnet-fork740`
+(index sha256:032085fe…, tn-5 commit `2c0cea0d` on temp branch `devnet-registry-fork-rehearsal`)
+now soaks fleet-wide until the operator's devnet reset. Attempt 2 (F=738) was cut short by
+timing math; the 83-min COLD rebuild (buildkit cargo cache evicted) nearly killed F=740 too —
+operator chose to keep 740 with ~80 min and the compressed window fit.
+
+## Boundary evidence (the adiri go/no-go core)
+
+- [x] G2 20:47Z: 5/5 byte-uniform on fork740 (image ID, FORKLIT, epoch 739, pack 445446 identical)
+- [x] Quarantine: v2 (not in 739 committee) stopped 21:14:13Z after epoch pre-check
+- [x] **G4-A**: `consensus registry fork applied` EXACTLY once on v1/v3/v4/obs5 with IDENTICAL
+      tuple — code_hash=0xab86d348…d9b4 (== post-fork pin), eligible=Some(5),
+      consensus_number=1482655, consensus_hash=0xbcc8f2a4…; zero fail-closed/migration/missing-
+      record literals; epoch 740 everywhere; epochRecord[739] served; post-fork registry
+      eth_getCode sha256 identical ×4; pack 445446→446077 uniform
+- [x] G4-B + corrected liveness: 0 new errors; consensus +5/10s (log method — the RPC header
+      "number" field is EXECUTION height, flat on idle devnet between boundaries)
+- [x] **Quarantine-replay**: v2 started 21:39:06, replayed the fork block at 21:39:21 from cold
+      catch-up with the IDENTICAL tuple; boot probe literals 0/0; rejoined 740's committee
+- [x] **G5 (close of 740, 22:23Z)**: epoch 741 ×5; record published by exactly 740's committee
+      (v2/v3/v4/obs5 =1, v1 =0 non-member); epochRecord[740] served ×5; 0 error literals since
+      T0 ×5; pack 446707 byte-identical ×5; trigger did NOT re-fire (one-shot proven both sides)
+- [x] **Committee-member restart**: v4 (in 740 AND 741 committees) restarted 22:29:22Z; probe
+      0/0; epoch 741; rejoined +6/10s; registry code byte-identical (id-echo artifact resolved:
+      comparator hashes must cover the JSON `result` only, or pin the request id — result-only
+      sha256 a4a117b82195d516e3ad89872fb5f66f1459c208a182c048845667afd5b22153)
+- [x] Fail-closed: positive leg = unit test under shipped faucet shape; live leg = zero
+      "failing closed" literals fleet-wide through both boundaries
+
+## Proves for adiri / does NOT prove
+
+PROVES: live swap+migration inside a certified close (before applyIncentives/concludeEpoch,
+eligible-count guard fed by migration in the same block); determinism (identical tuple on 4
+live executors + 1 cold replayer); one-shot trigger both sides; post-fork boot probe; two
+post-fork closes incl. committee attribution; down-node-at-boundary catch-up; committee-member
+restart/rejoin; fleet byte-uniformity; forward+reverse operator update runbook (reverse
+exercised in attempt 1).
+DOES NOT PROVE: adiri-shape build (same arm, different cfg combo — needs adiri build + its own
+image verify); migration gas at adiri's real validator/NFT count vs 30M syscall cap
+(forks.rs checklist: archive-resync dry-run measures it); adiri live registry hash == pin
+(eth_getCode adiri BEFORE deploy); multi-operator convergence; legacy-getValidators RPC
+consumers breaking at the fork (comms task).
+
+## Standing items
+
+- [ ] **NEVER deploy fork722** (boundary passed unforked 07-22 03:23Z; replay across 721
+      diverges). fork740 is the LIVE fleet image — fine until the planned devnet genesis reset;
+      after reset, delete both tags from the registry (operator call).
+- [ ] tn-5 temp branch `devnet-registry-fork-rehearsal` (0cb56cda, 6a56c344, dc7e093a stale-722,
+      2c0cea0d) stays LOCAL, no push; the adiri-gated production patch is a separate cut from
+      the permanent diff + adiri-checklist items above.
+- [ ] `make test-faucet` rot (bin lost tests/): retarget to `-p e2e-tests --features faucet`.
+- [ ] Cold-build hazard: buildkit cargo cache eviction turned the 9-min devnet build into 83
+      min mid-window. Before any future timed rollout: warm/verify the cache (or budget cold).
 # TODO — ConsensusRegistry fork rehearsal attempt 1: staged to canary, ABORTED at fleet gate (no operator for stagger) — 2026-07-22
 
 Goal: watch the ConsensusRegistry fork execute live on devnet before the adiri deploy.

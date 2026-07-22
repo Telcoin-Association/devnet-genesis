@@ -1,5 +1,44 @@
 # Lessons
 
+## Inline multi-word loops die under zsh — drivers must be bash FILES (2026-07-22)
+
+**Symptom:** the G4-B boundary check "failed" with empty output from both nodes at T0+8 —
+`for pair in "name zone"; do set -- $pair` under zsh doesn't word-split `$pair`, so gcloud
+got the whole string as the instance and an empty zone; stderr was discarded, so it looked
+like two dead nodes two minutes after a hard fork. The bash-file rerun was green in seconds.
+Same trap class the fork-diff reviewer hit independently the same night.
+
+**Fix / rule:** any remote-driver loop (node/zone arrays, `set --` splitting) goes in a
+`#!/usr/bin/env bash` FILE run via `bash file.sh` — never inline in the Bash tool (which is
+zsh). Extends [[devnet-ssh-helpers-need-bash]]. Corollary: an SSH gate that returns EMPTY
+output is an instrumentation suspect first, node suspect second — especially when the same
+nodes passed a gate minutes earlier.
+
+## Cross-node comparator hashes must exclude request-echoed fields (2026-07-22)
+
+**Symptom:** the committee-member restart gate showed v4's registry-code sha256 differing
+from the fleet — hours after the fork, on a node whose own boundary log carried the pinned
+code_hash. Cause: the gate hashed the FULL JSON-RPC response, which echoes the request `id`,
+and that one script used id:2 where the fleet readings used id:3. Same bytes, different hash.
+
+**Fix / rule:** when comparing state across nodes, hash the `result` field only (e.g.
+`python3 -c 'json.load...["result"]' | sha256sum`) or pin every request's id to the same
+value across all scripts. A comparator that includes ANY request-derived bytes will
+eventually false-alarm during an incident, when it's most expensive.
+
+## Buildkit cargo-cache eviction turns 9-minute builds into 80+ (2026-07-22)
+
+**Symptom:** the F=740 image build ran 83 minutes cold (arm64 75 min, amd64-under-qemu 82)
+against a 9-minute warm baseline the night before — mid-window, nearly killing the attempt.
+The `--mount=type=cache` cargo volumes had been evicted between builds; `--no-cache` on the
+layer level was never the variable.
+
+**Fix / rule:** before scheduling any deadline-bound image build, verify the builder's cache
+is warm (`docker buildx du` / a prior same-day build) or budget the COLD time. Silver lining:
+a killed or completed cold build still leaves finished crates in the cache volume — never
+discard a running build to "start fresh."
+
+
 ## Secure the human-gated step BEFORE the point of no return (2026-07-22)
 
 **Symptom:** the ConsensusRegistry fork rehearsal staged perfectly — review cleared,
