@@ -1,3 +1,76 @@
+# TODO — ConsensusRegistry fork rehearsal attempt 1: staged to canary, ABORTED at fleet gate (no operator for stagger) — 2026-07-22
+
+Goal: watch the ConsensusRegistry fork execute live on devnet before the adiri deploy.
+Temp branch `devnet-registry-fork-rehearsal` (tn-5, off `3539f1b5`): fork machinery gate
+widened `adiri` → `any(adiri, faucet)` (7 sites), ungated POST_FORK code-hash pin + pin
+test, two-close fork-test extension. F=722 (boundary 2026-07-22T03:23:49Z). Everything
+gated green through canary; the fleet stagger is an operator step and no operator action
+arrived within the T0−30 window → clean abort at 02:25Z, fleet restored byte-uniform on
+v0.12.1-devnet before the boundary. The 721 close then executed LEGACY, fleet-wide, by
+design. All prep is preserved and re-cuttable.
+
+## What passed (all reusable for attempt 2)
+
+- [x] Stage 1 prep commit tn-5 `0cb56cda` + review-fix `6a56c344` (comment-only): the
+      permanent part of the diff — REVIEW-CLEARED, matrix-green; only the 1-line F commit
+      (`dc7e093a`, F=722, now stale) needs replacing with F′ at next cut
+- [x] Scoped review (agent + traced verify): CLEARED, 0 Critical/High; 3 doc-rot findings
+      fixed; key holds: swap-arm reachability closed under gated trigger; mainnet default
+      build fork-free; adiri build byte-unchanged (tn-types faucet flag is empty); no
+      unchecked epoch+1 in close path (second close concludes u32::MAX under overflow
+      checks, passes); two-close test proven non-vacuous; pin test hashes the exact bytes
+      runtime hash_slow commits (alloy const-hex handles 0x; revm 8.0 hash_slow =
+      keccak(original bytes))
+- [x] Matrix: 3 bin shapes check-clean; tn-types faucet 104/104; tn-reth fork tests 7/7
+      under BOTH faucet and adiri; tn-reth faucet 104/104; workspace 1074/1074.
+      `make test-faucet` is ROTTED AT BASE (targets --package telcoin-network --test it;
+      bin has no tests/ dir) — substitute `cargo nextest run -p e2e-tests --features
+      faucet`: 3/4, the 1 fail (faucet drip, local-testnet connection-refused) reproduces
+      byte-identical at base in a clean worktree → environmental, diff-neutral
+- [x] Step-0 pin check on LIVE devnet: eth_getCode(0x07E1…17e1) keccak ==
+      0x5318ebc5cd8123cfb0808fac0f3c0b95ed6f45f67c0853fea0766b52035fea53 (positive check)
+- [x] Image `adiri:v0.12.1-devnet-fork722` from `dc7e093a` built+pushed, VERIFIED both
+      platforms (SHA match; fork literal 2 vs baseline 0; artifact snip present); index
+      digest sha256:79e81488dcfc85018af13f88ba1edfed76106f882fe5c7248c7927533c04c29d
+      (amd64 0c64e59c…, arm64 7deb1aaf…)
+- [x] Canary validator-1 on fork722: apply ok, 2 gates 5 min apart ALL GREEN (0 probe/
+      panic literals, epoch fleet-locked, consensus advancing on a MIXED committee) —
+      live proof the fork build is behaviorally identical pre-boundary + the operator
+      update runbook round-tripped (forward AND reverse)
+- [x] Committee reads via `tn_getCommitteeValidators [epoch]` (ring buffer serves
+      current+1/+2): 721 = {v3, v2, obs5, v4} → quarantine would have been v1;
+      722 = {v3, v1, v2, obs5}. observer-5 is STAKED + committee-active (activation 94)
+
+## Abort record (02:25Z)
+
+- [x] Deadline protocol: fleet-stagger launch needed by ~02:20Z for G2-by-02:53:49Z
+      (T0−30); v2 checks 02:05/02:13:30/02:25 all showed old image + fork722-not-pulled;
+      3 escalating operator prompts (terminal active, no action)
+- [x] Abort executed: config.sh:23 reverted; validator-1 reverse-updated (image on disk,
+      ~1 min); verified back on fleet ID sha256:4f0af5f1… with FORKLIT 0, consensus
+      advancing, epoch 721 — fleet byte-uniform pre-boundary; 721 closed legacy
+- [x] Why mandatory: a lone fork-build node at the 721 close re-executes the certified
+      legacy block, fires the swap locally, and diverges (state-root mismatch)
+
+## ⚠ Standing hazards
+
+- [ ] **NEVER deploy `v0.12.1-devnet-fork722`** now that epoch 721 closed unforked: any
+      replay across the 721 boundary (resync/onboarding) fires the swap against
+      legacy-certified history and diverges. Registry-side delete is the clean fix —
+      operator call. (config.sh carries the warning comment.)
+- [ ] `make test-faucet` rot (tn-5 mainline): retarget to e2e-tests faucet run
+
+## Attempt 2 quickstart (~45 min lead time from "go", operator PRESENT for stagger)
+
+1. tn-5 branch: replace `dc7e093a` with new 1-line F′ commit (F′ = current epoch + 2/+3
+   per the 105-min rule; const at crates/types/src/forks.rs:101)
+2. Phase B: faucet check + fork tests + grep const; re-verify artifact keccak ==
+   0xab86d3482b618e6b1d1ba9b610f1f87d1a1a7ec1d935212978908a56f2d9d9b4
+3. `make docker-devnet TAG=v0.12.1-devnet-fork<F′>` (~9 min warm) + image-verify battery
+   (NOTE: `Build Features:` is EMPTY in ALL fleet images incl. baseline — feature-shape
+   proof = fork-literal grep + build log + chain-id boot guard; do NOT assert on it)
+4. config.sh flip → canary v1 (forward runbook proven) → OPERATOR stagger → G2 sweep →
+   committees at F′−2 → quarantine the non-member → G3/G4/G5 gates as planned
 # TODO — v0.12.1-devnet epoch-691 wedge recovery: review-gated fix + rollout — 2026-07-20
 
 Devnet died at epoch-691 close: v0.12.0-devnet (CARGO_FEATURES=faucet) compiled out the

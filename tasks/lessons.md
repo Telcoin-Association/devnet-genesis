@@ -1,5 +1,40 @@
 # Lessons
 
+## Secure the human-gated step BEFORE the point of no return (2026-07-22)
+
+**Symptom:** the ConsensusRegistry fork rehearsal staged perfectly — review cleared,
+matrix green, image verified, canary green — and then died at the fleet gate: the
+stagger was an operator-run step, the operator never acted in the T0−30 window (three
+escalating prompts, terminal nominally "active"), and the whole attempt had to be
+aborted. Cost: one full staging cycle, plus a pushed image (`fork722`) that became
+permanently undeployable the moment its boundary passed unforked.
+
+**Root cause:** the fork epoch F was committed — starting a hard countdown — while a
+human-in-the-loop step stood between the canary and the boundary, without an explicit
+operator commitment to be present for that window. Everything machine-gated was
+front-loaded; the one human dependency was assumed.
+
+**Fix / rule:** when a runbook contains an operator-only action between "point of no
+return" and a deadline, obtain an explicit "I'm here for the window" ack BEFORE crossing
+the point of no return (here: before the F commit — F selection should happen AFTER the
+operator confirms availability, not before). Corollary: "terminal active" is not
+"operator present" — push notifications suppressed as redundant-because-active can still
+go unread; treat operator silence as absence when a deadline depends on them.
+
+## Version-string gates must be calibrated against the baseline image (2026-07-22)
+
+**Symptom:** image verification failed on `Build Features:` not containing "faucet" —
+but the line is EMPTY in every fleet image, including the known-good deployed baseline
+(vergen in the CLI crate only sees that crate's own features, and it has none).
+
+**Fix / rule:** before asserting on any introspective string (version output, feature
+lists, build metadata) in a gate, run the same probe against the deployed baseline image
+first; a gate expectation that the baseline cannot pass is a broken gate, not a broken
+build. Feature-shape proof that actually works: literal greps for feature-gated strings
+in the binary (positive on new image, zero on baseline), the build log's explicit
+`--features` line, and runtime guards (an adiri build refuses devnet's chain id at boot).
+
+
 ## Sustained IAP-SSH polling gets throttled; sparse one-shots keep working (2026-07-20)
 
 **Symptom:** during the v0.12.1-devnet rollout, three successive epoch-crossing watchers

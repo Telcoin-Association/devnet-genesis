@@ -21,6 +21,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.11.1-devnet-pop"
 # export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.0-devnet"
 export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.1-devnet"
+# ABORTED 2026-07-22 02:25Z: v0.12.1-devnet-fork722 (ConsensusRegistry fork rehearsal, F=722)
+# staged through canary but the fleet stagger never launched before the T0-30 deadline; canary
+# reverse-updated. DO NOT deploy fork722 after epoch 721 closes unforked: any later replay
+# across the 721 boundary would fire the swap against legacy-certified history and diverge.
+# export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.1-devnet-fork722"
 
 export TN_BLS_PASSPHRASE="tornado"
 
