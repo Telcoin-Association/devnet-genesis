@@ -1134,10 +1134,19 @@ fresh chain, not a downgrade from v0.12.1 despite sorting lower.
    `--tunnel-through-iap` and routes over the overlay — structurally impossible for
    enrollment. All five nodes were misreported as un-bootstrapped.
 
-Plus two smaller ones: the observer inherited open consensus P2P because the lockout-safe
-`--enable` path is role-blind (devnet-firewall.sh now actively CLOSES them on observers), and
-`.WTEL` had to be repointed to the genesis vanity address `0x…37E1` or step 4 would have
-deployed a duplicate WTEL and wired every Uniswap router to it.
+Plus one smaller one: `.WTEL` had to be repointed to the genesis vanity address `0x…37E1`
+or step 4 would have deployed a duplicate WTEL and wired every Uniswap router to it.
+
+**CORRECTION (2026-09-18):** mid-run I "fixed" the observer inheriting open consensus P2P
+from the role-blind `--enable` path by making devnet-firewall.sh actively CLOSE 49590/49594
+on observers. That was wrong and has been reverted. An observer is not a permanent category
+-- node-5 is staked into the committee post-genesis by design -- and once staked it must
+accept inbound consensus traffic. The damage would also have been delayed and misattributed:
+the ports would have been re-closed by the NEXT routine run of devnet-firewall.sh, long after
+the staking change that needed them, presenting as a consensus bug. devnet-firewall.sh now has
+NO role branch for consensus ports; every node gets them opened and asserted. This is not a
+wide exposure -- the VPC rule devnet-allow-consensus already restricts those ports to the
+fleet's own /32s behind the `validator` tag, which every node carries.
 
 ## Decisions taken during the run
 

@@ -816,3 +816,31 @@ nodes and was actually the caller's SSH path.
   pattern in anything that must use IAP, and grep for the shim before trusting an IAP flag.
 - Bootstrap-order corollary: a tool that enrolls peers can never depend on the overlay it is
   enrolling them into. Extends [[devnet-ssh-helpers-need-bash]].
+
+## An "observer" is a role that changes under you — don't bake it into a firewall (2026-09-18)
+
+**Symptom:** none yet, which is the point. During the genesis reset I noticed the observer had
+inbound consensus P2P open (49590/49594), because the lockout-safe `firewall-setup.sh --enable`
+path opens validator P2P role-blind. Reasoning that "an observer dials out", I made
+devnet-firewall.sh actively CLOSE those ports on observers. The operator caught it before it
+mattered: node-5 is staked into the committee post-genesis by design, and a staked node must
+accept inbound consensus traffic.
+
+**Why it would have been nasty:** the close lived in the script's observer branch, not in a
+one-off command. Staking node-5 would have worked fine, and then the NEXT routine run of
+devnet-firewall.sh -- including deploy step 10 -- would have silently re-closed the ports.
+The break would surface hours or days after the staking change that actually needed them, and
+would present as a consensus/staking bug rather than a firewall one.
+
+**Fix / rule:**
+- **Don't encode a mutable role as a permanent capability.** "Observer" here is a node that has
+  not been staked *yet*; ConsensusRegistry can promote it at any time without touching
+  config.sh. A firewall keyed to today's role fights tomorrow's topology.
+- Prefer the uniform, slightly-wider host rule when a tighter layer already exists. The VPC
+  rule `devnet-allow-consensus` restricts those ports to the fleet's own /32s behind the
+  `validator` tag, so host-side open costs little and removes a whole class of failure.
+- When a "tightening" is enforced by a script that runs repeatedly, ask what happens the NEXT
+  time it runs after someone changes the thing it keys on. Idempotent re-application of a
+  stale assumption is how a fixed problem comes back.
+- Generalizes the [[devnet-observability-running-report-lied]] family: the dangerous defects
+  here are the delayed ones, where the trigger and the symptom are far apart in time.

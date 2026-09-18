@@ -127,29 +127,21 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     echo ""
     echo ">>> ${inst} (${zone}, role=${role})"
 
-    if [ "${role}" = "observer" ]; then
-        # An observer DIALS OUT; it never needs inbound consensus P2P. We now actively CLOSE
-        # those ports rather than merely skipping the node, because the lockout-safe
-        # `--enable` path opens validator P2P unconditionally (firewall-setup.sh has no role
-        # awareness), so after Step 10 the observer would otherwise sit with 49590/49594 open
-        # to the world. The old manual `ufw allow 22/tcp && ufw --force enable` recipe never
-        # opened them, so skipping was previously enough. `--port <p> off` is idempotent.
-        # Health (${DEFAULT_HEALTHCHECK_TCP_PORT}/tcp) stays: it is applied by
-        # --enable-health in devnet-observability.sh and is what the LB/Kuma probe.
-        echo "    observer — closing consensus ingress (it dials out; --enable opens P2P role-blind)"
-        for port in "${DEFAULT_PRIMARY_UDP_PORT}/udp" "${DEFAULT_WORKER_UDP_PORT}/udp"; do
-            echo "    + sudo ${FW} --json --port ${port} off"
-            if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${FW} --json --port ${port} off")"; then
-                echo "      result: ${json}"
-            else
-                echo "      ❌ firewall-setup.sh --port ${port} off failed on ${inst}" >&2
-                rc=1
-            fi
-        done
-        continue
-    fi
-
-    # validator: open primary then worker. Both go through firewall-setup.sh --json,
+    # NO ROLE BRANCH. Every node -- observer included -- gets the consensus ports opened.
+    #
+    # An observer is not a permanent category: it is a full node that can be STAKED into the
+    # committee at any time (devnet's node-5 is staked post-genesis by design). The moment it
+    # is, peers dial IT, and a host firewall that drops 49590/49594 makes it an unreachable
+    # committee member. Worse, the failure is delayed and misattributed -- the ports would be
+    # closed by the NEXT routine run of this script, long after the staking change that
+    # actually needed them, so it would look like a staking or consensus bug.
+    #
+    # An earlier revision of this script closed these ports on observers, reasoning that an
+    # observer only dials out. That is wrong even before staking (the P2P mesh expects inbound
+    # reachability) and actively harmful after it. Opening them here is also not a wide
+    # exposure: the VPC rule devnet-allow-consensus already restricts udp:49590/49594 to the
+    # fleet's own /32s behind the `validator` network tag, which every node carries.
+    # Open primary then worker. Both go through firewall-setup.sh --json,
     # so neither can touch sshd.
     for port in "${DEFAULT_PRIMARY_UDP_PORT}/udp" "${DEFAULT_WORKER_UDP_PORT}/udp"; do
         echo "    + sudo ${FW} --json --port ${port} on"
