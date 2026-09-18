@@ -1160,10 +1160,24 @@ fleet's own /32s behind the `validator` tag, which every node carries.
 
 ## Still open
 
-- [ ] **WireGuard lockdown not run.** `lockdown-firewall-gcp.sh` requires the operator's own
-      overlay tunnel up (`sudo wg-quick up tn-wg0`) and gates on overlay reachability to all
-      five nodes first. IAP remains the permanent break-glass door and public `:22` is already
-      closed at the VPC layer, so this is defense-in-depth, not an exposure.
+- [x] **WireGuard lockdown — RESOLVED 2026-09-18: not applicable to devnet, and its goal is
+      already met.** With the operator's tunnel up, the overlay pre-flight passed 5/5 and
+      Phase A ran, reconciling `wg-allow-iap-ssh` down to IAP-only (`35.235.240.0/20`) and
+      dropping a stray `153.53.208.55/32`. Phase B then aborted cleanly, removing nothing:
+      `could not enable tn-nftables`.
+      That abort is CORRECT, not a bug. `devnet-startup.sh:199` boots every node with
+      `WG_NODE_FIREWALL=0`, and the node logs `overlay only; NOT installing policy-drop nft
+      table (UFW authoritative)`. Devnet deliberately runs UFW as the SINGLE authoritative
+      host firewall -- wg-node-bootstrap.sh:34-41 says a second policy-drop table "would
+      create an intersection trap". lockdown-firewall-gcp.sh's Phase B is written for adiri's
+      nft model and cannot apply here.
+      The posture it targets is already in place: the ONLY tcp:22 ingress rule in tn-devnet
+      is `wg-allow-iap-ssh` (IAP only), `default-allow-ssh` is absent (Phase C satisfied), and
+      `nc :22` from off-net is refused/filtered on every node. Verified.
+      OPTIONAL residual, devnet-native: host UFW still allows `22/tcp from Anywhere`. Behind
+      the VPC gate that is a no-op, but narrowing it to the IAP range + the 10.100.0.0/16
+      overlay would be the UFW equivalent of Phase B. Not done -- it changes SSH reachability
+      and wants a deliberate call.
 - [ ] Push the four repos (see below) — everything is committed locally, nothing pushed.
 - [ ] Delete `v0.12.1-devnet-fork722` + `-fork740` from the registry now the reset has landed.
 - [ ] 2 wTEL V2 pools are empty (admin holds native TEL, not wrapped), so TEL-denominated
