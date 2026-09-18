@@ -39,6 +39,10 @@
   balance: "0xC9F2C9CD04674EDEA40000000"
 "0xCA4510D80e9e4023E0EdBA2bD1505C8623674Edd": # faucet
   balance: "0xC9F2C9CD04674EDEA40000000"
+"0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844": # txgen master -- tn-transaction-generator funding source
+  balance: "0xC9F2C9CD04674EDEA40000000"
+"0xAee2797478Cb5EfaF1869A2e33e369421EBf520f": # contracts admin (deployments-devnet.json .admin) -- deploys the app stack
+  balance: "0xC9F2C9CD04674EDEA40000000"
 "0x000000000000000000000000000000000000b151": # precompile
   balance: "0x0"
   nonce: 0

@@ -17,12 +17,13 @@
 # ${REPO_ROOT}/testnet_accounts.yaml (so the container sees /code/testnet_accounts.yaml).
 # Outputs land at genesis/committee.yaml and genesis/genesis.yaml.
 #
-# Note on --bls-passphrase-source stdin: the adiri direct-exec path (mirrored
-# here) does NOT pipe a passphrase into the committee assembly — assembling the
-# committee from public node-info does not need the keystore secret. If a future
-# image build prompts on stdin, the operator can pipe it manually
-# (printf '%s' "$TN_BLS_PASSPHRASE" | ...); this script authors the plain call to
-# match adiri exactly.
+# Note on --bls-passphrase-source stdin: images up to v0.12.1 accepted the flag and
+# never read stdin, so the committee assembly ran without a passphrase. The
+# v0.1.0-devnet image made it a HARD requirement and aborts with "Error passphrase is
+# required" on empty stdin. That anticipated "future image build" is now the present
+# one, so we resolve the passphrase up front (tn_require_bls_passphrase, which reads
+# the gitignored .secrets/bls-passphrase) and common/genesis.sh pipes it into
+# `docker run -i`. Piping zero bytes is still valid for the older images.
 #
 # Idempotent: safe to re-run (it overwrites genesis/committee.yaml + genesis.yaml).
 
@@ -94,6 +95,12 @@ fi
 # Step 3: source common/genesis.sh in library mode (defines the build functions
 # without running any of its phases) and run the committee build.
 # ----------------------------------------------------------------------------
+# Resolve the BLS passphrase BEFORE the build. genesis.sh pipes $TN_BLS_PASSPHRASE into
+# the container's stdin; without this call the var is unset here and v0.1.0-devnet aborts.
+# tn_require_bls_passphrase exports it from .secrets/bls-passphrase and never echoes it.
+tn_require_bls_passphrase || exit 1
+echo ">>> BLS passphrase resolved (value redacted)"
+
 echo ">>> step 3: building committee + genesis via tn_genesis_build_committee"
 # genesis.sh has NO `set -e`/`-u`/`pipefail`, and tn_genesis_build_committee handles the
 # docker exit code itself (exits non-zero on failure). Relax our strict options around

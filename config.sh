@@ -25,9 +25,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # staged through canary but the fleet stagger never launched before the T0-30 deadline; canary
 # reverse-updated. DO NOT deploy fork722 after epoch 721 closes unforked: any later replay
 # across the 721 boundary would fire the swap against legacy-certified history and diverge.
-export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.1-devnet-fork740"
+# Fresh-genesis reset 2026-09-17: v0.1.0-devnet is a version re-cut, NOT a downgrade
+# (pushed 2026-09-17T17:32Z, sha256:f6fcef5d..., newest tag in the registry). The whole
+# chain is regenerated from it, so the ConsensusRegistry it bakes into genesis is the new one.
+# export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.1-devnet-fork740"
+export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.1.0-devnet"
 
-export TN_BLS_PASSPHRASE="tornado"
+# TN_BLS_PASSPHRASE is deliberately NOT set here. devnet-lib.sh:tn_require_bls_passphrase
+# checks $TN_BLS_PASSPHRASE first, so exporting it here would shadow (and defeat) the
+# gitignored ${REPO_ROOT}/.secrets/bls-passphrase mechanism. Keep the passphrase there.
 
 #
 # GCP

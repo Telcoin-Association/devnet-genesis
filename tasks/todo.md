@@ -187,8 +187,9 @@ TN_TEST_EXIT_AFTER_BOUNDARY_PERSIST), CI feature-shape matrix.
 - [ ] Probe diagnostics: route through classified_registry_read (infra fault ≠ build
       mismatch); optional full post-fork selector mirror
 - [ ] update-node.sh detector labels validators "observer" (cosmetic)
-- [ ] devnet-genesis: regenerate devnet with NEW registry in genesis after the adiri
-      fork test validates (retires the legacy path on devnet)
+- [x] devnet-genesis: regenerate devnet with NEW registry in genesis after the adiri
+      fork test validates (retires the legacy path on devnet) — DONE 2026-09-17, see
+      "Devnet full wipe + redeploy on v0.1.0-devnet" at the end of this file
 
 
 
@@ -1082,3 +1083,83 @@ a dev/CI guard, intentionally left out of UI_BUNDLE so it stays off prod nodes.
 NEXT (operator, not done here — no commit without ask): these live in the `tn-node-deployment`
 submodule. To take effect on nodes, commit there, bump the parent-repo submodule pointer, and ship via
 the normal update path. The test file ships harmlessly with `ui/` but is never imported by the service.
+
+
+# Devnet full wipe + redeploy on `v0.1.0-devnet` + permanent tx generator — 2026-09-17
+
+Fresh genesis with the NEW ConsensusRegistry, retiring the legacy path on devnet. The old
+chain (fork740 soak, execution height 0x1f737) was destroyed, not migrated. Image
+`adiri:v0.1.0-devnet` (sha256:f6fcef5d…, pushed 2026-09-17T17:32Z) is a version RE-CUT for a
+fresh chain, not a downgrade from v0.12.1 despite sorting lower.
+
+## Outcome
+
+- [x] 5 node VMs destroyed + recreated; all five kept their reserved static IPs, so DNS was
+      untouched and deploy step 4 was a genuine no-op
+- [x] Brand-new BLS/network/execution keys on all five (verified: every `bls_public_key`
+      differs from the pre-reset committed value)
+- [x] New genesis: chainId 32285, ConsensusRegistry bytecode 70498 chars / sha256
+      876efa3c518f207e (pre-reset was 56764 / 42d0d5a76344def0), governance Safe threshold
+      forced to 1 signer, txgen master + contracts admin funded at 1e12 TEL each
+- [x] Consensus live: validators proposing, quorum 3/3 (2f+1 of a 4-validator committee);
+      observer-5 following via state-sync
+- [x] Obs redeployed with `--wipe-data`; Loki has all 6 hosts, Prometheus has job=telcoin-node
+      ×5 + job=txgen ×1
+- [x] Host UFW enabled fleet-wide with ZERO manual steps (the step-10 rewrite); VPC rules
+      re-keyed; Caddy/TLS + LB green on all five backends; admin dashboards 401 + write-guarded
+- [x] App-contract stack redeployed: 23 eXYZ, StablecoinManager, GitAttestationRegistry,
+      Uniswap V2/V3/V4. 22 of 45 V2 pools seeded
+- [x] `tn-transaction-generator` permanent on `txgen-devnet`: active, enabled, 0 restarts,
+      12 distinct tx types landing (uniswap_v2_swap, uniswap_v4_swap, wtel_wrap/unwrap,
+      stablecoin_transfer/approve, contract_deploy, batched_self_send, faucet_drip,
+      native_transfer, master_funding), epoch monitor already tracked a boundary
+- [x] **The point of the whole exercise:** `eth_blockNumber` went from flat at 0x0 to
+      +51 blocks / 20s with real txs in blocks. The chain no longer looks wedged when idle.
+
+## Five defects the plan did not anticipate (each would have shipped broken)
+
+1. **Every node was `disabled` for boot.** `setup-node.sh:1221` ran the informational
+   `check_validator_onchain_status` bare under `set -e`; it returns 1 on an empty address and
+   aborted finalize AFTER the service started but BEFORE `systemctl enable`. Nodes ran fine
+   and would not have survived a reboot. Fixed with `|| true` (the repo's two other callers
+   already guarded it) + `devnet-finalize.sh` now passes `--address`.
+2. **`v0.1.0-devnet` made `--bls-passphrase-source stdin` mandatory** for the genesis build
+   ("Error passphrase is required"); every earlier image ignored stdin. `common/genesis.sh`
+   now pipes the passphrase into `docker run -i`, backward-compatibly.
+3. **The generator's own sops recipe is wrong.** `--encrypt x.key > x.sops.yaml` round-trips
+   to `data: 0x…` because sops picks its store from the extension. Ship `.sops` instead.
+4. **`create-obs-instance.sh` still dialled public `:22`**, removed by the WG lockdown —
+   10 minutes of polling a healthy VM. Now tunnels through IAP.
+5. **`enroll-node.sh` was hijacked by the `TN_USE_VPN=1` gcloud shim**, which ignores
+   `--tunnel-through-iap` and routes over the overlay — structurally impossible for
+   enrollment. All five nodes were misreported as un-bootstrapped.
+
+Plus two smaller ones: the observer inherited open consensus P2P because the lockout-safe
+`--enable` path is role-blind (devnet-firewall.sh now actively CLOSES them on observers), and
+`.WTEL` had to be repointed to the genesis vanity address `0x…37E1` or step 4 would have
+deployed a duplicate WTEL and wired every Uniswap router to it.
+
+## Decisions taken during the run
+
+- Contracts admin is `0xAee2797478Cb5EfaF1869A2e33e369421EBf520f` — the only admin key we
+  hold. `.admin` was repointed at it and it is funded at genesis. Deploying with a key that
+  is not `.admin` reverts `TestnetGrantRole.s.sol:88` and breaks `SeedTestnetLPs`.
+- Deployed from `deploy/devnet-relaunch` (d95fea88), matching the generator's submodule pin.
+  tn-contracts HEAD carries different CREATE2 salts and a wholly different address book.
+- There is **no FAUCET role** in tn-contracts (the plan's step-14 grant does not exist).
+  `dripTo`/`drip` are permissionless, so `enable_stablecoin_funding` needs no grant at all.
+
+## Still open
+
+- [ ] **WireGuard lockdown not run.** `lockdown-firewall-gcp.sh` requires the operator's own
+      overlay tunnel up (`sudo wg-quick up tn-wg0`) and gates on overlay reachability to all
+      five nodes first. IAP remains the permanent break-glass door and public `:22` is already
+      closed at the VPC layer, so this is defense-in-depth, not an exposure.
+- [ ] Push the four repos (see below) — everything is committed locally, nothing pushed.
+- [ ] Delete `v0.12.1-devnet-fork722` + `-fork740` from the registry now the reset has landed.
+- [ ] 2 wTEL V2 pools are empty (admin holds native TEL, not wrapped), so TEL-denominated
+      swap paths have no liquidity. 22 eXYZ pools are seeded and the generator is happy.
+- [ ] Re-run `setup-firewall.sh` after ANY future instance stop/start — VPC consensus rules
+      are keyed to node IPs.
+- [ ] Optional: `common/observability/setup-obs-firewall.sh`, `setup-obs-disk-alert.sh`,
+      and the two Grafana alerts (txgen submit-rate zero; master balance < 50 TEL).

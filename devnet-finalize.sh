@@ -127,6 +127,14 @@ for i in "${INDICES[@]}"; do
         --genesis-dir "${gdir}"
         --data-dir "${ddir}"
         --service-user "${SERVICE_USER}"
+        # Pass the execution address so setup-node.sh's post-start
+        # check_validator_onchain_status actually probes the ConsensusRegistry instead of
+        # bailing with "Invalid validator address -- skipping on-chain check". Empty, that
+        # probe returns 1, and under setup-node.sh's `set -e` it aborted finalize BEFORE
+        # `systemctl enable` -- every node came up active but disabled for boot
+        # (devnet genesis reset 2026-09-17). tn-node-deployment now guards the call with
+        # `|| true` as well; this makes the check meaningful rather than merely harmless.
+        --address "${EXECUTION_ADDRESSES[$i]}"
         --listener-primary "/ip4/${intIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
         --listener-worker "/ip4/${intIP}/udp/${DEFAULT_WORKER_UDP_PORT}/quic-v1"
         # Bake `--healthcheck 43174` into the launch command so the node opens the health

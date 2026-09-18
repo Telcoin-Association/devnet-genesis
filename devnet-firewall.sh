@@ -111,7 +111,8 @@ echo "=========================================="
 echo "devnet HOST firewall (UFW) consensus rules"
 echo "Project:    ${PROJECT_ID}"
 echo "Ports:      primary=${DEFAULT_PRIMARY_UDP_PORT}/udp worker=${DEFAULT_WORKER_UDP_PORT}/udp (validators only)"
-echo "Precond:    UFW already enabled per node (this script never runs ufw enable)"
+echo "Precond:    UFW already enabled per node (run './devnet-firewall.sh --enable' first;"
+echo "            THIS mode never enables UFW -- it only adds consensus ingress rules)"
 [ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
 echo "=========================================="
 
@@ -127,8 +128,24 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     echo ">>> ${inst} (${zone}, role=${role})"
 
     if [ "${role}" = "observer" ]; then
-        echo "    observer — no consensus ingress rule (it dials out). Health (${DEFAULT_HEALTHCHECK_TCP_PORT}/tcp)"
-        echo "    is handled by --enable-health in devnet-observability.sh, not here. Nothing to apply."
+        # An observer DIALS OUT; it never needs inbound consensus P2P. We now actively CLOSE
+        # those ports rather than merely skipping the node, because the lockout-safe
+        # `--enable` path opens validator P2P unconditionally (firewall-setup.sh has no role
+        # awareness), so after Step 10 the observer would otherwise sit with 49590/49594 open
+        # to the world. The old manual `ufw allow 22/tcp && ufw --force enable` recipe never
+        # opened them, so skipping was previously enough. `--port <p> off` is idempotent.
+        # Health (${DEFAULT_HEALTHCHECK_TCP_PORT}/tcp) stays: it is applied by
+        # --enable-health in devnet-observability.sh and is what the LB/Kuma probe.
+        echo "    observer — closing consensus ingress (it dials out; --enable opens P2P role-blind)"
+        for port in "${DEFAULT_PRIMARY_UDP_PORT}/udp" "${DEFAULT_WORKER_UDP_PORT}/udp"; do
+            echo "    + sudo ${FW} --json --port ${port} off"
+            if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${FW} --json --port ${port} off")"; then
+                echo "      result: ${json}"
+            else
+                echo "      ❌ firewall-setup.sh --port ${port} off failed on ${inst}" >&2
+                rc=1
+            fi
+        done
         continue
     fi
 

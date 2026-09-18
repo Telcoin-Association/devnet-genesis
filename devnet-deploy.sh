@@ -19,13 +19,15 @@
 #    7. finalize (stage + start)      ./devnet-finalize.sh
 #    8. obs VM                        ./common/create-obs-instance.sh --wipe-data
 #    9. per-node observability        ./devnet-observability.sh
-#   10. MANUAL: enable UFW once per node via IAP/console, then ./devnet-firewall.sh  [pause]
+#   10. host firewall (UFW)          ./devnet-firewall.sh --enable ; ./devnet-firewall.sh
 #   11. GCP/VPC firewall rules        ./setup-firewall.sh
 #   12. DNS/Caddy + load balancer     ./common/dns.sh ; ./common/setup-load-balancer.sh
 #   13. admin dashboards (default ON)  ./devnet-dashboards.sh ; ./common/dns.sh   (opt out: TN_ADMIN_DASHBOARD=0)
+#   14. app-contract stack           ./devnet-contracts.sh    (tn-contracts: infra + LPs + faucet role)
+#   15. transaction generator        ./devnet-txgen.sh        (txgen-devnet VM + permanent systemd service)
 #
 # Resume / piecemeal:
-#   ./devnet-deploy.sh --yes              # full run, steps 1..13 (step 13 skips unless opted in)
+#   ./devnet-deploy.sh --yes              # full run, steps 1..15 (step 13 skips only if TN_ADMIN_DASHBOARD=0)
 #   ./devnet-deploy.sh --yes --from 5     # resume at step 5 to the end
 #   ./devnet-deploy.sh --yes --only 9     # run ONLY step 9
 #
@@ -37,7 +39,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${REPO_DIR}/devnet-lib.sh"
 
-LAST_STEP=13
+LAST_STEP=15
 BOOTSTRAP_TIMEOUT_SECS=600   # per-node first-boot wait (apt docker-ce + clone scripts)
 BOOTSTRAP_POLL_SECS=15
 
@@ -133,23 +135,18 @@ step_8()  { echo ">>> Step 8: obs VM (+ wipe data)";      "${REPO_DIR}/common/cr
 step_9()  { echo ">>> Step 9: per-node observability";    "${REPO_DIR}/devnet-observability.sh"; }
 
 step_10() {
-    cat <<EOF
->>> Step 10: MANUAL — enable UFW once per node, then apply host consensus rules
-
-  devnet-firewall.sh never runs 'ufw enable'. Enable UFW ONCE on each node from an
-  IAP/console session, allowing SSH FIRST so you don't lock yourself out:
-
-    sudo ufw allow 22/tcp && sudo ufw --force enable
-
-  Do this for every instance:
-EOF
-    local i
-    for i in "${!INSTANCE_NAMES[@]}"; do
-        printf '    - %s (%s)\n' "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}"
-    done
-    pause_for_operator
+    echo ">>> Step 10: host firewall (UFW) — lockout-safe enable, then consensus rules"
+    # No longer a manual step. devnet-firewall.sh --enable delegates to the node's
+    # firewall-setup.sh --json --enable, which allows SSH, the 10.100.0.0/16 overlay, the
+    # Kuma monitor and the Google LB health-check ranges BEFORE `ufw --force enable`, then
+    # re-verifies SSH per node and ABORTS the whole run on loss (no further nodes touched).
+    #
+    # FALLBACK (only if --enable itself is broken): enable UFW by hand, SSH allowed FIRST,
+    # once per node from an IAP/console session, then re-run this step with --only 10:
+    #     sudo ufw allow 22/tcp && sudo ufw --force enable
+    "${REPO_DIR}/devnet-firewall.sh" --enable   # per-node enable + SSH re-verify + abort on loss
     echo "    applying host consensus rules via devnet-firewall.sh"
-    "${REPO_DIR}/devnet-firewall.sh"
+    "${REPO_DIR}/devnet-firewall.sh"            # consensus ingress, asserted via --json --status
 }
 
 step_11() { echo ">>> Step 11: GCP/VPC firewall rules";   "${REPO_DIR}/setup-firewall.sh"; }
@@ -170,6 +167,21 @@ step_13() {
     # re-apply Caddy so the admin vhost points at a service that already answers on :8080.
     "${REPO_DIR}/devnet-dashboards.sh"   # (1) install/refresh the UI fleet-wide (backend live FIRST)
     "${REPO_DIR}/common/dns.sh"          # (2) re-apply Caddy; dns.sh auto-fetches the hash + emits the vhost
+}
+
+step_14() {
+    echo ">>> Step 14: app-contract stack (tn-contracts)"
+    # The chain wipe takes every script-deployed contract with it (WTEL, the eXYZ
+    # stablecoins, StablecoinManager, the Uniswap factories/routers/pools). Only
+    # ConsensusRegistry/Issuance/StakeManager are genesis-assigned. The transaction
+    # generator reads all of them from deployments-devnet.json and fails hard on a
+    # missing mandatory key, so this must land before Step 15.
+    "${REPO_DIR}/devnet-contracts.sh"
+}
+step_15() {
+    echo ">>> Step 15: transaction generator (txgen-devnet)"
+    # Permanent, continuous transaction source so the chain never sits idle.
+    "${REPO_DIR}/devnet-txgen.sh"
 }
 
 # pause_for_operator — block until ENTER (skipped only if stdin isn't a TTY, e.g.
