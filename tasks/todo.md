@@ -1187,10 +1187,22 @@ are the record of the LIVE chain, and rebuilding them would make the repo disagr
 is staged on the fleet -- a later step-7-only run would then push a changed committee at a
 running chain. They pick this up naturally at the next full rebuild (step 6).
 
-Not done, available on request: the LIVE nodes' own `/var/lib/telcoin/node-info.yaml` still
-has `rpc: ~`, so they are not advertising these endpoints over kademlia yet. `telcoin keytool
-set-rpc --http URL [--ws URL]` edits public config only (no passphrase, no key regeneration)
-and would close that gap without a redeploy.
+APPLIED TO THE LIVE FLEET 2026-09-18. All five nodes had `telcoin keytool set-rpc --http URL
+--ws URL` run against their datadir and were then restarted, because the runtime reads the
+endpoint at STARTUP and signs it into the kademlia node record there -- set-rpc alone only
+edits the config field (`set_rpc.rs:1-13`). It needs no BLS passphrase and regenerates no keys.
+
+Restarts were strictly ONE NODE AT A TIME. The committee is 4 validators with
+`quorum_threshold=3`, so exactly one may be down; the helper gated each node on a witness
+node still logging `quorum reached` both before and after, and would have stopped the run
+rather than touch a second node. The observer went first as a zero-risk canary. Every node
+rejoined within 10s and quorum never dropped below 3/3.
+
+Proven functionally, not just by reading the file back: a 0-value tx submitted ONLY to
+node5 -- a NON-COMMITTEE observer that cannot produce blocks -- was mined in 5s. The only
+path there is the worker forwarding it to the owning validator's JSON-RPC endpoint discovered
+over kademlia (`start_epoch.rs`, issue #804). That also confirms the endpoints satisfy
+`ForwardTargetPolicy`, which refuses non-public hosts unless the operator opts in.
 
 ## Still open
 
