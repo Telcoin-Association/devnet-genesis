@@ -125,6 +125,16 @@ for i in "${INDICES[@]}"; do
         --data-dir "${ddir}"
         --service-user "${SERVICE_USER}"
         --advertised-name "${node}"
+        # Advertise this node's PUBLIC JSON-RPC endpoints in node-info.yaml. telcoin-network
+        # attaches RpcInfo to the WORKER entry only (primary stays null) and publishes it
+        # through the kademlia node record, so wallets/dapps can discover where to submit
+        # transactions. devnet-genesis-build.sh then carries it from node-info into
+        # genesis/committee.yaml, which is what makes it SURVIVE a full redeploy -- the
+        # genesis/ files are regenerated every run, so hand-editing them would not.
+        # Trailing slash matches how Url serializes (https://host -> https://host/).
+        # Both go through Caddy on :443, not reth's loopback 8545/8546.
+        --rpc-http "https://${node}.${BASE_DOMAIN}/"
+        --rpc-ws "wss://${node}.${BASE_DOMAIN}/"
     )
 
     # The remote command. The passphrase is interpolated here — DO NOT echo this

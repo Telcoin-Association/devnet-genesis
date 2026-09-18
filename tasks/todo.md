@@ -1158,6 +1158,40 @@ fleet's own /32s behind the `validator` tag, which every node carries.
 - There is **no FAUCET role** in tn-contracts (the plan's step-14 grant does not exist).
   `dripTo`/`drip` are permissionless, so `enable_stablecoin_funding` needs no grant at all.
 
+## Advertised RPC in genesis/ (2026-09-18)
+
+`genesis/validators/node{1..4}.yaml` and `genesis/observers/node5.yaml` now carry the node's
+public JSON-RPC endpoints, and `devnet-keygen.sh` passes `--rpc-http` / `--rpc-ws` so a full
+redeploy REGENERATES them with the same values. That wiring is the part that matters: every
+file under `genesis/` is rewritten by the deploy (node-info by keygen at step 5, committee +
+genesis by the build at step 6), so hand-editing them alone would have been undone by the
+next run.
+
+Shape notes, all taken from telcoin-network rather than guessed:
+- `RpcInfo` is attached to the **worker** P2pNode only. Primaries keep `rpc: ~`
+  (`crates/types/src/committee.rs:93-99`).
+- `http` is required and must be http/https; `ws` is optional and must be ws/wss; clap makes
+  `--rpc-ws` require `--rpc-http`.
+- URLs serialize with a trailing slash and quoted, matching the serializer's own output, so a
+  regeneration produces no spurious diff.
+- These are application-layer URLs published through the kademlia node record for wallets and
+  dapps. They are never dialed by the libp2p swarm, and they point at Caddy on :443 -- not
+  reth's loopback 8545/8546.
+
+Verified by running the real `telcoin genesis` build against these files in a scratch dir:
+the binary accepts them and the worker RPC propagates into `committee.yaml` for all four
+validators, with the four primaries still `~`.
+
+`genesis/committee.yaml` and `genesis/genesis.yaml` were deliberately NOT regenerated. They
+are the record of the LIVE chain, and rebuilding them would make the repo disagree with what
+is staged on the fleet -- a later step-7-only run would then push a changed committee at a
+running chain. They pick this up naturally at the next full rebuild (step 6).
+
+Not done, available on request: the LIVE nodes' own `/var/lib/telcoin/node-info.yaml` still
+has `rpc: ~`, so they are not advertising these endpoints over kademlia yet. `telcoin keytool
+set-rpc --http URL [--ws URL]` edits public config only (no passphrase, no key regeneration)
+and would close that gap without a redeploy.
+
 ## Still open
 
 - [x] **WireGuard lockdown — RESOLVED 2026-09-18: not applicable to devnet, and its goal is

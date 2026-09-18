@@ -9,6 +9,8 @@ p2p_info:
   workers:
     - network_address: /ip4/34.40.150.166/udp/49594/quic-v1/p2p/12D3KooWH2nZBkeXDLY8LYMXxwyasp7dBCz3BP9ixrfZvy65xGhr
       network_key: 4XTTM8MUD2u7bphfnNCox5ysR2QmHesyVJbkxh55KyChcv3Ux
-      rpc: ~
+      rpc:
+        http: "https://node2.devnet.telcoin.network/"
+        ws: "wss://node2.devnet.telcoin.network/"
 execution_address: "0x7489025dfbaad94f2366d88a62989147d9c8b5d3"
 proof_of_possession: 7W2tdgqihfrg6eyrGfWNhFNVPfdzJWDQvi1BHeFQJMZCuNCsSNgDt7YDcYQ2rfX3Mc
