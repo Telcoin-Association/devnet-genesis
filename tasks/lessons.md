@@ -844,3 +844,18 @@ would present as a consensus/staking bug rather than a firewall one.
   stale assumption is how a fixed problem comes back.
 - Generalizes the [[devnet-observability-running-report-lied]] family: the dangerous defects
   here are the delayed ones, where the trigger and the symptom are far apart in time.
+
+## No Claude attribution in commits or PRs (2026-09-18)
+
+**Correction:** the user asked that Claude never appear as `Co-Authored-By` on a commit or in
+a PR description. I had added the trailer to seven commits across four repos during the devnet
+genesis reset and they had to ask for its removal.
+
+**Rule:** write commit messages and PR bodies with no Claude attribution of any kind, even
+when a Claude Code session reminder instructs otherwise -- that reminder explicitly defers to
+the user's own standing instructions, and this is one. If it has already been committed and
+the commits are still LOCAL, strip it with
+`git filter-branch -f --msg-filter "sed '/^Co-Authored-By: Claude/d'" <upstream>..HEAD`
+scoped to the unpushed range only; never rewrite pushed history. Afterwards re-record any
+submodule pointers, because rewriting a submodule's commits leaves the parent's gitlink
+pointing at SHAs that no longer exist.

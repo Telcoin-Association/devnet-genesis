@@ -135,6 +135,16 @@ for i in "${INDICES[@]}"; do
         # (devnet genesis reset 2026-09-17). tn-node-deployment now guards the call with
         # `|| true` as well; this makes the check meaningful rather than merely harmless.
         --address "${EXECUTION_ADDRESSES[$i]}"
+        # The node's own public, operator-facing endpoints, served by its Caddy edge:
+        #   https://node{N}.<domain>  -> reth RPC  :${RPC_PORT} (8545)
+        #   wss://node{N}.<domain>    -> reth WS   :${WS_PORT}  (8546)
+        # config-caddy.sh already routes both (the @websocket matcher forwards the Upgrade
+        # to WS_PORT before the catch-all RPC handler). Recording them in .node-meta means a
+        # node knows its OWN reachable addresses -- the UI, operators and tooling no longer
+        # have to reconstruct them from a hostname convention. Applies to the observer too,
+        # which serves RPC exactly like a validator.
+        --public-rpc-url "https://${NODE_NAMES[$i]}.${BASE_DOMAIN}"
+        --public-ws-url "wss://${NODE_NAMES[$i]}.${BASE_DOMAIN}"
         --listener-primary "/ip4/${intIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
         --listener-worker "/ip4/${intIP}/udp/${DEFAULT_WORKER_UDP_PORT}/quic-v1"
         # Bake `--healthcheck 43174` into the launch command so the node opens the health
