@@ -12,5 +12,5 @@ p2p_info:
       rpc:
         http: "https://node5.devnet.telcoin.network/"
         ws: "wss://node5.devnet.telcoin.network/"
-execution_address: "0xb4e5ed8167873a3cf3c405aa7155948db869dbe3"
-proof_of_possession: 764m1hYLMXp3gPnNMGPcW1JqdUSJki6DxGCweuWU5seSrSh6LPvuZZhTZwCxKdns5P
+execution_address: "0xe4893435192d710a4f6d51a579c5c2da30d8c46d"
+proof_of_possession: 67jdeepimuProQUZAa7TcgZ4FyxbEXEJAM5ed2PmjtjPuanH1whrGhdFf7E1dNoRDz
