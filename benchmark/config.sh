@@ -67,7 +67,10 @@ if [ "${#BENCH_RUN_ID}" -gt 40 ]; then
     echo "❌ BENCH_RUN_ID is longer than 40 chars." >&2; exit 1
 fi
 export BENCH_RUN_ID
-export BENCH_FLEET="${BENCH_FLEET:-A}"
+# Fleet label for the manifest/report: A is the e2 baseline; any other BENCH_MACHINE_TYPE
+# labels itself by machine type unless BENCH_FLEET is set explicitly (the c3 run was
+# mislabelled "A" before this default existed).
+export BENCH_FLEET="${BENCH_FLEET:-${BENCH_MACHINE_TYPE:-A}}"
 
 #
 # Fleet: 10 validators + 1 observer, two per region across devnet's five regions,
