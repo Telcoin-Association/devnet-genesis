@@ -231,12 +231,14 @@ bench_prom_query() {
         "${BENCH_GRAFANA_URL}/api/datasources/proxy/uid/${BENCH_PROM_DATASOURCE_UID}/api/v1/query"
 }
 
-# bench_prom_rounds <min|max> — {"<node>": <round>, ...} for every bench node from
+# bench_prom_rounds <min|max> — {"<node>": epoch*1e8+round, ...} for every bench node from
 # `<agg> by (node) (tn_primary_round{network="bench"})`; "" if the query failed. Consensus
 # rounds advance on an idle chain, block height does not (the engine skips empty
 # non-epoch-closing outputs, so an unloaded TN chain sits at block 0).
 bench_prom_rounds() {
-    bench_prom_query "$1 by (node) (tn_primary_round{network=\"${BENCH_PROM_NETWORK_LABEL}\"})" 2>/dev/null \
+    # Rounds restart at 0 every epoch, so an epoch boundary would read as "no node advanced".
+    # epoch * 1e8 + round is monotonic across the boundary (rounds never reach 1e8 in an epoch).
+    bench_prom_query "$1 by (node) (tn_epoch_current{network=\"${BENCH_PROM_NETWORK_LABEL}\"}) * 100000000 + $1 by (node) (tn_primary_round{network=\"${BENCH_PROM_NETWORK_LABEL}\"})" 2>/dev/null \
         | jq -c 'select(.status == "success") | [.data.result[] | {key: .metric.node, value: (.value[1] | tonumber)}] | from_entries' 2>/dev/null || true
 }
 
