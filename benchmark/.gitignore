@@ -1,0 +1,8 @@
+# Per-run artefacts of the benchmark profile. Only the scripts, config, README and the
+# committed testnet_accounts.yaml belong in git.
+genesis/
+parameters.yaml
+results/
+logs/
+work/
+.secrets/

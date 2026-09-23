@@ -48,9 +48,10 @@ tn_select_indices() {
     printf '%s\n' "${out[@]}"
 }
 
-# Local genesis artifacts produced by devnet-genesis-build.sh.
-COMMITTEE_LOCAL="${REPO_ROOT}/genesis/committee.yaml"
-GENESIS_LOCAL="${REPO_ROOT}/genesis/genesis.yaml"
+# Local genesis artifacts produced by devnet-genesis-build.sh (in GENESIS_WORKSPACE,
+# which config.sh sets to REPO_ROOT for devnet).
+COMMITTEE_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/committee.yaml"
+GENESIS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/genesis.yaml"
 
 echo ">>> verifying local genesis artifacts"
 for f in "${COMMITTEE_LOCAL}" "${GENESIS_LOCAL}" "${PARAMETERS_FILE}"; do

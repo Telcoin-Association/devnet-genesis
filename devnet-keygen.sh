@@ -78,9 +78,10 @@ INDICES=()
 while IFS= read -r _idx; do INDICES+=("$_idx"); done < <(tn_select_indices "$@")
 echo ">>> keygen targets: ${#INDICES[@]} node(s) — ${INDICES[*]}"
 
-# Local collection dirs for the pulled node-info files.
-VALIDATORS_LOCAL="${REPO_ROOT}/genesis/validators"
-OBSERVERS_LOCAL="${REPO_ROOT}/genesis/observers"
+# Local collection dirs for the pulled node-info files. GENESIS_WORKSPACE (config.sh)
+# is REPO_ROOT for devnet; a profile such as benchmark/ points it at its own tree.
+VALIDATORS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/validators"
+OBSERVERS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/observers"
 mkdir -p "${VALIDATORS_LOCAL}" "${OBSERVERS_LOCAL}"
 
 collected=()
