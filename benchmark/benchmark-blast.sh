@@ -157,8 +157,9 @@ delete_vms() { # <zone> <name...>
 
 # Done markers from blaster-startup.sh: "<MARK> rc=N reason=R [...]". Only rc=0 reason=ok
 # means the results are in the bucket; anything else leaves the VM holding the only copy.
-marker_rc() { sed -n "s/.*$1 rc=\([0-9][0-9]*\).*/\1/p" | tail -1; }
-marker_reason() { sed -n "s/.*$1 rc=[0-9][0-9]* reason=\([^ ]*\).*/\1/p" | tail -1; }
+# Serial-console lines end in CRLF: strip \r first or "reason=ok" compares as "ok\r".
+marker_rc() { tr -d '\r' | sed -n "s/.*$1 rc=\([0-9][0-9]*\).*/\1/p" | tail -1; }
+marker_reason() { tr -d '\r' | sed -n "s/.*$1 rc=[0-9][0-9]* reason=\([^ ]*\).*/\1/p" | tail -1; }
 
 # settle_load_vm <name> <zone> <results-subdir> <done-line> <MARK> — delete the VM only when
 # its results are safe: rc=0 reason=ok (uploaded), or an IAP scp of /var/lib/bench/out
