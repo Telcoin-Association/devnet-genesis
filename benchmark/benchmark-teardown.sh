@@ -5,7 +5,8 @@
 # Candidates (each re-proven before anything is deleted):
 #   instances   bench INSTANCE_NAMES ∪ every instance labelled benchmark=1
 #   firewall    BENCH_FIREWALL_RULES (only if they target exactly bench-node + say benchmark=1)
-#   buckets     every bucket labelled benchmark=1 (copied into results/<run>/bucket/ first)
+#   buckets     every bucket labelled benchmark=1 or named tn-devnet-bench-* (copied into
+#               results/<run>/bucket/ first; a non-empty bucket whose copy failed is LEFT)
 #   disks       labelled benchmark=1 or named ^bench- (after the instances are gone)
 #   IAM         the compute SA's secretAccessor binding on the two bench-txgen-* secrets
 #   secrets     bench-txgen-* — KEPT unless --purge
@@ -106,8 +107,7 @@ CAND_BKT=()
 while IFS= read -r b; do
     [ -n "${b}" ] || continue
     case "${b}" in tn-devnet-bench-*) CAND_BKT+=("${b}") ;; *) violate "bucket ${b} is labelled benchmark=1 but not named tn-devnet-bench-*" ;; esac
-done < <(gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null \
-    | jq -r '.[] | select((.labels.benchmark // "") == "1") | .name')
+done < <(bench_bucket_names)   # label benchmark=1 OR name tn-devnet-bench-* (step 12 labels in a 2nd call)
 echo ">>> bucket candidates (${#CAND_BKT[@]}): ${CAND_BKT[*]:-none}"
 
 # --- disks (listed now for the plan; re-listed after the instances are gone) ----------------
@@ -187,10 +187,21 @@ if [ "${BENCH_APPLY}" = "1" ]; then
 else
     echo "    (orphan disks are re-listed and deleted after the instances; boot disks go with them)"
 fi
+LEFT_BKT=()
 for b in "${CAND_BKT[@]+"${CAND_BKT[@]}"}"; do
+    first_obj="$(gcloud storage ls "gs://${b}/**" --project="${PROJECT_ID}" 2>/dev/null | head -1 || true)"
+    if [ -z "${first_obj}" ]; then
+        bench_run gcloud storage buckets delete "gs://${b}" --project="${PROJECT_ID}" --quiet
+        continue
+    fi
     [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/bucket/${b}"
-    bench_run gcloud storage cp -r "gs://${b}/*" "${BENCH_RESULTS_DIR}/bucket/${b}/" || bench_warn "backup of gs://${b} failed (empty bucket?)"
-    bench_run gcloud storage rm -r "gs://${b}" --project="${PROJECT_ID}"
+    if bench_run gcloud storage cp -r "gs://${b}/*" "${BENCH_RESULTS_DIR}/bucket/${b}/"; then
+        bench_run gcloud storage rm -r "gs://${b}" --project="${PROJECT_ID}"
+    else
+        # The bucket may hold the only copy of a run's results: never delete it unbacked.
+        echo "❌ backup of non-empty gs://${b} failed — bucket LEFT in place: ${b}" >&2
+        LEFT_BKT+=("${b}")
+    fi
 done
 for s in "${SECRETS[@]}"; do
     if gcloud secrets get-iam-policy "${s}" --project="${PROJECT_ID}" --format=json 2>/dev/null \
@@ -234,7 +245,7 @@ chk "instances labelled benchmark=1" "$(printf '%s' "${now_inst}" | jq '[.[] | s
 chk "instances named bench-*" "$(printf '%s' "${now_inst}" | jq '[.[] | select(.name | test("^bench-"))] | length')"
 chk "firewall rules ^bench- or targeting bench-node" "$(gcloud compute firewall-rules list --project="${PROJECT_ID}" --format=json \
     | jq '[.[] | select((.name | test("^bench-")) or ((.targetTags // []) | index("bench-node")))] | length')"
-chk "buckets labelled benchmark=1" "$(gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null | jq '[.[] | select((.labels.benchmark // "") == "1")] | length')"
+chk "buckets labelled benchmark=1 / named tn-devnet-bench-*" "$(bench_bucket_names | grep -c . || true)" "${LEFT_BKT[*]:+(backup failed, left: ${LEFT_BKT[*]})}"
 chk "disks labelled benchmark=1 / named bench-*" "$(list_disks | grep -c . || true)"
 chk "local IAP tunnels on :${BENCH_TUNNEL_PORT}" "$(pgrep -f "start-iap-tunnel.*${BENCH_TUNNEL_PORT}" 2>/dev/null | grep -c . || true)"
 chk "contracts worktree" "$([ -e "${BENCH_CONTRACTS_WORKTREE}" ] && echo 1 || echo 0)" "${BENCH_CONTRACTS_WORKTREE}"

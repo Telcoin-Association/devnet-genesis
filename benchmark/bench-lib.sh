@@ -239,7 +239,7 @@ bench_prom_scalar() { bench_prom_query "$1" | jq -r '.data.result[0].value[1] //
 # matching <filter> ("" when none). The access token goes to curl on STDIN.
 bench_monitoring_max() {
     local tok now start
-    tok="$(gcloud auth print-access-token 2>/dev/null)" || return 1
+    tok="$(gcloud auth print-access-token 2>/dev/null)" || return 0   # "" = unavailable, never fatal
     now="$(bench_now_unix)"; start=$((now - ${2:-600}))
     printf 'header = "Authorization: Bearer %s"\n' "${tok}" | curl -sS --max-time 20 -K - --get \
         --data-urlencode "filter=$1" \
@@ -247,6 +247,67 @@ bench_monitoring_max() {
         --data-urlencode "interval.endTime=$(bench_iso_from_unix "${now}")" \
         "https://monitoring.googleapis.com/v3/projects/${PROJECT_ID}/timeSeries" \
         | jq -r '[.timeSeries[]?.points[0].value | (.doubleValue // .int64Value // empty) | tonumber] | max // empty' 2>/dev/null || true
+}
+
+# --- load-generator image (:blast-v2-<sha>) --------------------------------------------
+# bench_require_txgen_image — die unless BENCH_TXGEN_IMAGE is a :blast-v2-<sha> image.
+bench_require_txgen_image() {
+    [ -n "${BENCH_TXGEN_IMAGE}" ] || bench_die "no txgen image: ${BENCH_TXGEN_IMAGE_ERROR:-BENCH_TXGEN_SHA unset}"
+    case "${BENCH_TXGEN_IMAGE}" in *@*) bench_die "BENCH_TXGEN_IMAGE must be a tag, not a digest ref" ;; esac
+    case "${BENCH_TXGEN_IMAGE##*:}" in
+        blast-v2-?*) ;;
+        *) bench_die "txgen image tag '${BENCH_TXGEN_IMAGE##*:}' is not blast-v2-<sha> (${BENCH_TXGEN_IMAGE}); the old :blast harness lacks the blast-v2 CLI" ;;
+    esac
+}
+
+# bench_txgen_image_digest — registry digest of BENCH_TXGEN_IMAGE ("" if the tag is absent).
+bench_txgen_image_digest() {
+    gcloud artifacts docker images describe "${BENCH_TXGEN_IMAGE}" --format='value(image_summary.digest)' 2>/dev/null || true
+}
+
+# bench_txgen_cli_probe — when docker is available, run `IMAGE blast --help` and require every
+# flag of the CLI contract. A throwaway --config dir holds the registry login, so the
+# operator's docker config is never touched. BENCH_SKIP_CLI_PROBE=1 skips it.
+BENCH_TXGEN_CONTRACT_FLAGS="--nodes --senders --sender-start --window --warmup-secs --duration-secs --cooldown-secs --receipts --deployments-path --label --run-id --out --stdout-json --prepare --fund-tel"
+bench_txgen_cli_probe() {
+    if [ "${BENCH_SKIP_CLI_PROBE:-0}" = "1" ]; then bench_warn "BENCH_SKIP_CLI_PROBE=1 — blast --help probe skipped"; return 0; fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        bench_warn "docker not available — skipping the '${BENCH_TXGEN_IMAGE} blast --help' CLI probe"; return 0
+    fi
+    local cfg help f missing=""
+    cfg="$(mktemp -d)"
+    gcloud auth print-access-token 2>/dev/null \
+        | docker --config "${cfg}" login -u oauth2accesstoken --password-stdin "https://${BENCH_TXGEN_IMAGE%%/*}" >/dev/null 2>&1 || true
+    help="$(docker --config "${cfg}" run --rm --platform linux/amd64 "${BENCH_TXGEN_IMAGE}" blast --help 2>&1 || true)"
+    rm -rf "${cfg}"
+    for f in ${BENCH_TXGEN_CONTRACT_FLAGS}; do
+        printf '%s\n' "${help}" | grep -Eq -- "(^|[^a-z-])${f}([^a-z-]|$)" || missing="${missing} ${f}"
+    done
+    if [ -n "${missing}" ]; then
+        printf '%s\n' "${help}" | head -15 >&2
+        bench_die "${BENCH_TXGEN_IMAGE} 'blast --help' lacks:${missing} (or the image could not be run; BENCH_SKIP_CLI_PROBE=1 to skip)"
+    fi
+    echo "    ✓ ${BENCH_TXGEN_IMAGE} blast --help carries every contract flag (incl. --stdout-json)"
+}
+
+# --- leftovers (anything the benchmark could have created) -----------------------------
+# bench_bucket_names — buckets that are ours by label benchmark=1 OR by name tn-devnet-bench-*
+# (step 12 labels in a second call, so an unlabelled bucket must still be found).
+bench_bucket_names() {
+    gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null \
+        | jq -r '.[] | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true
+}
+
+# bench_leftovers — one line per existing instance / disk / firewall rule / bucket that is
+# named ^bench- (tn-devnet-bench- for buckets) or labelled benchmark=1. Empty = clean project.
+bench_leftovers() {
+    gcloud compute instances list --project="${PROJECT_ID}" --format=json 2>/dev/null \
+        | jq -r '.[] | select((.name | test("^bench-")) or ((.labels.benchmark // "") == "1")) | "instance " + .name' || true
+    gcloud compute disks list --project="${PROJECT_ID}" --format=json 2>/dev/null \
+        | jq -r '.[] | select((.name | test("^bench-")) or ((.labels.benchmark // "") == "1")) | "disk " + .name' || true
+    gcloud compute firewall-rules list --project="${PROJECT_ID}" --format=json 2>/dev/null \
+        | jq -r '.[] | select((.name | test("^bench-")) or ((.targetTags // []) | index("bench-node"))) | "firewall-rule " + .name' || true
+    bench_bucket_names | sed 's/^/bucket /'
 }
 
 # bench_obs_mem_pct — obs-devnet memory used % from the Ops Agent (empty if unavailable).

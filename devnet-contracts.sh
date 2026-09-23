@@ -92,7 +92,10 @@ if [ "${EXPECTED_CHAIN_ID}" = "${DEVNET_CHAIN_ID}" ]; then
     expected_json="deployments/deployments-devnet.json"
 else
     expected_json="deployments/deployments-testnet.json"
-    if [ "${TN_CONTRACTS_DIR}" = "${DEVNET_CONTRACTS_DIR_DEFAULT}" ]; then
+    # Compare physical paths: a trailing slash, a symlink or a ../ spelling of the devnet
+    # worktree must not slip past a string compare.
+    _canon() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+    if [ "$(_canon "${TN_CONTRACTS_DIR}")" = "$(_canon "${DEVNET_CONTRACTS_DIR_DEFAULT}")" ]; then
         echo "❌ EXPECTED_CHAIN_ID=${EXPECTED_CHAIN_ID} is not devnet, but TN_CONTRACTS_DIR is the devnet" >&2
         echo "   worktree (${TN_CONTRACTS_DIR}). Deploy a non-devnet chain from its own worktree." >&2
         exit 1

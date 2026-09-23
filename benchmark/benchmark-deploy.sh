@@ -9,9 +9,13 @@
 # commands) after local-only checks, and exits 0 without a single GCP call. With --yes it
 # executes the steps; every gcloud mutation prints its argv first.
 #
-#    0  preflight        auth + tools + accounts file + empty benchmark/genesis + firewall/tag
-#                        hygiene + obs-devnet disk < 70% + quota; pre-snapshots; manifest.json
-#    1  image            the txgen image exists (else print the Cloud Build command and stop)
+#    -  gate (--yes)     before ANY step: the pinned :blast-v2-<sha> image, cloudbuild.yaml,
+#                        config.bench.toml and deployments-bench.json that the selected steps need
+#    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
+#                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
+#                        quota; pre-snapshots; manifest.json
+#    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
+#                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
 #                        label benchmark=1 on every node; label boot disks; manifest.instances[]
 #    3  bootstrap        serial-console marker "devnet-startup.sh complete" on every node
@@ -19,13 +23,17 @@
 #    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE)
 #    6  genesis          ../devnet-genesis-build.sh    (workspace benchmark/, chain 32286)
 #    7  finalize         ../devnet-finalize.sh
-#    8  observability    ../devnet-observability.sh    (metrics only -> obs-devnet; never
-#                        create-obs-instance.sh)
+#    8  observability    per node, ONE IAP session: setup-observability.sh --enable-metrics aimed at
+#                        a black-hole URL, then (same session) stop Alloy, wipe its WAL, set
+#                        TN_CHAIN=bench TN_NODE=<instance> + the real obs-devnet URL, start Alloy —
+#                        no sample labelled network="devnet" ever leaves a bench node. Never
+#                        create-obs-instance.sh, never devnet-observability.sh.
 #    9  post-config      per node, ONE IAP session each, serially: reth --http.addr 0.0.0.0,
-#                        alloy labels network/chain=bench node=<instance>, restart (<=1 down at a
-#                        time), assert eth_chainId on the internal IP, install node-sampler
+#                        assert the bench Alloy labels, restart (<=1 down at a time), wait for
+#                        eth_chainId on the internal IP + advancing blocks, install node-sampler
 #   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id/block-number advancing,
 #                        Prometheus: count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11
+#                        and no bench node has any series labelled network="devnet"
 #   11  contracts        (--with-contracts) tn-contracts worktree bench/<run> -> devnet-contracts.sh
 #   12  IAM + bucket     secretAccessor on the bench secrets for the compute SA; gs://<bucket>
 #   13  fund             benchmark-blast.sh fund --yes
@@ -43,7 +51,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
-CONFIRM=0; FROM=0; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""
+CONFIRM=0; FROM=0; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
@@ -56,6 +64,7 @@ while [ $# -gt 0 ]; do
         --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
+        --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
         -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
         *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID)" >&2; exit 1 ;;
     esac
@@ -65,6 +74,11 @@ is_step() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 0 ] && [ "$1"
 is_step "${FROM}" || { echo "❌ --from must be 0..${LAST_STEP}" >&2; exit 1; }
 [ -z "${ONLY}" ] || is_step "${ONLY}" || { echo "❌ --only must be 0..${LAST_STEP}" >&2; exit 1; }
 export BENCH_RUN_ID="${BENCH_RUN_ID:-}"
+# A resumed run keeps the image step 1 verified (the generator checkout may have moved on).
+if [ -z "${BENCH_TXGEN_SHA:-}" ] && [ -n "${BENCH_RUN_ID}" ] && [ -f "${DIR}/results/${BENCH_RUN_ID}/manifest.json" ]; then
+    BENCH_TXGEN_SHA="$(jq -r '.txgen_git_sha // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
+    export BENCH_TXGEN_SHA
+fi
 # shellcheck disable=SC2034  # read by bench-lib.sh (bench_run, manifest writers)
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
@@ -74,6 +88,8 @@ BOOTSTRAP_TIMEOUT_SECS=600
 BOOTSTRAP_POLL_SECS=15
 CHAIN_ID_HEX="$(printf '0x%x' "${CHAIN_ID}")"
 PROM_COUNT_QUERY="count(count by (node) (tn_engine_canonical_height{network=\"${BENCH_PROM_NETWORK_LABEL}\"}))"
+PROM_LEAK_QUERY='count(count by (node) (tn_engine_canonical_height{network="devnet", node=~"bench.*"}))'
+PROM_LEAK_ANY_QUERY='count(count by (node) ({network="devnet", node=~"bench.*"}))'
 COLLECT_METRICS_PY="${BENCH_TXGEN_BENCH_DIR}/collect-gcp-metrics.py"
 DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
 
@@ -85,6 +101,14 @@ step_0() {
     local acct; acct="$(gcloud config get-value account 2>/dev/null || true)"
     gcloud auth print-access-token >/dev/null || bench_die "gcloud auth failed — gcloud auth login"
     echo "    ✓ gcloud auth (${acct:-unknown account})"
+    local left; left="$(bench_leftovers)"
+    if [ -n "${left}" ]; then
+        printf '%s\n' "${left}" | sed 's/^/    ✗ exists: /' >&2
+        bench_die "benchmark resources from an earlier run still exist — tear them down first:
+     benchmark/benchmark-teardown.sh            # dry run, then add --yes
+   (or resume the run that owns them with --from N instead of starting at step 0)"
+    fi
+    echo "    ✓ no bench-* / benchmark=1 instance, disk, firewall rule or bucket exists"
     local accounts="${GENESIS_WORKSPACE}/testnet_accounts.yaml"
     grep -qi "${BENCH_TXGEN_MASTER_ADDRESS}" "${accounts}" || bench_die "${accounts} does not fund the bench txgen master ${BENCH_TXGEN_MASTER_ADDRESS}"
     ! grep -qi "${DEVNET_TXGEN_MASTER}" "${accounts}" || bench_die "${accounts} still funds the DEVNET txgen master"
@@ -132,19 +156,27 @@ step_0() {
 }
 
 step_1() {
+    bench_require_txgen_image
+    local digest tag="${BENCH_TXGEN_IMAGE##*:}" sha
+    sha="${tag#blast-v2-}"
     echo ">>> Step 1: txgen image ${BENCH_TXGEN_IMAGE}"
-    local digest
-    digest="$(gcloud artifacts docker images describe "${BENCH_TXGEN_IMAGE}" --format='value(image_summary.digest)' 2>/dev/null || true)"
+    digest="$(bench_txgen_image_digest)"
     if [ -z "${digest}" ]; then
-        cat >&2 <<EOM
-❌ ${BENCH_TXGEN_IMAGE} not found. Build it from the generator repo, then re-run --from 1:
-
-    gcloud builds submit '${BENCH_TXGEN_REPO}' --project=${PROJECT_ID} --tag='${BENCH_TXGEN_IMAGE}'
-EOM
-        exit 1
+        # Build only what the tag claims: HEAD of a clean generator checkout.
+        [ -z "${BENCH_TXGEN_IMAGE_ERROR}" ] || bench_die "cannot build: ${BENCH_TXGEN_IMAGE_ERROR}"
+        [ "$(git -C "${BENCH_TXGEN_REPO}" rev-parse --short=7 HEAD)" = "${sha}" ] \
+            || bench_die "tag ${tag} is not HEAD of ${BENCH_TXGEN_REPO} — check out ${sha} or unset BENCH_TXGEN_SHA/BENCH_TXGEN_IMAGE"
+        [ -f "${BENCH_TXGEN_CLOUDBUILD}" ] || bench_die "missing ${BENCH_TXGEN_CLOUDBUILD}"
+        echo "    not in the registry — building it with Cloud Build (synchronous)"
+        bench_run gcloud builds submit --project="${PROJECT_ID}" --config="${BENCH_TXGEN_CLOUDBUILD}" \
+            --substitutions="_IMAGE=${BENCH_TXGEN_IMAGE%:*},_TAG=${tag},_GIT_SHA=${sha}" "${BENCH_TXGEN_REPO}"
+        digest="$(bench_txgen_image_digest)"
+        [ -n "${digest}" ] || bench_die "Cloud Build finished but ${BENCH_TXGEN_IMAGE} is still not in the registry"
     fi
-    echo "    ✓ ${digest}"
-    bench_manifest_jq --arg d "${digest}" '.txgen_image_digest = $d'
+    echo "    ✓ ${BENCH_TXGEN_IMAGE} = ${digest}"
+    bench_txgen_cli_probe
+    bench_manifest_jq --arg i "${BENCH_TXGEN_IMAGE}" --arg d "${digest}" --arg s "${sha}" \
+        '.txgen_image = $i | .txgen_image_digest = $d | .txgen_git_sha = $s'
 }
 
 step_2() {
@@ -201,13 +233,63 @@ step_4()  { echo ">>> Step 4: bench firewall rules"; "${DIR}/benchmark-firewall.
 step_5()  { echo ">>> Step 5: keygen";               "${REPO_ROOT}/devnet-keygen.sh"; }
 step_6()  { echo ">>> Step 6: genesis (chain ${CHAIN_ID}, workspace ${GENESIS_WORKSPACE})"; "${REPO_ROOT}/devnet-genesis-build.sh"; }
 step_7()  { echo ">>> Step 7: finalize (stage + start)"; "${REPO_ROOT}/devnet-finalize.sh"; }
-step_8()  {
-    echo ">>> Step 8: per-node observability (metrics only -> ${OBS_METRICS_PUSH_URL})"
-    # Never common/create-obs-instance.sh (and never --wipe-data): obs-devnet is devnet's.
-    "${REPO_ROOT}/devnet-observability.sh"
+
+# obs_script <instance> <region> <token> — step 8's remote script for one node (piped to
+# `sudo bash -s`, so the ingest token never appears on a gcloud command line).
+#
+# setup-observability.sh derives TN_CHAIN from the node's NETWORK=devnet (DEVNET_CHAIN_NAME is
+# readonly in tn-node-deployment), so left alone the node would remote-write
+# network="devnet" chain="devnet" samples into obs-devnet. To make that impossible rather than
+# brief, setup-observability.sh is pointed at a black-hole metrics URL (127.0.0.1:9, refused);
+# then, in the same session and before anything can reach obs-devnet, Alloy is stopped, its WAL
+# (which holds the devnet-labelled samples) is wiped, the env gets TN_CHAIN/TN_NODE/the real URL,
+# and Alloy starts again. The first sample obs-devnet ever sees from a bench node is network=bench.
+obs_script() {
+    local inst="$1" region="$2" token="$3" hold="http://127.0.0.1:9/bench-hold"
+    cat <<EOS
+set -euo pipefail
+fail() { echo "OBSCFG_FAIL \$*"; exit 1; }
+TOKEN=$(printf '%q' "${token}")
+if ! OBS_PUSH_URL='${OBS_PUSH_URL}' OBS_METRICS_PUSH_URL='${hold}' \\
+    '${TN_NODE_SCRIPTS_DIR}/setup-observability.sh' --json --enable-metrics --region '${region}' \\
+    --token "\${TOKEN}" --push-url '${OBS_PUSH_URL}' --metrics-push-url '${hold}' > /tmp/bench-obs.json 2>/tmp/bench-obs.err; then
+    tail -5 /tmp/bench-obs.err; fail "setup-observability.sh failed"
+fi
+unset TOKEN
+systemctl stop telcoin-alloy.service
+rm -rf /var/lib/telcoin-alloy/* 2>/dev/null || true
+E=/etc/telcoin/alloy/telcoin-alloy.env
+[ -f "\$E" ] || fail "no \$E"
+sed -i -e 's/^TN_CHAIN=.*/TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}/' -e 's/^TN_NODE=.*/TN_NODE=${inst}/' \\
+    -e 's#^OBS_METRICS_PUSH_URL=.*#OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}#' "\$E"
+grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" \\
+    && grep -qx 'OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}' "\$E" || fail "alloy env not rewritten"
+systemctl start telcoin-alloy.service
+systemctl is-active --quiet telcoin-alloy.service || fail "telcoin-alloy not active"
+echo "OBSCFG_OK ${inst} \$(tail -1 /tmp/bench-obs.json 2>/dev/null)"
+EOS
 }
 
-# postconfig_script <instance> — the remote script for one node (piped to `sudo bash -s`).
+step_8() {
+    echo ">>> Step 8: per-node observability, metrics only -> ${OBS_METRICS_PUSH_URL}, labelled network=${BENCH_PROM_NETWORK_LABEL} before the first push"
+    # Never common/create-obs-instance.sh (and never --wipe-data): obs-devnet is devnet's.
+    # Not devnet-observability.sh either: it cannot relabel inside the setup session (see obs_script).
+    local token i inst out
+    token="$(tn_secret "${OBS_SECRET_NAME}")" || true
+    [ -n "${token}" ] || bench_die "obs ingest token (${OBS_SECRET_NAME}) is empty"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        echo "    ${inst}: setup-observability.sh --enable-metrics (token redacted) + same-session relabel"
+        out="$(obs_script "${inst}" "$(tn_region_from_zone "${ZONES[$i]}")" "${token}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 || true)"
+        printf '%s\n' "${out}" | grep -E 'OBSCFG_(OK|FAIL)' | cut -c1-200 | sed 's/^/      /' || true
+        [[ "${out}" == *"OBSCFG_OK ${inst}"* ]] || bench_die "observability failed on ${inst}"
+    done
+    unset token
+}
+
+# postconfig_script <instance> — step 9's remote script for one node (piped to `sudo bash -s`).
+# Everything that can fail transiently (the RPC while the node restarts) is polled with a
+# deadline and never trips set -e/pipefail; only the final assertions can fail the session.
 postconfig_script() {
     local inst="$1" b64
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
@@ -219,29 +301,31 @@ W=/opt/telcoin/start-telcoin.sh
 # 1. reth RPC on all interfaces (blasters reach it on the internal IP; no public rule admits 8545)
 sed -i 's/--http\.addr 127\.0\.0\.1/--http.addr 0.0.0.0/' "\$W"
 grep -q -- '--http.addr 0.0.0.0' "\$W" || fail "http.addr not rewritten"
-# 2. alloy identity labels: network= and chain= come from TN_CHAIN, node= from TN_NODE
+# 2. alloy labels were set in step 8's session; assert they are still bench labels
 E=/etc/telcoin/alloy/telcoin-alloy.env
-[ -f "\$E" ] || fail "no \$E (step 8 not run?)"
-sed -i -e 's/^TN_CHAIN=.*/TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}/' -e 's/^TN_NODE=.*/TN_NODE=${inst}/' "\$E"
-grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env not rewritten"
-systemctl restart telcoin-alloy.service
-# 3. restart the node and wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and advances
+grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env lacks bench labels (re-run step 8)"
+# 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and advances
 systemctl restart telcoin
-IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
-rpc() { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\$1\",\"params\":[]}" "http://\${IP}:8545" | sed -n 's/.*"result":"\([^"]*\)".*/\1/p'; }
-cid=""; b0=""; b1=""
-for _ in \$(seq 1 60); do
+IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
+[ -n "\$IP" ] || fail "no internal IP from the metadata server"
+# ECONNREFUSED right after the restart is expected: curl's failure is swallowed, empty = retry.
+rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\$1\",\"params\":[]}" "http://\${IP}:8545" || true; } | sed -n 's/.*"result":"\([^"]*\)".*/\1/p' || true; }
+cid=""; b0=""; b1=""; ok=0
+deadline=\$(( \$(date +%s) + \${POSTCFG_WAIT_SECS:-300} ))
+while [ "\$(date +%s)" -lt "\$deadline" ]; do
     if systemctl is-active --quiet telcoin; then
-        cid=\$(rpc eth_chainId)
+        cid="\$(rpc eth_chainId)"
         if [ "\$cid" = "${CHAIN_ID_HEX}" ]; then
-            b1=\$(rpc eth_blockNumber); [ -n "\$b0" ] || b0="\$b1"
-            [ -n "\$b1" ] && [ "\$((b1))" -gt "\$((b0))" ] && break
+            b="\$(rpc eth_blockNumber)"
+            if [ -n "\$b" ]; then
+                if [ -z "\$b0" ]; then b0="\$b"; elif [ "\$((b))" -gt "\$((b0))" ]; then b1="\$b"; ok=1; break; fi
+            fi
         fi
     fi
     sleep 5
 done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
-[ -n "\$b1" ] && [ "\$((b1))" -gt "\$((b0))" ] || fail "block number not advancing (\$b0 -> \$b1)"
+[ "\$ok" -eq 1 ] || fail "block number not advancing (\${b0:-none} -> \${b1:-none})"
 # 4. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
@@ -269,7 +353,7 @@ step_9() {
     local i inst out
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: http.addr 0.0.0.0, alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, sampler"
+        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, sampler"
         out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
         [[ "${out}" == *"POSTCFG_OK ${inst}"* ]] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
@@ -299,6 +383,15 @@ step_10() {
     done
     [ "${n}" = "${#INSTANCE_NAMES[@]}" ] || bench_die "Prometheus sees ${n:-0} bench nodes, expected ${#INSTANCE_NAMES[@]} (${PROM_COUNT_QUERY})"
     echo "    ✓ Prometheus: ${n} bench nodes reporting"
+    # No bench series may ever carry devnet's labels (step 8 relabels before the first push).
+    local q raw leak
+    for q in "${PROM_LEAK_QUERY}" "${PROM_LEAK_ANY_QUERY}"; do
+        raw="$(bench_prom_query "${q}" || true)"
+        printf '%s' "${raw}" | jq -e '.status == "success"' >/dev/null 2>&1 || bench_die "Prometheus query failed: ${q}"
+        leak="$(printf '%s' "${raw}" | jq -r '.data.result[0].value[1] // "0"')"
+        [ "${leak}" = "0" ] || bench_die "${leak} bench node(s) have series labelled network=\"devnet\" in obs-devnet (${q})"
+    done
+    echo "    ✓ Prometheus: no network=\"devnet\" series from bench nodes"
     bench_manifest_ts nodes_healthy
 }
 
@@ -390,9 +483,13 @@ EOP
     done
     cat <<EOP
 
-   0  preflight      tools, auth, accounts, empty genesis/, bench-node tag hygiene, obs-devnet df over IAP
-                     (< 70%), CPU quota, pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
-   1  image          gcloud artifacts docker images describe ${BENCH_TXGEN_IMAGE}
+   -  gate           (--yes, before any step) pinned image, ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
+   0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
+                     bench-node tag hygiene, obs-devnet df over IAP (< 70%), CPU quota,
+                     pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
+   1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
+                     if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}
+                     then docker run --rm --platform linux/amd64 <image> blast --help must list: ${BENCH_TXGEN_CONTRACT_FLAGS}
    2  instances      CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh
                      assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=${BENCH_LABELS},tn-role=<role>
    3  bootstrap      serial marker 'devnet-startup.sh complete' (${BOOTSTRAP_TIMEOUT_SECS}s/node)
@@ -400,12 +497,13 @@ EOP
    5  keygen         ${REPO_ROOT}/devnet-keygen.sh           -> ${GENESIS_WORKSPACE}/genesis/{validators,observers}/
    6  genesis        ${REPO_ROOT}/devnet-genesis-build.sh    -> ${GENESIS_FILE}
    7  finalize       ${REPO_ROOT}/devnet-finalize.sh
-   8  observability  ${REPO_ROOT}/devnet-observability.sh    (--enable-metrics only; never create-obs-instance.sh)
-   9  post-config    per node, one IAP session, serial: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0;
-                     /etc/telcoin/alloy/telcoin-alloy.env TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance>; restart
-                     alloy + telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + advancing; bench-node-sampler.service
+   8  observability  per node, one IAP session: setup-observability.sh --enable-metrics -> black hole 127.0.0.1:9,
+                     stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy
+   9  post-config    per node, one IAP session, serial: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
+                     bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + advancing; bench-node-sampler.service
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
-                     cast chain-id/block-number; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]}
+                     cast chain-id/block-number; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
+                     ${PROM_LEAK_QUERY} == 0 (and the same over every metric)
   11  contracts      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "git worktree add ${BENCH_CONTRACTS_WORKTREE} -b ${BENCH_CONTRACTS_BRANCH} ${BENCH_CONTRACTS_BASE_BRANCH}" || echo "SKIPPED (pass --with-contracts)")
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
@@ -424,6 +522,9 @@ EOP
         echo "    ✓ accounts file funds the bench txgen master"; else echo "    ✗ accounts file lacks ${BENCH_TXGEN_MASTER_ADDRESS}"; ok=0; fi
     if [ -d "${BENCH_DIR}/genesis" ] && [ -n "$(ls -A "${BENCH_DIR}/genesis" 2>/dev/null)" ]; then
         echo "    ✗ ${BENCH_DIR}/genesis is not empty"; ok=0; else echo "    ✓ benchmark/genesis empty"; fi
+    if ( bench_require_txgen_image ) 2>/dev/null; then echo "    ✓ image pinned: ${BENCH_TXGEN_IMAGE}"
+    else echo "    ✗ image: ${BENCH_TXGEN_IMAGE_ERROR:-tag of '${BENCH_TXGEN_IMAGE}' is not blast-v2-<sha>}"; ok=0; fi
+    [ -f "${BENCH_TXGEN_CLOUDBUILD}" ] && echo "    ✓ ${BENCH_TXGEN_CLOUDBUILD}" || { echo "    ✗ ${BENCH_TXGEN_CLOUDBUILD} missing (step 1)"; ok=0; }
     [ -f "${BENCH_TXGEN_CONFIG}" ] && echo "    ✓ ${BENCH_TXGEN_CONFIG}" || echo "    · ${BENCH_TXGEN_CONFIG} not present yet (needed by steps 13-14)"
     [ -f "${COLLECT_METRICS_PY}" ] && echo "    ✓ ${COLLECT_METRICS_PY}" || echo "    · ${COLLECT_METRICS_PY} not present yet (needed by step 15)"
     [ "${ok}" -eq 1 ] || echo "    (fix the ✗ items before --yes)"
@@ -437,6 +538,11 @@ if [ -n "${PRINT_POSTCONFIG}" ]; then
     postconfig_script "${PRINT_POSTCONFIG}"
     exit 0
 fi
+if [ -n "${PRINT_OBS}" ]; then
+    _i="$(bench_index_of "${PRINT_OBS}")" || bench_die "${PRINT_OBS} is not a bench instance"
+    obs_script "${PRINT_OBS}" "$(tn_region_from_zone "${ZONES[$_i]}")" "PLACEHOLDER-TOKEN"
+    exit 0
+fi
 echo "=========================================="
 echo "benchmark deploy — run ${BENCH_RUN_ID}, project ${PROJECT_ID}, chain ${CHAIN_ID}"
 echo "=========================================="
@@ -445,6 +551,32 @@ if [ "${CONFIRM}" -ne 1 ]; then
     exit 0
 fi
 
+# --- fail-fast gate for --yes runs (M1): everything a LATER step needs is checked now, so a
+# run cannot die at step 13 an hour after the fleet came up.
+in_range() { if [ -n "${ONLY}" ]; then [ "${ONLY}" -eq "$1" ]; else [ "${FROM}" -le "$1" ]; fi; }
+gate() {
+    echo ">>> gate: prerequisites of the selected steps"
+    local deps="${BENCH_DEPLOYMENTS_JSON:-${BENCH_RESULTS_DIR}/deployments-bench.json}" bad=0
+    if in_range 1 || in_range 13 || in_range 14; then
+        ( bench_require_txgen_image ) || bad=1
+        [ -n "${BENCH_TXGEN_IMAGE}" ] && echo "    image ${BENCH_TXGEN_IMAGE}"
+    fi
+    if in_range 1; then
+        [ -f "${BENCH_TXGEN_CLOUDBUILD}" ] && echo "    ✓ ${BENCH_TXGEN_CLOUDBUILD}" || { echo "    ✗ missing ${BENCH_TXGEN_CLOUDBUILD}" >&2; bad=1; }
+    fi
+    if in_range 13 || in_range 14; then
+        [ -f "${BENCH_TXGEN_CONFIG}" ] && echo "    ✓ ${BENCH_TXGEN_CONFIG}" || { echo "    ✗ missing ${BENCH_TXGEN_CONFIG}" >&2; bad=1; }
+        if [ "${WITH_CONTRACTS}" -eq 1 ] && in_range 11; then
+            echo "    · ${deps} will be produced by step 11"
+        elif [ -f "${deps}" ]; then
+            echo "    ✓ ${deps}"
+        else
+            echo "    ✗ missing ${deps} and step 11 will not produce it (pass --with-contracts with a range that includes 11)" >&2; bad=1
+        fi
+    fi
+    [ "${bad}" -eq 0 ] || bench_die "prerequisites missing — nothing was started"
+}
+gate
 bench_manifest_init >/dev/null 2>&1 || true
 run_step() {
     local n="$1"

@@ -27,10 +27,13 @@ script points them at `benchmark/config.sh` through `CONFIG_FILE`.
 - The devnet tn-contracts checkout. Contracts deploy from a disposable worktree on a
   `bench/<run>` branch, which is never committed to.
 
-The devnet-only drivers (`devnet-deploy.sh`, `devnet-teardown.sh`, `devnet-firewall.sh`,
-`setup-firewall.sh`, `common/dns.sh`, `create-obs-instance.sh`, …) exit immediately if they
-are started with `CONFIG_FILE=benchmark/config.sh`. The profile also refuses to be sourced
-in an interactive shell, because its exports would leak into a later devnet command.
+`benchmark/config.sh` only loads for an allowlist of callers: the `benchmark-*.sh` scripts
+and the shared drivers they run (`devnet-keygen.sh`, `devnet-genesis-build.sh`,
+`devnet-finalize.sh`, `devnet-contracts.sh`, `common/create-instances.sh`). Every other script
+started with `CONFIG_FILE=benchmark/config.sh` exits before doing anything, including the
+devnet-only drivers, the wgvpn tools, and scripts added later. `devnet-observability.sh` is
+deliberately not on the list (see step 8). The profile also refuses to be sourced in an
+interactive shell, because its exports would leak into a later devnet command.
 
 ## Before the first run
 
@@ -43,9 +46,14 @@ in an interactive shell, because its exports would leak into a later devnet comm
   service-account token.
 - `testnet_accounts.yaml` in this directory is devnet's accounts file with the txgen master
   swapped for the bench master `0xb1F7…3C8E`. The contracts admin `0xAee2…520f` stays funded.
-- `tn-transaction-generator/config.bench.toml` exists (steps 13–14 ship it to the blasters),
-  and the image `us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast` is
-  built. Step 1 prints the `gcloud builds submit` command if the image is missing.
+- `tn-transaction-generator/config.bench.toml` and `cloudbuild.yaml` exist. The load image is
+  pinned to a generator commit, `…/tn-transaction-generator:blast-v2-<sha7>`, where the SHA is
+  `BENCH_TXGEN_SHA` or the HEAD of a clean generator checkout. A dirty tree is refused. The
+  old `:blast` tag predates the blast-v2 CLI and is never used. Step 1 builds the image with
+  Cloud Build if the tag is missing, then runs `blast --help` from it and checks every flag
+  the blasters use. The manifest records the image, so a resumed run keeps using it.
+- A `--yes` run checks all of this before its first step: the image, `cloudbuild.yaml`,
+  `config.bench.toml` and `results/<run>/deployments-bench.json` (unless step 11 will make it).
 
 ## Runbook
 
@@ -81,13 +89,14 @@ runs it.
 | Step | What happens |
 |---|---|
 | 0 | Preflight checks: auth, tools, accounts file, empty `genesis/`, no foreign rule selecting `bench-node`, obs-devnet `/mnt/obs-data` below 70 %, CPU quota. Writes the pre-snapshots and `manifest.json`. |
-| 1 | Checks that the txgen image exists. |
+| 1 | Asserts the `:blast-v2-<sha>` tag, builds it with Cloud Build if missing, and probes `blast --help` for the CLI contract flags (when docker is available). |
 | 2 | Runs `common/create-instances.sh` on the bench profile, then asserts `tags == [bench-node]` and `labels.benchmark == 1` on every node, labels the boot disks and records `manifest.instances[]`. |
 | 3 | Waits for the `devnet-startup.sh complete` serial marker on each node. |
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
-| 5–8 | The devnet drivers, on the bench profile: keygen, genesis build (in `benchmark/`), finalize, and metrics-only observability. |
-| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, relabels Alloy (`TN_CHAIN=bench`, `TN_NODE=<instance>`), restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and the block height advances, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. |
-| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows the chain id and a rising block height; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`. |
+| 5–7 | The devnet drivers, on the bench profile: keygen, genesis build (in `benchmark/`) and finalize. |
+| 8 | Metrics-only observability in one IAP session per node. `setup-observability.sh` would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. |
+| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and the block height advances (connection refusals while the node restarts are retried until the deadline), then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. |
+| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows the chain id and a rising block height; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11` and no bench node series with `network="devnet"`. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
 | 13 | Fund: the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders, then is deleted. |
@@ -101,14 +110,17 @@ The mixed phase starts at `BENCH_START_AT + preamble + warmup`. From that point:
 
 - **+15 min**: `docker kill -s KILL telcoin` on `bench-validator-05`, followed immediately by
   `systemctl stop telcoin`. The unit has `Restart=on-failure`, so without the stop it would
-  come back after 10 s instead of staying down.
+  come back after 10 s instead of staying down. `bench-blaster-05` targets only this node,
+  so its sends fail for the whole outage by design (the generator resends on connection
+  errors). The kill's `chaos.note` says so and `manifest.notes` gets a `blaster-05-outage`
+  entry, so the report does not count this as a blaster fault.
 - **+20 min**: `systemctl start telcoin` on `bench-validator-05`. `docker start` cannot work
   here because the unit runs `docker run --rm`. This restart happens even if the run has
   already aborted.
 - **+25 min**: `systemctl restart telcoin` on `bench-observer-11`.
 
 Each action goes into `manifest.chaos[]` with its timestamp and exit code. Set
-`BENCH_CHAOS=0` to skip the schedule.
+`BENCH_CHAOS=0` to skip the schedule, or move it with `BENCH_CHAOS_{KILL,BACK,OBS}_AT_SECS`.
 
 ## Abort rules
 
@@ -123,11 +135,19 @@ blaster (`docker stop txgen`) and allows 10 minutes for the results to upload.
 | `disk-full` | a bench node's root disk is above 85 % |
 | `obs-memory` | obs-devnet memory is above 85 % |
 | `batch-cache-cliff` | `FatalDBFailure` shows up in a node's `docker logs telcoin`. This is the batch-cache defect, **not** a hardware limit, and the report must say so. |
-| `quorum-lost` | the fleet's highest block has not moved in more than 120 s |
+| `quorum-lost` | two consecutive polls in which no node with a fresh status line advanced. An empty `block=` or a stale status line counts as unknown, never as stalled. |
 
-If the operator machine dies partway through a run, the blasters finish on their own and
-upload to the bucket. Run `benchmark-blast.sh collect` and `benchmark-blast.sh delete`
-afterwards.
+A blaster is deleted only when its serial marker says `rc=0 reason=ok`, which means its
+results are in the bucket. A failed upload reports `rc=75 reason=upload-failed`. Any other
+outcome makes the script fetch `/var/lib/bench/out` over IAP first. It deletes the VM only if
+that fetch worked, and otherwise keeps it and says so. The funder is handled the same way.
+
+If `run` exits early (an error, Ctrl-C or TERM), its exit trap first restarts
+`bench-validator-05` if its restart was still owed and records `manifest.abort =
+interrupted`. It then deletes the blasters if they had not started yet, or else stops them,
+waits for their markers and settles them as above (`--keep` leaves them running). If the
+operator machine dies, the blasters finish on their own and upload to the bucket. Run
+`benchmark-blast.sh collect` and `benchmark-blast.sh delete` afterwards.
 
 ## Outputs (`results/<run>/`, gitignored)
 
@@ -141,7 +161,8 @@ afterwards.
 ## Teardown guarantees
 
 `benchmark-teardown.sh` collects its candidates first: bench instances, bench firewall rules,
-`benchmark=1` buckets (copied into `results/<run>/bucket/` before deletion), orphaned bench
+buckets labelled `benchmark=1` or named `tn-devnet-bench-*` (copied into
+`results/<run>/bucket/` first; a non-empty bucket whose copy fails is left in place), orphaned bench
 disks, the compute SA's bindings on the bench secrets, the contracts worktree, `bench/r*`
 branches with no commits of their own, and local IAP tunnels. It deletes nothing if any
 single guard fails. It keeps the `bench-txgen-*` secrets unless you pass `--purge`. At the

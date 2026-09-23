@@ -49,6 +49,10 @@ if [ -z "${BENCH_RUN_ID:-}" ]; then
     BENCH_RUN_ID="${_latest:+$(basename "${_latest}")}"
 fi
 export BENCH_RUN_ID
+if [ -z "${BENCH_TXGEN_SHA:-}" ] && [ -n "${BENCH_RUN_ID}" ] && [ -f "${DIR}/results/${BENCH_RUN_ID}/manifest.json" ]; then
+    BENCH_TXGEN_SHA="$(jq -r '.txgen_git_sha // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
+    export BENCH_TXGEN_SHA
+fi
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
 source "${DIR}/bench-lib.sh"
@@ -74,9 +78,15 @@ preflight() {
     else bench_warn "txgen config ${BENCH_TXGEN_CONFIG} missing"; [ "${BENCH_APPLY}" = "1" ] && exit 1; fi
     if [ -f "${DEPLOYMENTS_FILE}" ]; then echo "    ✓ address book ${DEPLOYMENTS_FILE}"
     else bench_warn "address book ${DEPLOYMENTS_FILE} missing (benchmark-deploy.sh --with-contracts --only 11)"; [ "${BENCH_APPLY}" = "1" ] && exit 1; fi
+    bench_require_txgen_image
+    echo "    image ${BENCH_TXGEN_IMAGE}"
+    local pinned; pinned="$(jq -r '.txgen_image // empty' "$(bench_manifest)" 2>/dev/null || true)"
+    if [ -n "${pinned}" ] && [ "${pinned}" != "${BENCH_TXGEN_IMAGE}" ]; then
+        bench_die "manifest pins ${pinned} but this run resolved ${BENCH_TXGEN_IMAGE} — set BENCH_TXGEN_SHA=${pinned##*blast-v2-}"
+    fi
     if [ "${BENCH_APPLY}" = "1" ]; then
-        gcloud artifacts docker images describe "${BENCH_TXGEN_IMAGE}" --format='value(image_summary.digest)' >/dev/null 2>&1 \
-            || bench_die "image ${BENCH_TXGEN_IMAGE} not found (benchmark-deploy.sh step 1)"
+        [ -n "$(bench_txgen_image_digest)" ] || bench_die "image ${BENCH_TXGEN_IMAGE} not in the registry (benchmark-deploy.sh --only 1 builds it)"
+        bench_txgen_cli_probe
         gcloud storage buckets describe "gs://${BENCH_BUCKET}" --format='value(name)' >/dev/null 2>&1 \
             || bench_die "bucket gs://${BENCH_BUCKET} missing (benchmark-deploy.sh step 12)"
         local s
@@ -145,7 +155,36 @@ delete_vms() { # <zone> <name...>
     bench_run gcloud compute instances delete "$@" --zone="${zone}" --project="${PROJECT_ID}" --quiet
 }
 
+# Done markers from blaster-startup.sh: "<MARK> rc=N reason=R [...]". Only rc=0 reason=ok
+# means the results are in the bucket; anything else leaves the VM holding the only copy.
 marker_rc() { sed -n "s/.*$1 rc=\([0-9][0-9]*\).*/\1/p" | tail -1; }
+marker_reason() { sed -n "s/.*$1 rc=[0-9][0-9]* reason=\([^ ]*\).*/\1/p" | tail -1; }
+
+# settle_load_vm <name> <zone> <results-subdir> <done-line> <MARK> — delete the VM only when
+# its results are safe: rc=0 reason=ok (uploaded), or an IAP scp of /var/lib/bench/out
+# succeeded. Otherwise KEEP it and say so (it may hold the only copy). --keep never deletes.
+settle_load_vm() {
+    local name="$1" zone="$2" sub="$3" line="$4" mark="$5" rc reason dest
+    if [ "${BENCH_APPLY}" = "1" ] && [ -z "$(bench_instance_json "${name}" "${zone}")" ]; then return 0; fi
+    rc="$(printf '%s\n' "${line}" | marker_rc "${mark}")"
+    reason="$(printf '%s\n' "${line}" | marker_reason "${mark}")"
+    if [ "${rc}" = "0" ] && [ "${reason}" = "ok" ]; then
+        [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${name}" || true
+        return 0
+    fi
+    bench_warn "${name}: '${line:-no ${mark} marker}' — fetching /var/lib/bench/out over IAP before any delete"
+    dest="${BENCH_RESULTS_DIR}/${sub}/scp-${name}"
+    if [ "${BENCH_APPLY}" = "1" ]; then mkdir -p "${dest}"; fi
+    if bench_run gcloud compute scp --recurse "${name}:/var/lib/bench/out" "${dest}/" --zone="${zone}" \
+            --project="${PROJECT_ID}" --tunnel-through-iap --scp-flag="-o ConnectTimeout=20" \
+       && { [ "${BENCH_APPLY}" != "1" ] || [ -n "$(find "${dest}" -type f 2>/dev/null | head -1)" ]; }; then
+        bench_manifest_note "${name}: '${line:-no marker}' — results fetched over IAP into ${sub}/scp-${name}/" || true
+        [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${name}" || true
+    else
+        echo "❌ ${name} KEPT: its results could not be fetched (${line:-no marker}). Recover by hand, then benchmark-blast.sh delete --yes" >&2
+        bench_manifest_note "${name} kept: results not fetched (${line:-no marker})" || true
+    fi
+}
 
 copy_prefix() { # <gcs-subdir> -> results/<run>/<subdir>/
     [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/$1"
@@ -176,24 +215,32 @@ do_fund() {
     copy_prefix funder
     bench_manifest_ts fund_end
     bench_manifest_note "fund: ${line}"
-    [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${FUNDER}"
-    [ "${rc:-1}" = "0" ] || bench_die "funding failed (${line})"
+    settle_load_vm "${FUNDER}" "${zone}" funder "${line}" BENCH_FUND_DONE
+    [ "${rc:-1}" = "0" ] && [ "$(printf '%s\n' "${line}" | marker_reason BENCH_FUND_DONE)" = "ok" ] || bench_die "funding failed (${line})"
     echo "    ✓ funded"
 }
 
 # ================================ run ================================================
+# Run state is GLOBAL (not local to do_run) so the EXIT trap can act on it.
 ABORTED=""
+RUN_CREATED=0; RUN_FINISHED=0; RUN_STOPPED=0; RUN_START_AT=0
+RUN_DID_KILL=0; RUN_DID_BACK=0; RUN_DID_OBS=0
+DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
+LAST_BLK=()       # per node index: last known block height (from BENCH_STATUS)
+LAST_STS=()       # per node index: ts= of that BENCH_STATUS line
+STALL_POLLS=0; LAST_ADVANCE_TS=0
+
 record_abort() { # <reason> <node> <detail>
     [ -n "${ABORTED}" ] && return 0
     ABORTED="$1"
     echo "❌❌ ABORT: $1 node=$2 — $3" >&2
     bench_manifest_jq --arg ts "$(bench_now_iso)" --arg r "$1" --arg n "$2" --arg d "$3" \
-        '.abort = {ts: $ts, reason: $r, node: $n, detail: $d}'
+        '.abort = {ts: $ts, reason: $r, node: $n, detail: $d}' || true
 }
 
 record_chaos() { # <node> <action> <note> <rc>
     bench_manifest_jq --arg ts "$(bench_now_iso)" --arg n "$1" --arg a "$2" --arg note "$3" --arg rc "$4" \
-        '.chaos += [{ts: $ts, node: $n, action: $a, note: $note, rc: ($rc|tonumber)}]'
+        '.chaos += [{ts: $ts, node: $n, action: $a, note: $note, rc: ($rc|tonumber)}]' || true
 }
 
 # chaos_do <idx> <remote-cmd> <action-label> <note>
@@ -204,8 +251,15 @@ chaos_do() {
     record_chaos "${inst}" "$3" "$4" "${rc}"
 }
 
+chaos_restart_v05() { # the restart owed after the kill — also run on abort and from the EXIT trap
+    chaos_do "${CHAOS_KILL_IDX}" "sudo systemctl start telcoin && systemctl is-active telcoin" \
+        "systemctl start telcoin" "$1"
+    RUN_DID_BACK=1
+}
+
 stop_blasters() {
     local k
+    RUN_STOPPED=1
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         tn_iap_ssh "$(blaster_name "$k")" "${ZONES[$k]}" "sudo docker stop -t 30 txgen >/dev/null 2>&1; true" || true
     done
@@ -214,18 +268,75 @@ stop_blasters() {
 # status_field <line> <key> — value of key=... in a BENCH_STATUS line.
 status_field() { printf '%s' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | tail -1; }
 
+# poll_blasters — refresh DONE_LINE[]; returns 0 iff every blaster has reported.
+poll_blasters() {
+    local k name all=0
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        if [ -z "${DONE_LINE[k]:-}" ]; then
+            name="$(blaster_name "$k")"
+            DONE_LINE[k]="$(bench_serial_last "${name}" "${ZONES[$k]}" "BENCH_BLAST_DONE rc=" || true)"
+            [ -n "${DONE_LINE[k]}" ] && echo "    ${name}: $(printf '%s' "${DONE_LINE[k]}" | sed 's/.*BENCH_BLAST_DONE/BENCH_BLAST_DONE/')"
+        fi
+        [ -n "${DONE_LINE[k]}" ] || all=1
+    done
+    return "${all}"
+}
+
+# settle_blasters — copy the bucket prefix, then delete each blaster whose results are safe.
+settle_blasters() {
+    local k
+    copy_prefix blasters
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        settle_load_vm "$(blaster_name "$k")" "${ZONES[$k]}" blasters "${DONE_LINE[k]:-}" BENCH_BLAST_DONE
+    done
+}
+
+# on_run_exit — EXIT trap for `run`: an exit anywhere (bench_die, set -e, Ctrl-C) between
+# create and completion must not leave bench-validator-05 stopped or blasters unwatched.
+on_run_exit() {
+    local rc=$?
+    trap - EXIT INT TERM
+    [ "${RUN_FINISHED}" -eq 1 ] && exit "${rc}"
+    set +e
+    echo "❌ run interrupted (exit ${rc}) — restoring the fleet and securing results" >&2
+    record_abort "interrupted" "operator" "benchmark-blast.sh run exited rc=${rc} before completing"
+    if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ]; then
+        chaos_restart_v05 "owed restart, performed by the EXIT trap"
+    fi
+    if [ "${RUN_CREATED}" -eq 1 ]; then
+        if [ "${KEEP}" -eq 1 ]; then
+            echo "    --keep: blasters left running; later: benchmark-blast.sh collect/delete" >&2
+        elif [ "$(bench_now_unix)" -lt "${RUN_START_AT}" ]; then
+            # Not started yet: they hold no results, and left alone they would start blasting
+            # unwatched at BENCH_START_AT. Delete them.
+            echo "    blast had not started — deleting the blasters (no results to lose)" >&2
+            local k
+            for k in $(seq 0 $((VAL_COUNT - 1))); do
+                [ -z "$(bench_instance_json "$(blaster_name "$k")" "${ZONES[$k]}")" ] || delete_vms "${ZONES[$k]}" "$(blaster_name "$k")"
+            done
+        else
+            [ "${RUN_STOPPED}" -eq 1 ] || stop_blasters
+            local waited=0
+            until poll_blasters || [ "${waited}" -ge "${BENCH_TRAP_WAIT_SECS}" ]; do sleep 30; waited=$((waited + 30)); done
+            settle_blasters
+        fi
+    fi
+    exit "${rc}"
+}
+
 do_run() {
     preflight
     local k name zone urls start now start_at mixed_start deadline
     [ -n "${OBSERVER_IDX}" ] || bench_die "no observer in NODE_ROLES"
     now="$(bench_now_unix)"
     start_at=$(( now + BENCH_START_DELAY_SECS ))
+    RUN_START_AT="${start_at}"
     mixed_start=$(( start_at + BENCH_PREAMBLE_SECS + BENCH_WARMUP_SECS ))
     deadline=$(( mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS + 600 ))
     echo ">>> run ${BENCH_RUN_ID} index ${BENCH_RUN_INDEX}: ${VAL_COUNT} blasters x ${BENCH_SENDERS} senders, start_at $(bench_iso_from_unix "${start_at}")"
     echo "    phases (planned): preamble ${BENCH_PREAMBLE_SECS}s, warmup ${BENCH_WARMUP_SECS}s, mixed ${BENCH_DURATION_SECS}s, cooldown ${BENCH_COOLDOWN_SECS}s; wait deadline $(bench_iso_from_unix "${deadline}")"
     local chaos_on="${BENCH_CHAOS:-1}"
-    local t_kill=$(( mixed_start + 900 )) t_back=$(( mixed_start + 1200 )) t_obs=$(( mixed_start + 1500 ))
+    local t_kill=$(( mixed_start + BENCH_CHAOS_KILL_AT_SECS )) t_back=$(( mixed_start + BENCH_CHAOS_BACK_AT_SECS )) t_obs=$(( mixed_start + BENCH_CHAOS_OBS_AT_SECS ))
     if [ "${chaos_on}" = "1" ]; then
         echo "    chaos: $(bench_iso_from_unix "${t_kill}") kill -9 ${INSTANCE_NAMES[$CHAOS_KILL_IDX]}; $(bench_iso_from_unix "${t_back}") start it; $(bench_iso_from_unix "${t_obs}") restart ${INSTANCE_NAMES[$OBSERVER_IDX]}"
     else
@@ -240,6 +351,11 @@ do_run() {
     gcloud auth print-access-token >/dev/null
     local pids=() names=() logs=()
     [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/logs"
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        RUN_CREATED=1                      # from here on the EXIT trap owns cleanup
+        trap on_run_exit EXIT
+        trap 'exit 130' INT TERM
+    fi
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         name="$(blaster_name "$k")"; zone="${ZONES[$k]}"
         [ "${NODE_ROLES[$k]}" = "validator" ] || bench_die "index ${k} is not a validator"
@@ -274,66 +390,68 @@ do_run() {
         name="$(blaster_name "$k")"
         id="$(gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null || true)"
         bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
-            --arg u "$(cat "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS" | sed 's/^[^=]*=//')" \
+            --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" \
             --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
             '. + [{name:$n, zone:$z, instance_id:$id, target:$t, node_url:$u, sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
     done
     bench_manifest_jq --argjson b "${bl}" '.blasters = $b'
 
     # --- watch loop: chaos + abort watchers + done markers ---
-    local next_poll=$(( start_at + 60 )) did_kill=0 did_back=0 did_obs=0 all_done=0
-    local last_max_block="" last_block_change_ts="" sleep_for target
-    local done_rc=(); for k in $(seq 0 $((VAL_COUNT - 1))); do done_rc[k]=""; done
+    local next_poll=$(( start_at + 60 )) all_done=0 sleep_for target
+    local kill_blaster; kill_blaster="$(blaster_name "${CHAOS_KILL_IDX}")"
+    LAST_ADVANCE_TS="${start_at}"
     while :; do
         now="$(bench_now_unix)"
-        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ]; then
-            if [ "${did_kill}" -eq 0 ] && [ "${now}" -ge "${t_kill}" ]; then
-                chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin; sudo systemctl stop telcoin; systemctl is-active telcoin || true" \
-                    "docker kill -s KILL telcoin" "5 min outage then restart (replay worst case); systemctl stop holds it down (unit has Restart=on-failure)"
-                did_kill=1
-            fi
+        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ] && [ "${now}" -ge "${t_kill}" ]; then
+            chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin; sudo systemctl stop telcoin; systemctl is-active telcoin || true" \
+                "docker kill -s KILL telcoin" "5 min outage then restart (replay worst case); systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors"
+            RUN_DID_KILL=1
+            bench_manifest_note "blaster-05-outage: ${kill_blaster}'s only RPC target ${INSTANCE_NAMES[$CHAOS_KILL_IDX]} is down from $(bench_now_iso) for ~$(( t_back - t_kill ))s (chaos); its connection errors/resends in that window are the chaos, not a blaster fault" || true
         fi
         # The restart is owed even after an abort: never leave v05 down.
-        if [ "${did_kill}" -eq 1 ] && [ "${did_back}" -eq 0 ] && { [ "${now}" -ge "${t_back}" ] || [ -n "${ABORTED}" ]; }; then
-            chaos_do "${CHAOS_KILL_IDX}" "sudo systemctl start telcoin && systemctl is-active telcoin" \
-                "systemctl start telcoin" "docker start is impossible: the unit runs docker run --rm"
-            did_back=1
+        if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ] && { [ "${now}" -ge "${t_back}" ] || [ -n "${ABORTED}" ]; }; then
+            chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm"
         fi
-        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${did_obs}" -eq 0 ] && [ "${now}" -ge "${t_obs}" ]; then
+        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_OBS}" -eq 0 ] && [ "${now}" -ge "${t_obs}" ]; then
             chaos_do "${OBSERVER_IDX}" "sudo systemctl restart telcoin && systemctl is-active telcoin" "systemctl restart telcoin" "observer restart"
-            did_obs=1
+            RUN_DID_OBS=1
         fi
 
         if [ "${now}" -ge "${next_poll}" ]; then
             bench_log "poll: blasters + node status + obs memory"
-            # blasters
-            all_done=1
-            for k in $(seq 0 $((VAL_COUNT - 1))); do
-                [ -n "${done_rc[k]}" ] && continue
-                name="$(blaster_name "$k")"
-                done_rc[k]="$(bench_serial_last "${name}" "${ZONES[$k]}" "BENCH_BLAST_DONE rc=" | marker_rc BENCH_BLAST_DONE)"
-                [ -n "${done_rc[k]}" ] && echo "    ${name} done rc=${done_rc[k]}" || all_done=0
-            done
-            # nodes (BENCH_STATUS from node-sampler.sh on the serial console)
-            local maxb="" line inst pct fatal blk
+            if poll_blasters; then all_done=1; else all_done=0; fi
+            # nodes (BENCH_STATUS from node-sampler.sh on the serial console). Per-node heights:
+            # an empty block= (loopback RPC timeout under load) or an unchanged ts= is UNKNOWN,
+            # never "stalled"; quorum-lost needs two consecutive polls in which no node with
+            # fresh data advanced.
+            local line inst pct fatal blk sts advanced=0 fresh=0
             for k in "${!INSTANCE_NAMES[@]}"; do
                 inst="${INSTANCE_NAMES[$k]}"
-                line="$(bench_serial_last "${inst}" "${ZONES[$k]}" "BENCH_STATUS ")"
+                line="$(bench_serial_last "${inst}" "${ZONES[$k]}" "BENCH_STATUS " || true)"
                 [ -n "${line}" ] || { echo "    ${inst}: no BENCH_STATUS yet"; continue; }
-                pct="$(status_field "${line}" root_used_pct)"; fatal="$(status_field "${line}" fatal_db)"; blk="$(status_field "${line}" block)"
+                pct="$(status_field "${line}" root_used_pct)"; fatal="$(status_field "${line}" fatal_db)"
+                blk="$(status_field "${line}" block)"; sts="$(status_field "${line}" ts)"
                 echo "    ${inst}: root=${pct:-?}% fatal_db=${fatal:-?} block=${blk:-?}"
                 if [ -n "${pct}" ] && [ "${pct}" -gt "${BENCH_ABORT_DISK_PCT}" ]; then record_abort "disk-full" "${inst}" "root disk ${pct}% > ${BENCH_ABORT_DISK_PCT}%"; fi
                 if [ -n "${fatal}" ] && [ "${fatal}" -gt 0 ]; then record_abort "batch-cache-cliff" "${inst}" "FatalDBFailure x${fatal} in docker logs telcoin — batch-cache cliff, NOT a hardware limit"; fi
-                if [ -n "${blk}" ] && { [ -z "${maxb}" ] || [ "${blk}" -gt "${maxb}" ]; }; then maxb="${blk}"; fi
-            done
-            if [ -n "${maxb}" ]; then
-                if [ -z "${last_max_block}" ] || [ "${maxb}" -gt "${last_max_block}" ]; then
-                    last_max_block="${maxb}"; last_block_change_ts="${now}"
-                elif [ $(( now - last_block_change_ts )) -gt "${BENCH_ABORT_STALL_SECS}" ] && [ "${all_done}" -eq 0 ]; then
-                    record_abort "quorum-lost" "fleet" "max block ${maxb} unchanged for $(( now - last_block_change_ts ))s"
+                [ -n "${blk}" ] && [ -n "${sts}" ] || continue
+                [ "${sts}" != "${LAST_STS[k]:-}" ] || continue      # no new sample since last poll
+                if [ -n "${LAST_BLK[k]:-}" ]; then
+                    fresh=1
+                    [ "${blk}" -gt "${LAST_BLK[k]}" ] && advanced=1
                 fi
+                LAST_BLK[k]="${blk}"; LAST_STS[k]="${sts}"
+            done
+            if [ "${advanced}" -eq 1 ]; then
+                STALL_POLLS=0; LAST_ADVANCE_TS="${now}"
+            elif [ "${fresh}" -eq 1 ]; then
+                STALL_POLLS=$((STALL_POLLS + 1))
+                echo "    ⚠ no node advanced since the last poll (${STALL_POLLS} consecutive)"
             fi
-            local mem; mem="$(bench_obs_mem_pct)"
+            if [ "${STALL_POLLS}" -ge 2 ] && [ $(( now - LAST_ADVANCE_TS )) -gt "${BENCH_ABORT_STALL_SECS}" ] && [ "${all_done}" -eq 0 ]; then
+                record_abort "quorum-lost" "fleet" "no node advanced in ${STALL_POLLS} consecutive polls ($(( now - LAST_ADVANCE_TS ))s)"
+            fi
+            local mem; mem="$(bench_obs_mem_pct || true)"
             echo "    obs-devnet memory: ${mem:-n/a}%"
             if [ -n "${mem}" ] && awk -v m="${mem}" -v t="${BENCH_ABORT_OBS_MEM_PCT}" 'BEGIN{exit !(m>t)}'; then
                 record_abort "obs-memory" "${OBS_INSTANCE_NAME}" "obs-devnet memory ${mem}% > ${BENCH_ABORT_OBS_MEM_PCT}%"
@@ -341,8 +459,7 @@ do_run() {
             next_poll=$(( now + BENCH_POLL_SECS ))
         fi
 
-        if [ -n "${ABORTED}" ] && [ -z "${STOPPED:-}" ]; then
-            STOPPED=1
+        if [ -n "${ABORTED}" ] && [ "${RUN_STOPPED}" -eq 0 ]; then
             bench_log "stopping blasters (docker stop txgen) after abort: ${ABORTED}"
             stop_blasters
             deadline=$(( now + 600 ))
@@ -353,9 +470,9 @@ do_run() {
 
         target="${next_poll}"
         if [ "${chaos_on}" = "1" ]; then
-            [ "${did_kill}" -eq 0 ] && [ "${t_kill}" -lt "${target}" ] && target="${t_kill}"
-            [ "${did_back}" -eq 0 ] && [ "${did_kill}" -eq 1 ] && [ "${t_back}" -lt "${target}" ] && target="${t_back}"
-            [ "${did_obs}" -eq 0 ] && [ "${t_obs}" -lt "${target}" ] && target="${t_obs}"
+            [ "${RUN_DID_KILL}" -eq 0 ] && [ "${t_kill}" -lt "${target}" ] && target="${t_kill}"
+            [ "${RUN_DID_BACK}" -eq 0 ] && [ "${RUN_DID_KILL}" -eq 1 ] && [ "${t_back}" -lt "${target}" ] && target="${t_back}"
+            [ "${RUN_DID_OBS}" -eq 0 ] && [ "${t_obs}" -lt "${target}" ] && target="${t_obs}"
         fi
         sleep_for=$(( target - $(bench_now_unix) )); [ "${sleep_for}" -ge 5 ] || sleep_for=5
         sleep "${sleep_for}"
@@ -363,19 +480,19 @@ do_run() {
 
     # --- results ---
     bench_manifest_ts blast_end
+    local rc_k bad=0
     for k in $(seq 0 $((VAL_COUNT - 1))); do
-        [ -n "${done_rc[k]}" ] || continue
-        bench_manifest_jq --arg n "$(blaster_name "$k")" --arg rc "${done_rc[k]}" \
+        rc_k="$(printf '%s\n' "${DONE_LINE[k]:-}" | marker_rc BENCH_BLAST_DONE)"
+        [ "${rc_k:-x}" = "0" ] && [ "$(printf '%s\n' "${DONE_LINE[k]:-}" | marker_reason BENCH_BLAST_DONE)" = "ok" ] || bad=1
+        [ -n "${rc_k}" ] || continue
+        bench_manifest_jq --arg n "$(blaster_name "$k")" --arg rc "${rc_k}" \
             '.blasters |= map(if .name == $n then .rc = ($rc|tonumber) else . end)'
     done
-    copy_prefix blasters
-    if [ "${KEEP}" -eq 0 ]; then
-        for k in $(seq 0 $((VAL_COUNT - 1))); do delete_vms "${ZONES[$k]}" "$(blaster_name "$k")" || true; done
-    fi
-    local bad=0
-    for k in $(seq 0 $((VAL_COUNT - 1))); do [ "${done_rc[k]:-x}" = "0" ] || bad=1; done
+    settle_blasters
+    RUN_FINISHED=1
+    trap - EXIT INT TERM
     if [ -n "${ABORTED}" ] || [ "${bad}" -ne 0 ]; then
-        echo "❌ run finished with abort='${ABORTED}' / non-zero blaster rc — see ${BENCH_RESULTS_DIR}" >&2
+        echo "❌ run finished with abort='${ABORTED}' / a blaster not at rc=0 reason=ok — see ${BENCH_RESULTS_DIR}" >&2
         exit 1
     fi
     echo "    ✓ run complete: ${BENCH_RESULTS_DIR}/blasters/"

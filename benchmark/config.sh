@@ -22,10 +22,13 @@
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # --- refuse to be loaded where it could do damage ------------------------------
-# 1) interactive shells (see header). 2) the devnet-only drivers: they manage devnet
-# singletons (DNS, the LB, the obs VM, the devnet VPC rules, txgen-devnet, updates) or
-# assume the devnet fleet. Only keygen / genesis-build / finalize / observability /
-# contracts / create-instances / genesis.sh and benchmark/*.sh may run on this profile.
+# 1) interactive shells (see header). 2) any caller that is not on the ALLOWLIST below:
+# benchmark/benchmark-*.sh plus exactly the shared drivers benchmark-deploy.sh invokes.
+# Everything else (the devnet-only drivers that manage DNS, the LB, the obs VM, the devnet
+# VPC rules, txgen-devnet, updates, wgvpn, ...) is refused, including scripts added later.
+# devnet-observability.sh is deliberately NOT allowed: step 8 relabels Alloy in the same
+# session as setup-observability.sh, which the devnet driver cannot do (it would ship
+# bench metrics labelled network="devnet" to obs-devnet).
 case "$-" in
     *i*)
         if [ "${BENCH_ALLOW_INTERACTIVE:-0}" != "1" ]; then
@@ -35,15 +38,12 @@ case "$-" in
 esac
 _bench_caller="$(basename -- "${0:-}")"
 case "${_bench_caller}" in
-    devnet-deploy.sh|devnet-teardown.sh|devnet-firewall.sh|devnet-dashboards.sh|devnet-txgen.sh|\
-    devnet-wipe.sh|devnet-update.sh|devnet-update-all.sh|devnet-admin-secret.sh|\
-    reset-network.sh|setup-firewall.sh|dns.sh|setup-load-balancer.sh|teardown-load-balancer.sh|\
-    create-obs-instance.sh|wipe-obs-data.sh|setup-obs-firewall.sh|setup-obs-disk-alert.sh|\
-    reserve-static-ips.sh|wipe-databases.sh|wipe-kad.sh|replace-genesis.sh|apply-peer-config.sh|\
-    config-caddy.sh|mint.sh|mint-role.sh|provision-nick.sh|set-worker-rpc.sh|set-worker-rpc-remote.sh|\
-    seed-node-ports.sh|migrate-apache-to-caddy.sh|copy-committee.sh)
-        echo "❌ ${_bench_caller} is a devnet-only driver and refuses to run with CONFIG_FILE=benchmark/config.sh." >&2
-        echo "   The benchmark profile is driven only by benchmark/benchmark-*.sh." >&2
+    benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\
+    devnet-keygen.sh|devnet-genesis-build.sh|devnet-finalize.sh|devnet-contracts.sh|\
+    create-instances.sh|genesis.sh|copy-committee.sh) ;;
+    *)
+        echo "❌ '${_bench_caller}' is not allowed to run with CONFIG_FILE=benchmark/config.sh." >&2
+        echo "   The benchmark profile is driven only by benchmark/benchmark-*.sh (and the shared drivers they call)." >&2
         exit 1 ;;
 esac
 unset _bench_caller
@@ -142,8 +142,30 @@ export RPC_URL="http://localhost:${BENCH_TUNNEL_PORT}"
 
 # Load generator (COS blasters). BENCH_TXGEN_IMAGE, not TXGEN_IMAGE: devnet-txgen.sh
 # reads ${TXGEN_IMAGE:-...} as its VM OS image, so exporting that name here would leak.
-export BENCH_TXGEN_IMAGE="${BENCH_TXGEN_IMAGE:-us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast}"
 export BENCH_TXGEN_REPO="${BENCH_TXGEN_REPO:-$(cd "${REPO_ROOT}/.." && pwd)/tn-transaction-generator}"
+# The image is pinned to a generator commit: :blast-v2-<sha7>. The old :blast tag is the
+# 2026-08-28 harness without the blast-v2 CLI, so it is never a default. BENCH_TXGEN_SHA may be
+# given explicitly; otherwise it is the generator checkout's HEAD, and only when the tree is
+# clean (a dirty tree would build an image that no commit describes). A missing SHA does not
+# stop this file from loading (teardown/firewall need no image); it leaves BENCH_TXGEN_IMAGE
+# empty with the reason in BENCH_TXGEN_IMAGE_ERROR, and bench_require_txgen_image refuses.
+export BENCH_TXGEN_IMAGE_REPO="us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator"
+export BENCH_TXGEN_IMAGE_ERROR=""
+if [ -z "${BENCH_TXGEN_SHA:-}" ]; then
+    if ! git -C "${BENCH_TXGEN_REPO}" rev-parse --git-dir >/dev/null 2>&1; then
+        BENCH_TXGEN_IMAGE_ERROR="${BENCH_TXGEN_REPO} is not a git checkout; set BENCH_TXGEN_SHA"
+    elif [ -n "$(git -C "${BENCH_TXGEN_REPO}" status --porcelain --untracked-files=no 2>/dev/null)" ] \
+      || [ -n "$(git -C "${BENCH_TXGEN_REPO}" ls-files --others --exclude-standard -- src Cargo.toml Cargo.lock Dockerfile build.rs 2>/dev/null)" ]; then
+        BENCH_TXGEN_IMAGE_ERROR="${BENCH_TXGEN_REPO} has uncommitted changes; commit them or set BENCH_TXGEN_SHA"
+    else
+        BENCH_TXGEN_SHA="$(git -C "${BENCH_TXGEN_REPO}" rev-parse --short=7 HEAD 2>/dev/null || true)"
+        [ -n "${BENCH_TXGEN_SHA}" ] || BENCH_TXGEN_IMAGE_ERROR="cannot read HEAD of ${BENCH_TXGEN_REPO}"
+    fi
+fi
+export BENCH_TXGEN_SHA="${BENCH_TXGEN_SHA:-}"
+export BENCH_TXGEN_TAG="${BENCH_TXGEN_SHA:+blast-v2-${BENCH_TXGEN_SHA}}"
+export BENCH_TXGEN_IMAGE="${BENCH_TXGEN_IMAGE:-${BENCH_TXGEN_TAG:+${BENCH_TXGEN_IMAGE_REPO}:${BENCH_TXGEN_TAG}}}"
+export BENCH_TXGEN_CLOUDBUILD="${BENCH_TXGEN_REPO}/cloudbuild.yaml"
 export BENCH_TXGEN_CONFIG="${BENCH_TXGEN_CONFIG:-${BENCH_TXGEN_REPO}/config.bench.toml}"
 export BENCH_TXGEN_MASTER_ADDRESS="0xb1F7fB246DDF3F621442368e4122b087b1Ea3C8E"
 export BENCH_TXGEN_MASTER_SECRET="bench-txgen-master-key"
@@ -157,6 +179,11 @@ export BENCH_COOLDOWN_SECS="${BENCH_COOLDOWN_SECS:-180}"
 export BENCH_PREAMBLE_SECS="${BENCH_PREAMBLE_SECS:-90}" # estimate of the generator's own preamble
 export BENCH_START_DELAY_SECS="${BENCH_START_DELAY_SECS:-300}"
 export BENCH_POLL_SECS="${BENCH_POLL_SECS:-240}"        # >= 240: IAP/serial polling lesson
+# Chaos schedule, seconds after the mixed phase starts (kill v05, restart it, restart observer).
+export BENCH_CHAOS_KILL_AT_SECS="${BENCH_CHAOS_KILL_AT_SECS:-900}"
+export BENCH_CHAOS_BACK_AT_SECS="${BENCH_CHAOS_BACK_AT_SECS:-1200}"
+export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
+export BENCH_TRAP_WAIT_SECS="${BENCH_TRAP_WAIT_SECS:-300}"  # interrupted run: wait this long for DONE markers
 # App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the SAME tn-contracts
 # checkout devnet-contracts.sh uses, on a bench/<run> branch that is never committed to.
 export BENCH_CONTRACTS_SRC_DIR="${BENCH_CONTRACTS_SRC_DIR:-$(cd "${REPO_ROOT}/.." && pwd)/tn-contracts-devnet-relaunch}"

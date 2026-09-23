@@ -208,9 +208,12 @@ upload() { # <local-file> <object-name>
     local f="$1" obj="$2" enc ctype="application/octet-stream"
     case "${f}" in *.json) ctype="application/json" ;; *.log|*.txt) ctype="text/plain" ;; esac
     enc="$(printf '%s' "${obj}" | sed 's#/#%2F#g')"
-    if [ "${DRY_RUN}" = "1" ]; then log "DRY_RUN: would upload ${f} -> gs://${BENCH_BUCKET}/${obj}"; return 0; fi
+    if [ "${DRY_RUN}" = "1" ]; then   # BENCH_DRY_UPLOAD_FAIL=1 exercises the rc=75 path in a render
+        log "DRY_RUN: would upload ${f} -> gs://${BENCH_BUCKET}/${obj}"; [ "${BENCH_DRY_UPLOAD_FAIL:-0}" != "1" ]; return; fi
+    # -T streams the file (a large docker log is never read into memory); -X POST is what the
+    # JSON API's media upload expects.
     curl -sf -X POST -H "Authorization: Bearer ${UP_TOKEN}" -H "Content-Type: ${ctype}" \
-        --data-binary "@${f}" \
+        -T "${f}" \
         "https://storage.googleapis.com/upload/storage/v1/b/${BENCH_BUCKET}/o?uploadType=media&name=${enc}" >/dev/null
 }
 UP_TOKEN="$( [ "${DRY_RUN}" = "1" ] && echo dry || sa_token )"   # re-fetch: the blast outlives a token
@@ -222,7 +225,15 @@ while IFS= read -r f; do
     if upload "${f}" "${RUN_ID}/${PREFIX}/${rel}"; then log "uploaded ${rel}"; else log "upload FAILED ${rel}"; upload_rc=1; fi
 done < <(find "${OUT_DIR}" -type f 2>/dev/null)
 
-reason=""; [ "${upload_rc}" -eq 0 ] || reason="upload-failed"
+# Marker contract (benchmark-blast.sh): rc=0 reason=ok is the ONLY state in which the VM may
+# be deleted unattended. A failed upload is rc=75 even when the generator succeeded, because
+# this VM then holds the only copy of the results.
 trap - EXIT
-finish "${rc}" "${reason}"
+if [ "${upload_rc}" -ne 0 ]; then
+    finish 75 "upload-failed gen_rc=${rc}"
+elif [ "${rc}" -ne 0 ]; then
+    finish "${rc}" "generator-exit"
+else
+    finish 0 "ok"
+fi
 exit 0
