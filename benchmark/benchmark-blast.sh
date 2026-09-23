@@ -226,8 +226,7 @@ ABORTED=""
 RUN_CREATED=0; RUN_FINISHED=0; RUN_STOPPED=0; RUN_START_AT=0
 RUN_DID_KILL=0; RUN_DID_BACK=0; RUN_DID_OBS=0
 DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
-LAST_BLK=()       # per node index: last known block height (from BENCH_STATUS)
-LAST_STS=()       # per node index: ts= of that BENCH_STATUS line
+PREV_ROUNDS=""    # {"<node>": max tn_primary_round} from the previous poll (Prometheus)
 STALL_POLLS=0; LAST_ADVANCE_TS=0
 
 record_abort() { # <reason> <node> <detail>
@@ -267,6 +266,34 @@ stop_blasters() {
 
 # status_field <line> <key> — value of key=... in a BENCH_STATUS line.
 status_field() { printf '%s' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | tail -1; }
+
+# round_stall_check <now> <all_done> — quorum-lost watcher on CONSENSUS ROUNDS (Prometheus
+# max by (node) (tn_primary_round{network="bench"})), not block height: an idle TN chain sits
+# at block 0 (empty non-epoch-closing outputs are not executed), so blocks would "stall"
+# through the pre-start sleep. A failed/empty query is UNKNOWN (never counts); quorum-lost
+# needs two consecutive polls in which no node's round advanced.
+round_stall_check() {
+    local now="$1" done_all="$2" cur adv
+    cur="$(bench_prom_rounds max)"
+    if [ -z "${cur}" ] || [ "${cur}" = "{}" ]; then
+        echo "    consensus rounds: unknown (Prometheus query failed/empty) — not counted"
+        return 0
+    fi
+    if [ -n "${PREV_ROUNDS}" ]; then
+        adv="$(bench_rounds_advanced "${PREV_ROUNDS}" "${cur}" | jq -r 'length')"
+        if [ "${adv:-0}" -gt 0 ]; then
+            STALL_POLLS=0; LAST_ADVANCE_TS="${now}"
+            echo "    consensus rounds: ${adv} node(s) advanced ($(printf '%s' "${cur}" | jq -r '[.[]] | (min|tostring) + ".." + (max|tostring)'))"
+        else
+            STALL_POLLS=$((STALL_POLLS + 1))
+            echo "    ⚠ no node's consensus round advanced since the last poll (${STALL_POLLS} consecutive)"
+        fi
+    fi
+    PREV_ROUNDS="${cur}"
+    if [ "${STALL_POLLS}" -ge 2 ] && [ $(( now - LAST_ADVANCE_TS )) -gt "${BENCH_ABORT_STALL_SECS}" ] && [ "${done_all}" -eq 0 ]; then
+        record_abort "quorum-lost" "fleet" "no node's tn_primary_round advanced in ${STALL_POLLS} consecutive polls ($(( now - LAST_ADVANCE_TS ))s)"
+    fi
+}
 
 # poll_blasters — refresh DONE_LINE[]; returns 0 iff every blaster has reported.
 poll_blasters() {
@@ -420,37 +447,20 @@ do_run() {
         if [ "${now}" -ge "${next_poll}" ]; then
             bench_log "poll: blasters + node status + obs memory"
             if poll_blasters; then all_done=1; else all_done=0; fi
-            # nodes (BENCH_STATUS from node-sampler.sh on the serial console). Per-node heights:
-            # an empty block= (loopback RPC timeout under load) or an unchanged ts= is UNKNOWN,
-            # never "stalled"; quorum-lost needs two consecutive polls in which no node with
-            # fresh data advanced.
-            local line inst pct fatal blk sts advanced=0 fresh=0
+            # nodes: disk + FatalDBFailure from BENCH_STATUS (node-sampler.sh, serial console);
+            # block= is informational only.
+            local line inst pct fatal blk
             for k in "${!INSTANCE_NAMES[@]}"; do
                 inst="${INSTANCE_NAMES[$k]}"
                 line="$(bench_serial_last "${inst}" "${ZONES[$k]}" "BENCH_STATUS " || true)"
                 [ -n "${line}" ] || { echo "    ${inst}: no BENCH_STATUS yet"; continue; }
                 pct="$(status_field "${line}" root_used_pct)"; fatal="$(status_field "${line}" fatal_db)"
-                blk="$(status_field "${line}" block)"; sts="$(status_field "${line}" ts)"
+                blk="$(status_field "${line}" block)"
                 echo "    ${inst}: root=${pct:-?}% fatal_db=${fatal:-?} block=${blk:-?}"
                 if [ -n "${pct}" ] && [ "${pct}" -gt "${BENCH_ABORT_DISK_PCT}" ]; then record_abort "disk-full" "${inst}" "root disk ${pct}% > ${BENCH_ABORT_DISK_PCT}%"; fi
                 if [ -n "${fatal}" ] && [ "${fatal}" -gt 0 ]; then record_abort "batch-cache-cliff" "${inst}" "FatalDBFailure x${fatal} in docker logs telcoin — batch-cache cliff, NOT a hardware limit"; fi
-                [ -n "${blk}" ] && [ -n "${sts}" ] || continue
-                [ "${sts}" != "${LAST_STS[k]:-}" ] || continue      # no new sample since last poll
-                if [ -n "${LAST_BLK[k]:-}" ]; then
-                    fresh=1
-                    [ "${blk}" -gt "${LAST_BLK[k]}" ] && advanced=1
-                fi
-                LAST_BLK[k]="${blk}"; LAST_STS[k]="${sts}"
             done
-            if [ "${advanced}" -eq 1 ]; then
-                STALL_POLLS=0; LAST_ADVANCE_TS="${now}"
-            elif [ "${fresh}" -eq 1 ]; then
-                STALL_POLLS=$((STALL_POLLS + 1))
-                echo "    ⚠ no node advanced since the last poll (${STALL_POLLS} consecutive)"
-            fi
-            if [ "${STALL_POLLS}" -ge 2 ] && [ $(( now - LAST_ADVANCE_TS )) -gt "${BENCH_ABORT_STALL_SECS}" ] && [ "${all_done}" -eq 0 ]; then
-                record_abort "quorum-lost" "fleet" "no node advanced in ${STALL_POLLS} consecutive polls ($(( now - LAST_ADVANCE_TS ))s)"
-            fi
+            round_stall_check "${now}" "${all_done}"
             local mem; mem="$(bench_obs_mem_pct || true)"
             echo "    obs-devnet memory: ${mem:-n/a}%"
             if [ -n "${mem}" ] && awk -v m="${mem}" -v t="${BENCH_ABORT_OBS_MEM_PCT}" 'BEGIN{exit !(m>t)}'; then

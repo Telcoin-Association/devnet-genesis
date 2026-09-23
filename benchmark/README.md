@@ -95,14 +95,23 @@ runs it.
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
 | 5–7 | The devnet drivers, on the bench profile: keygen, genesis build (in `benchmark/`) and finalize. |
 | 8 | Metrics-only observability in one IAP session per node. `setup-observability.sh` would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. |
-| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and the block height advances (connection refusals while the node restarts are retried until the deadline), then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. |
-| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows the chain id and a rising block height; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11` and no bench node series with `network="devnet"`. |
+| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. |
+| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
 | 13 | Fund: the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders, then is deleted. |
 | 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
 | 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
+
+### Progress means consensus rounds, not blocks
+
+An idle TN chain sits at **block 0**. The engine skips empty consensus outputs that do not close
+an epoch (`skipping execution for empty non-epoch-closing output`), so `eth_blockNumber` only
+moves once there are transactions, which means after the funder runs. Consensus runs anyway:
+`tn_primary_round` rises about once a second and the node logs `quorum reached` / `subdag
+committed`. Steps 9 and 10 and the `quorum-lost` watcher therefore judge liveness by
+consensus rounds. `block=` in the sampler's `BENCH_STATUS` line is informational only.
 
 ### Chaos schedule (step 14)
 
@@ -135,7 +144,7 @@ blaster (`docker stop txgen`) and allows 10 minutes for the results to upload.
 | `disk-full` | a bench node's root disk is above 85 % |
 | `obs-memory` | obs-devnet memory is above 85 % |
 | `batch-cache-cliff` | `FatalDBFailure` shows up in a node's `docker logs telcoin`. This is the batch-cache defect, **not** a hardware limit, and the report must say so. |
-| `quorum-lost` | two consecutive polls in which no node with a fresh status line advanced. An empty `block=` or a stale status line counts as unknown, never as stalled. |
+| `quorum-lost` | two consecutive polls in which no node's `max by (node)(tn_primary_round{network="bench"})` advanced. A failed Prometheus query counts as unknown, never as stalled. |
 
 A blaster is deleted only when its serial marker says `rc=0 reason=ok`, which means its
 results are in the bucket. A failed upload reports `rc=75 reason=upload-failed`. Any other

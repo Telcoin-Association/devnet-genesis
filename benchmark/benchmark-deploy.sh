@@ -30,8 +30,11 @@
 #                        create-obs-instance.sh, never devnet-observability.sh.
 #    9  post-config      per node, ONE IAP session each, serially: reth --http.addr 0.0.0.0,
 #                        assert the bench Alloy labels, restart (<=1 down at a time), wait for
-#                        eth_chainId on the internal IP + advancing blocks, install node-sampler
-#   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id/block-number advancing,
+#                        eth_chainId on the internal IP + consensus progressing (blocks rose, or
+#                        subdag committed/quorum reached in its log — an idle chain stays at
+#                        block 0), install node-sampler
+#   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id == 32286, Prometheus
+#                        min by (node)(tn_primary_round{network="bench"}) rising on all 11,
 #                        Prometheus: count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11
 #                        and no bench node has any series labelled network="devnet"
 #   11  contracts        (--with-contracts) tn-contracts worktree bench/<run> -> devnet-contracts.sh
@@ -304,13 +307,23 @@ grep -q -- '--http.addr 0.0.0.0' "\$W" || fail "http.addr not rewritten"
 # 2. alloy labels were set in step 8's session; assert they are still bench labels
 E=/etc/telcoin/alloy/telcoin-alloy.env
 grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env lacks bench labels (re-run step 8)"
-# 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and advances
+# 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is
+#    progressing. An idle TN chain stays at block 0 (the engine skips empty non-epoch-closing
+#    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
+#    consensus commits since the restart. Polled to the deadline so the node can rejoin.
 systemctl restart telcoin
+restart_ts=\$(date +%s)
 IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
 [ -n "\$IP" ] || fail "no internal IP from the metadata server"
 # ECONNREFUSED right after the restart is expected: curl's failure is swallowed, empty = retry.
 rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\$1\",\"params\":[]}" "http://\${IP}:8545" || true; } | sed -n 's/.*"result":"\([^"]*\)".*/\1/p' || true; }
-cid=""; b0=""; b1=""; ok=0
+# consensus lines in the node's docker log since the restart (never older than 45 s)
+commits() {
+    local now since
+    now=\$(date +%s); since=\$(( now - 45 )); [ "\$since" -ge "\$restart_ts" ] || since="\$restart_ts"
+    { docker logs telcoin --since "\$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached' || true
+}
+cid=""; b0=""; b=""; how=""; n=0
 deadline=\$(( \$(date +%s) + \${POSTCFG_WAIT_SECS:-300} ))
 while [ "\$(date +%s)" -lt "\$deadline" ]; do
     if systemctl is-active --quiet telcoin; then
@@ -318,14 +331,16 @@ while [ "\$(date +%s)" -lt "\$deadline" ]; do
         if [ "\$cid" = "${CHAIN_ID_HEX}" ]; then
             b="\$(rpc eth_blockNumber)"
             if [ -n "\$b" ]; then
-                if [ -z "\$b0" ]; then b0="\$b"; elif [ "\$((b))" -gt "\$((b0))" ]; then b1="\$b"; ok=1; break; fi
+                if [ -z "\$b0" ]; then b0="\$b"; elif [ "\$((b))" -gt "\$((b0))" ]; then how="blocks \$((b0))->\$((b))"; break; fi
             fi
+            n="\$(commits)"
+            if [ "\${n:-0}" -ge 1 ]; then how="consensus log (\${n} subdag committed/quorum reached lines since restart)"; break; fi
         fi
     fi
     sleep 5
 done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
-[ "\$ok" -eq 1 ] || fail "block number not advancing (\${b0:-none} -> \${b1:-none})"
+[ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the restart"
 # 4. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
@@ -344,7 +359,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
-echo "POSTCFG_OK ${inst} chain=\$cid block=\$((b1)) ip=\${IP}"
+echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how}"
 EOS
 }
 
@@ -368,12 +383,29 @@ step_10() {
             || bench_die "${INSTANCE_NAMES[$i]} not healthy"
     done
     bench_tunnel_up || bench_die "IAP tunnel failed"
-    local cid b0 b1
+    local cid
     cid="$(cast chain-id --rpc-url "${RPC_URL}")"
     [ "${cid}" = "${CHAIN_ID}" ] || bench_die "tunnel RPC reports chain ${cid}, expected ${CHAIN_ID}"
-    b0="$(cast block-number --rpc-url "${RPC_URL}")"; sleep 20; b1="$(cast block-number --rpc-url "${RPC_URL}")"
-    [ "${b1}" -gt "${b0}" ] || bench_die "chain not advancing via ${RPC_URL} (${b0} -> ${b1})"
-    echo "    ✓ chain ${cid} advancing ${b0} -> ${b1} via ${RPC_URL}"
+    echo "    ✓ chain id ${cid} via ${RPC_URL} (block $(cast block-number --rpc-url "${RPC_URL}" 2>/dev/null || echo '?'); an idle TN chain stays at 0 until the funder runs)"
+    # Progress = consensus rounds, not blocks: every node's min(tn_primary_round) must rise above
+    # its first sample. Re-sampled every 30 s (up to 4x) to absorb scrape + remote-write lag.
+    local r0 r1="" adv="[]" tries=0 missing=" (no Prometheus sample)" inst
+    r0="$(bench_prom_rounds min)"
+    [ -n "${r0}" ] || bench_die "Prometheus tn_primary_round query failed"
+    while [ "${tries}" -lt 4 ]; do
+        sleep 30; tries=$((tries + 1))
+        r1="$(bench_prom_rounds min)"
+        [ -n "${r1}" ] || continue
+        adv="$(bench_rounds_advanced "${r0}" "${r1}")"
+        missing=""
+        for inst in "${INSTANCE_NAMES[@]}"; do
+            printf '%s' "${adv}" | jq -e --arg n "${inst}" 'index($n) != null' >/dev/null || missing="${missing} ${inst}"
+        done
+        [ -n "${missing}" ] || break
+        echo "      …consensus round not yet advanced on:${missing} ($((tries * 30))s)"
+    done
+    [ -z "${missing}" ] || bench_die "consensus round did not advance on:${missing} (first ${r0}, last ${r1:-none})"
+    echo "    ✓ consensus progressing: tn_primary_round advanced on all ${#INSTANCE_NAMES[@]} nodes ($(printf '%s' "${r1}" | jq -r '[.[]] | "rounds " + (min|tostring) + ".." + (max|tostring)'))"
     local n="" waited=0
     while [ "${waited}" -le 300 ]; do
         n="$(bench_prom_scalar "${PROM_COUNT_QUERY}")"
@@ -500,9 +532,11 @@ EOP
    8  observability  per node, one IAP session: setup-observability.sh --enable-metrics -> black hole 127.0.0.1:9,
                      stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy
    9  post-config    per node, one IAP session, serial: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
-                     bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + advancing; bench-node-sampler.service
+                     bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
+                     (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); bench-node-sampler.service
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
-                     cast chain-id/block-number; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
+                     cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
+                     min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
                      ${PROM_LEAK_QUERY} == 0 (and the same over every metric)
   11  contracts      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "git worktree add ${BENCH_CONTRACTS_WORKTREE} -b ${BENCH_CONTRACTS_BRANCH} ${BENCH_CONTRACTS_BASE_BRANCH}" || echo "SKIPPED (pass --with-contracts)")
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
