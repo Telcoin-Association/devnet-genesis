@@ -310,7 +310,8 @@ grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${ins
 # 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is
 #    progressing. An idle TN chain stays at block 0 (the engine skips empty non-epoch-closing
 #    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
-#    consensus commits since the restart. Polled to the deadline so the node can rejoin.
+#    consensus progress since the restart: validators log 'subdag committed' / 'quorum reached',
+#    an observer (follower) logs 'got new consensus' / 'catching up consensus blocks'.
 systemctl restart telcoin
 restart_ts=\$(date +%s)
 IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
@@ -321,7 +322,7 @@ rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"js
 commits() {
     local now since
     now=\$(date +%s); since=\$(( now - 45 )); [ "\$since" -ge "\$restart_ts" ] || since="\$restart_ts"
-    { docker logs telcoin --since "\$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached' || true
+    { docker logs telcoin --since "\$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached|got new consensus|catching up consensus blocks|skipping execution for empty|executing consensus output' || true
 }
 cid=""; b0=""; b=""; how=""; n=0
 deadline=\$(( \$(date +%s) + \${POSTCFG_WAIT_SECS:-300} ))
