@@ -134,7 +134,9 @@ step_0() {
     local obs_pct
     obs_pct="$(tn_iap_ssh "${OBS_INSTANCE_NAME}" "${OBS_ZONE}" "df --output=pcent /mnt/obs-data | tail -1" 2>/dev/null | tr -dc '0-9' || true)"
     [ -n "${obs_pct}" ] || bench_die "could not read obs-devnet /mnt/obs-data usage over IAP"
-    [ "${obs_pct}" -lt 70 ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= 70%) — bench metrics would push it over"
+    # Bench nodes ship metrics only (a few hundred MB per run into Prometheus); the guard exists
+    # so a Loki disk that is already nearly full is fixed before, not during, a run.
+    [ "${obs_pct}" -lt "${BENCH_OBS_DISK_MAX_PCT:-70}" ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= ${BENCH_OBS_DISK_MAX_PCT:-70}%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate"
     echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
     local region need have
     for region in $(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u); do
