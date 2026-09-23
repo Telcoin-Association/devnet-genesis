@@ -69,12 +69,42 @@ source "${REPO_DIR}/devnet-lib.sh"
 # worktree, which is the tree tn-transaction-generator pins its vendor/ submodule to.
 # HEAD of tn-contracts carries different CREATE2 salts and therefore a COMPLETELY
 # different address book — the two are not interchangeable, so the branch is asserted.
-TN_CONTRACTS_DIR="${TN_CONTRACTS_DIR:-$(cd "${REPO_DIR}/.." && pwd)/tn-contracts-devnet-relaunch}"
+#
+# Every tunable below defaults to the devnet value. The benchmark profile
+# (benchmark/benchmark-deploy.sh step 11) overrides them to deploy the same stack onto
+# its own throwaway chain from a disposable worktree; see the chain-routing guard below.
+DEVNET_CONTRACTS_DIR_DEFAULT="$(cd "${REPO_DIR}/.." && pwd)/tn-contracts-devnet-relaunch"
+TN_CONTRACTS_DIR="${TN_CONTRACTS_DIR:-${DEVNET_CONTRACTS_DIR_DEFAULT}}"
 TN_CONTRACTS_BRANCH="${TN_CONTRACTS_BRANCH:-deploy/devnet-relaunch}"
 ADMIN_PK_SECRET="${ADMIN_PK_SECRET:-devnet-contracts-admin-pk}"
 DEVNET_RPC="${DEVNET_RPC:-${RPC_URL}}"                  # config.sh: https://rpc.devnet.telcoin.network
 WTEL_GENESIS_ADDR="0x00000000000000000000000000000000000037E1"
-DEPLOYMENTS_JSON="deployments/deployments-devnet.json"  # relative to TN_CONTRACTS_DIR
+DEPLOYMENTS_JSON="${DEPLOYMENTS_JSON:-deployments/deployments-devnet.json}"  # relative to TN_CONTRACTS_DIR
+EXPECTED_CHAIN_ID="${EXPECTED_CHAIN_ID:-${CHAIN_ID}}"   # config.sh: 32285
+DEVNET_CHAIN_ID=32285
+
+# Chain-routing guard. tn-contracts picks its address book by chain id
+# (deployments/DeploymentsResolver.sol, script/bash/deploy-testnet-infra.sh): 32285 reads
+# deployments-devnet.json, every other chain reads deployments-testnet.json. A mismatched
+# DEPLOYMENTS_JSON would verify one file while forge writes the other. A non-devnet chain
+# must also never deploy from the devnet worktree, whose testnet json it would overwrite.
+if [ "${EXPECTED_CHAIN_ID}" = "${DEVNET_CHAIN_ID}" ]; then
+    expected_json="deployments/deployments-devnet.json"
+else
+    expected_json="deployments/deployments-testnet.json"
+    # Compare physical paths: a trailing slash, a symlink or a ../ spelling of the devnet
+    # worktree must not slip past a string compare.
+    _canon() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+    if [ "$(_canon "${TN_CONTRACTS_DIR}")" = "$(_canon "${DEVNET_CONTRACTS_DIR_DEFAULT}")" ]; then
+        echo "❌ EXPECTED_CHAIN_ID=${EXPECTED_CHAIN_ID} is not devnet, but TN_CONTRACTS_DIR is the devnet" >&2
+        echo "   worktree (${TN_CONTRACTS_DIR}). Deploy a non-devnet chain from its own worktree." >&2
+        exit 1
+    fi
+fi
+if [ "${DEPLOYMENTS_JSON}" != "${expected_json}" ]; then
+    echo "❌ DEPLOYMENTS_JSON=${DEPLOYMENTS_JSON} but chain ${EXPECTED_CHAIN_ID} routes to ${expected_json}." >&2
+    exit 1
+fi
 
 # --- args ----------------------------------------------------------------------
 CONFIRM=0
@@ -92,7 +122,7 @@ echo "=========================================="
 echo "devnet app-contract stack (Step 14)"
 echo "Contracts:  ${TN_CONTRACTS_DIR} (branch ${TN_CONTRACTS_BRANCH})"
 echo "RPC:        ${DEVNET_RPC}"
-echo "Chain id:   ${CHAIN_ID} (expected)"
+echo "Chain id:   ${EXPECTED_CHAIN_ID} (expected)"
 echo "Admin key:  Secret Manager ${ADMIN_PK_SECRET} (project ${PROJECT_ID}) — never printed"
 [ "${SKIP_LPS}" -eq 1 ] && echo "LP seeding: SKIPPED (--skip-lps)"
 [ "${CONFIRM}" -eq 1 ] && echo "Mode:       APPLY (--yes)" || echo "Mode:       DRY RUN (no --yes) — preflight only"
@@ -128,8 +158,8 @@ echo "    ✓ forge libs present"
 echo ""
 echo ">>> preflight: chain identity"
 observed_chain="$(cast chain-id --rpc-url "${DEVNET_RPC}")"
-if [ "${observed_chain}" != "${CHAIN_ID}" ]; then
-    echo "❌ ${DEVNET_RPC} reports chain id ${observed_chain}, expected ${CHAIN_ID}." >&2
+if [ "${observed_chain}" != "${EXPECTED_CHAIN_ID}" ]; then
+    echo "❌ ${DEVNET_RPC} reports chain id ${observed_chain}, expected ${EXPECTED_CHAIN_ID}." >&2
     echo "   Refusing to deploy — deploy-testnet-infra.sh routes by chain id and a" >&2
     echo "   mismatch would write to the WRONG address book." >&2
     exit 1
@@ -344,6 +374,14 @@ else
 fi
 
 # --- done -----------------------------------------------------------------------
+if [ "${EXPECTED_CHAIN_ID}" != "${DEVNET_CHAIN_ID}" ]; then
+    # Non-devnet (benchmark) chains deploy from a throwaway worktree: nothing to commit.
+    echo ""
+    echo "app-contract stack deployed and verified on chain ${EXPECTED_CHAIN_ID}."
+    echo "  address book: ${TN_CONTRACTS_DIR}/${DEPLOYMENTS_JSON} (do NOT commit it)"
+    echo "  deployer:     ${admin_addr}"
+    exit 0
+fi
 cat <<EOF
 
 ==========================================

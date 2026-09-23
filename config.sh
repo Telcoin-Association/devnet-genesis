@@ -168,7 +168,12 @@ export GENESISDIR="genesis/validators/"
 export LOCAL_PATH="./genesis/validators/"
 export REMOTE_VALIDATORS_PATH="/home/share"
 export REMOTE_SHARE_PATH="/home/share/"
-export GENESIS_FILE="${REPO_ROOT}/genesis/genesis.yaml"
+# Directory the genesis build works in (holds genesis/validators/, genesis/observers/,
+# testnet_accounts.yaml; the docker `-v ./:/code` mount targets it). Plain assignment on
+# purpose: a profile that sources this file (benchmark/config.sh) overrides it afterwards,
+# so an inherited environment value can never re-point the devnet build.
+export GENESIS_WORKSPACE="${REPO_ROOT}"
+export GENESIS_FILE="${GENESIS_WORKSPACE}/genesis/genesis.yaml"
 export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
 export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
@@ -189,11 +194,11 @@ export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
 export OBS_INSTANCE_NAME="obs-devnet"
 export OBS_REGION="us-west2"                  # co-located with validator-1-devnet (us-west2-a)
 export OBS_ZONE="us-west2-a"
-export OBS_MACHINE_TYPE="e2-standard-2"
+export OBS_MACHINE_TYPE="e2-standard-4"
 export OBS_HOSTNAME="obs.devnet.telcoin.network"   # A record -> OBS static IP (out of band)
 export OBS_STATIC_IP_NAME="obs-devnet-ip"     # reserved by common/create-obs-instance.sh
 export OBS_DATA_DISK_NAME="obs-devnet-data"   # persistent disk for Loki chunks + Grafana DB
-export OBS_DATA_DISK_SIZE=100                 # GB; devnet 1h epochs, shorter retention than adiri
+export OBS_DATA_DISK_SIZE=300                 # GB; resized from 100 (fs was filling); devnet 1h epochs
 # Image FAMILY (not a dated build) so the VM always provisions on the latest
 # non-deprecated Debian 12 image — a pinned dated image goes deprecated over time
 # and makes `gcloud compute instances create` print a deprecation warning.

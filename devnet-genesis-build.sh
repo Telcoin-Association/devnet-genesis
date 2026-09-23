@@ -33,13 +33,15 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 
 # ----------------------------------------------------------------------------
-# Step 0: work from the repo root so the docker `-v ./:/code` mount == repo root
-# (matches common/genesis.sh).
+# Step 0: work from the genesis workspace so the docker `-v ./:/code` mount == the
+# workspace. config.sh sets GENESIS_WORKSPACE=REPO_ROOT for devnet (matches
+# common/genesis.sh); a profile such as benchmark/ points it at its own tree.
 # ----------------------------------------------------------------------------
-echo ">>> step 0: cd ${REPO_ROOT}"
-cd "${REPO_ROOT}"
+GENESIS_WS="${GENESIS_WORKSPACE:-${REPO_ROOT}}"
+echo ">>> step 0: cd ${GENESIS_WS}"
+cd "${GENESIS_WS}"
 
-VALIDATORS_DIR="${REPO_ROOT}/genesis/validators"
+VALIDATORS_DIR="${GENESIS_WS}/genesis/validators"
 
 # ----------------------------------------------------------------------------
 # Step 1: count expected validators (NODE_ROLES == validator) and verify there
@@ -77,11 +79,21 @@ fi
 # reads /code/testnet_accounts.yaml and /code == repo root, so the file must be
 # at ${REPO_ROOT}/testnet_accounts.yaml. The canonical copy ships in common/.
 # ----------------------------------------------------------------------------
-echo ">>> step 2: ensuring accounts file at ${REPO_ROOT}/testnet_accounts.yaml"
-ACCOUNTS_AT_ROOT="${REPO_ROOT}/testnet_accounts.yaml"
+echo ">>> step 2: ensuring accounts file at ${GENESIS_WS}/testnet_accounts.yaml"
+ACCOUNTS_AT_ROOT="${GENESIS_WS}/testnet_accounts.yaml"
 ACCOUNTS_IN_COMMON="${REPO_ROOT}/common/testnet_accounts.yaml"
 if [ -f "${ACCOUNTS_AT_ROOT}" ]; then
-    echo ">>> accounts file already present at repo root"
+    if [ "${GENESIS_WS}" = "${REPO_ROOT}" ]; then
+        echo ">>> accounts file already present at repo root"
+    else
+        echo ">>> accounts file present in workspace ${GENESIS_WS}"
+    fi
+elif [ "${GENESIS_WS}" != "${REPO_ROOT}" ]; then
+    # A non-default workspace must ship its OWN accounts file. Falling back to common/
+    # (or the devnet root copy) would silently fund the wrong addresses in its genesis.
+    echo "❌ no testnet_accounts.yaml in the genesis workspace ${GENESIS_WS}." >&2
+    echo "   A non-default GENESIS_WORKSPACE never falls back to common/ — provide it and retry." >&2
+    exit 1
 elif [ -f "${ACCOUNTS_IN_COMMON}" ]; then
     echo ">>> copying ${ACCOUNTS_IN_COMMON} -> ${ACCOUNTS_AT_ROOT}"
     cp "${ACCOUNTS_IN_COMMON}" "${ACCOUNTS_AT_ROOT}"
@@ -109,7 +121,12 @@ echo ">>> step 3: building committee + genesis via tn_genesis_build_committee"
 # below re-verifies the artifacts as the safety net.
 set +e +u +o pipefail
 # shellcheck source=/dev/null
-GENESIS_LIB_ONLY=1 source ./common/genesis.sh
+GENESIS_LIB_ONLY=1 source "${REPO_ROOT}/common/genesis.sh"
+# genesis.sh cd's to REPO_ROOT when sourced and makes its (relative) log dir there.
+# Re-enter the workspace so the docker `-v ./:/code` mount and the relative
+# committee log path both land in it (a no-op for devnet, where the two are the same).
+cd "${GENESIS_WS}"
+mkdir -p "${OUTPUT_PATH}"
 tn_genesis_build_committee
 set -euo pipefail
 
@@ -117,8 +134,8 @@ set -euo pipefail
 # Step 4: verify the two output artifacts exist and report their paths.
 # ----------------------------------------------------------------------------
 echo ">>> step 4: verifying outputs"
-COMMITTEE_OUT="${REPO_ROOT}/genesis/committee.yaml"
-GENESIS_OUT="${REPO_ROOT}/genesis/genesis.yaml"
+COMMITTEE_OUT="${GENESIS_WS}/genesis/committee.yaml"
+GENESIS_OUT="${GENESIS_WS}/genesis/genesis.yaml"
 missing=0
 for f in "${COMMITTEE_OUT}" "${GENESIS_OUT}"; do
     if [ -f "${f}" ]; then

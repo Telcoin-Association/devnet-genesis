@@ -859,3 +859,21 @@ the commits are still LOCAL, strip it with
 scoped to the unpushed range only; never rewrite pushed history. Afterwards re-record any
 submodule pointers, because rewriting a submodule's commits leaves the parent's gitlink
 pointing at SHAs that no longer exist.
+
+## An idle TN chain sits at block 0 — judge liveness by consensus round, not block height (2026-09-23)
+
+**Symptom:** the benchmark deploy (run r20260923-0215) stopped at step 9 on the first node with
+`POSTCFG_FAIL block number not advancing (0x0 -> none)`. The node was healthy: chain id right,
+alloy labels right, `quorum reached round=578 voting_power=7 quorum_threshold=7`, subdags
+committing every second on all 11 nodes.
+
+**Root cause:** the engine skips empty non-epoch-closing consensus outputs
+(`skipping execution for empty non-epoch-closing output`), so with no transactions
+`eth_blockNumber` stays 0 no matter how healthy consensus is. Devnet never shows this because
+txgen-devnet keeps a trickle of traffic flowing; a fresh chain with no load does.
+
+**Fix / rule:** health and stall checks on a TN chain must use consensus progress
+(`tn_primary_round` from Prometheus, or `subdag committed` / `quorum reached` in `docker logs
+telcoin`), and treat block height as a load indicator only. Same applies to any "quorum lost"
+watcher that runs before the load starts. Corollary for tooling: a `Monitor` pipeline that ends
+in `cut` delivers nothing — `cut` block-buffers when piped; use `grep --line-buffered` alone.
