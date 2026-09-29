@@ -103,10 +103,18 @@ export TN_SSH_TRANSPORT=iap
 export WG_HUB_COORDS_FILE=/dev/null
 unset WG_HUB_ENDPOINT WG_HUB_PUBKEY
 
+# Node image. ../config.sh exports the live devnet's unconditionally (an env DOCKER_IMAGE never
+# survives it), so the bench pins its own through BENCH_DOCKER_IMAGE: a tag or repo@sha256:<digest>.
+export DOCKER_IMAGE="${BENCH_DOCKER_IMAGE:-${DOCKER_IMAGE}}"
+
 # Machines. Same shape as devnet unless overridden for a sizing sweep.
 export MACHINE_TYPE="${BENCH_MACHINE_TYPE:-e2-custom-4-8192}"
 export NODE_DISK_SIZE="${BENCH_NODE_DISK_SIZE:-100}"   # GB boot disk (create-instances.sh --create-disk size=)
 export NODE_DISK_TYPE="${BENCH_NODE_DISK_TYPE:-pd-ssd}"
+# Hyperdisk only (a hyperdisk-* type and a machine type that supports it, e.g. c3/n4 — not e2).
+# Empty = not passed to gcloud; the disk gets the type's default.
+export NODE_DISK_IOPS="${BENCH_NODE_DISK_IOPS:-}"
+export NODE_DISK_THROUGHPUT="${BENCH_NODE_DISK_THROUGHPUT:-}"   # MiB/s
 # Tag + labels. ONLY bench-node: none of devnet's tags (validator, http-server,
 # https-server, lb-health-check), so no devnet VPC rule, LB backend or health check can
 # ever select a bench node. create-instances.sh appends tn-role=<role> per node.
@@ -183,9 +191,18 @@ export BENCH_PREAMBLE_SECS="${BENCH_PREAMBLE_SECS:-90}" # estimate of the genera
 export BENCH_START_DELAY_SECS="${BENCH_START_DELAY_SECS:-300}"
 export BENCH_POLL_SECS="${BENCH_POLL_SECS:-240}"        # >= 240: IAP/serial polling lesson
 # Chaos schedule, seconds after the mixed phase starts (kill v05, restart it, restart observer).
+# BENCH_CHAOS=0 skips all three.
+export BENCH_CHAOS="${BENCH_CHAOS:-1}"
 export BENCH_CHAOS_KILL_AT_SECS="${BENCH_CHAOS_KILL_AT_SECS:-900}"
 export BENCH_CHAOS_BACK_AT_SECS="${BENCH_CHAOS_BACK_AT_SECS:-1200}"
 export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
+# Lag injection (BENCH_LAG_INJECT=1): pause one validator's container at BENCH_LAG_AT_SECS after
+# the mixed phase starts, for BENCH_LAG_PAUSE_SECS. BENCH_LAG_IDX is zero-based; the default 2
+# (bench-validator-03) has its own blaster; with BENCH_CHAOS=1 it must not be the node chaos kills.
+export BENCH_LAG_INJECT="${BENCH_LAG_INJECT:-0}"
+export BENCH_LAG_IDX="${BENCH_LAG_IDX:-2}"
+export BENCH_LAG_AT_SECS="${BENCH_LAG_AT_SECS:-300}"
+export BENCH_LAG_PAUSE_SECS="${BENCH_LAG_PAUSE_SECS:-180}"
 export BENCH_TRAP_WAIT_SECS="${BENCH_TRAP_WAIT_SECS:-300}"  # interrupted run: wait this long for DONE markers
 # App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the SAME tn-contracts
 # checkout devnet-contracts.sh uses, on a bench/<run> branch that is never committed to.
@@ -226,4 +243,35 @@ fi
 if [ "${INSTANCE_TAGS}" != "bench-node" ]; then
     echo "❌ benchmark/config.sh: INSTANCE_TAGS must be exactly bench-node." >&2; exit 1
 fi
-unset _bench_n _bench_arr _bench_name
+for _bench_knob in NODE_DISK_IOPS NODE_DISK_THROUGHPUT; do
+    case "${!_bench_knob}" in
+        '') continue ;;
+        *[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_${_bench_knob}='${!_bench_knob}' must be a positive integer." >&2; exit 1 ;;
+    esac
+    case "${NODE_DISK_TYPE}" in
+        hyperdisk-*) ;;
+        *) echo "❌ benchmark/config.sh: BENCH_${_bench_knob} is set but BENCH_NODE_DISK_TYPE='${NODE_DISK_TYPE}'; provisioned IOPS/throughput need a hyperdisk-* type." >&2; exit 1 ;;
+    esac
+done
+for _bench_knob in BENCH_CHAOS BENCH_LAG_INJECT; do
+    case "${!_bench_knob}" in
+        0|1) ;;
+        *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
+    esac
+done
+for _bench_knob in BENCH_LAG_IDX BENCH_LAG_AT_SECS; do
+    case "${!_bench_knob}" in
+        ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be a non-negative integer." >&2; exit 1 ;;
+    esac
+done
+case "${BENCH_LAG_PAUSE_SECS}" in
+    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_LAG_PAUSE_SECS='${BENCH_LAG_PAUSE_SECS}' must be a positive integer." >&2; exit 1 ;;
+esac
+if [ "${BENCH_LAG_IDX}" -ge "${_bench_n}" ] || [ "${NODE_ROLES[$BENCH_LAG_IDX]}" != "validator" ]; then
+    echo "❌ benchmark/config.sh: BENCH_LAG_IDX=${BENCH_LAG_IDX} (${INSTANCE_NAMES[$BENCH_LAG_IDX]:-no such node}) is not a validator." >&2; exit 1
+fi
+# 4 = CHAOS_KILL_IDX in benchmark-blast.sh (bench-validator-05); keep the two in step.
+if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
+    echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
+fi
+unset _bench_n _bench_arr _bench_name _bench_knob
