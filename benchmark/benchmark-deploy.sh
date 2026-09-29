@@ -7,13 +7,15 @@
 #
 # Dry run by default: without --yes it prints this run's full step plan (with the concrete
 # commands) after local-only checks, and exits 0 without a single GCP call. With --yes it
-# executes the steps; every gcloud mutation prints its argv first.
+# executes the steps; every gcloud mutation prints its argv first, and everything the script
+# prints is also copied to results/<run>/logs/deploy-<UTC stamp>.log (a new file per invocation).
 #
 #    -  gate (--yes)     before ANY step: the pinned :blast-v2-<sha> image, cloudbuild.yaml,
 #                        config.bench.toml and deployments-bench.json that the selected steps need
 #    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
-#                        quota; pre-snapshots; manifest.json
+#                        quota + a hyperdisk-* disk type offered in every fleet zone;
+#                        pre-snapshots; manifest.json
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
@@ -68,7 +70,7 @@ while [ $# -gt 0 ]; do
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
-        -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
         *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID)" >&2; exit 1 ;;
     esac
     shift
@@ -96,9 +98,38 @@ PROM_LEAK_ANY_QUERY='count(count by (node) ({network="devnet", node=~"bench.*"})
 COLLECT_METRICS_PY="${BENCH_TXGEN_BENCH_DIR}/collect-gcp-metrics.py"
 DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
 
+# disk_desc — "<size> GB <type>", plus the provisioned IOPS/throughput when set (hyperdisk only).
+disk_desc() {
+    local p="${NODE_DISK_IOPS:+${NODE_DISK_IOPS} IOPS}"
+    [ -z "${NODE_DISK_THROUGHPUT}" ] || p="${p:+${p}, }${NODE_DISK_THROUGHPUT} MiB/s"
+    printf '%s GB %s%s' "${NODE_DISK_SIZE}" "${NODE_DISK_TYPE}" "${p:+ (provisioned ${p})}"
+}
+
+# disk_type_check — a hyperdisk-* boot disk type must be offered in every zone the fleet uses;
+# dies naming the zones that lack it. The query goes through bench_run, so a dry run (the plan)
+# prints it and nothing else. Other disk types: no-op.
+disk_type_check() {
+    case "${NODE_DISK_TYPE}" in hyperdisk-*) ;; *) return 0 ;; esac
+    local zlist out have z lacking=""
+    zlist="$(printf '%s\n' "${ZONES[@]}" | sort -u | tr '\n' ' ')"; zlist="${zlist% }"
+    echo "    ${NODE_DISK_TYPE} must be offered in every fleet zone (${zlist})"
+    out="$(bench_run gcloud compute disk-types list --project="${PROJECT_ID}" \
+        --filter="name=${NODE_DISK_TYPE} AND zone:(${zlist})" --format='value(zone.basename())')" \
+        || bench_die "gcloud compute disk-types list failed"
+    printf '%s\n' "${out}" | grep '^ ' || true    # bench_run's argv line (and its dry-run note)
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    have=" $(printf '%s\n' "${out}" | { grep -v '^ ' || true; } | tr '\n' ' ')"
+    for z in ${zlist}; do
+        case "${have}" in *" ${z} "*) ;; *) lacking="${lacking} ${z}" ;; esac
+    done
+    [ -z "${lacking}" ] || bench_die "${NODE_DISK_TYPE} is not offered in:${lacking} — pick another BENCH_NODE_DISK_TYPE"
+    echo "    ✓ ${NODE_DISK_TYPE} offered in all fleet zones"
+}
+
 # ================================ steps ==============================================
 step_0() {
     echo ">>> Step 0: preflight"
+    echo "    fleet: ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), node image ${DOCKER_IMAGE}"
     bench_require_tools gcloud cast jq python3 curl docker git openssl || bench_die "missing tools"
     [ "${WITH_CONTRACTS}" -eq 0 ] || bench_require_tools forge || bench_die "forge needed for --with-contracts"
     local acct; acct="$(gcloud config get-value account 2>/dev/null || true)"
@@ -151,6 +182,7 @@ step_0() {
         [ "${have}" -ge "${need}" ] || bench_die "${region}: CPUS headroom ${have} < ${need}"
         echo "    ✓ ${region}: CPUS headroom ${have} >= ${need}"
     done
+    disk_type_check
     mkdir -p "${BENCH_RESULTS_DIR}"
     [ -f "${BENCH_RESULTS_DIR}/pre-instances.json" ] \
         || gcloud compute instances list --project="${PROJECT_ID}" --format=json > "${BENCH_RESULTS_DIR}/pre-instances.json"
@@ -372,6 +404,7 @@ step_9() {
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
         echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, sampler"
+        bench_save_node_log "${i}" pre-step9 || bench_warn "${inst}: container log not saved before the step-9 restart — restarting anyway"
         out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
         [[ "${out}" == *"POSTCFG_OK ${inst}"* ]] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
@@ -506,8 +539,8 @@ print_plan() {
     cat <<EOP
 PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
 
-  fleet    ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, ${NODE_DISK_SIZE} GB ${NODE_DISK_TYPE}, tag ${INSTANCE_TAGS}, labels ${INSTANCE_LABELS}
-  chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}
+  fleet    ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), tag ${INSTANCE_TAGS}, labels ${INSTANCE_LABELS}
+  chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
   metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
   load     ${BENCH_TXGEN_IMAGE}, ${BENCH_BLASTER_MACHINE_TYPE} COS blasters x ${BENCH_SENDERS} senders, bucket gs://${BENCH_BUCKET}
@@ -522,6 +555,9 @@ EOP
    0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
                      bench-node tag hygiene, obs-devnet df over IAP (< 70%), CPU quota,
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
+EOP
+    disk_type_check | sed 's/^    /                     /'
+    cat <<EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
                      if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}
                      then docker run --rm --platform linux/amd64 <image> blast --help must list: ${BENCH_TXGEN_CONTRACT_FLAGS}
@@ -534,7 +570,7 @@ EOP
    7  finalize       ${REPO_ROOT}/devnet-finalize.sh
    8  observability  per node, one IAP session: setup-observability.sh --enable-metrics -> black hole 127.0.0.1:9,
                      stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy
-   9  post-config    per node, one IAP session, serial: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
+   9  post-config    per node, serial: bench_save_node_log <i> pre-step9 (container log -> /var/lib/bench-logs), then one IAP session: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
                      bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
                      (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); bench-node-sampler.service
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
@@ -569,6 +605,43 @@ EOP
     echo "DRY RUN — re-run with --yes to execute."
 }
 
+# ================================ output copy (--yes) ===================================
+# deploy_log_start — from here on, everything the script prints (stdout and stderr merged, so
+# the order holds) also goes to ${BENCH_RESULTS_DIR}/logs/deploy-<UTC stamp>.log. Each invocation
+# creates its own file (noclobber), so a --from resume never truncates an earlier log. tee reads
+# a FIFO as a background job, not a process substitution: bash 3.2 cannot wait for the latter.
+# It ignores HUP INT TERM PIPE and ends at EOF, once this script and every child writing to the
+# FIFO have exited: after a closed terminal or a TERM to the process group it keeps copying what
+# the step-14 blast prints during its exit cleanup, and a write to a gone terminal fails inside
+# tee instead of ending it (the blast's own copy ignores a dead FIFO the same way).
+deploy_log_start() {
+    local dir="${BENCH_RESULTS_DIR}/logs" stamp f n=0 tmp
+    mkdir -p "${dir}"
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    f="${dir}/deploy-${stamp}.log"
+    until ( set -C; : > "${f}" ) 2>/dev/null; do
+        [ -e "${f}" ] || bench_die "cannot create ${f}"
+        n=$((n + 1)); f="${dir}/deploy-${stamp}-${n}.log"
+    done
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/bench-deploy.XXXXXX")"
+    mkfifo "${tmp}/out"
+    ( trap '' HUP INT TERM PIPE; exec tee -a "${f}" ) < "${tmp}/out" &
+    DEPLOY_TEE_PID=$!
+    trap deploy_log_stop EXIT
+    exec > "${tmp}/out" 2>&1
+    rm -f "${tmp}/out"; rmdir "${tmp}"
+    echo "output copied to ${f}"
+}
+
+# deploy_log_stop — EXIT trap: close our end of the FIFO so tee reads EOF, wait up to 10 s for it
+# to drain (a leftover child still holding stdout must not block the exit), keep the status.
+deploy_log_stop() {
+    local rc=$? n=0
+    exec >&- 2>&-
+    while kill -0 "${DEPLOY_TEE_PID}" 2>/dev/null && [ "${n}" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    exit "${rc}"
+}
+
 # ================================ runner ================================================
 if [ -n "${PRINT_POSTCONFIG}" ]; then
     bench_index_of "${PRINT_POSTCONFIG}" >/dev/null || bench_die "${PRINT_POSTCONFIG} is not a bench instance"
@@ -580,6 +653,7 @@ if [ -n "${PRINT_OBS}" ]; then
     obs_script "${PRINT_OBS}" "$(tn_region_from_zone "${ZONES[$_i]}")" "PLACEHOLDER-TOKEN"
     exit 0
 fi
+if [ "${BENCH_APPLY}" = "1" ]; then deploy_log_start; fi
 echo "=========================================="
 echo "benchmark deploy — run ${BENCH_RUN_ID}, project ${PROJECT_ID}, chain ${CHAIN_ID}"
 echo "=========================================="

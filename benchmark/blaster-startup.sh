@@ -5,14 +5,15 @@
 #   --image-family=cos-stable --image-project=cos-cloud --scopes=cloud-platform
 #   --metadata-from-file=startup-script=blaster-startup.sh,txgen-config=<toml>,txgen-deployments=<json>
 #   --metadata=BENCH_MODE=fund|blast,TXGEN_IMAGE=...,NODE_URLS=...,SENDERS=...,SENDER_START=...,
-#              BLAST_ARGS=...,BENCH_START_AT=<unix>,BENCH_BUCKET=...,RUN_ID=...,LABEL=...,
+#              BLAST_ARGS=...,BENCH_START_AT=<unix>,BENCH_BUCKET=...,RUN_ID=...,RUN_INDEX=...,LABEL=...,
 #              MASTER_SECRET=...,SEED_SECRET=...
 #
 # Flow: done-guard -> SA token from the metadata server -> Secret Manager REST :access for
 # the txgen master key + children seed (into a root-only docker --env-file; they never
 # touch metadata or the operator's disk) -> registry auth + pre-pull -> /etc/txgen/{config.toml,
 # deployments.json} from metadata -> sleep until BENCH_START_AT -> run the generator ->
-# upload results + docker log to gs://$BENCH_BUCKET/$RUN_ID/{blasters|funder}/ -> print
+# upload results + docker log to gs://$BENCH_BUCKET/$RUN_ID/index-$RUN_INDEX/{blasters|funder}/
+# (no RUN_INDEX key: gs://$BENCH_BUCKET/$RUN_ID/{blasters|funder}/) -> print
 # BENCH_<MODE>_DONE rc=N on the serial console (what benchmark-blast.sh waits for).
 #
 # cos-stable ships docker, curl, base64 and docker-credential-gcr but no gcloud and no jq,
@@ -53,6 +54,7 @@ BLAST_ARGS="$(attr BLAST_ARGS)"
 BENCH_START_AT="$(attr BENCH_START_AT)"
 BENCH_BUCKET="$(attr BENCH_BUCKET)"
 RUN_ID="$(attr RUN_ID)"
+RUN_INDEX="$(attr RUN_INDEX)"
 LABEL="$(attr LABEL)"
 MASTER_SECRET="$(attr MASTER_SECRET)"
 SEED_SECRET="$(attr SEED_SECRET)"
@@ -96,7 +98,12 @@ for k in TXGEN_IMAGE NODE_URLS SENDERS SENDER_START BENCH_BUCKET RUN_ID MASTER_S
     [ -n "${v}" ] || missing="${missing} ${k}"
 done
 [ -z "${missing}" ] || fail 2 "missing-metadata:${missing# }"
-log "mode=${MODE} label=${LABEL} run=${RUN_ID} image=${TXGEN_IMAGE} senders=${SENDERS}@${SENDER_START} nodes=${NODE_URLS}"
+case "${RUN_INDEX}" in *[!0-9]*|0?*) fail 2 "bad-RUN_INDEX:'${RUN_INDEX}'" ;; esac
+# Bucket objects of this VM: one prefix per BENCH_RUN_INDEX, so a second blast (or funding) on
+# the fleet never shares an object name with the first. A VM created by a benchmark-blast.sh
+# that set no RUN_INDEX keeps the old flat prefix, where that script looks for its objects.
+OBJ_PREFIX="${RUN_ID}/${RUN_INDEX:+index-${RUN_INDEX}/}${PREFIX}"
+log "mode=${MODE} label=${LABEL} run=${RUN_ID} image=${TXGEN_IMAGE} senders=${SENDERS}@${SENDER_START} nodes=${NODE_URLS} objects=gs://${BENCH_BUCKET}/${OBJ_PREFIX}/"
 
 TXGEN_ETC="/etc/txgen"; [ "${DRY_RUN}" = "1" ] && TXGEN_ETC="${STATE}/etc-txgen"
 mkdir -p "${STATE}" "${OUT_DIR}" "${TXGEN_ETC}"
@@ -219,10 +226,11 @@ upload() { # <local-file> <object-name>
 UP_TOKEN="$( [ "${DRY_RUN}" = "1" ] && echo dry || sa_token )"   # re-fetch: the blast outlives a token
 while IFS= read -r f; do
     rel="${f#"${OUT_DIR}"/}"
-    # Flat per-run layout (manifest .blasters[].result = "blasters/<label>.json"); the
-    # generator's own log files get the label as a prefix so blasters never collide.
+    # Flat layout under OBJ_PREFIX (copied into results/<run>/blasters/, so manifest
+    # .blasters[].result = "blasters/<label>.json"); the generator's own log files get the
+    # label as a prefix so blasters never collide.
     case "${rel}" in logs/*) rel="${LABEL}.${rel#logs/}" ;; */*) rel="${LABEL}.${rel//\//.}" ;; esac
-    if upload "${f}" "${RUN_ID}/${PREFIX}/${rel}"; then log "uploaded ${rel}"; else log "upload FAILED ${rel}"; upload_rc=1; fi
+    if upload "${f}" "${OBJ_PREFIX}/${rel}"; then log "uploaded ${rel}"; else log "upload FAILED ${rel}"; upload_rc=1; fi
 done < <(find "${OUT_DIR}" -type f 2>/dev/null)
 
 # Marker contract (benchmark-blast.sh): rc=0 reason=ok is the ONLY state in which the VM may
