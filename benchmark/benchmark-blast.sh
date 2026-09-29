@@ -4,16 +4,23 @@
 #
 #   fund     one bench-funder VM in ZONES[0] runs `blast --prepare` for the whole sender
 #            range [RUN_INDEX*100000, +10*BENCH_SENDERS) against bench-validator-01, waits for
-#            BENCH_FUND_DONE on its serial console, copies gs://<bucket>/<run>/funder/ into
-#            results/<run>/funder/, then deletes the VM (unless --keep).
+#            BENCH_FUND_DONE on its serial console, copies its bucket prefix
+#            gs://<bucket>/<run>/index-<RUN_INDEX>/funder/ into results/<run>/funder/, then
+#            deletes the VM (unless --keep).
 #   run      bench-blaster-01..10, one per validator in the validator's zone, all starting at
 #            BENCH_START_AT=now+BENCH_START_DELAY_SECS. Runs the chaos schedule (kill -9
 #            bench-validator-05 at mixed+15 min, restart it at mixed+20 min, restart the
 #            observer at mixed+25 min) and the abort watchers, waits for every
-#            BENCH_BLAST_DONE, copies gs://<bucket>/<run>/blasters/ into results/<run>/blasters/,
-#            deletes the blasters (unless --keep).
-#   collect  sampler CSVs from every bench node (IAP scp) into results/<run>/sampler/ and the
-#            bucket's run prefix into results/<run>/.
+#            BENCH_BLAST_DONE, copies gs://<bucket>/<run>/index-<RUN_INDEX>/blasters/ into
+#            results/<run>/blasters/, deletes the blasters (unless --keep). BENCH_CHAOS=0 skips
+#            the chaos schedule.
+#            BENCH_LAG_INJECT=1 `docker pause`s bench-validator-03 (BENCH_LAG_IDX) at
+#            mixed+BENCH_LAG_AT_SECS for BENCH_LAG_PAUSE_SECS, then unpauses it and reports its
+#            node mode every poll while it catches up; the unpause is owed on any exit.
+#            Before a container is killed, restarted or paused, its log is saved on the node.
+#   collect  sampler CSVs from every bench node (IAP scp) into results/<run>/sampler/, and the
+#            bucket prefixes of the blast and the funder output in results/<run>/ (manifest
+#            .blast/.fund.bucket_prefix; without one, the old gs://<bucket>/<run>/blasters|funder/).
 #   delete   delete every bench-blaster-* / bench-funder VM of the benchmark (label-guarded).
 #   status   list the load VMs and the latest serial markers (read-only).
 #
@@ -26,6 +33,17 @@
 #
 # Usage: benchmark/benchmark-blast.sh {fund|run|collect|delete|status} [--yes] [--keep] [--run ID]
 # Without --yes nothing is created, deleted or copied: the gcloud argv is printed instead.
+# With --yes, a copy of everything printed goes to results/<run>/logs/blast-<action>-<UTC>.log.
+#
+# A second blast on the same fleet: `run` first moves the previous blast's outputs (blasters/,
+# meta/bench-blaster-*, its create/run/collect logs, metrics.json) into
+# results/<run>/blast-<its BENCH_RUN_INDEX>-<UTC>/ next to a copy of manifest.json, then resets
+# the per-blast manifest keys. It refuses a BENCH_RUN_INDEX an earlier blast used (same
+# senders): fund and run the second blast under a new one. The exception is a retry of an
+# attempt that exited before its blasters' start time: allowed until 60 s before that time.
+# `fund` under a new index first COPIES funder/ of the previous one into
+# results/<run>/funder-<its index>-<UTC>/. Each index has its own bucket prefix
+# (gs://<bucket>/<run>/index-<N>/), so no blast or fund reads another one's objects.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -38,7 +56,7 @@ while [ $# -gt 0 ]; do
         --keep) KEEP=1 ;;
         --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
-        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
         *) echo "❌ unknown argument '$1'" >&2; exit 1 ;;
     esac
     shift
@@ -124,7 +142,7 @@ create_vm() {
     [ -n "${BENCH_BLAST_ARGS:-}" ] && files="${files},BLAST_ARGS=${mdir}/BLAST_ARGS"
     local meta="^##^BENCH_MODE=${mode}##TXGEN_IMAGE=${BENCH_TXGEN_IMAGE}##SENDERS=${senders}##SENDER_START=${start}"
     [ -n "${at}" ] && meta="${meta}##BENCH_START_AT=${at}"     # omitted for the funder: start now
-    meta="${meta}##BENCH_BUCKET=${BENCH_BUCKET}##RUN_ID=${BENCH_RUN_ID}##LABEL=${name}"
+    meta="${meta}##BENCH_BUCKET=${BENCH_BUCKET}##RUN_ID=${BENCH_RUN_ID}##RUN_INDEX=${BENCH_RUN_INDEX}##LABEL=${name}"
     meta="${meta}##MASTER_SECRET=${BENCH_TXGEN_MASTER_SECRET}##SEED_SECRET=${BENCH_TXGEN_SEED_SECRET}"
     meta="${meta}##WARMUP_SECS=${BENCH_WARMUP_SECS}##DURATION_SECS=${BENCH_DURATION_SECS}##COOLDOWN_SECS=${BENCH_COOLDOWN_SECS}"
     bench_run gcloud compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}" \
@@ -174,12 +192,16 @@ settle_load_vm() {
         return 0
     fi
     bench_warn "${name}: '${line:-no ${mark} marker}' — fetching /var/lib/bench/out over IAP before any delete"
+    # The fetch goes into a directory that holds no file yet, so the check below counts only
+    # what this fetch brought: funder/ keeps an earlier index's scp-bench-funder/ (fund copies
+    # funder/ aside, it does not move it).
     dest="${BENCH_RESULTS_DIR}/${sub}/scp-${name}"
+    [ -z "$(find "${dest}" -type f 2>/dev/null | head -1)" ] || dest="${dest}-$(date -u +%Y%m%dT%H%M%SZ)"
     if [ "${BENCH_APPLY}" = "1" ]; then mkdir -p "${dest}"; fi
     if bench_run gcloud compute scp --recurse "${name}:/var/lib/bench/out" "${dest}/" --zone="${zone}" \
             --project="${PROJECT_ID}" --tunnel-through-iap --scp-flag="-o ConnectTimeout=20" \
        && { [ "${BENCH_APPLY}" != "1" ] || [ -n "$(find "${dest}" -type f 2>/dev/null | head -1)" ]; }; then
-        bench_manifest_note "${name}: '${line:-no marker}' — results fetched over IAP into ${sub}/scp-${name}/" || true
+        bench_manifest_note "${name}: '${line:-no marker}' — results fetched over IAP into ${dest#"${BENCH_RESULTS_DIR}"/}/" || true
         [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${name}" || true
     else
         echo "❌ ${name} KEPT: its results could not be fetched (${line:-no marker}). Recover by hand, then benchmark-blast.sh delete --yes" >&2
@@ -187,22 +209,216 @@ settle_load_vm() {
     fi
 }
 
-copy_prefix() { # <gcs-subdir> -> results/<run>/<subdir>/
-    [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/$1"
-    bench_run gcloud storage cp -r "gs://${BENCH_BUCKET}/${BENCH_RUN_ID}/$1/*" "${BENCH_RESULTS_DIR}/$1/" || bench_warn "copy of gs://${BENCH_BUCKET}/${BENCH_RUN_ID}/$1 failed"
+# bucket_prefix <blasters|funder> — where the load VMs of this BENCH_RUN_INDEX put their objects:
+# gs://<bucket>/<run>/index-<N>/<sub>. create_vm passes the index as RUN_INDEX metadata and
+# blaster-startup.sh builds the same path; a VM created without that key wrote to the old flat
+# gs://<bucket>/<run>/<sub>, where every blast and fund of this run used to overwrite the last.
+bucket_prefix() { printf 'gs://%s/%s/index-%s/%s' "${BENCH_BUCKET}" "${BENCH_RUN_ID}" "${BENCH_RUN_INDEX}" "$1"; }
+
+# recorded_prefix <blast|fund> <blasters|funder> — the prefix the manifest recorded for the blast
+# (.blast) or the funder output (.fund) in results/<run>/; the old flat one when none was.
+recorded_prefix() {
+    local p; p="$(jq -r --arg k "$1" '.[$k].bucket_prefix // empty' "$(bench_manifest)" 2>/dev/null || true)"
+    printf '%s' "${p:-gs://${BENCH_BUCKET}/${BENCH_RUN_ID}/$2}"
+}
+
+copy_prefix() { # <gs-prefix> <results-subdir> — the prefix's objects -> results/<run>/<subdir>/; 1 when the copy failed
+    [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/$2"
+    bench_run gcloud storage cp -r "$1/*" "${BENCH_RESULTS_DIR}/$2/" && return 0
+    bench_warn "copy of $1 failed"
+    return 1
+}
+
+# --- script log + one blast per results dir --------------------------------------------
+# results/<run>/ holds the fleet and ONE blast. Before `run` starts another, archive_prev_blast
+# moves the previous blast's own outputs into results/<run>/blast-<its index>-<UTC>/ beside a
+# COPY of manifest.json and resets the per-blast manifest keys. The fleet's files stay, and so
+# do sampler/ (cumulative CSVs) and funder/ (`fund` for the new index ran before this `run`).
+# Moves go into a directory mkdir just created: nothing is overwritten or deleted.
+BLAST_LOG=""      # this invocation's copy of its output; never archived
+
+# start_blast_log — with --yes, copy everything this invocation prints to
+# logs/blast-<action>-<UTC>.log (a new file) while it still reaches the terminal. stdout and
+# stderr keep separate tees. Both ignore HUP, INT (tee -i as well), TERM and PIPE, so they end
+# only when the script closes their input: a Ctrl-C, a TERM to the process group, a closed
+# terminal or a dead parent copy (deploy step 14) leaves the file copy running for the EXIT
+# trap. A write to a gone terminal or parent then fails inside tee, which carries on with the
+# file. A plan-only run creates nothing.
+start_blast_log() {
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    local n=0
+    mkdir -p "${BENCH_RESULTS_DIR}/logs"
+    until BLAST_LOG="${BENCH_RESULTS_DIR}/logs/blast-${ACTION}-$(date -u +%Y%m%dT%H%M%SZ).log"; ( set -C; : > "${BLAST_LOG}" ) 2>/dev/null; do
+        n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free log name in ${BENCH_RESULTS_DIR}/logs"
+        sleep 1
+    done
+    exec > >(trap '' HUP INT TERM PIPE; exec tee -i -a "${BLAST_LOG}") \
+        2> >(trap '' HUP INT TERM PIPE; exec tee -i -a "${BLAST_LOG}" >&2)
+    echo ">>> ${ACTION}: output copied to ${BLAST_LOG}"
+}
+
+# prev_blast_index — BENCH_RUN_INDEX of the blast in the live manifest: .blast.run_index, else
+# (manifests from before .blast) bench-blaster-01's sender_start / 100000, else "unknown".
+prev_blast_index() {
+    jq -r --arg b "$(blaster_name 0)" '(.blast.run_index
+        // ((.blasters // [])[] | select(.name == $b) | .sender_start | select(type == "number" and . % 100000 == 0) | . / 100000)
+        // "unknown") | tostring' "$(bench_manifest)" 2>/dev/null || echo unknown
+}
+
+# prev_blast_recorded — 0 when the manifest or the results dir shows a previous blast. Script
+# logs and metrics.json alone do not count.
+prev_blast_recorded() {
+    local r="${BENCH_RESULTS_DIR}" m; m="$(bench_manifest)"
+    if [ -f "${m}" ] && jq -e '(.blasters // []) != [] or (.chaos // []) != [] or .abort != null or (.phases // []) != []
+            or .blast != null or .timestamps.blast_start_at != null or .timestamps.blast_end != null' "${m}" >/dev/null 2>&1; then
+        return 0
+    fi
+    [ -n "$(find "${r}/blasters" -type f 2>/dev/null | head -1)" ] && return 0
+    compgen -G "${r}/meta/bench-blaster-*" >/dev/null || compgen -G "${r}/logs/create-bench-blaster-*.log" >/dev/null
+}
+
+# blast_indices_used — BENCH_RUN_INDEX of the previous blast and of every archived one.
+blast_indices_used() {
+    local d
+    if prev_blast_recorded; then prev_blast_index; fi
+    for d in "${BENCH_RESULTS_DIR}"/blast-[0-9]*-*; do
+        [ -d "${d}" ] || continue
+        d="${d##*/blast-}"; printf '%s\n' "${d%%-*}"
+    done
+}
+
+# prev_blast_items — what archive_prev_blast moves, relative to the results dir.
+prev_blast_items() {
+    local r="${BENCH_RESULTS_DIR}" f
+    for f in "${r}/blasters" "${r}"/meta/bench-blaster-* "${r}"/logs/create-bench-blaster-*.log \
+             "${r}"/logs/blast-run-*.log "${r}"/logs/blast-collect-*.log "${r}/metrics.json"; do
+        [ -e "${f}" ] && [ "${f}" != "${BLAST_LOG}" ] && printf '%s\n' "${f#"${r}"/}"
+    done
+    return 0
+}
+
+# prev_attempt_unsent — 0 when the blast in the live manifest used this BENCH_RUN_INDEX but none of
+# its senders can have sent: its run exited (the EXIT trap recorded .abort "interrupted") and
+# .blast.start_at, the BENCH_START_AT its blasters sleep until, is still more than 60 s away (clock
+# skew). do_run has already checked that no bench-blaster VM exists, so none can start later.
+# Once that time has passed, a blaster left running (--keep, a failed delete) may have sent
+# before someone deleted it, and the manifest records nothing that rules it out.
+prev_attempt_unsent() {
+    jq -e --arg i "${BENCH_RUN_INDEX}" --arg t "$(bench_iso_from_unix "$(( $(bench_now_unix) + 60 ))")" \
+        '.blast.run_index == ($i|tonumber) and .abort.reason == "interrupted" and (.blast.start_at // "") > $t' \
+        "$(bench_manifest)" >/dev/null 2>&1
+}
+
+# archive_prev_blast — see above. Stops before anything moves when an earlier blast (the previous
+# or an archived one) used this BENCH_RUN_INDEX: its sender range would be reused. The one
+# exception is a previous attempt that never sent (prev_attempt_unsent): it is archived like any
+# blast and this run retries its index. Dry run: prints the plan, touches nothing.
+archive_prev_blast() {
+    local r="${BENCH_RESULTS_DIR}" prev dest it used next n=0 items=()
+    case "${BENCH_RUN_INDEX}" in ''|*[!0-9]*|0?*) bench_die "BENCH_RUN_INDEX='${BENCH_RUN_INDEX}' must be a non-negative integer" ;; esac
+    used="$(blast_indices_used)"
+    if [ "$(grep -cx "${BENCH_RUN_INDEX}" <<< "${used}")" -eq 1 ] && prev_attempt_unsent; then
+        echo "    the previous attempt under BENCH_RUN_INDEX=${BENCH_RUN_INDEX} exited before its blasters' start and none exists: retrying under the same index"
+    elif grep -qx "${BENCH_RUN_INDEX}" <<< "${used}"; then
+        next="$(grep -x '[0-9][0-9]*' <<< "${used}" | sort -n | tail -1)"
+        bench_die "an earlier blast on this fleet used BENCH_RUN_INDEX=${BENCH_RUN_INDEX}, so this one would reuse its senders. Fund and run under a new index: BENCH_RUN_INDEX=$(( next + 1 )) benchmark/benchmark-blast.sh fund --yes, then run --yes. Nothing was moved."
+    fi
+    if ! prev_blast_recorded; then echo "    no previous blast in ${r} — nothing to archive"; return 0; fi
+    prev="$(prev_blast_index)"
+    [ "${prev}" != "unknown" ] || bench_warn "the previous blast recorded no BENCH_RUN_INDEX: make sure index ${BENCH_RUN_INDEX} was funded and never blasted"
+    while IFS= read -r it; do items+=("${it}"); done < <(prev_blast_items)
+    echo ">>> archive the previous blast (BENCH_RUN_INDEX ${prev}) into ${r}/blast-${prev}-<UTC>/ with a copy of manifest.json"
+    # "${items[@]}" of an empty array is an unbound variable under bash 3.2 with set -u: a blast
+    # the manifest records may have left no file (it failed before creating its blasters).
+    if [ "${#items[@]}" -eq 0 ]; then echo "    (no per-blast file to move)"
+    else for it in "${items[@]}"; do echo "    mv ${it}"; done; fi
+    echo "    manifest: .blasters=[] .chaos=[] .abort=null .phases=[], drop .blast and timestamps blast_start_at/blast_end/collect_start/step_14_done/step_15_done"
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing moved)"; return 0; fi
+    if [ "${#items[@]}" -eq 0 ] && [ ! -f "$(bench_manifest)" ]; then
+        echo "    nothing to archive: no per-blast file and no manifest.json"; return 0
+    fi
+    until dest="${r}/blast-${prev}-$(date -u +%Y%m%dT%H%M%SZ)"; [ ! -e "${dest}" ] && mkdir "${dest}"; do
+        [ -e "${dest}" ] || bench_die "cannot create ${dest} — nothing was moved; the blast has not started"
+        n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free blast-${prev}-<UTC> name in ${r} — nothing was moved; the blast has not started"
+        echo "    $(basename "${dest}") exists — trying a new timestamp"
+        sleep 1
+    done
+    if [ -f "$(bench_manifest)" ]; then
+        cp -p "$(bench_manifest)" "${dest}/manifest.json" || bench_die "cannot copy manifest.json into ${dest}/ — nothing was moved"
+    fi
+    [ "${#items[@]}" -eq 0 ] || for it in "${items[@]}"; do
+        if [ -e "${dest}/${it}" ] || ! mkdir -p "${dest}/$(dirname "${it}")" || ! mv "${r}/${it}" "${dest}/${it}"; then
+            bench_die "could not move ${it} into ${dest}/ — nothing was deleted and the blast has not started; what moved is in ${dest}/, the rest is still in place"
+        fi
+    done
+    bench_manifest_jq '.blasters = [] | .chaos = [] | .abort = null | .phases = [] | del(.blast)
+        | .timestamps |= del(.blast_start_at, .blast_end, .collect_start, .step_14_done, .step_15_done)' \
+        || bench_die "outputs moved into ${dest}/ but manifest.json was not reset — the blast has not started"
+    bench_manifest_note "blast index ${prev} archived into $(basename "${dest}")/ at $(bench_now_iso); earlier notes belong to it or to the fleet" || true
+    echo "    ✓ previous blast archived: ${dest}/"
+}
+
+# record_blast <start_at-unix> — manifest.blast: the settings that tell one blast from another.
+record_blast() {
+    echo "    blast: BENCH_RUN_INDEX=${BENCH_RUN_INDEX} chaos=${BENCH_CHAOS} lag_inject=${BENCH_LAG_INJECT} (node idx ${BENCH_LAG_IDX}, mixed+${BENCH_LAG_AT_SECS}s for ${BENCH_LAG_PAUSE_SECS}s)"
+    echo "    bucket prefix: $(bucket_prefix blasters)/"
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    bench_manifest_jq --arg i "${BENCH_RUN_INDEX}" --arg c "${BENCH_CHAOS}" --arg li "${BENCH_LAG_INJECT}" --arg lx "${BENCH_LAG_IDX}" \
+        --arg la "${BENCH_LAG_AT_SECS}" --arg lp "${BENCH_LAG_PAUSE_SECS}" --arg s "$(bench_iso_from_unix "$1")" --arg bp "$(bucket_prefix blasters)" \
+        '.blast = {run_index: ($i|tonumber), chaos: ($c|tonumber), lag_inject: ($li|tonumber), lag_idx: ($lx|tonumber),
+                   lag_at_secs: ($la|tonumber), lag_pause_secs: ($lp|tonumber), start_at: $s, bucket_prefix: $bp}'
 }
 
 # ================================ fund ===============================================
+# prev_funder_index — BENCH_RUN_INDEX of the output in results/<run>/funder/: .fund.run_index,
+# recorded once `fund` has copied its objects there; "unknown" for output from before that key.
+prev_funder_index() {
+    jq -r '.fund.run_index // "unknown" | tostring' "$(bench_manifest)" 2>/dev/null || echo unknown
+}
+
+# set_aside_prev_funder — before `fund` writes anything, COPY the funder output of another index
+# (funder/, meta/bench-funder/, manifest.json with its fund timestamps) into
+# results/<run>/funder-<its index>-<UTC>/, a directory mkdir just created. A copy, not a move:
+# the live files change only when the new fund overwrites them. Dry run: prints the plan.
+set_aside_prev_funder() {
+    local r="${BENCH_RESULTS_DIR}" prev dest it n=0 items=()
+    [ -n "$(find "${r}/funder" -type f 2>/dev/null | head -1)" ] || return 0
+    prev="$(prev_funder_index)"
+    if [ "${prev}" = "${BENCH_RUN_INDEX}" ]; then
+        echo "    funder/ holds the output of BENCH_RUN_INDEX ${prev}: funding it again overwrites it"; return 0
+    fi
+    for it in funder meta/bench-funder manifest.json; do [ -e "${r}/${it}" ] && items+=("${it}"); done
+    echo ">>> copy the funder output of BENCH_RUN_INDEX ${prev} ($(find "${r}/funder" -type f | wc -l | tr -d ' ') files in funder/) into ${r}/funder-${prev}-<UTC>/"
+    for it in "${items[@]}"; do echo "    cp ${it}"; done
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing copied)"; return 0; fi
+    until dest="${r}/funder-${prev}-$(date -u +%Y%m%dT%H%M%SZ)"; [ ! -e "${dest}" ] && mkdir "${dest}"; do
+        [ -e "${dest}" ] || bench_die "cannot create ${dest} — nothing was copied; the fund has not started"
+        n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free funder-${prev}-<UTC> name in ${r} — nothing was copied; the fund has not started"
+        echo "    $(basename "${dest}") exists — trying a new timestamp"
+        sleep 1
+    done
+    for it in "${items[@]}"; do
+        if ! mkdir -p "${dest}/$(dirname "${it}")" || ! cp -Rp "${r}/${it}" "${dest}/${it}"; then
+            bench_die "could not copy ${it} into ${dest}/ — the fund has not started and funder/ is unchanged"
+        fi
+    done
+    bench_manifest_note "funder output of index ${prev} copied into $(basename "${dest}")/ at $(bench_now_iso); funder/ now receives index ${BENCH_RUN_INDEX}" || true
+    echo "    ✓ funder output copied: ${dest}/"
+}
+
 do_fund() {
     preflight
     local zone="${ZONES[0]}" urls senders start rc line
+    case "${BENCH_RUN_INDEX}" in ''|*[!0-9]*|0?*) bench_die "BENCH_RUN_INDEX='${BENCH_RUN_INDEX}' must be a non-negative integer" ;; esac
     urls="$(node_url 0)"
     senders=$(( VAL_COUNT * BENCH_SENDERS ))
     start=$(( BENCH_RUN_INDEX * 100000 ))
     echo ">>> fund: ${FUNDER} (${zone}) --prepare senders=${senders} sender-start=${start} against ${urls}"
+    echo "    bucket prefix: $(bucket_prefix funder)/"
     if [ -n "$(bench_instance_json "${FUNDER}" "${zone}")" ]; then
         bench_die "${FUNDER} already exists — inspect/delete it first (benchmark-blast.sh delete --yes)"
     fi
+    set_aside_prev_funder
     gcloud auth print-access-token >/dev/null
     bench_manifest_ts fund_start
     create_vm "${FUNDER}" "${zone}" fund "${urls}" "${senders}" "${start}" ""
@@ -213,7 +429,13 @@ do_fund() {
     line="$(bench_serial_last "${FUNDER}" "${zone}" "BENCH_FUND_DONE rc=")"
     rc="$(printf '%s\n' "${line}" | marker_rc BENCH_FUND_DONE)"
     echo "    funder: ${line}"
-    copy_prefix funder
+    # .fund says funder/ holds this index's output: only a copy that succeeded may claim that.
+    if copy_prefix "$(bucket_prefix funder)" funder; then
+        bench_manifest_jq --arg i "${BENCH_RUN_INDEX}" --arg p "$(bucket_prefix funder)" '.fund = {run_index: ($i|tonumber), bucket_prefix: $p}'
+    else
+        bench_warn "funder/ does not hold index ${BENCH_RUN_INDEX}'s output and .fund is unchanged; copy it by hand: gcloud storage cp -r '$(bucket_prefix funder)/*' ${BENCH_RESULTS_DIR}/funder/"
+        bench_manifest_note "fund: copy of $(bucket_prefix funder) into funder/ failed at $(bench_now_iso); .fund not updated" || true
+    fi
     bench_manifest_ts fund_end
     bench_manifest_note "fund: ${line}"
     settle_load_vm "${FUNDER}" "${zone}" funder "${line}" BENCH_FUND_DONE
@@ -226,6 +448,8 @@ do_fund() {
 ABORTED=""
 RUN_CREATED=0; RUN_FINISHED=0; RUN_STOPPED=0; RUN_START_AT=0
 RUN_DID_KILL=0; RUN_DID_BACK=0; RUN_DID_OBS=0
+RUN_DID_PAUSE=0; RUN_DID_UNPAUSE=0; LAG_UNPAUSE_TS=0   # lag injection; an unpause is owed while PAUSE=1 UNPAUSE=0
+CHAOS_RC=0        # rc of the last chaos_do
 DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
 PREV_ROUNDS=""    # {"<node>": max tn_primary_round} from the previous poll (Prometheus)
 STALL_POLLS=0; LAST_ADVANCE_TS=0
@@ -243,26 +467,87 @@ record_chaos() { # <node> <action> <note> <rc>
         '.chaos += [{ts: $ts, node: $n, action: $a, note: $note, rc: ($rc|tonumber)}]' || true
 }
 
-# chaos_do <idx> <remote-cmd> <action-label> <note>
+# chaos_do <idx> <remote-cmd> <action-label> <note> — the ssh rc goes to the manifest and CHAOS_RC.
 chaos_do() {
     local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" rc=0
     bench_log "CHAOS ${inst}: $3"
     tn_iap_ssh "${inst}" "${zone}" "$2" || rc=$?
+    CHAOS_RC="${rc}"
     record_chaos "${inst}" "$3" "$4" "${rc}"
 }
 
-chaos_restart_v05() { # the restart owed after the kill — also run on abort and from the EXIT trap
+# chaos_restart_v05 <note> — the restart owed after the kill: on schedule, after an abort, at the
+# end of the watch and from the EXIT trap. Until systemd confirms the unit active it stays owed
+# (the watch loop tries again at each later poll), and the command to run by hand is printed.
+chaos_restart_v05() {
+    local inst="${INSTANCE_NAMES[$CHAOS_KILL_IDX]}" zone="${ZONES[$CHAOS_KILL_IDX]}"
     chaos_do "${CHAOS_KILL_IDX}" "sudo systemctl start telcoin && systemctl is-active telcoin" \
         "systemctl start telcoin" "$1"
-    RUN_DID_BACK=1
+    if [ "${CHAOS_RC}" -eq 0 ]; then RUN_DID_BACK=1; return 0; fi
+    echo "❌ ${inst} may still be DOWN: restart not confirmed (rc=${CHAOS_RC}). Start it by hand:" >&2
+    echo "    gcloud compute ssh ${inst} --zone=${zone} --project=${PROJECT_ID} --tunnel-through-iap --command='sudo systemctl start telcoin'" >&2
+    bench_manifest_note "restart-not-confirmed: ${inst} at $(bench_now_iso) (rc=${CHAOS_RC}, $1); still owed" || true
+    return 1
 }
 
+# save_log_first <idx> <label> — the container log onto the node before a step kills, restarts
+# or pauses it (docker run --rm: a stopped container takes its log along). A failed save warns
+# and leaves a manifest note; the step still goes ahead on schedule.
+save_log_first() {
+    bench_save_node_log "$1" "$2" && return 0
+    bench_warn "${INSTANCE_NAMES[$1]}: container log not saved (${2}) — the ${2#pre-} goes ahead on schedule without it"
+    bench_manifest_note "log-save-failed: ${INSTANCE_NAMES[$1]} ${2} at $(bench_now_iso); the ${2#pre-} went ahead without a saved log" || true
+}
+
+# Lag injection. docker pause freezes the container (no restart, no lost state), so the node
+# falls behind while the fleet runs on, then must catch up. Each command confirms the state it
+# set: the ssh fails unless docker reports State.Paused=true / false afterwards.
+LAG_PAUSE_CMD="sudo docker pause telcoin; s=\$(sudo docker inspect telcoin --format '{{.State.Paused}}'); echo \"telcoin State.Paused=\$s\"; [ \"\$s\" = true ]"
+LAG_UNPAUSE_CMD="sudo docker unpause telcoin; s=\$(sudo docker inspect telcoin --format '{{.State.Paused}}'); echo \"telcoin State.Paused=\$s\"; [ \"\$s\" = false ]"
+
+# lag_unpause <note> — the unpause owed once a pause was attempted: on schedule, after an abort,
+# at the end of the run and from the EXIT trap. Until docker confirms State.Paused=false it
+# stays owed, and the command to run by hand is printed.
+lag_unpause() {
+    local inst="${INSTANCE_NAMES[$BENCH_LAG_IDX]}" zone="${ZONES[$BENCH_LAG_IDX]}"
+    [ "${LAG_UNPAUSE_TS}" -gt 0 ] || LAG_UNPAUSE_TS="$(bench_now_unix)"
+    chaos_do "${BENCH_LAG_IDX}" "${LAG_UNPAUSE_CMD}" "lag-unpause" "$1"
+    if [ "${CHAOS_RC}" -eq 0 ]; then RUN_DID_UNPAUSE=1; LAG_UNPAUSE_TS="$(bench_now_unix)"; return 0; fi
+    echo "❌ ${inst} may still be PAUSED: unpause not confirmed (rc=${CHAOS_RC}). Unpause it by hand:" >&2
+    echo "    gcloud compute ssh ${inst} --zone=${zone} --project=${PROJECT_ID} --tunnel-through-iap --command='sudo docker unpause telcoin'" >&2
+    return 1
+}
+
+# try_up_to <n> <cmd...> — cmd until it returns 0, at most n times, 5 s apart; its last rc. The
+# EXIT trap gives each remote step 3 tries: INT and TERM stay ignored there, but gcloud compute ssh
+# installs its own handlers for both, so a second ^C or TERM to the process group still ends the
+# ssh in flight.
+try_up_to() {
+    local n="$1" i=1 rc; shift
+    while :; do
+        rc=0; "$@" || rc=$?
+        { [ "${rc}" -ne 0 ] && [ "${i}" -lt "${n}" ]; } || return "${rc}"
+        echo "    try ${i} of ${n} failed (rc=${rc}); trying again in 5s" >&2
+        sleep 5; i=$((i + 1))
+    done
+}
+
+# stop_blasters [tries] — docker stop txgen on every blaster, each up to <tries> times (default 1).
+# 1 (and the names, each with the command to run by hand) when a stop was not confirmed; every
+# blaster is tried either way.
 stop_blasters() {
-    local k
+    local k name failed=""
     RUN_STOPPED=1
     for k in $(seq 0 $((VAL_COUNT - 1))); do
-        tn_iap_ssh "$(blaster_name "$k")" "${ZONES[$k]}" "sudo docker stop -t 30 txgen >/dev/null 2>&1; true" || true
+        name="$(blaster_name "$k")"
+        try_up_to "${1:-1}" tn_iap_ssh "${name}" "${ZONES[$k]}" "sudo docker stop -t 30 txgen >/dev/null 2>&1; true" && continue
+        failed="${failed} ${name}"
+        echo "❌ ${name}: docker stop txgen not confirmed. Stop it by hand:" >&2
+        echo "    gcloud compute ssh ${name} --zone=${ZONES[$k]} --project=${PROJECT_ID} --tunnel-through-iap --command='sudo docker stop -t 30 txgen'" >&2
     done
+    [ -n "${failed}" ] || return 0
+    bench_warn "docker stop txgen not confirmed on:${failed}"
+    return 1
 }
 
 # status_field <line> <key> — value of key=... in a BENCH_STATUS line.
@@ -296,6 +581,38 @@ round_stall_check() {
     fi
 }
 
+# prom_get <json|""> <node> <absent> — the node's value; "?" when the query failed ("").
+prom_get() { if [ -z "$1" ]; then printf '?'; else printf '%s' "$1" | jq -r --arg n "$2" --arg d "$3" '.[$n] // $d'; fi; }
+
+# node_health_check <now> — per-node warnings from Prometheus; they inform, never abort: a
+# validator whose tn_node_mode is not cvv_active (the observer's own mode is expected) and any
+# node with > 20 failed batch reports in 5 min. From the lag unpause on, one line for the lag
+# target every poll. No failure series is normal (the counter appears on its first failure).
+node_health_check() {
+    local l="${BENCH_PROM_NETWORK_LABEL}" modes fails failed="" i inst mode nf
+    modes="$(bench_prom_query "tn_node_mode{network=\"${l}\"} == 1" 2>/dev/null \
+        | jq -c 'select(.status == "success") | [.data.result[] | {key: .metric.node, value: (.metric.mode // "?")}] | from_entries' 2>/dev/null || true)"
+    fails="$(bench_prom_query "sum by (node) (increase(tn_batch_builder_seal_failures_total{network=\"${l}\",reason=\"failed_to_report\"}[5m]))" 2>/dev/null \
+        | jq -c 'select(.status == "success") | [.data.result[] | {key: .metric.node, value: (.value[1] | tonumber | round)}] | from_entries' 2>/dev/null || true)"
+    if [ -z "${modes}" ] || [ "${modes}" = "{}" ]; then modes=""; failed="node mode"; fi
+    [ -n "${fails}" ] || failed="${failed:+${failed} + }failed reports"
+    [ -z "${failed}" ] || echo "    node health: Prometheus query failed or empty (${failed}) — no warning from it this poll"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        mode="$(prom_get "${modes}" "${inst}" absent)"; nf="$(prom_get "${fails}" "${inst}" 0)"
+        if [ -n "${modes}" ] && [ "${NODE_ROLES[$i]}" = "validator" ] && [ "${mode}" != "cvv_active" ]; then
+            echo "    ⚠ ${inst}: node mode ${mode}, not cvv_active"
+        fi
+        case "${nf}" in ''|*[!0-9]*) ;; *) [ "${nf}" -le 20 ] || echo "    ⚠ ${inst}: ${nf} failed batch reports in 5 min" ;; esac
+    done
+    if [ "${LAG_UNPAUSE_TS}" -gt 0 ]; then
+        inst="${INSTANCE_NAMES[$BENCH_LAG_IDX]}"
+        echo "    lag target ${inst}: mode=$(prom_get "${modes}" "${inst}" absent) failed_reports_5m=$(prom_get "${fails}" "${inst}" 0)," \
+            "$(( $1 - LAG_UNPAUSE_TS ))s after the unpause$([ "${RUN_DID_UNPAUSE}" -eq 1 ] || echo ' (NOT confirmed — may still be paused)')"
+    fi
+    return 0
+}
+
 # poll_blasters — refresh DONE_LINE[]; returns 0 iff every blaster has reported.
 poll_blasters() {
     local k name all=0
@@ -310,45 +627,131 @@ poll_blasters() {
     return "${all}"
 }
 
-# settle_blasters — copy the bucket prefix, then delete each blaster whose results are safe.
+# settle_blasters — copy this index's bucket prefix, then delete each blaster whose results are safe.
 settle_blasters() {
     local k
-    copy_prefix blasters
+    copy_prefix "$(bucket_prefix blasters)" blasters || true
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         settle_load_vm "$(blaster_name "$k")" "${ZONES[$k]}" blasters "${DONE_LINE[k]:-}" BENCH_BLAST_DONE
     done
 }
 
-# on_run_exit — EXIT trap for `run`: an exit anywhere (bench_die, set -e, Ctrl-C) between
-# create and completion must not leave bench-validator-05 stopped or blasters unwatched.
+# exit_relay — the output path of on_run_exit. Its stdout is the stderr the cleanup started with
+# (the output copy, or the terminal). Each line read goes there; from the first line that cannot
+# be written, that line and the rest go to a new logs/blast-exit-<UTC>.log, named with the stamp
+# of this invocation's blast-run-<UTC>.log, or nowhere when that file cannot be made. HUP INT TERM
+# PIPE are ignored and no failed write ends the loop, so the relay stops only at EOF, once the
+# script and every child holding the pipe have exited. There is no $(...) here: bash 3.2 keeps a
+# failed write in its stdout buffer, and a subshell would flush it into its own output.
+exit_relay() {
+    trap '' HUP INT TERM PIPE
+    exec >&2 2> /dev/null
+    local line to=out base f n=0
+    while IFS= read -r line || [ -n "${line}" ]; do
+        printf '%s\n' "${line}" && continue
+        [ "${to}" = out ] || continue                  # the fallback failed too: drop the line
+        to="fallback"
+        exec > /dev/null; printf '%s' ''               # discard the failed write bash 3.2 still buffers
+        f="${BENCH_RESULTS_DIR}/logs/blast-exit-${BLAST_LOG##*-}"; base="${f%.log}"
+        until [ -n "${BLAST_LOG}" ] && ( set -C; : > "${f}" ); do
+            n=$((n + 1)); f="${base}-${n}.log"
+            [ "${n}" -lt 5 ] || { f=/dev/null; break; }
+        done
+        exec >> "${f}"
+        [ "${f}" = /dev/null ] || date -u "+# benchmark-blast.sh run (pid $$): its exit cleanup lost its output copy or terminal at %H:%M:%SZ; the rest of that output follows"
+        printf '%s\n' "${line}"
+    done
+}
+
+# exit_step <what> <cmd...> — one step of on_run_exit: run it, then print its outcome and note
+# it in the manifest (when the manifest can be written). Always 0, so the next step runs.
+exit_step() {
+    local what="$1" rc=0 outcome=ok; shift
+    "$@" || rc=$?
+    if [ "${rc}" -eq 0 ]; then echo "    ✓ exit cleanup ${what}: done" >&2
+    else outcome="FAILED rc=${rc}"; echo "❌ exit cleanup ${what}: FAILED (rc=${rc})" >&2; fi
+    bench_manifest_note "exit cleanup $(bench_now_iso): ${what}: ${outcome}" || true
+    return 0
+}
+
+exit_restart_v05() { # the owed restart; the ssh rc, with the command to run by hand, when not confirmed
+    chaos_restart_v05 "owed restart, performed by the EXIT trap" || return "${CHAOS_RC}"
+}
+
+# delete_unstarted_blasters — before BENCH_START_AT the blasters hold no results, and left alone
+# they would start blasting unwatched at that time. 1 when a delete failed.
+delete_unstarted_blasters() {
+    local k failed=0
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        [ -z "$(bench_instance_json "$(blaster_name "$k")" "${ZONES[$k]}")" ] || delete_vms "${ZONES[$k]}" "$(blaster_name "$k")" || failed=1
+    done
+    return "${failed}"
+}
+
+wait_blasters_done() { # <secs> — poll every 30 s until each blaster reported; 1 when <secs> ran out first
+    local waited=0
+    until poll_blasters; do
+        [ "${waited}" -lt "$1" ] || return 1
+        sleep 30; waited=$((waited + 30))
+    done
+}
+
+# on_run_exit — EXIT trap for `run`: an exit anywhere (bench_die, set -e, Ctrl-C, TERM, a closed
+# terminal, a lost output copy) between create and completion must not leave the lag target
+# paused, bench-validator-05 stopped or blasters unwatched. The most harmful state goes first:
+# (a) unpause, (b) restart v05, (c) stop the blasters, or delete them before their start time,
+# (d) the abort record, the wait for their results, the copy and the deletes. A failed step
+# never skips the next one.
 on_run_exit() {
-    local rc=$?
-    trap - EXIT INT TERM
-    [ "${RUN_FINISHED}" -eq 1 ] && exit "${rc}"
-    set +e
-    echo "❌ run interrupted (exit ${rc}) — restoring the fleet and securing results" >&2
-    record_abort "interrupted" "operator" "benchmark-blast.sh run exited rc=${rc} before completing"
-    if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ]; then
-        chaos_restart_v05 "owed restart, performed by the EXIT trap"
+    local rc=$? started=1 wait_note=""
+    trap - EXIT
+    # Nothing may cut the cleanup short. INT TERM HUP PIPE stay ignored until the exit, and each
+    # ssh and gcloud it starts inherits that, except gcloud compute ssh, which installs its own INT
+    # and TERM handlers: a second signal can end the ssh in flight, so each ssh step gets 3 tries
+    # (try_up_to). set -e and set -u are off.
+    trap '' INT TERM HUP PIPE
+    set +eu
+    # From here every write, the cleanup's own and its children's, goes into exit_relay's pipe,
+    # which cannot die. The output copy and the terminal can: a write into a dead pipe fails,
+    # and gcloud or ssh may give up on it before they act. A hung-up terminal is not stdin either.
+    # bash 3.2 keeps a write that failed in its stdout buffer, and the first $(...) would flush it
+    # into its value: the printf sends it into the relay now.
+    exec < /dev/null > >(exit_relay) 2>&1
+    printf '%s' ''
+    [ "$(bench_now_unix)" -lt "${RUN_START_AT}" ] && started=0   # unknown time: started, so nothing is deleted
+    if [ "${RUN_FINISHED}" -eq 0 ]; then
+        [ "${RUN_CREATED}" -eq 0 ] || [ "${KEEP}" -eq 1 ] || [ "${started}" -eq 0 ] \
+            || wait_note=" up to ${BENCH_TRAP_WAIT_SECS}s of waiting for the blasters' results plus"
+        echo "❌ run interrupted (exit ${rc}) — restoring the fleet and securing results. This takes${wait_note} a few minutes of ssh and gcloud calls; INT, TERM and HUP are ignored until it ends (kill -9 $$ stops it and leaves the fleet as it is)" >&2
     fi
+    # (a) the lag target: paused, it falls further behind every second
+    if [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ]; then
+        exit_step "(a) unpause ${INSTANCE_NAMES[$BENCH_LAG_IDX]}" try_up_to 3 lag_unpause "owed unpause, performed by the EXIT trap"
+    fi
+    [ "${RUN_FINISHED}" -eq 1 ] && exit "${rc}"
+    # (b) the validator the chaos step killed
+    if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ]; then
+        exit_step "(b) restart ${INSTANCE_NAMES[$CHAOS_KILL_IDX]}" try_up_to 3 exit_restart_v05
+    fi
+    # (c) the blasters
     if [ "${RUN_CREATED}" -eq 1 ]; then
         if [ "${KEEP}" -eq 1 ]; then
             echo "    --keep: blasters left running; later: benchmark-blast.sh collect/delete" >&2
-        elif [ "$(bench_now_unix)" -lt "${RUN_START_AT}" ]; then
-            # Not started yet: they hold no results, and left alone they would start blasting
-            # unwatched at BENCH_START_AT. Delete them.
+            bench_manifest_note "exit cleanup $(bench_now_iso): (c) --keep: blasters left running" || true
+        elif [ "${started}" -eq 0 ]; then
             echo "    blast had not started — deleting the blasters (no results to lose)" >&2
-            local k
-            for k in $(seq 0 $((VAL_COUNT - 1))); do
-                [ -z "$(bench_instance_json "$(blaster_name "$k")" "${ZONES[$k]}")" ] || delete_vms "${ZONES[$k]}" "$(blaster_name "$k")"
-            done
-        else
-            [ "${RUN_STOPPED}" -eq 1 ] || stop_blasters
-            local waited=0
-            until poll_blasters || [ "${waited}" -ge "${BENCH_TRAP_WAIT_SECS}" ]; do sleep 30; waited=$((waited + 30)); done
-            settle_blasters
+            exit_step "(c) delete the blasters before their start time" delete_unstarted_blasters
+        elif [ "${RUN_STOPPED}" -eq 0 ]; then
+            exit_step "(c) stop the blasters (docker stop txgen)" stop_blasters 3
         fi
     fi
+    # (d) everything else
+    record_abort "interrupted" "operator" "benchmark-blast.sh run exited rc=${rc} before completing"
+    if [ "${RUN_CREATED}" -eq 1 ] && [ "${KEEP}" -eq 0 ] && [ "${started}" -eq 1 ]; then
+        exit_step "(d) wait up to ${BENCH_TRAP_WAIT_SECS}s for every blaster's done marker" wait_blasters_done "${BENCH_TRAP_WAIT_SECS}"
+        exit_step "(d) copy the results, delete each blaster whose results are safe" settle_blasters
+    fi
+    echo "    exit cleanup finished — exit ${rc}" >&2
     exit "${rc}"
 }
 
@@ -370,10 +773,22 @@ do_run() {
     else
         echo "    chaos: disabled (BENCH_CHAOS=0)"
     fi
+    local lag_on="${BENCH_LAG_INJECT:-0}" lag_inst="${INSTANCE_NAMES[$BENCH_LAG_IDX]}" lag_left
+    local t_pause=$(( mixed_start + BENCH_LAG_AT_SECS )) t_unpause=$(( mixed_start + BENCH_LAG_AT_SECS + BENCH_LAG_PAUSE_SECS ))
+    if [ "${lag_on}" = "1" ]; then
+        lag_left=$(( BENCH_DURATION_SECS - BENCH_LAG_AT_SECS - BENCH_LAG_PAUSE_SECS ))
+        echo "    lag: $(bench_iso_from_unix "${t_pause}") (mixed+${BENCH_LAG_AT_SECS}s) docker pause ${lag_inst}; $(bench_iso_from_unix "${t_unpause}") (mixed+$(( BENCH_LAG_AT_SECS + BENCH_LAG_PAUSE_SECS ))s) unpause it;" \
+            "mixed-phase load continues $([ "${lag_left}" -ge 0 ] && echo "${lag_left}s" || echo "0s (the mixed phase ends $(( -lag_left ))s before)") after the unpause"
+        [ "${lag_left}" -ge 900 ] || bench_warn "lag: only $(( lag_left > 0 ? lag_left : 0 ))s of mixed-phase load after the unpause (< 900 s) — too little to watch ${lag_inst} catch up under load; lower BENCH_LAG_AT_SECS/BENCH_LAG_PAUSE_SECS or raise BENCH_DURATION_SECS"
+    else
+        echo "    lag injection: off (BENCH_LAG_INJECT=0)"
+    fi
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         name="$(blaster_name "$k")"
         [ -z "$(bench_instance_json "${name}" "${ZONES[$k]}")" ] || bench_die "${name} already exists — benchmark-blast.sh delete --yes first"
     done
+    archive_prev_blast
+    record_blast "${start_at}"
 
     # --- create the blasters in parallel ---
     gcloud auth print-access-token >/dev/null
@@ -382,7 +797,13 @@ do_run() {
     if [ "${BENCH_APPLY}" = "1" ]; then
         RUN_CREATED=1                      # from here on the EXIT trap owns cleanup
         trap on_run_exit EXIT
-        trap 'exit 130' INT TERM
+        # INT and TERM exit 130 as before; HUP (a closed terminal) 129 and PIPE (the output copy
+        # is gone) 141, so the EXIT trap sees why. Each ignores PIPE before it exits: bash may
+        # write a job notice on its way out, and a SIGPIPE from that ends bash 5 without the
+        # EXIT trap.
+        trap 'trap "" PIPE; exit 130' INT TERM
+        trap 'trap "" PIPE; exit 129' HUP
+        trap 'trap "" PIPE; exit 141' PIPE
     fi
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         name="$(blaster_name "$k")"; zone="${ZONES[$k]}"
@@ -431,18 +852,35 @@ do_run() {
     while :; do
         now="$(bench_now_unix)"
         if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ] && [ "${now}" -ge "${t_kill}" ]; then
+            save_log_first "${CHAOS_KILL_IDX}" pre-kill
+            # A restart is owed from here on, even if the kill reports a failure: an exit while its
+            # ssh is in flight may follow a kill that landed. When it did not land, the owed restart
+            # is harmless: `systemctl start` on an active unit does nothing, and is-active passes.
+            RUN_DID_KILL=1
             chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin; sudo systemctl stop telcoin; systemctl is-active telcoin || true" \
                 "docker kill -s KILL telcoin" "5 min outage then restart (replay worst case); systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors"
-            RUN_DID_KILL=1
             bench_manifest_note "blaster-05-outage: ${kill_blaster}'s only RPC target ${INSTANCE_NAMES[$CHAOS_KILL_IDX]} is down from $(bench_now_iso) for ~$(( t_back - t_kill ))s (chaos); its connection errors/resends in that window are the chaos, not a blaster fault" || true
         fi
-        # The restart is owed even after an abort: never leave v05 down.
+        # The restart is owed even after an abort: never leave v05 down. Not confirmed, it is tried
+        # again at the next poll (t_back moves there), and at each one after that until it is.
         if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ] && { [ "${now}" -ge "${t_back}" ] || [ -n "${ABORTED}" ]; }; then
-            chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm"
+            chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm" \
+                || t_back=$(( next_poll > now ? next_poll : now + BENCH_POLL_SECS ))
         fi
         if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_OBS}" -eq 0 ] && [ "${now}" -ge "${t_obs}" ]; then
+            save_log_first "${OBSERVER_IDX}" pre-restart
             chaos_do "${OBSERVER_IDX}" "sudo systemctl restart telcoin && systemctl is-active telcoin" "systemctl restart telcoin" "observer restart"
             RUN_DID_OBS=1
+        fi
+        if [ "${lag_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${now}" -ge "${t_pause}" ]; then
+            save_log_first "${BENCH_LAG_IDX}" pre-pause
+            RUN_DID_PAUSE=1               # an unpause is owed from here on, even if the pause reports a failure
+            t_unpause=$(( $(bench_now_unix) + BENCH_LAG_PAUSE_SECS ))
+            chaos_do "${BENCH_LAG_IDX}" "${LAG_PAUSE_CMD}" "lag-pause" "paused ${BENCH_LAG_PAUSE_SECS}s so it falls behind under load, then it must catch up. $(blaster_name "${BENCH_LAG_IDX}") targets ONLY this node, so its sends stall for the pause by design"
+        fi
+        # The unpause is owed even after an abort (t_unpause is pulled forward): never leave it paused.
+        if [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ] && [ "${now}" -ge "${t_unpause}" ]; then
+            lag_unpause "scheduled unpause" || t_unpause=$(( $(bench_now_unix) + 60 ))   # retry in a minute
         fi
 
         if [ "${now}" -ge "${next_poll}" ]; then
@@ -462,6 +900,7 @@ do_run() {
                 if [ -n "${fatal}" ] && [ "${fatal}" -gt 0 ]; then record_abort "batch-cache-cliff" "${inst}" "FatalDBFailure x${fatal} in docker logs telcoin — batch-cache cliff, NOT a hardware limit"; fi
             done
             round_stall_check "${now}" "${all_done}"
+            node_health_check "${now}" || true
             local mem; mem="$(bench_obs_mem_pct || true)"
             echo "    obs-devnet memory: ${mem:-n/a}%"
             if [ -n "${mem}" ] && awk -v m="${mem}" -v t="${BENCH_ABORT_OBS_MEM_PCT}" 'BEGIN{exit !(m>t)}'; then
@@ -472,9 +911,10 @@ do_run() {
 
         if [ -n "${ABORTED}" ] && [ "${RUN_STOPPED}" -eq 0 ]; then
             bench_log "stopping blasters (docker stop txgen) after abort: ${ABORTED}"
-            stop_blasters
+            stop_blasters || true
             deadline=$(( now + 600 ))
             next_poll=$(( now + BENCH_POLL_SECS ))
+            t_unpause=$(( t_unpause < now ? t_unpause : now ))    # an owed unpause runs on the next pass
         fi
         [ "${all_done}" -eq 1 ] && { bench_log "all blasters reported BENCH_BLAST_DONE"; break; }
         [ "${now}" -lt "${deadline}" ] || { bench_warn "deadline reached before every blaster finished"; break; }
@@ -485,9 +925,17 @@ do_run() {
             [ "${RUN_DID_BACK}" -eq 0 ] && [ "${RUN_DID_KILL}" -eq 1 ] && [ "${t_back}" -lt "${target}" ] && target="${t_back}"
             [ "${RUN_DID_OBS}" -eq 0 ] && [ "${t_obs}" -lt "${target}" ] && target="${t_obs}"
         fi
+        [ "${lag_on}" = "1" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${t_pause}" -lt "${target}" ] && target="${t_pause}"
+        [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ] && [ "${t_unpause}" -lt "${target}" ] && target="${t_unpause}"
         sleep_for=$(( target - $(bench_now_unix) )); [ "${sleep_for}" -ge 5 ] || sleep_for=5
         sleep "${sleep_for}"
     done
+
+    # The loop can end (all done, abort, deadline) before the scheduled unpause or restart, or while
+    # the restart still fails: each is owed now. A normal end clears the EXIT trap, so the last
+    # tries before the run exits stand in for its steps (a) and (b).
+    [ "${RUN_DID_PAUSE}" -eq 0 ] || [ "${RUN_DID_UNPAUSE}" -eq 1 ] || lag_unpause "owed unpause at the end of the watch" || true
+    [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || chaos_restart_v05 "owed restart at the end of the watch" || true
 
     # --- results ---
     bench_manifest_ts blast_end
@@ -500,8 +948,10 @@ do_run() {
             '.blasters |= map(if .name == $n then .rc = ($rc|tonumber) else . end)'
     done
     settle_blasters
+    [ "${RUN_DID_PAUSE}" -eq 0 ] || [ "${RUN_DID_UNPAUSE}" -eq 1 ] || lag_unpause "last try before the run exits" || true
+    [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || chaos_restart_v05 "last try before the run exits" || true
     RUN_FINISHED=1
-    trap - EXIT INT TERM
+    trap - EXIT INT TERM HUP PIPE
     if [ -n "${ABORTED}" ] || [ "${bad}" -ne 0 ]; then
         echo "❌ run finished with abort='${ABORTED}' / a blaster not at rc=0 reason=ok — see ${BENCH_RESULTS_DIR}" >&2
         exit 1
@@ -521,8 +971,8 @@ do_collect() {
         bench_run bench_iap_scp_down "${inst}" "${ZONES[$i]}" "/var/lib/bench-sampler/${inst}.csv" "${BENCH_RESULTS_DIR}/sampler/${inst}.csv" \
             || bench_warn "sampler CSV from ${inst} not copied"
     done
-    copy_prefix blasters
-    copy_prefix funder
+    copy_prefix "$(recorded_prefix blast blasters)" blasters || true
+    copy_prefix "$(recorded_prefix fund funder)" funder || true
 }
 
 # ================================ delete / status ====================================
@@ -556,6 +1006,7 @@ do_status() {
     done
 }
 
+start_blast_log
 case "${ACTION}" in
     fund)    [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"; do_fund ;;
     run)     [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"; do_run ;;
