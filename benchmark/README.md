@@ -142,6 +142,7 @@ block height to each CSV row and inventories epoch-pack sizes and modification t
 minute. `collect` pulls both files. Teardown pulls them again with the service journal into
 `logs/<node>-recovery-<instance-id>.*.tgz` before deleting anything. Missing sampler files
 on an older deployment are allowed; a failed transfer or invalid archive stops teardown.
+Retries reuse a readable archive only for the same VM instance ID.
 The existing explicit `BENCH_TEARDOWN_SKIP_LOGS=1` override also covers this evidence.
 
 For the legacy `BENCH_CHAOS_TIMING=mixed` mode, the mixed phase starts at

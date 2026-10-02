@@ -171,10 +171,10 @@ set -euo pipefail
 source "$1/recovery-lib.sh"
 BENCH_APPLY=1
 tn_iap_ssh() { printf '%s' "$3" > "$REMOTE_COMMAND"; cat "$FIXTURE"; }
-bench_pull_recovery_evidence victim zone 123 "$2"
+bench_pull_recovery_evidence victim zone "$3" "$2"
 '''
             env = dict(os.environ, FIXTURE=str(fixture), REMOTE_COMMAND=str(root / "command"))
-            subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest)],
+            subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest), "123"],
                            env=env, check=True, capture_output=True)
             captured = list(dest.glob("*.tgz"))
             self.assertEqual(len(captured), 1)
@@ -184,9 +184,15 @@ bench_pull_recovery_evidence victim zone 123 "$2"
             subprocess.run(["bash", "-n", "-c", remote], check=True)
             self.assertIn("journalctl -u telcoin", remote)
             self.assertIn("csv epochs.txt", remote)
-            captured[0].unlink()
             fixture.write_text("truncated SSH stream")
-            result = subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest)],
+            # Retry without SSH data, then prove the saved archive cannot vouch for a new VM.
+            subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest), "123"],
+                           env=env, check=True, capture_output=True)
+            result = subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest), "124"],
+                                    env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            captured[0].unlink()
+            result = subprocess.run(["bash", "-c", script, "capture", str(BENCH), str(dest), "123"],
                                     env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(list(dest.iterdir()), [])

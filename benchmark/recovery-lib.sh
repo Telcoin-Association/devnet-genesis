@@ -17,7 +17,7 @@ bench_node_stall_counts() { # <previous> <current> <counts> <validators-json> <e
 # A readable archive is required before teardown; missing sampler files on an older
 # deployment are allowed and the service journal still lands.
 bench_pull_recovery_evidence() { # <instance> <zone> <id> <destination>
-    local inst="$1" zone="$2" id="$3" dest="$4" temporary remote_cmd
+    local inst="$1" zone="$2" id="$3" dest="$4" temporary remote_cmd saved
     remote_cmd='sudo bash -e -o pipefail -c '"'"'
         recovery_tmp=$(mktemp -d)
         trap '\''rm -rf "$recovery_tmp"'\'' EXIT
@@ -33,6 +33,12 @@ bench_pull_recovery_evidence() { # <instance> <zone> <id> <destination>
         printf '    + recovery evidence: %s (instance %s) -> %s\n' "${inst}" "${id}" "${dest}"
         return 0
     fi
+    for saved in "${dest}/${inst}-recovery-${id}."*.tgz; do
+        if [ -f "${saved}" ] && tar -tzf "${saved}" >/dev/null 2>&1; then
+            echo "    recovery evidence already saved: ${saved}"
+            return 0
+        fi
+    done
     temporary="$(mktemp "${dest}/${inst}-recovery-${id}.XXXXXX")" || return 1
     if ! tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" > "${temporary}" \
         || ! tar -tzf "${temporary}" >/dev/null; then
