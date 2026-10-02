@@ -34,9 +34,22 @@ OUT_DIR="${SAMPLER_OUT_DIR:-/var/lib/bench-sampler}"
 CONSOLE="${SAMPLER_CONSOLE:-/dev/ttyS0}"
 HOST="$(hostname -s 2>/dev/null || hostname)"
 OUT="${OUT_DIR}/${HOST}.csv"
-HEADER="ts_unix,pid,rss_anon_kb,rss_file_kb,rss_total_kb,io_write_bytes,io_read_bytes,psi_mem_some_avg10,psi_io_some_avg10,psi_cpu_some_avg10,db_bytes,static_files_bytes,epochs_bytes,cache_bytes,epoch_bytes,loadavg1,oom_count,root_used_pct"
+OLD_HEADER="ts_unix,pid,rss_anon_kb,rss_file_kb,rss_total_kb,io_write_bytes,io_read_bytes,psi_mem_some_avg10,psi_io_some_avg10,psi_cpu_some_avg10,db_bytes,static_files_bytes,epochs_bytes,cache_bytes,epoch_bytes,loadavg1,oom_count,root_used_pct"
+HEADER="${OLD_HEADER},block"
+INVENTORY="${OUT_DIR}/${HOST}.epochs.txt"
 
 mkdir -p "${OUT_DIR}"
+if [ -s "${OUT}" ]; then
+    IFS= read -r existing_header < "${OUT}"
+    if [ "${existing_header}" = "${OLD_HEADER}" ]; then
+        # Preserve old samples with a blank block field when the sampler is upgraded.
+        awk 'NR == 1 { print $0 ",block"; next } { print $0 "," }' "${OUT}" > "${OUT}.upgrade" \
+            && mv "${OUT}.upgrade" "${OUT}" || exit 1
+    elif [ "${existing_header}" != "${HEADER}" ]; then
+        echo "unrecognized sampler CSV header: ${OUT}" >&2
+        exit 1
+    fi
+fi
 [ -s "${OUT}" ] || printf '%s\n' "${HEADER}" > "${OUT}"
 
 cid=""
@@ -74,6 +87,7 @@ block_number() {
 }
 
 last_status_ts=""
+last_inventory_ts=0
 n=0
 while :; do
     ts="$(date +%s)"
@@ -95,17 +109,23 @@ while :; do
     load1="$(awk '{print $1}' /proc/loadavg 2>/dev/null)"
     ooms="$(dmesg 2>/dev/null | grep -ci 'out of memory' || true)"
     rootp="$(root_pct)"
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    block="$(block_number)"
+    if [ $((ts - last_inventory_ts)) -ge 60 ]; then
+        printf 'BENCH_EPOCH_FILES ts=%s host=%s\n' "${ts}" "${HOST}" >> "${INVENTORY}"
+        ls -laR --full-time -- "${DATA_DIR}/consensus-db/epochs" >> "${INVENTORY}" 2>&1 || true
+        last_inventory_ts="${ts}"
+    fi
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "${ts}" "${p}" "${rss_anon}" "${rss_file}" "${rss_total}" "${io_w}" "${io_r}" \
         "${psi_m}" "${psi_i}" "${psi_c}" "${db}" "${sf}" "${ep_s}" "${cache}" "${ep}" \
-        "${load1}" "${ooms}" "${rootp}" >> "${OUT}"
+        "${load1}" "${ooms}" "${rootp}" "${block}" >> "${OUT}"
 
     n=$((n + 1))
     # First sample, then every STATUS_EVERY-th (0 disables the status line).
     if [ "${STATUS_EVERY}" -gt 0 ] && [ $(( (n - 1) % STATUS_EVERY )) -eq 0 ]; then
         since="${last_status_ts:-$((ts - INTERVAL * STATUS_EVERY))}"
         fatal="$(docker logs --since "${since}" "${CONTAINER}" 2>&1 | grep -c 'FatalDBFailure' || true)"
-        line="BENCH_STATUS host=${HOST} ts=${ts} root_used_pct=${rootp:-} fatal_db=${fatal:-0} block=$(block_number) rss_total_kb=${rss_total:-}"
+        line="BENCH_STATUS host=${HOST} ts=${ts} root_used_pct=${rootp:-} fatal_db=${fatal:-0} block=${block} rss_total_kb=${rss_total:-}"
         { [ -w "${CONSOLE}" ] && printf '%s\n' "${line}" > "${CONSOLE}"; } 2>/dev/null || true
         printf '%s\n' "${line}"   # journal copy
         last_status_ts="${ts}"
