@@ -50,9 +50,9 @@ export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.1.0-de
 # 5 - London
 #
 # NODE_ROLES is the single source of truth every script branches on. The
-# first four are committee validators; the fifth runs as an observer
-# (`node --observer`) and can later stake into a future committee via
-# ConsensusRegistry.
+# first four are committee validators. The fifth is outside the genesis
+# committee, so the binary runs it as an observer; there is no `--observer`
+# flag. It can later stake into a future committee via ConsensusRegistry.
 export INSTANCE_NAMES=("validator-1-devnet" "validator-2-devnet" "validator-3-devnet" "validator-4-devnet" "observer-5-devnet")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
 export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
