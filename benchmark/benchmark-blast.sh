@@ -980,7 +980,7 @@ do_run() {
 
         if [ -n "${ABORTED}" ] && [ "${RUN_STOPPED}" -eq 0 ]; then
             bench_log "stopping blasters (docker stop txgen) after abort: ${ABORTED}"
-            stop_blasters || true
+            stop_blasters 1 || true
             deadline=$(( now + 600 ))
             next_poll=$(( now + BENCH_POLL_SECS ))
             t_unpause=$(( t_unpause < now ? t_unpause : now ))    # an owed unpause runs on the next pass
