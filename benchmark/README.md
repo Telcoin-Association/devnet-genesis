@@ -115,7 +115,38 @@ consensus rounds. `block=` in the sampler's `BENCH_STATUS` line is informational
 
 ### Chaos schedule (step 14)
 
-The mixed phase starts at `BENCH_START_AT + preamble + warmup`. From that point:
+Offline checks: `python3 -m unittest discover -s benchmark/tests -v` and
+`python3 benchmark/tests/check_mutations.py`. CI also checks Bash syntax and ShellCheck.
+
+By default (`BENCH_CHAOS_TIMING=epoch`), the operator opens the existing RPC tunnel and reads
+the registry at a pinned execution block. The preceding closing block's timestamp anchors
+the schedule. After at least `BENCH_CHAOS_MIN_LOAD_SECS=600` seconds of planned mixed load,
+the drill kills validator-05 `BENCH_CHAOS_BEFORE_CLOSE_SECS=59` seconds before an eligible
+epoch boundary. It restarts after `BENCH_CHAOS_DOWNTIME_SECS=300` seconds from the kill and
+restarts the observer `BENCH_CHAOS_OBS_AFTER_BACK_SECS=300` seconds later. An unavailable
+epoch read stops the run before load VMs are created. A restart scheduled after the workload
+also stops the run, so extend `BENCH_DURATION_SECS` for long outages.
+
+Use `BENCH_CHAOS_BEFORE_CLOSE_SECS=600 BENCH_CHAOS_DOWNTIME_SECS=900` for a mid-epoch
+kill that still crosses the boundary. The offset must fit the measured epoch duration and
+the downtime must exceed the offset. The drill keeps its existing owed-restart cleanup.
+
+`manifest.chaos_schedule` records the measured epoch, anchor block/hash, and planned times.
+`manifest.chaos_boundary` records the actual block that opened the next epoch.
+`chaos-remote.log` records the remote host's action begin/end times, including failed actions.
+These observed times establish how close the kill really landed to the boundary.
+
+Enable `--log.stdout.filter 'info,state-sync=debug,consensus-chain=debug,tn::observer=debug'`
+in the deployed node command before a recovery investigation. The sampler appends decimal
+block height to each CSV row and inventories epoch-pack sizes and modification times every
+minute. `collect` pulls both files. Teardown pulls them again with the service journal into
+`logs/<node>-recovery-<instance-id>.*.tgz` before deleting anything. Missing sampler files
+on an older deployment are allowed; a failed transfer or invalid archive stops teardown.
+Retries reuse a readable archive only for the same VM instance ID.
+The existing explicit `BENCH_TEARDOWN_SKIP_LOGS=1` override also covers this evidence.
+
+For the legacy `BENCH_CHAOS_TIMING=mixed` mode, the mixed phase starts at
+`BENCH_START_AT + preamble + warmup`. From that point:
 
 - **+15 min**: `docker kill -s KILL telcoin` on `bench-validator-05`, followed immediately by
   `systemctl stop telcoin`. The unit has `Restart=on-failure`, so without the stop it would
@@ -145,6 +176,7 @@ blaster (`docker stop txgen`) and allows 10 minutes for the results to upload.
 | `obs-memory` | obs-devnet memory is above 85 % |
 | `batch-cache-cliff` | `FatalDBFailure` shows up in a node's `docker logs telcoin`. This is the batch-cache defect, **not** a hardware limit, and the report must say so. |
 | `quorum-lost` | two consecutive polls in which no node's `max by (node)(tn_primary_round{network="bench"})` advanced. A failed Prometheus query counts as unknown, never as stalled. |
+| `node-stalled` | one validator's epoch/round stays unchanged for two consecutive polls while peers advance. Planned outages and pauses are exempt. Observers and missing metrics are not counted; an unknown poll resets the comparison. The victim's log is saved before aborting. |
 
 A blaster is deleted only when its serial marker says `rc=0 reason=ok`, which means its
 results are in the bucket. A failed upload reports `rc=75 reason=upload-failed`. Any other

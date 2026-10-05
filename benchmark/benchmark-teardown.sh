@@ -431,6 +431,23 @@ if [ "${pull_rc}" -ne 0 ] || [ "${#MISSING[@]}" -gt 0 ]; then
     fi
 fi
 
+# Preserve sampler history and the service journal before any deletion, even when a
+# previous attempt already saved the node's container log.
+source "${DIR}/recovery-lib.sh"
+for i in "${!INSTANCE_NAMES[@]}"; do
+    inst="${INSTANCE_NAMES[$i]}"
+    id="$(printf '%s' "${GATE_IDS}" | awk -v z="${ZONES[$i]}" -v n="${inst}" '$1 == z && $2 == n { print $3; exit }')"
+    [ -n "${id}" ] || continue
+    if ! bench_pull_recovery_evidence "${inst}" "${ZONES[$i]}" "${id}" "${LOG_DIR}"; then
+        if [ "${SKIP_LOGS}" = 1 ]; then
+            bench_manifest_note "teardown: recovery evidence unavailable for ${inst} (BENCH_TEARDOWN_SKIP_LOGS=1)"
+        else
+            echo "recovery evidence missing for ${inst}; nothing was deleted" >&2
+            exit 1
+        fi
+    fi
+done
+
 # ================================ delete ==================================================
 echo ""
 echo ">>> plan / execution"

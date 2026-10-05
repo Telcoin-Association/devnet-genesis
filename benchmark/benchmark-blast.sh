@@ -8,9 +8,9 @@
 #            gs://<bucket>/<run>/index-<RUN_INDEX>/funder/ into results/<run>/funder/, then
 #            deletes the VM (unless --keep).
 #   run      bench-blaster-01..10, one per validator in the validator's zone, all starting at
-#            BENCH_START_AT=now+BENCH_START_DELAY_SECS. Runs the chaos schedule (kill -9
-#            bench-validator-05 at mixed+15 min, restart it at mixed+20 min, restart the
-#            observer at mixed+25 min) and the abort watchers, waits for every
+#            BENCH_START_AT=now+BENCH_START_DELAY_SECS. Reads the epoch boundary to schedule
+#            a direct kill and a restart across it, then restarts the observer. The legacy
+#            workload offsets remain available with BENCH_CHAOS_TIMING=mixed. It waits for every
 #            BENCH_BLAST_DONE, copies gs://<bucket>/<run>/index-<RUN_INDEX>/blasters/ into
 #            results/<run>/blasters/, deletes the blasters (unless --keep). BENCH_CHAOS=0 skips
 #            the chaos schedule.
@@ -74,6 +74,7 @@ fi
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
 source "${DIR}/bench-lib.sh"
+source "${DIR}/recovery-lib.sh"
 
 DEPLOYMENTS_FILE="${BENCH_DEPLOYMENTS_JSON:-${BENCH_RESULTS_DIR}/deployments-bench.json}"
 STARTUP="${DIR}/blaster-startup.sh"
@@ -453,6 +454,7 @@ CHAOS_RC=0        # rc of the last chaos_do
 DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
 PREV_ROUNDS=""    # {"<node>": max tn_primary_round} from the previous poll (Prometheus)
 STALL_POLLS=0; LAST_ADVANCE_TS=0
+NODE_STALL_COUNTS="{}"
 
 record_abort() { # <reason> <node> <detail>
     [ -n "${ABORTED}" ] && return 0
@@ -471,7 +473,9 @@ record_chaos() { # <node> <action> <note> <rc>
 chaos_do() {
     local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" rc=0
     bench_log "CHAOS ${inst}: $3"
-    tn_iap_ssh "${inst}" "${zone}" "$2" || rc=$?
+    local remote_cmd="printf 'BENCH_CHAOS_BEGIN node=${inst} '; date -u +%s.%N; { $2; }; action_rc=\$?; printf 'BENCH_CHAOS_END node=${inst} rc=%s ' \"\$action_rc\"; date -u +%s.%N; exit \"\$action_rc\""
+    tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" \
+        | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log" || rc=$?
     CHAOS_RC="${rc}"
     record_chaos "${inst}" "$3" "$4" "${rc}"
 }
@@ -563,6 +567,7 @@ round_stall_check() {
     cur="$(bench_prom_rounds max)"
     if [ -z "${cur}" ] || [ "${cur}" = "{}" ]; then
         echo "    consensus rounds: unknown (Prometheus query failed/empty) — not counted"
+        PREV_ROUNDS=""; STALL_POLLS=0; NODE_STALL_COUNTS="{}"
         return 0
     fi
     if [ -n "${PREV_ROUNDS}" ]; then
@@ -573,6 +578,31 @@ round_stall_check() {
         else
             STALL_POLLS=$((STALL_POLLS + 1))
             echo "    ⚠ no node's consensus round advanced since the last poll (${STALL_POLLS} consecutive)"
+        fi
+    fi
+    if [ -n "${PREV_ROUNDS}" ]; then
+        local validators=() exempt=() i node validator_json exempt_json stalled
+        for i in "${!INSTANCE_NAMES[@]}"; do
+            [ "${NODE_ROLES[$i]}" != validator ] || validators+=("${INSTANCE_NAMES[$i]}")
+        done
+        if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ]; then
+            exempt+=("${INSTANCE_NAMES[$CHAOS_KILL_IDX]}")
+        fi
+        if [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ]; then
+            exempt+=("${INSTANCE_NAMES[$BENCH_LAG_IDX]}")
+        fi
+        validator_json="$(printf '%s\n' "${validators[@]-}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+        exempt_json="$(printf '%s\n' "${exempt[@]-}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+        NODE_STALL_COUNTS="$(bench_node_stall_counts "${PREV_ROUNDS}" "${cur}" "${NODE_STALL_COUNTS}" "${validator_json}" "${exempt_json}")"
+        if [ "${adv:-0}" -gt 0 ] && [ "${done_all}" -eq 0 ]; then
+            stalled="$(printf '%s' "${NODE_STALL_COUNTS}" | jq -r 'to_entries[] | select(.value >= 2) | .key')"
+            while IFS= read -r node; do
+                [ -n "${node}" ] || continue
+                for i in "${!INSTANCE_NAMES[@]}"; do
+                    [ "${INSTANCE_NAMES[$i]}" != "${node}" ] || save_log_first "${i}" stalled
+                done
+                record_abort "node-stalled" "${node}" "unchanged epoch/round in two consecutive polls while peers advance"
+            done <<< "${stalled}"
         fi
     fi
     PREV_ROUNDS="${cur}"
@@ -768,8 +798,37 @@ do_run() {
     echo "    phases (planned): preamble ${BENCH_PREAMBLE_SECS}s, warmup ${BENCH_WARMUP_SECS}s, mixed ${BENCH_DURATION_SECS}s, cooldown ${BENCH_COOLDOWN_SECS}s; wait deadline $(bench_iso_from_unix "${deadline}")"
     local chaos_on="${BENCH_CHAOS:-1}"
     local t_kill=$(( mixed_start + BENCH_CHAOS_KILL_AT_SECS )) t_back=$(( mixed_start + BENCH_CHAOS_BACK_AT_SECS )) t_obs=$(( mixed_start + BENCH_CHAOS_OBS_AT_SECS ))
+    local recovery_schedule="" boundary_record=""
     if [ "${chaos_on}" = "1" ]; then
-        echo "    chaos: $(bench_iso_from_unix "${t_kill}") kill -9 ${INSTANCE_NAMES[$CHAOS_KILL_IDX]}; $(bench_iso_from_unix "${t_back}") start it; $(bench_iso_from_unix "${t_obs}") restart ${INSTANCE_NAMES[$OBSERVER_IDX]}"
+        case "${BENCH_CHAOS_TIMING}" in
+            epoch)
+                if [ "${BENCH_APPLY}" = "1" ]; then
+                    bench_require_tools python3 cast || exit 1
+                    bench_tunnel_up || bench_die "cannot measure the epoch boundary"
+                    recovery_schedule="$(python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" \
+                        --earliest-kill "$((mixed_start + BENCH_CHAOS_MIN_LOAD_SECS))" \
+                        --before-close "${BENCH_CHAOS_BEFORE_CLOSE_SECS}" --downtime "${BENCH_CHAOS_DOWNTIME_SECS}")" \
+                        || bench_die "cannot measure the epoch boundary"
+                    t_kill="$(printf '%s' "${recovery_schedule}" | jq -r .kill_unix)"
+                    t_back="$(printf '%s' "${recovery_schedule}" | jq -r .restart_unix)"
+                    t_obs=$((t_back + BENCH_CHAOS_OBS_AFTER_BACK_SECS))
+                    [ "${t_back}" -lt "$((mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS))" ] \
+                        || bench_die "measured restart falls after the workload; extend BENCH_DURATION_SECS"
+                    bench_manifest_jq --argjson s "${recovery_schedule}" '.chaos_schedule = $s'
+                else
+                    echo "    epoch timing: --yes reads the actual registry and boundary before scheduling"
+                fi
+                ;;
+            mixed) ;;
+            *) bench_die "BENCH_CHAOS_TIMING must be epoch or mixed" ;;
+        esac
+    fi
+    if [ "${chaos_on}" = "1" ]; then
+        if [ "${BENCH_CHAOS_TIMING}" = epoch ] && [ "${BENCH_APPLY}" != 1 ]; then
+            echo "    chaos: epoch-relative kill/restart times require the measured RPC snapshot"
+        else
+            echo "    chaos: $(bench_iso_from_unix "${t_kill}") kill -9 ${INSTANCE_NAMES[$CHAOS_KILL_IDX]}; $(bench_iso_from_unix "${t_back}") start it; $(bench_iso_from_unix "${t_obs}") restart ${INSTANCE_NAMES[$OBSERVER_IDX]}"
+        fi
     else
         echo "    chaos: disabled (BENCH_CHAOS=0)"
     fi
@@ -857,13 +916,23 @@ do_run() {
             # ssh is in flight may follow a kill that landed. When it did not land, the owed restart
             # is harmless: `systemctl start` on an active unit does nothing, and is-active passes.
             RUN_DID_KILL=1
-            chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin; sudo systemctl stop telcoin; systemctl is-active telcoin || true" \
-                "docker kill -s KILL telcoin" "5 min outage then restart (replay worst case); systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors"
+            chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin && sudo systemctl stop telcoin && { systemctl is-active telcoin || true; }" \
+                "docker kill -s KILL telcoin" "restart across the epoch boundary; systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors"
+            if [ "${BENCH_CHAOS_TIMING}" = epoch ]; then
+                t_back=$(( $(bench_now_unix) + BENCH_CHAOS_DOWNTIME_SECS ))
+                t_obs=$(( t_back + BENCH_CHAOS_OBS_AFTER_BACK_SECS ))
+                bench_manifest_jq --argjson due "${t_back}" '.chaos_restart_due_unix = $due'
+            fi
             bench_manifest_note "blaster-05-outage: ${kill_blaster}'s only RPC target ${INSTANCE_NAMES[$CHAOS_KILL_IDX]} is down from $(bench_now_iso) for ~$(( t_back - t_kill ))s (chaos); its connection errors/resends in that window are the chaos, not a blaster fault" || true
         fi
         # The restart is owed even after an abort: never leave v05 down. Not confirmed, it is tried
         # again at the next poll (t_back moves there), and at each one after that until it is.
         if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ] && { [ "${now}" -ge "${t_back}" ] || [ -n "${ABORTED}" ]; }; then
+            if [ -n "${recovery_schedule}" ] && [ -z "${boundary_record}" ]; then
+                boundary_record="$(python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" \
+                    --epoch "$(( $(printf '%s' "${recovery_schedule}" | jq -r .closing_epoch) + 1 ))")" || true
+                [ -z "${boundary_record}" ] || bench_manifest_jq --argjson b "${boundary_record}" '.chaos_boundary = $b'
+            fi
             chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm" \
                 || t_back=$(( next_poll > now ? next_poll : now + BENCH_POLL_SECS ))
         fi
@@ -911,7 +980,7 @@ do_run() {
 
         if [ -n "${ABORTED}" ] && [ "${RUN_STOPPED}" -eq 0 ]; then
             bench_log "stopping blasters (docker stop txgen) after abort: ${ABORTED}"
-            stop_blasters || true
+            stop_blasters 1 || true
             deadline=$(( now + 600 ))
             next_poll=$(( now + BENCH_POLL_SECS ))
             t_unpause=$(( t_unpause < now ? t_unpause : now ))    # an owed unpause runs on the next pass
@@ -970,6 +1039,8 @@ do_collect() {
         echo "    ${inst}: sampler CSV (IAP scp)"
         bench_run bench_iap_scp_down "${inst}" "${ZONES[$i]}" "/var/lib/bench-sampler/${inst}.csv" "${BENCH_RESULTS_DIR}/sampler/${inst}.csv" \
             || bench_warn "sampler CSV from ${inst} not copied"
+        bench_run bench_iap_scp_down "${inst}" "${ZONES[$i]}" "/var/lib/bench-sampler/${inst}.epochs.txt" "${BENCH_RESULTS_DIR}/sampler/${inst}.epochs.txt" \
+            || bench_warn "epoch inventory from ${inst} not copied"
     done
     copy_prefix "$(recorded_prefix blast blasters)" blasters || true
     copy_prefix "$(recorded_prefix fund funder)" funder || true

@@ -190,9 +190,15 @@ export BENCH_COOLDOWN_SECS="${BENCH_COOLDOWN_SECS:-180}"
 export BENCH_PREAMBLE_SECS="${BENCH_PREAMBLE_SECS:-90}" # estimate of the generator's own preamble
 export BENCH_START_DELAY_SECS="${BENCH_START_DELAY_SECS:-300}"
 export BENCH_POLL_SECS="${BENCH_POLL_SECS:-240}"        # >= 240: IAP/serial polling lesson
-# Chaos schedule, seconds after the mixed phase starts (kill v05, restart it, restart observer).
+# Boundary timing reads the registry and its preceding closing block over the RPC tunnel.
+# BENCH_CHAOS_TIMING=mixed retains the original offsets from workload start.
 # BENCH_CHAOS=0 skips all three.
 export BENCH_CHAOS="${BENCH_CHAOS:-1}"
+export BENCH_CHAOS_TIMING="${BENCH_CHAOS_TIMING:-epoch}"
+export BENCH_CHAOS_MIN_LOAD_SECS="${BENCH_CHAOS_MIN_LOAD_SECS:-600}"
+export BENCH_CHAOS_BEFORE_CLOSE_SECS="${BENCH_CHAOS_BEFORE_CLOSE_SECS:-59}"
+export BENCH_CHAOS_DOWNTIME_SECS="${BENCH_CHAOS_DOWNTIME_SECS:-300}"
+export BENCH_CHAOS_OBS_AFTER_BACK_SECS="${BENCH_CHAOS_OBS_AFTER_BACK_SECS:-300}"
 export BENCH_CHAOS_KILL_AT_SECS="${BENCH_CHAOS_KILL_AT_SECS:-900}"
 export BENCH_CHAOS_BACK_AT_SECS="${BENCH_CHAOS_BACK_AT_SECS:-1200}"
 export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
