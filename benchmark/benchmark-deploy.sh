@@ -62,6 +62,7 @@
 #   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9          # resume
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15         # one step
+#   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts --to 12   # stop after step N
 #   benchmark/benchmark-deploy.sh --probe-node-image [REF]   # the gate's node image probe alone (local,
 #       no run dir, no manifest; REF defaults to the configured image; with --yes a local image is
 #       refused unless its repo digest is the registry's, exactly as at the gate). Expectations:
@@ -74,13 +75,15 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
-CONFIRM=0; FROM=0; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
+CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
 PROBE_ONLY=0; PROBE_REF=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
         --from) FROM="${2:?--from needs a step number}"; shift ;;
         --from=*) FROM="${1#*=}" ;;
+        --to) TO="${2:?--to needs a step number}"; shift ;;
+        --to=*) TO="${1#*=}" ;;
         --only) ONLY="${2:?--only needs a step number}"; shift ;;
         --only=*) ONLY="${1#*=}" ;;
         --with-contracts) WITH_CONTRACTS=1 ;;
@@ -92,12 +95,14 @@ while [ $# -gt 0 ]; do
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
     esac
     shift
 done
 is_step() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 0 ] && [ "$1" -le "${LAST_STEP}" ]; }
 is_step "${FROM}" || { echo "❌ --from must be 0..${LAST_STEP}" >&2; exit 1; }
+is_step "${TO}" || { echo "❌ --to must be 0..${LAST_STEP}" >&2; exit 1; }
+[ "${FROM}" -le "${TO}" ] || { echo "❌ --from ${FROM} is after --to ${TO}" >&2; exit 1; }
 [ -z "${ONLY}" ] || is_step "${ONLY}" || { echo "❌ --only must be 0..${LAST_STEP}" >&2; exit 1; }
 [ "${PROBE_ONLY}" -eq 0 ] || [ -n "${BENCH_RUN_ID:-}" ] || BENCH_RUN_ID="r00000000-0000"   # config.sh needs one
 export BENCH_RUN_ID="${BENCH_RUN_ID:-}"
@@ -1123,12 +1128,12 @@ $(plan_step9_lines)
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
   13  fund           benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
-  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, chaos on v05 + observer)
+  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
   15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
                      tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
   16  teardown       $([ "${WITH_TEARDOWN}" -eq 1 ] && echo "benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" || echo "SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)")
 
-Scope: $([ -n "${ONLY}" ] && echo "ONLY step ${ONLY}" || echo "steps ${FROM}..${LAST_STEP}")
+Scope: $([ -n "${ONLY}" ] && echo "ONLY step ${ONLY}" || echo "steps ${FROM}..${TO}")
 EOP
     echo "Local checks (no GCP calls):"
     local ok=1
@@ -1206,7 +1211,7 @@ fi
 
 # --- fail-fast gate for --yes runs (M1): everything a LATER step needs is checked now, so a
 # run cannot die at step 13 an hour after the fleet came up.
-in_range() { if [ -n "${ONLY}" ]; then [ "${ONLY}" -eq "$1" ]; else [ "${FROM}" -le "$1" ]; fi; }
+in_range() { if [ -n "${ONLY}" ]; then [ "${ONLY}" -eq "$1" ]; else [ "${FROM}" -le "$1" ] && [ "$1" -le "${TO}" ]; fi; }
 gate() {
     echo ">>> gate: prerequisites of the selected steps"
     local deps="${BENCH_DEPLOYMENTS_JSON:-${BENCH_RESULTS_DIR}/deployments-bench.json}" bad=0
@@ -1377,9 +1382,9 @@ if [ -n "${ONLY}" ]; then
     run_step "${ONLY}"
 else
     n="${FROM}"
-    while [ "${n}" -le "${LAST_STEP}" ]; do run_step "${n}"; n=$((n + 1)); done
+    while [ "${n}" -le "${TO}" ]; do run_step "${n}"; n=$((n + 1)); done
 fi
 echo ""
 echo "=========================================="
-echo "benchmark deploy: $([ -n "${ONLY}" ] && echo "step ${ONLY}" || echo "steps ${FROM}..${LAST_STEP}") complete — ${BENCH_RESULTS_DIR}"
+echo "benchmark deploy: $([ -n "${ONLY}" ] && echo "step ${ONLY}" || echo "steps ${FROM}..${TO}") complete — ${BENCH_RESULTS_DIR}"
 echo "=========================================="

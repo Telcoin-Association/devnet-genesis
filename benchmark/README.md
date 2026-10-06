@@ -255,6 +255,11 @@ BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts
 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9
 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15
 
+# Stop after a step (a sweep deploys the fleet with --to 12, then blasts per arm with --from 13 --to 15
+# under a new BENCH_RUN_INDEX each time):
+BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts --to 12
+BENCH_RUN_INDEX=1 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 13 --to 15
+
 # The blast phases on their own (steps 13-15 call exactly these):
 benchmark/benchmark-blast.sh fund    --run r20260923-0100 --yes
 benchmark/benchmark-blast.sh run     --run r20260923-0100 --yes      # --keep leaves the blasters up

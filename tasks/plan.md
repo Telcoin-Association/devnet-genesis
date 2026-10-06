@@ -19,7 +19,7 @@ Source plan: the approved "latency-adjustments" plan (see transcript). Branch
 
 ## W6 — latency-adjustments.md (repo root) → USER REVIEW GATE
 - [x] written + committed 46db468 (model: idle round ≈ 400 ms for min ≤ 300 on the new layout; arms A0 250/500, A1 50/250, A2 400/800, A3 250/1000, A4 500/1000)
-- [ ] user review + arm confirmation
+- [x] user review + arm confirmation (2026-10-06: "continue launch the stage-1 sweep"; arms A0..A4 and the Singapore-for-Jakarta layout unchanged)
 
 ## Live checks the operator/stage-1 runbook must do first
 - blast `fund`/`run` dry-run (new create argv; permission classifier blocked it here)
@@ -29,3 +29,8 @@ Source plan: the approved "latency-adjustments" plan (see transcript). Branch
 - site schema: tn-benchmarks/scrub.py needs optional `overrides`/`param_arms` under consensus before publishing a run that has them
 
 ## W7 stage 1 sweep → W8 stage 2 full run
+- [x] deploy gained `--to N` (stop after a step) so the sweep deploys 0..12, then blasts per arm with `--from 13 --to 15` under a new BENCH_RUN_INDEX; plan text shows chaos off when BENCH_CHAOS=0
+- [ ] W7 stage-1 sweep launched 2026-10-06 (fable orchestrator subagent; checkpoint `tasks/checkpoint-bench-stage1.md`; run id chosen at launch)
+  - deploy 0..12 (certfix image digest caeb6be2…, txgen blast-v2-9f61303, log filter on, BENCH_CHAOS=0) → params-apply `--stage-test bench-observer-11` → A0 → A1 → A2 → A3 → A4, each: open arm, ~8 min idle, 480 s blast (warm 60 / cool 60), collect, per-arm analysis
+  - teardown with the local gate; stage-1 section in benchmark/private/followups.md; lessons; chosen config reported
+- [ ] W8 stage-2 40-min chaos run with the chosen config
