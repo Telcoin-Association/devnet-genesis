@@ -23,6 +23,8 @@
 #   collect  sampler CSVs from every bench node (IAP scp) into results/<run>/sampler/, and the
 #            bucket prefixes of the blast and the funder output in results/<run>/ (manifest
 #            .blast/.fund.bucket_prefix; without one, the old gs://<bucket>/<run>/blasters|funder/).
+#            Then analysis/ (tools/block-rate.py; tools/cert-rate.py once node logs are pulled)
+#            and results/<run>/INDEX.md + CHECKSUMS.sha256, both non-fatal.
 #   delete   delete every bench-blaster-* / bench-funder VM of the benchmark (label-guarded).
 #   status   list the load VMs and the latest serial markers (read-only).
 #   chaos-stage-test --instance <node>
@@ -1403,6 +1405,9 @@ do_collect() {
     stall_scan
     copy_prefix "$(recorded_prefix blast blasters)" blasters || true
     copy_prefix "$(recorded_prefix fund funder)" funder || true
+    # results/<run>/ is the only copy of the run: index it now, so an interrupted run has one too.
+    bench_local_analysis
+    bench_local_index || bench_warn "INDEX.md / CHECKSUMS.sha256 not written — the teardown writes them"
 }
 
 # ================================ delete / status ====================================

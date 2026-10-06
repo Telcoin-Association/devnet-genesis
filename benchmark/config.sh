@@ -253,18 +253,9 @@ export BENCH_BUCKET="tn-devnet-bench-${BENCH_RUN_ID}"
 export BENCH_BUCKET_LOCATION="${BENCH_BUCKET_LOCATION:-us-west2}"
 export BENCH_FIREWALL_RULES=("bench-allow-consensus" "bench-allow-iap-rpc")
 export BENCH_LABELS="benchmark=1,network=bench,bench-run=${BENCH_RUN_ID}"
+# The only copy of a run: nothing is archived to a bucket. The teardown's local gate checks it holds
+# every node's logs before anything is deleted (bench_local_gate_check); back results/ up by hand.
 export BENCH_RESULTS_DIR="${BENCH_DIR}/results/${BENCH_RUN_ID}"
-# Persistent archive. The teardown copies results/<run>/ (node logs included) and the run bucket
-# here and verifies the copy before it deletes anything; collect copies too. Nothing in the harness
-# ever deletes from it: it is cleaned by hand once a run's results are qualified. The name stays
-# outside the teardown's bucket rule (label benchmark=1 or name tn-devnet-bench-*; self-check below).
-export BENCH_ARCHIVE_BUCKET="${BENCH_ARCHIVE_BUCKET:-tn-devnet-benchmark-archive}"
-export BENCH_ARCHIVE_LOCATION="${BENCH_ARCHIVE_LOCATION:-us-west2}"
-export BENCH_ARCHIVE_LABELS="purpose=bench-archive,retain=true"
-export BENCH_ARCHIVE_PREFIX="gs://${BENCH_ARCHIVE_BUCKET}/runs/${BENCH_RUN_ID}"
-export BENCH_ARCHIVE_TIMEOUT_SECS="${BENCH_ARCHIVE_TIMEOUT_SECS:-1800}"   # alarm per gcloud copy call
-export BENCH_TEARDOWN_SKIP_ARCHIVE="${BENCH_TEARDOWN_SKIP_ARCHIVE:-0}"   # 1 = delete even if the archive failed
-export BENCH_COLLECT_ARCHIVE="${BENCH_COLLECT_ARCHIVE:-1}"               # 1 = archive at collect too (non-fatal)
 # Abort thresholds (benchmark-blast.sh watchers).
 export BENCH_ABORT_DISK_PCT="${BENCH_ABORT_DISK_PCT:-85}"
 export BENCH_ABORT_OBS_MEM_PCT="${BENCH_ABORT_OBS_MEM_PCT:-85}"
@@ -293,24 +284,6 @@ fi
 if [ "${INSTANCE_TAGS}" != "bench-node" ]; then
     echo "❌ benchmark/config.sh: INSTANCE_TAGS must be exactly bench-node." >&2; exit 1
 fi
-# The archive must outlive every teardown, which deletes the buckets named tn-devnet-bench-* or
-# labelled benchmark=1 (bench_bucket_names also skips the archive by name).
-case "${BENCH_ARCHIVE_BUCKET}" in
-    ''|*[!a-z0-9._-]*) echo "❌ benchmark/config.sh: BENCH_ARCHIVE_BUCKET='${BENCH_ARCHIVE_BUCKET}' is not a bucket name ([a-z0-9._-])." >&2; exit 1 ;;
-    tn-devnet-bench-*) echo "❌ benchmark/config.sh: BENCH_ARCHIVE_BUCKET='${BENCH_ARCHIVE_BUCKET}' matches the teardown's tn-devnet-bench-* rule; the teardown would delete the archive." >&2; exit 1 ;;
-esac
-case ",${BENCH_ARCHIVE_LABELS}," in
-    *,benchmark=*|*,bench-run=*) echo "❌ benchmark/config.sh: BENCH_ARCHIVE_LABELS carries benchmark= or bench-run=; the teardown would treat the archive as a run bucket." >&2; exit 1 ;;
-esac
-for _bench_knob in BENCH_TEARDOWN_SKIP_ARCHIVE BENCH_COLLECT_ARCHIVE; do
-    case "${!_bench_knob}" in
-        0|1) ;;
-        *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
-    esac
-done
-case "${BENCH_ARCHIVE_TIMEOUT_SECS}" in
-    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_ARCHIVE_TIMEOUT_SECS='${BENCH_ARCHIVE_TIMEOUT_SECS}' must be a positive integer." >&2; exit 1 ;;
-esac
 # Compared by canonical directory (relative, ../ and symlinked-dir spellings); need not exist yet.
 _bench_pdir="$(cd "$(dirname -- "${PARAMETERS_FILE}")" 2>/dev/null && pwd -P)"
 if [ -n "${_bench_pdir}" ] && [ "${_bench_pdir}/$(basename -- "${PARAMETERS_FILE}")" = "$(cd "${BENCH_DIR}" && pwd -P)/parameters.yaml" ]; then
