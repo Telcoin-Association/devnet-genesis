@@ -462,6 +462,15 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     fi
 done
 
+# ================================ certification outcome (before the local gate) ===========
+# tools/cert-rate.py over the logs just pulled: manifest.certification and .cert_failures. Each
+# failing validator still up gets a cert-fail container-log snapshot, pulled into logs/ and listed
+# in .cert_failures[].logs[], which the local gate below requires. Informational: it only warns.
+echo ""
+echo ">>> certification outcome: ${LOG_DIR} (before the local gate, which requires every log manifest.cert_failures lists)"
+bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
+bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
+
 # ================================ local gate (before any delete) ==========================
 # results/<run>/ is the only copy of the run once the fleet is gone (see the header).
 echo ""
@@ -660,6 +669,7 @@ for s in "${SECRETS[@]}"; do
 done
 chk "compute-SA bindings on bench secrets" "${acc}"
 echo "    · results/${BENCH_RUN_ID}/ kept, the only copy (back it up outside the repo): $(_bench_results_totals "${BENCH_RESULTS_DIR}" | awk '{ print $1 " file(s), " $2 " bytes" }')"
+echo "    · certification: $(bench_certification_summary "$(bench_manifest)")"
 echo "    devnet instances (must all be present):"
 for d in "${DENY[@]}"; do
     st="$(printf '%s' "${now_inst}" | jq -r --arg n "${d}" '.[] | select(.name == $n) | .status')"

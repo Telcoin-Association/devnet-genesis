@@ -1455,6 +1455,10 @@ do_collect() {
     copy_prefix "$(recorded_prefix fund funder)" funder || true
     # results/<run>/ is the only copy of the run: index it now, so an interrupted run has one too.
     bench_local_analysis
+    # The certification outcome (manifest.certification, .cert_failures + log snapshots) needs the
+    # node logs, so it is usually recorded by the teardown; never fatal here.
+    bench_certification_record "${BENCH_RESULTS_DIR}/logs" "$(bench_manifest)" || bench_warn "certification not recorded"
+    bench_cert_failures_snapshot "${BENCH_RESULTS_DIR}/logs" "$(bench_manifest)" || bench_warn "certification snapshots not taken"
     bench_local_index || bench_warn "INDEX.md / CHECKSUMS.sha256 not written — the teardown writes them"
 }
 

@@ -502,6 +502,32 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
         self.assertIn("logs/cert-failure-%s.log.gz" % INST, read_checksums(self.results))
 
+    def test_missing_cert_fail_snapshot_stops_before_any_delete(self):
+        # A failing validator's snapshot, listed by an earlier record, is not in logs/. The manifest has
+        # no phases, so this teardown's record step changes nothing; its snapshot step cannot save a new
+        # one (the fake ssh refuses the command) and only adds the node's logs on disk.
+        self.give_every_node_its_logs()
+        snap = "logs/%s-telcoin-cert-fail-20991231T000000Z.log.gz" % INST
+        (self.results / "manifest.json").write_bytes(manifest_bytes(cert_failures=[
+            {"inst": INST, "window": "phase mixed", "rate_pct": 0.0, "logs": [snap]}]))
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-2000:])
+        out = p.stdout
+        self.assertLess(out.index(">>> certification outcome"), out.index(">>> local gate"))
+        self.assertIn("has no phases or param_arms yet", p.stderr)
+        self.assertIn("✗ missing or empty: %s (manifest.cert_failures)" % snap, out)
+        self.assertIn("NOTHING was deleted", p.stderr)
+        self.assert_nothing_deleted(p)
+        self.assertEqual(self.manifest()["cert_failures"][0]["logs"],
+                         sorted([snap, "logs/%s-telcoin.log.gz" % INST, "logs/%s-unit-stdout.log.gz" % INST]))
+        self.assertTrue(any(c["argv"][:3] == ["compute", "instances", "describe"] and INST in c["argv"]
+                            for c in self.cloud.calls()), "the snapshot step looked the node up")
+        write_tree(self.results, {snap: gz("the snapshot\n")})
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(snap, read_checksums(self.results))
+        self.assertIn("· certification: not recorded", p.stdout)
+
     def test_skip_knob_deletes_and_says_so(self):
         (self.results / "logs" / (INST + "-unit-stdout.log.gz")).unlink()
         p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_LOCAL_GATE="1")

@@ -275,6 +275,10 @@ export BENCH_RESULTS_DIR="${BENCH_DIR}/results/${BENCH_RUN_ID}"
 export BENCH_ABORT_DISK_PCT="${BENCH_ABORT_DISK_PCT:-85}"
 export BENCH_ABORT_OBS_MEM_PCT="${BENCH_ABORT_OBS_MEM_PCT:-85}"
 export BENCH_ABORT_STALL_SECS="${BENCH_ABORT_STALL_SECS:-120}"
+# Certification outcome (recorded after collect and at teardown, never an abort): a validator that
+# certified fewer than this % of its own headers in a window where it proposed >= 50 goes into
+# manifest.cert_failures, gets a log snapshot, and the teardown's local gate requires its logs.
+export BENCH_CERT_FAIL_PCT="${BENCH_CERT_FAIL_PCT:-90}"
 
 # --- self-checks: a mis-edit here must fail before anything reaches GCP ---------
 _bench_n="${#INSTANCE_NAMES[@]}"
