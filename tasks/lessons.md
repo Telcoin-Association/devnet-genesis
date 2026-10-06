@@ -928,3 +928,39 @@ txgen-devnet keeps a trickle of traffic flowing; a fresh chain with no load does
 telcoin`), and treat block height as a load indicator only. Same applies to any "quorum lost"
 watcher that runs before the load starts. Corollary for tooling: a `Monitor` pipeline that ends
 in `cut` delivers nothing — `cut` block-buffers when piped; use `grep --line-buffered` alone.
+
+## Bench node images are `make docker-devnet` builds; `docker-adiri` compiles the epoch-gated fork schedule (2026-10-06)
+
+**Symptom:** the certifier-fix image was built with `make docker-adiri TAG=…` (the obvious target
+for a repo named `adiri`) and the harness probe labelled it `adiri-schedule`, which the gate refuses
+for sub-second delays. The 5 Oct bench image had been built without the `adiri` feature (its probe
+record shows `fork schedule (adiri): 0`), i.e. with `docker-devnet`. One wasted 17-minute build.
+
+**Fix / rule:** before building a bench image, read the previous run's `manifest.node_probe.strings`
+(or run `--probe-node-image` on the baseline tag) and pick the Makefile target whose feature set
+reproduces it: `docker-devnet` (faucet, forks from genesis) for the bench and the devnet,
+`docker-adiri` only for the testnet. Record the target next to the tag in the plan.
+
+## A gcloud list flag that starts with `^` is parsed as `^DELIM^…`; a fake-gcloud test cannot see it (2026-10-06)
+
+**Symptom:** the first live archive sync (`gcloud storage rsync --exclude='^(genesis…|…)'`) crashed
+with `PatternError: unbalanced parenthesis`. gcloud's ArgList reads a value beginning with `^` as
+its custom-delimiter syntax (`^;^a;b`) and split the regex on `(genesis[`. 27 unit tests with a
+fake gcloud passed; the collect-time sync was non-fatal by design, so the run was not harmed and
+the teardown gate still had to be fixed before it could pass.
+
+**Fix / rule:** never start a gcloud list-flag value with `^` (drop it: `--exclude` is `re.match`,
+already anchored), and never put a comma in one. Any new gcloud invocation path gets ONE live,
+read-only rehearsal (`--dry-run`, `describe`, `ls`) against the real CLI before a gate depends on
+it, in addition to the stubbed tests; the stub proves the shell logic, not gcloud's parser.
+
+## GCE stockouts hit one machine family in one zone; keep a same-shape fallback family ready (2026-10-06)
+
+**Symptom:** `e2-standard-2` was out of stock in australia-southeast1-c twice in 15 minutes while
+`c3-highcpu-8` validators had been created there an hour earlier. Each failed attempt burned a
+blast index (fund + create + exit cleanup, ~8 min) and the fleet sat idle.
+
+**Fix / rule:** on a `reason: stockout`, retry at once with another family of the same shape
+(`BENCH_BLASTER_MACHINE_TYPE=n2-standard-2` worked first time) rather than waiting or re-trying the
+same family; record the substitution for the backfill (the manifest does not carry the blaster
+type). Consider making the blast step try a fallback family by itself.
