@@ -1,0 +1,8 @@
+ts=2026-01-01T00:00:00.100000000Z level=INFO target=cli message="telcoin-network 0.1.0 (ba5e11e0ba5e11e0ba5e11e0ba5e11e0ba5e11e0) starting"
+ts=2026-01-01T00:00:00.150000000Z level=INFO target=cli message="starting node and launching first epoch"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max header delay set to 3000 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Min header delay set to 1000 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max batch delay set to 1000 ms"
+ts=2026-01-01T00:00:00.220000000Z level=INFO target=tn_network message="Sync retry delay set to 5000 ms"
+ts=2026-01-01T00:00:00.300000000Z level=INFO target=cli message="fork schedule: seed_signature, multi_workers, prevrandao, and leader_seeded_ordering active from genesis"
+ts=2026-01-01T00:00:02.000000000Z level=INFO target=consensus message="subdag committed" round=4

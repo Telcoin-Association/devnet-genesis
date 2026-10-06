@@ -18,6 +18,10 @@
 #
 # Required: BENCH_RUN_ID (rYYYYMMDD-HHMM, e.g. r20260923-0100). It names the results
 # dir, the GCS bucket and the bench-run label on every resource.
+#
+# Default fleet shape ("c3-hdb"): c3-highcpu-8 + 100 GB hyperdisk-balanced provisioned at
+# 20000 IOPS / 800 MiB/s, consensus timing from benchmark/consensus-parameters.yaml. The e2
+# baseline ("A") is BENCH_MACHINE_TYPE=e2-custom-4-8192 BENCH_NODE_DISK_TYPE=pd-ssd.
 
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
@@ -67,10 +71,6 @@ if [ "${#BENCH_RUN_ID}" -gt 40 ]; then
     echo "❌ BENCH_RUN_ID is longer than 40 chars." >&2; exit 1
 fi
 export BENCH_RUN_ID
-# Fleet label for the manifest/report: A is the e2 baseline; any other BENCH_MACHINE_TYPE
-# labels itself by machine type unless BENCH_FLEET is set explicitly (the c3 run was
-# mislabelled "A" before this default existed).
-export BENCH_FLEET="${BENCH_FLEET:-${BENCH_MACHINE_TYPE:-A}}"
 
 #
 # Fleet: 10 validators + 1 observer, two per region across devnet's five regions,
@@ -107,14 +107,33 @@ unset WG_HUB_ENDPOINT WG_HUB_PUBKEY
 # survives it), so the bench pins its own through BENCH_DOCKER_IMAGE: a tag or repo@sha256:<digest>.
 export DOCKER_IMAGE="${BENCH_DOCKER_IMAGE:-${DOCKER_IMAGE}}"
 
-# Machines. Same shape as devnet unless overridden for a sizing sweep.
-export MACHINE_TYPE="${BENCH_MACHINE_TYPE:-e2-custom-4-8192}"
+# Machines. Default c3-highcpu-8 + hyperdisk-balanced (the c3-hdb shape of the 29 Sep run);
+# override per sizing sweep. e2/n1 cannot attach hyperdisk, so they need BENCH_NODE_DISK_TYPE=pd-ssd.
+export MACHINE_TYPE="${BENCH_MACHINE_TYPE:-c3-highcpu-8}"
 export NODE_DISK_SIZE="${BENCH_NODE_DISK_SIZE:-100}"   # GB boot disk (create-instances.sh --create-disk size=)
-export NODE_DISK_TYPE="${BENCH_NODE_DISK_TYPE:-pd-ssd}"
-# Hyperdisk only (a hyperdisk-* type and a machine type that supports it, e.g. c3/n4 — not e2).
-# Empty = not passed to gcloud; the disk gets the type's default.
-export NODE_DISK_IOPS="${BENCH_NODE_DISK_IOPS:-}"
-export NODE_DISK_THROUGHPUT="${BENCH_NODE_DISK_THROUGHPUT:-}"   # MiB/s
+export NODE_DISK_TYPE="${BENCH_NODE_DISK_TYPE:-hyperdisk-balanced}"
+# Provisioned IOPS / throughput (MiB/s): hyperdisk only. On hyperdisk-balanced an UNSET knob
+# defaults to 20000 / 800; an explicitly empty one (BENCH_NODE_DISK_IOPS=) is not passed to
+# gcloud, so the disk gets the type's default. On any other type both default to empty.
+case "${NODE_DISK_TYPE}" in
+    hyperdisk-balanced)
+        export NODE_DISK_IOPS="${BENCH_NODE_DISK_IOPS-20000}"
+        export NODE_DISK_THROUGHPUT="${BENCH_NODE_DISK_THROUGHPUT-800}" ;;
+    *)   # other hyperdisk-* types provision only IOPS (extreme) or only throughput: set them explicitly
+        export NODE_DISK_IOPS="${BENCH_NODE_DISK_IOPS:-}"
+        export NODE_DISK_THROUGHPUT="${BENCH_NODE_DISK_THROUGHPUT:-}" ;;
+esac
+# Fleet label for the manifest/report, derived from the machine + disk shape: A = e2 baseline
+# on pd-ssd, B = c3 on pd-ssd, <family>-hdb on hyperdisk-balanced (c3-hdb, n4-hdb), else the
+# machine type. An explicit BENCH_FLEET always wins. (The first c3 run was mislabelled "A".)
+case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
+    e2-custom-4-8192:pd-ssd) _bench_fleet="A" ;;
+    c3-highcpu-8:pd-ssd)     _bench_fleet="B" ;;
+    *:hyperdisk-balanced)    _bench_fleet="${MACHINE_TYPE%%-*}-hdb" ;;
+    *)                       _bench_fleet="${MACHINE_TYPE}" ;;
+esac
+export BENCH_FLEET="${BENCH_FLEET:-${_bench_fleet}}"
+unset _bench_fleet
 # Tag + labels. ONLY bench-node: none of devnet's tags (validator, http-server,
 # https-server, lb-health-check), so no devnet VPC rule, LB backend or health check can
 # ever select a bench node. create-instances.sh appends tn-role=<role> per node.
@@ -142,7 +161,13 @@ export BENCH_PROM_DATASOURCE_UID="prometheus"
 export GENESIS_WORKSPACE="${BENCH_DIR}"
 export GENESIS_FILE="${GENESIS_WORKSPACE}/genesis/genesis.yaml"
 export COMMITTEE_FILE="${GENESIS_WORKSPACE}/genesis/committee.yaml"
-export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
+# Consensus timing. The node reads parameters.yaml from its datadir, staged from this file by
+# devnet-finalize.sh; genesis.yaml carries no header delays. Never benchmark/parameters.yaml:
+# `telcoin genesis` writes that name into the workspace at deploy step 6 (self-check below).
+export PARAMETERS_FILE="${BENCH_PARAMETERS_FILE:-${BENCH_DIR}/consensus-parameters.yaml}"
+# Absolute: the drivers re-source this file after changing directory.
+case "${PARAMETERS_FILE}" in /*) ;; *) PARAMETERS_FILE="$(pwd -P)/${PARAMETERS_FILE}" ;; esac
+export PARAMETERS_FILE
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"
 
@@ -249,6 +274,18 @@ fi
 if [ "${INSTANCE_TAGS}" != "bench-node" ]; then
     echo "❌ benchmark/config.sh: INSTANCE_TAGS must be exactly bench-node." >&2; exit 1
 fi
+# Compared by canonical directory (relative, ../ and symlinked-dir spellings); need not exist yet.
+_bench_pdir="$(cd "$(dirname -- "${PARAMETERS_FILE}")" 2>/dev/null && pwd -P)"
+if [ -n "${_bench_pdir}" ] && [ "${_bench_pdir}/$(basename -- "${PARAMETERS_FILE}")" = "$(cd "${BENCH_DIR}" && pwd -P)/parameters.yaml" ]; then
+    echo "❌ benchmark/config.sh: PARAMETERS_FILE='${PARAMETERS_FILE}' resolves to benchmark/parameters.yaml, which \`telcoin genesis\` overwrites at deploy step 6; use benchmark/consensus-parameters.yaml." >&2; exit 1
+fi
+if [ ! -f "${PARAMETERS_FILE}" ] || [ ! -r "${PARAMETERS_FILE}" ]; then
+    echo "❌ benchmark/config.sh: PARAMETERS_FILE='${PARAMETERS_FILE}' is not a readable regular file." >&2; exit 1
+fi
+case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
+    e2-*:hyperdisk-*|n1-*:hyperdisk-*)
+        echo "❌ benchmark/config.sh: MACHINE_TYPE='${MACHINE_TYPE}' cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
+esac
 for _bench_knob in NODE_DISK_IOPS NODE_DISK_THROUGHPUT; do
     case "${!_bench_knob}" in
         '') continue ;;
@@ -280,4 +317,4 @@ fi
 if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
     echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
 fi
-unset _bench_n _bench_arr _bench_name _bench_knob
+unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir

@@ -1,0 +1,4 @@
+[2m2026-01-01T00:20:00.500000Z[0m [32m INFO[0m [2mcli[0m: telcoin-network 0.1.1 (5CA1AB1E0DDBA11C0FFEE0123456789ABCDEF012) starting
+[2m2026-01-01T00:20:00.600000Z[0m [32m INFO[0m tn_config::node: Max header delay set to 0.5 s
+[2m2026-01-01T00:20:00.600000Z[0m [32m INFO[0m tn_config::node: Vote timeout set to 2 secs
+[2m2026-01-01T00:20:00.700000Z[0m [32m INFO[0m cli: fork schedule: seed_signature active from genesis; subsecond_timestamp at epoch 5

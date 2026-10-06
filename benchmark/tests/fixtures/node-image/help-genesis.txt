@@ -1,0 +1,10 @@
+Create the genesis of a new chain
+Usage: telcoin genesis [OPTIONS]
+Options:
+      --datadir <DATADIR>
+      --chain-id <CHAIN_ID>
+      --bls-passphrase-source <SOURCE>
+      --accounts <ACCOUNTS>
+      --epoch-duration-in-secs <SECS>
+      --min-header-delay-ms <MS>
+      --max-header-delay-ms <MS>

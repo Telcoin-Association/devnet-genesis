@@ -1,0 +1,6 @@
+{"timestamp":"2026-01-01T00:00:01.000000Z","level":"INFO","fields":{"message":"telcoin-network 0.1.0 (5ca1ab1e0ddba11c0ffee0123456789abcdef012) starting"},"target":"cli"}
+{"timestamp":"2026-01-01T00:00:01.100000Z","level":"INFO","fields":{"message":"Max header delay set to 500 ms"},"target":"tn_config::node"}
+{"timestamp":"2026-01-01T00:00:01.100000Z","level":"INFO","fields":{"message":"Min header delay set to 250 ms"},"target":"tn_config::node"}
+{"timestamp":"2026-01-01T00:00:01.100000Z","level":"INFO","fields":{"message":"Max batch delay set to 250 ms"},"target":"tn_config::node"}
+{"timestamp":"2026-01-01T00:00:01.200000Z","level":"INFO","fields":{"message":"fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"},"target":"cli"}
+{"timestamp":"2026-01-01T00:00:03.000000Z","level":"INFO","fields":{"message":"got new consensus"},"target":"consensus"}

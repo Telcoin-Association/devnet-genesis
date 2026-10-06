@@ -1,0 +1,7 @@
+Generate the keys of a validator
+Usage: telcoin keytool generate validator [OPTIONS] --address <ADDRESS>
+Options:
+      --datadir <DATADIR>
+      --address <ADDRESS>
+      --external-primary-addr <MULTIADDR>
+      --external-worker-addrs <MULTIADDRS>

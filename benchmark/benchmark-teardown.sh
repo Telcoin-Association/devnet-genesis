@@ -25,6 +25,8 @@
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
 # instance that holds its name NOW and every log that marker lists is still here; a marker or a
 # log an earlier fleet left under the same name never counts. An instance already gone never blocks.
+# After the deletes, report/provenance.py checks the node build the saved logs show against the
+# manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks).
 #
 # Instance rule: labels.benchmark == "1" AND (name ∈ bench INSTANCE_NAMES OR name ~
 # ^bench-(blaster|funder)) AND name ∉ the devnet denylist (INSTANCE_NAMES of a clean
@@ -49,7 +51,7 @@ while [ $# -gt 0 ]; do
         --purge) PURGE=1 ;;
         --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
-        -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
         *) echo "❌ unknown argument '$1' (supported: --yes, --run ID, --purge)" >&2; exit 1 ;;
     esac
     shift
@@ -544,6 +546,36 @@ if [ -d "${BENCH_DIR}/genesis" ]; then
         bench_run mv "${BENCH_DIR}/genesis" "${BENCH_RESULTS_DIR}/genesis"
     fi
 fi
+
+# ================================ node startup provenance =================================
+# Informational: which node build the saved logs show each node started (report/provenance.py,
+# against the manifest's node_git_sha), written to the manifest as node_startup_check. Runs once
+# the log gate has passed (with BENCH_TEARDOWN_SKIP_LOGS=1, on whatever logs were saved) and after
+# the deletes, so the fleet is not kept up while the logs are read. Its result never stops the teardown.
+node_startup_check() {
+    local prov="${DIR}/report/provenance.py" out rc=0 why
+    echo ""
+    echo ">>> node startup provenance (informational — never blocks the teardown)"
+    command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — node startup provenance not checked"; return 0; }
+    [ -f "${prov}" ] || { bench_warn "${prov} missing — node startup provenance not checked"; return 0; }
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        bench_run python3 "${prov}" --run-dir "${BENCH_RESULTS_DIR}" --update-manifest
+        return 0
+    fi
+    out="$(python3 "${prov}" --run-dir "${BENCH_RESULTS_DIR}" --update-manifest 2>&1)" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/    /'
+    case "${rc}" in
+        0) echo "    ✓ node startup provenance ok" ;;
+        2) bench_warn "no node startup lines found in the saved logs" ;;
+        *)
+            bench_warn "node startup provenance mismatch — see manifest.node_startup_check"
+            why="$(jq -r '(.node_startup_check.problems // []) | join("; ")' "$(bench_manifest)" 2>/dev/null || true)"
+            bench_manifest_note "teardown: node startup provenance mismatch (provenance.py exit ${rc})${why:+: ${why}} — see node_startup_check" || true
+            ;;
+    esac
+    return 0
+}
+node_startup_check || bench_warn "node startup provenance check failed — teardown continues"
 
 # ================================ left-nothing checks =====================================
 echo ""

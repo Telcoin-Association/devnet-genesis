@@ -1,4 +1,4 @@
-name: Benchmark recovery capture
+name: Benchmark harness checks
 
 on:
   push:
@@ -14,15 +14,27 @@ jobs:
   recovery:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      BENCH_SHELL_SCRIPTS: >-
+        benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
+        benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/benchmark-deploy.sh
+        benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install shell lint tool
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-      - name: Validate shell and offline recovery fixtures
+      - name: Shell syntax
+        # bash -n checks only its first file argument, so one call per script.
+        run: for f in ${BENCH_SHELL_SCRIPTS}; do echo "bash -n ${f}"; bash -n "${f}"; done
+      - name: Shellcheck
+        run: shellcheck -S warning ${BENCH_SHELL_SCRIPTS}
+      - name: Python compile and 3.9 grammar
         run: |
-          bash -n benchmark/benchmark-blast.sh benchmark/recovery-lib.sh benchmark/node-sampler.sh benchmark/benchmark-teardown.sh
-          shellcheck -S warning benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh benchmark/benchmark-teardown.sh
-          python3 -m unittest discover -s benchmark/tests -v
-          python3 benchmark/tests/check_mutations.py
+          python3 -m py_compile benchmark/report/*.py benchmark/tests/*.py
+          python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')]"
+      - name: Unit tests (offline fixtures)
+        run: python3 -m unittest discover -s benchmark/tests -v
+      - name: Mutation checks
+        run: python3 benchmark/tests/check_mutations.py

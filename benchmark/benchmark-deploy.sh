@@ -10,12 +10,19 @@
 # executes the steps; every gcloud mutation prints its argv first, and everything the script
 # prints is also copied to results/<run>/logs/deploy-<UTC stamp>.log (a new file per invocation).
 #
-#    -  gate (--yes)     before ANY step: the pinned :blast-v2-<sha> image, cloudbuild.yaml,
-#                        config.bench.toml and deployments-bench.json that the selected steps need
+#    -  gate (--yes)     before ANY step: the node image probe when steps 0/5/6/7 are selected and the
+#                        run has not pinned an image yet (bench-lib bench_node_image_probe: digest,
+#                        telcoin -V sha, CLI flags, node-image-contract.txt strings, the EXPECT_* env);
+#                        from then on every step and sub-script runs <repo>@sha256:<digest>
+#                        (BENCH_DOCKER_IMAGE); manifest.json gets the probe, and consensus_parameters
+#                        when step 7 (which stages PARAMETERS_FILE) is selected. Refuses sub-second
+#                        delays (max_header_delay < 1000 ms) on a build not subsecond-from-genesis.
+#                        Also the pinned :blast-v2-<sha> image, cloudbuild.yaml, config.bench.toml and
+#                        deployments-bench.json that the selected steps need
 #    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
-#                        quota + a hyperdisk-* disk type offered in every fleet zone;
-#                        pre-snapshots; manifest.json
+#                        CPU quota per family metric (nodes: C3_CPUS for c3, ...; blasters: CPUS) +
+#                        a hyperdisk-* disk type offered in every fleet zone; pre-snapshots
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
@@ -34,11 +41,13 @@
 #                        assert the bench Alloy labels, restart (<=1 down at a time), wait for
 #                        eth_chainId on the internal IP + consensus progressing (blocks rose, or
 #                        subdag committed/quorum reached in its log — an idle chain stays at
-#                        block 0), install node-sampler
+#                        block 0), check its boot lines (git sha, max/min header + max batch delay,
+#                        fork schedule) against manifest.json -> manifest.node_startup, install node-sampler
 #   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id == 32286, Prometheus
 #                        min by (node)(tn_primary_round{network="bench"}) rising on all 11,
 #                        Prometheus: count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11
-#                        and no bench node has any series labelled network="devnet"
+#                        and no bench node has any series labelled network="devnet";
+#                        recovery-schedule.py: registry epoch duration == EPOCH_DURATION_SECS -> manifest.registry_probe
 #   11  contracts        (--with-contracts) tn-contracts worktree bench/<run> -> devnet-contracts.sh
 #   12  IAM + bucket     secretAccessor on the bench secrets for the compute SA; gs://<bucket>
 #   13  fund             benchmark-blast.sh fund --yes
@@ -51,12 +60,20 @@
 #   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9          # resume
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15         # one step
+#   benchmark/benchmark-deploy.sh --probe-node-image [REF]   # the gate's node image probe alone (local,
+#       no run dir, no manifest; REF defaults to the configured image; with --yes a local image is
+#       refused unless its repo digest is the registry's, exactly as at the gate). Expectations:
+#       BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:<hex> BENCH_NODE_EXPECT_SHA=<7-40 hex>
+#       BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis|adiri-schedule|pre-subsecond
+#   A resumed run (--run) keeps the node image its gate pinned (manifest node_image_pinned); a
+#   BENCH_DOCKER_IMAGE naming any other image is refused.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
 CONFIRM=0; FROM=0; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
+PROBE_ONLY=0; PROBE_REF=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
@@ -70,24 +87,52 @@ while [ $# -gt 0 ]; do
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
-        -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID)" >&2; exit 1 ;;
+        --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
+        --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
+        -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
     esac
     shift
 done
 is_step() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 0 ] && [ "$1" -le "${LAST_STEP}" ]; }
 is_step "${FROM}" || { echo "❌ --from must be 0..${LAST_STEP}" >&2; exit 1; }
 [ -z "${ONLY}" ] || is_step "${ONLY}" || { echo "❌ --only must be 0..${LAST_STEP}" >&2; exit 1; }
+[ "${PROBE_ONLY}" -eq 0 ] || [ -n "${BENCH_RUN_ID:-}" ] || BENCH_RUN_ID="r00000000-0000"   # config.sh needs one
 export BENCH_RUN_ID="${BENCH_RUN_ID:-}"
 # A resumed run keeps the image step 1 verified (the generator checkout may have moved on).
 if [ -z "${BENCH_TXGEN_SHA:-}" ] && [ -n "${BENCH_RUN_ID}" ] && [ -f "${DIR}/results/${BENCH_RUN_ID}/manifest.json" ]; then
     BENCH_TXGEN_SHA="$(jq -r '.txgen_git_sha // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
     export BENCH_TXGEN_SHA
 fi
+# A resumed run keeps the node image its gate pinned (the tag may have moved since). An operator
+# BENCH_DOCKER_IMAGE naming any other image is refused: a run never silently switches image.
+NODE_PIN_FROM_MANIFEST=0
+if [ "${PROBE_ONLY}" -eq 0 ] && [ -n "${BENCH_RUN_ID}" ] && [ -f "${DIR}/results/${BENCH_RUN_ID}/manifest.json" ]; then
+    _pin="$(jq -r '.node_image_pinned // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
+    _ref="$(jq -r '.node_image_ref // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
+    if [ -n "${_pin}" ]; then
+        if [ -n "${BENCH_DOCKER_IMAGE:-}" ] && [ "${BENCH_DOCKER_IMAGE}" != "${_pin}" ] && [ "${BENCH_DOCKER_IMAGE}" != "${_ref}" ]; then
+            echo "❌ run ${BENCH_RUN_ID} is pinned to node image ${_pin} (probed from ${_ref:-?})," >&2
+            echo "   but BENCH_DOCKER_IMAGE=${BENCH_DOCKER_IMAGE} names another image. A resumed run never" >&2
+            echo "   switches image: unset BENCH_DOCKER_IMAGE (or set it to either ref above), or start a new run." >&2
+            exit 1
+        fi
+        export BENCH_DOCKER_IMAGE="${_pin}"
+        NODE_PIN_FROM_MANIFEST=1
+    fi
+    unset _pin _ref
+fi
 # shellcheck disable=SC2034  # read by bench-lib.sh (bench_run, manifest writers)
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
 source "${DIR}/bench-lib.sh"   # exports CONFIG_FILE=benchmark/config.sh for every sub-script
+
+# --probe-node-image [REF]: the gate's node image probe alone — local, no run directory, no manifest.
+if [ "${PROBE_ONLY}" -eq 1 ]; then
+    bench_node_image_probe "${PROBE_REF:-${DOCKER_IMAGE}}"
+    echo "pinned=${BENCH_NODE_IMAGE_PINNED} sha=${BENCH_NODE_GIT_SHA} forks=${BENCH_NODE_FORK_SCHEDULE}"
+    exit 0
+fi
 
 BOOTSTRAP_TIMEOUT_SECS=600
 BOOTSTRAP_POLL_SECS=15
@@ -97,6 +142,24 @@ PROM_LEAK_QUERY='count(count by (node) (tn_engine_canonical_height{network="devn
 PROM_LEAK_ANY_QUERY='count(count by (node) ({network="devnet", node=~"bench.*"}))'
 COLLECT_METRICS_PY="${BENCH_TXGEN_BENCH_DIR}/collect-gcp-metrics.py"
 DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
+
+# run_expect <sha|forks|mhd|nhd|mbd> — what this run's nodes must report at boot: the manifest
+# (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate recorded them) first,
+# else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
+run_expect() {
+    local m v="" q g
+    m="$(bench_manifest)"
+    case "$1" in
+        sha)   q='.node_git_sha';                              g="${BENCH_NODE_GIT_SHA:-}" ;;
+        forks) q='.node_fork_schedule';                        g="${BENCH_NODE_FORK_SCHEDULE:-}" ;;
+        mhd)   q='.consensus_parameters.max_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" ;;
+        nhd)   q='.consensus_parameters.min_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" min_header_delay)" ;;
+        mbd)   q='.consensus_parameters.max_batch_delay_ms';   g="$(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay)" ;;
+        *) return 1 ;;
+    esac
+    [ ! -f "${m}" ] || v="$(jq -r "${q} // empty" "${m}" 2>/dev/null || true)"
+    printf '%s' "${v:-${g}}"
+}
 
 # disk_desc — "<size> GB <type>", plus the provisioned IOPS/throughput when set (hyperdisk only).
 disk_desc() {
@@ -129,7 +192,7 @@ disk_type_check() {
 # ================================ steps ==============================================
 step_0() {
     echo ">>> Step 0: preflight"
-    echo "    fleet: ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), node image ${DOCKER_IMAGE}"
+    echo "    fleet: ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), node image ${DOCKER_IMAGE} (git $(run_expect sha), forks $(run_expect forks); image probed at gate)"
     bench_require_tools gcloud cast jq python3 curl docker git openssl || bench_die "missing tools"
     [ "${WITH_CONTRACTS}" -eq 0 ] || bench_require_tools forge || bench_die "forge needed for --with-contracts"
     local acct; acct="$(gcloud config get-value account 2>/dev/null || true)"
@@ -169,18 +232,35 @@ step_0() {
     # so a Loki disk that is already nearly full is fixed before, not during, a run.
     [ "${obs_pct}" -lt "${BENCH_OBS_DISK_MAX_PCT:-70}" ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= ${BENCH_OBS_DISK_MAX_PCT:-70}%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate"
     echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
-    local region need have
+    # vCPU quota is per machine family: node vCPUs count against the family metric of MACHINE_TYPE
+    # (C3_CPUS for c3), each validator's blaster (2 vCPU) against its type's (CPUS for e2); one sum
+    # when both are the same metric. A metric the region does not list is warned about, not fatal.
+    local region need have rq q i node_m blast_m need_node need_blast
+    node_m="$(bench_cpu_quota_metric "${MACHINE_TYPE}")"
+    blast_m="$(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}")"
     for region in $(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u); do
-        need=0
+        need_node=0; need_blast=0
         for i in "${!ZONES[@]}"; do
             [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
-            need=$(( need + $(bench_machine_shape "${MACHINE_TYPE}" "${ZONES[$i]}" | awk '{print $1}') ))
-            [ "${NODE_ROLES[$i]}" = "validator" ] && need=$(( need + 2 ))   # its blaster (e2-standard-2)
+            need_node=$(( need_node + $(bench_machine_shape "${MACHINE_TYPE}" "${ZONES[$i]}" | awk '{print $1}') ))
+            [ "${NODE_ROLES[$i]}" = "validator" ] && need_blast=$(( need_blast + 2 ))   # its blaster (e2-standard-2)
         done
-        have="$(gcloud compute regions describe "${region}" --project="${PROJECT_ID}" --format=json \
-            | jq -r '.quotas[] | select(.metric == "CPUS") | (.limit - .usage) | floor')"
-        [ "${have}" -ge "${need}" ] || bench_die "${region}: CPUS headroom ${have} < ${need}"
-        echo "    ✓ ${region}: CPUS headroom ${have} >= ${need}"
+        rq="$(gcloud compute regions describe "${region}" --project="${PROJECT_ID}" --format=json)" \
+            || bench_die "gcloud compute regions describe ${region} failed"
+        for q in $(printf '%s\n' "${node_m}" "${blast_m}" | awk '!seen[$0]++'); do
+            need=0
+            [ "${q}" != "${node_m}" ] || need=$(( need + need_node ))
+            [ "${q}" != "${blast_m}" ] || need=$(( need + need_blast ))
+            have="$(printf '%s' "${rq}" | jq -r --arg q "${q}" \
+                '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty')" \
+                || bench_die "${region}: cannot read the quotas from gcloud compute regions describe"
+            if [ -z "${have}" ]; then
+                bench_warn "${region}: no ${q} quota listed — ${need} vCPU not checked against it"
+                continue
+            fi
+            [ "${have}" -ge "${need}" ] || bench_die "${region}: ${q} headroom ${have} < ${need}"
+            echo "    ✓ ${region}: ${q} headroom ${have} >= ${need}"
+        done
     done
     disk_type_check
     mkdir -p "${BENCH_RESULTS_DIR}"
@@ -327,6 +407,12 @@ step_8() {
 # postconfig_script <instance> — step 9's remote script for one node (piped to `sudo bash -s`).
 # Everything that can fail transiently (the RPC while the node restarts) is polled with a
 # deadline and never trips set -e/pipefail; only the final assertions can fail the session.
+# Its last line: POSTCFG_OK <inst> chain=<hex> block=<hex|?> ip=<ip> progress=<text with spaces>
+#   sha=<git sha> mhd=<ms|?> nhd=<ms|?> mbd=<ms|?> vt=<ms|?> forks=<label|?>
+# where sha / mhd / nhd / mbd / vt / forks come from the restarted container's boot lines (the
+# `telcoin-network <ver> (<sha>) starting` line, "Max|Min header delay set to N ms", "Max batch
+# delay set to N ms", "... vote timeout set to N ms" when logged, the fork-schedule line labelled
+# by report/provenance.py's rules); step_9 compares them with the run's manifest.
 postconfig_script() {
     local inst="$1" b64
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
@@ -346,6 +432,7 @@ grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${ins
 #    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
 #    consensus progress since the restart: validators log 'subdag committed' / 'quorum reached',
 #    an observer (follower) logs 'got new consensus' / 'catching up consensus blocks'.
+boot_ts=\$(date +%s)
 systemctl restart telcoin
 restart_ts=\$(date +%s)
 IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
@@ -358,24 +445,54 @@ commits() {
     now=\$(date +%s); since=\$(( now - 45 )); [ "\$since" -ge "\$restart_ts" ] || since="\$restart_ts"
     { docker logs telcoin --since "\$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached|got new consensus|catching up consensus blocks|skipping execution for empty|executing consensus output' || true
 }
+# the restarted binary's boot lines (logged once, at start): git sha, consensus delays, vote
+# timeout (later builds only), fork schedule — labelled as report/provenance.py does: a
+# "fork schedule (adiri)" line -> adiri-schedule; a "fork schedule:" line listing
+# subsecond_timestamp before "active from genesis" -> subsecond-from-genesis; any other
+# "fork schedule:" line -> pre-subsecond; none -> ?. Each pass fills only fields still empty,
+# so a later read (say a transient empty docker logs) never blanks what an earlier one found.
+sha=""; mhd=""; nhd=""; mbd=""; vt=""; forks=""
+delay() { printf '%s\n' "\$1" | grep -ioE "\$2 set to [0-9]+ ?ms" | tail -1 | grep -oE '[0-9]+' | head -1 || true; }
+prov() {
+    local L fl
+    L="\$({ docker logs telcoin --since "\$boot_ts" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' || true)"
+    [ -n "\$sha" ] || sha="\$(printf '%s\n' "\$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+    [ -n "\$mhd" ] || mhd="\$(delay "\$L" 'max header delay')"
+    [ -n "\$nhd" ] || nhd="\$(delay "\$L" 'min header delay')"
+    [ -n "\$mbd" ] || mbd="\$(delay "\$L" 'max batch delay')"
+    [ -n "\$vt" ] || vt="\$(delay "\$L" 'vote timeout')"
+    [ -z "\$forks" ] || return 0
+    fl="\$(printf '%s\n' "\$L" | grep -iE 'fork schedule[[:space:]]*(\(adiri\)|:)' | tail -1 || true)"
+    if [ -z "\$fl" ]; then forks=""
+    elif printf '%s\n' "\$fl" | grep -qiE 'fork schedule[[:space:]]*\(adiri\)'; then forks=adiri-schedule
+    elif printf '%s\n' "\$fl" | grep -qiE 'subsecond_timestamp[[:alnum:]_[:space:],]*active from genesis'; then forks=subsecond-from-genesis
+    else forks=pre-subsecond; fi
+}
+booted() { [ -n "\$sha" ] && [ -n "\$mhd" ] && [ -n "\$nhd" ] && [ -n "\$mbd" ]; }
 cid=""; b0=""; b=""; how=""; n=0
 deadline=\$(( \$(date +%s) + \${POSTCFG_WAIT_SECS:-300} ))
 while [ "\$(date +%s)" -lt "\$deadline" ]; do
-    if systemctl is-active --quiet telcoin; then
+    if [ -z "\$how" ] && systemctl is-active --quiet telcoin; then
         cid="\$(rpc eth_chainId)"
         if [ "\$cid" = "${CHAIN_ID_HEX}" ]; then
             b="\$(rpc eth_blockNumber)"
             if [ -n "\$b" ]; then
-                if [ -z "\$b0" ]; then b0="\$b"; elif [ "\$((b))" -gt "\$((b0))" ]; then how="blocks \$((b0))->\$((b))"; break; fi
+                if [ -z "\$b0" ]; then b0="\$b"; elif [ "\$((b))" -gt "\$((b0))" ]; then how="blocks \$((b0))->\$((b))"; fi
             fi
-            n="\$(commits)"
-            if [ "\${n:-0}" -ge 1 ]; then how="consensus log (\${n} subdag committed/quorum reached lines since restart)"; break; fi
+            if [ -z "\$how" ]; then
+                n="\$(commits)"
+                if [ "\${n:-0}" -ge 1 ]; then how="consensus log (\${n} subdag committed/quorum reached lines since restart)"; fi
+            fi
         fi
     fi
+    booted || prov
+    if [ -n "\$how" ] && booted; then break; fi
     sleep 5
 done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the restart"
+prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
+[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the restart"
 # 4. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
@@ -394,21 +511,85 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
-echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how}"
+echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?}"
 EOS
+}
+
+# postcfg_field <POSTCFG_OK line> <key> — the value of its last " <key>=<value>" ("" if absent).
+postcfg_field() { printf '%s\n' "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p" | tail -1; }
+
+# step9_node_check <inst> <POSTCFG_OK line> <sha> <mhd> <nhd> <mbd> <forks> — record the node's boot
+# lines as manifest.node_startup[<inst>], then die on the first one that differs from the run's
+# expectation (the sha matches when the node's starts with the expected one: a full 40-hex
+# expectation must match in full). vt is recorded, not compared (nothing to compare it with).
+step9_node_check() {
+    local inst="$1" line="$2" w_sha="$3" w_mhd="$4" w_nhd="$5" w_mbd="$6" w_forks="$7" sha mhd nhd mbd vt forks
+    sha="$(postcfg_field "${line}" sha | tr 'ABCDEF' 'abcdef')"
+    mhd="$(postcfg_field "${line}" mhd)"; nhd="$(postcfg_field "${line}" nhd)"; mbd="$(postcfg_field "${line}" mbd)"
+    vt="$(postcfg_field "${line}" vt)"; forks="$(postcfg_field "${line}" forks)"
+    bench_manifest_jq --arg i "${inst}" --arg sha "${sha}" --arg mhd "${mhd}" --arg nhd "${nhd}" \
+        --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" '
+        def num: if test("^[0-9]+$") then tonumber else null end;
+        def str: if . == "" or . == "?" then null else . end;
+        .node_startup[$i] = {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num), mbd: ($mbd|num),
+                             vt: ($vt|num), forks: ($forks|str)}' \
+        || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+    local stop="— stopping before any other node restarts"
+    case "${sha}" in
+        "${w_sha}"?*|"${w_sha}") ;;
+        *) bench_die "${inst}: boot sha = ${sha:-<none>}, expected ${w_sha} (manifest node_git_sha) ${stop}" ;;
+    esac
+    [ "${mhd}" = "${w_mhd}" ] || bench_die "${inst}: max_header_delay = ${mhd:-<none>} ms, expected ${w_mhd} ms (manifest consensus_parameters) ${stop}"
+    [ "${nhd}" = "${w_nhd}" ] || bench_die "${inst}: min_header_delay = ${nhd:-<none>} ms, expected ${w_nhd} ms (manifest consensus_parameters) ${stop}"
+    [ "${mbd}" = "${w_mbd}" ] || bench_die "${inst}: max_batch_delay = ${mbd:-<none>} ms, expected ${w_mbd} ms (manifest consensus_parameters) ${stop}"
+    [ "${forks}" = "${w_forks}" ] || bench_die "${inst}: fork schedule = ${forks:-<none>}, expected ${w_forks} (manifest node_fork_schedule) ${stop}"
+    echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks} — as expected"
 }
 
 step_9() {
     echo ">>> Step 9: post-config, one IAP session per node, serially (<= 1 node down at a time)"
-    local i inst out
+    local i inst out line w_sha w_mhd w_nhd w_mbd w_forks
+    w_sha="$(run_expect sha | tr 'ABCDEF' 'abcdef')"; w_forks="$(run_expect forks)"
+    w_mhd="$(run_expect mhd)"; w_nhd="$(run_expect nhd)"; w_mbd="$(run_expect mbd)"
+    if [ -z "${w_sha}" ] || [ -z "${w_forks}" ] || [ -z "${w_mhd}" ] || [ -z "${w_nhd}" ] || [ -z "${w_mbd}" ]; then
+        bench_die "step 9 cannot check the nodes' boot lines: expected sha='${w_sha}' forks='${w_forks}' delays='${w_mhd}/${w_nhd}/${w_mbd}' — $(bench_manifest) lacks node_git_sha / node_fork_schedule / consensus_parameters (the gate records them when a step of 0, 5, 6, 7 runs) and no node image probe ran in this invocation"
+    fi
+    echo "    every node must boot git ${w_sha}, header delay max ${w_mhd} / min ${w_nhd} ms, batch delay ${w_mbd} ms, forks ${w_forks}"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, sampler"
+        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines, sampler"
         bench_save_node_log "${i}" pre-step9 || bench_warn "${inst}: container log not saved before the step-9 restart — restarting anyway"
-        out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 || true)"
+        out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
-        [[ "${out}" == *"POSTCFG_OK ${inst}"* ]] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
+        line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
+        [ -n "${line}" ] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
+        step9_node_check "${inst}" "${line}" "${w_sha}" "${w_mhd}" "${w_nhd}" "${w_mbd}" "${w_forks}"
     done
+}
+
+# bench_registry_probe — read the ConsensusRegistry over the tunnel with recovery-schedule.py (the
+# current epoch, its opening block, its duration, plus the boundary drill it would schedule from
+# now) and require the registry's epoch duration to be EPOCH_DURATION_SECS. The JSON is recorded
+# as manifest.registry_probe. A failed read (non-zero exit: an RPC error, a timeout, a Python
+# traceback, or output that is not a JSON object) is retried, 3 attempts 10 s apart; a duration
+# that differs is final.
+bench_registry_probe() {
+    local out="" dur try=1
+    while :; do
+        echo "    + python3 ${DIR}/recovery-schedule.py --rpc-url ${RPC_URL} --earliest-kill <now>   (attempt ${try}/3)"
+        if out="$(python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" --earliest-kill "$(date +%s)")" \
+            && printf '%s' "${out}" | jq -e 'type == "object"' >/dev/null 2>&1; then
+            break
+        fi
+        [ "${try}" -lt 3 ] || bench_die "registry probe failed 3 times, 10 s apart (recovery-schedule.py --rpc-url ${RPC_URL})"
+        echo "      registry read failed — retrying in 10 s"
+        try=$((try + 1)); sleep 10
+    done
+    dur="$(printf '%s' "${out}" | jq -r '.duration_secs // empty' 2>/dev/null || true)"
+    [ "${dur}" = "${EPOCH_DURATION_SECS}" ] \
+        || bench_die "ConsensusRegistry epoch duration is ${dur:-<unreadable>} s, EPOCH_DURATION_SECS is ${EPOCH_DURATION_SECS} s (registry probe: ${out})"
+    bench_manifest_jq --argjson r "${out}" '.registry_probe = $r' || bench_die "could not record registry_probe in $(bench_manifest)"
+    echo "    ✓ registry: epoch $(printf '%s' "${out}" | jq -r '.epoch'), duration ${dur}s == EPOCH_DURATION_SECS (manifest.registry_probe)"
 }
 
 step_10() {
@@ -423,6 +604,7 @@ step_10() {
     cid="$(cast chain-id --rpc-url "${RPC_URL}")"
     [ "${cid}" = "${CHAIN_ID}" ] || bench_die "tunnel RPC reports chain ${cid}, expected ${CHAIN_ID}"
     echo "    ✓ chain id ${cid} via ${RPC_URL} (block $(cast block-number --rpc-url "${RPC_URL}" 2>/dev/null || echo '?'); an idle TN chain stays at 0 until the funder runs)"
+    bench_registry_probe
     # Progress = consensus rounds, not blocks: every node's min(tn_primary_round) must rise above
     # its first sample. Re-sampled every 30 s (up to 4x) to absorb scrape + remote-write lag.
     local r0 r1="" adv="[]" tries=0 missing=" (no Prometheus sample)" inst
@@ -534,6 +716,30 @@ step_16() {
 }
 
 # ================================ dry-run plan ==========================================
+# plan_probe_line — what the gate's node image probe will check (nothing is executed here).
+plan_probe_line() {
+    local e="" v
+    for v in BENCH_DOCKER_IMAGE_EXPECT_DIGEST BENCH_NODE_EXPECT_SHA BENCH_NODE_EXPECT_FORKS; do
+        [ -z "${!v:-}" ] || e="${e} ${v}=${!v}"
+    done
+    [ -n "${e}" ] || e=" none set"
+    if [ "${NODE_PIN_FROM_MANIFEST}" -eq 1 ]; then
+        printf '%s: pinned by this run'"'"'s gate (manifest node_image_pinned, git %s, forks %s) — not probed again' \
+            "${DOCKER_IMAGE}" "$(run_expect sha)" "$(run_expect forks)"
+    else
+        printf '%s: digest, telcoin -V sha, flag + string contract (node-image-contract.txt), EXPECT_* env (%s); at the gate when steps 0/5/6/7 run' \
+            "${DOCKER_IMAGE}" "${e# }"
+    fi
+}
+
+# plan_harness — this checkout's HEAD, ",dirty" when tracked files differ from it (local git only).
+plan_harness() {
+    local sha st
+    sha="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
+    st="$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no 2>/dev/null || true)"
+    printf '%s%s' "${sha}" "${st:+,dirty}"
+}
+
 print_plan() {
     local i
     cat <<EOP
@@ -541,6 +747,9 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
 
   fleet    ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), tag ${INSTANCE_TAGS}, labels ${INSTANCE_LABELS}
   chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
+  probe    $(plan_probe_line)
+  params   ${PARAMETERS_FILE}: max_header_delay $(bench_params_ms "${PARAMETERS_FILE}" max_header_delay) ms, min_header_delay $(bench_params_ms "${PARAMETERS_FILE}" min_header_delay) ms, max_batch_delay $(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay) ms
+  harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
   metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
   load     ${BENCH_TXGEN_IMAGE}, ${BENCH_BLASTER_MACHINE_TYPE} COS blasters x ${BENCH_SENDERS} senders, bucket gs://${BENCH_BUCKET}
@@ -551,9 +760,12 @@ EOP
     done
     cat <<EOP
 
-   -  gate           (--yes, before any step) pinned image, ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
+   -  gate           (--yes, before any step) node image probe + pin (when steps 0/5/6/7 run; see "probe" above),
+                     manifest.json (+ node_* probe fields, consensus_parameters), pinned txgen image,
+                     ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
    0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
-                     bench-node tag hygiene, obs-devnet df over IAP (< 70%), CPU quota,
+                     bench-node tag hygiene, obs-devnet df over IAP (< 70%),
+                     CPU quota: nodes on $(bench_cpu_quota_metric "${MACHINE_TYPE}"), blasters on $(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}"),
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
 EOP
     disk_type_check | sed 's/^    /                     /'
@@ -572,11 +784,13 @@ EOP
                      stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy
    9  post-config    per node, serial: bench_save_node_log <i> pre-step9 (container log -> /var/lib/bench-logs), then one IAP session: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
                      bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
-                     (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); bench-node-sampler.service
+                     (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); boot lines (git sha, delays,
+                     fork schedule) == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
                      cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
-                     ${PROM_LEAK_QUERY} == 0 (and the same over every metric)
+                     ${PROM_LEAK_QUERY} == 0 (and the same over every metric);
+                     python3 recovery-schedule.py --rpc-url ${RPC_URL}: registry epoch duration == ${EPOCH_DURATION_SECS} -> manifest.registry_probe
   11  contracts      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "git worktree add ${BENCH_CONTRACTS_WORKTREE} -b ${BENCH_CONTRACTS_BRANCH} ${BENCH_CONTRACTS_BASE_BRANCH}" || echo "SKIPPED (pass --with-contracts)")
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
@@ -686,9 +900,104 @@ gate() {
         fi
     fi
     [ "${bad}" -eq 0 ] || bench_die "prerequisites missing — nothing was started"
+    gate_node_image
 }
+
+# gate_node_image — pin the node image before anything can deploy it. A run whose manifest pins
+# one already (a resume) keeps it. Otherwise, when a selected step creates or starts nodes from
+# it (0, 5 keygen, 6 genesis, 7 finalize), bench_node_image_probe examines DOCKER_IMAGE (dies on
+# any mismatch) and BENCH_DOCKER_IMAGE / DOCKER_IMAGE become its <repo>@sha256:<digest>, which
+# every later step and every sub-script (they re-source config.sh) then runs.
+# A probe that refuses, or a build that cannot honour the delays, stops the run before any
+# manifest is written, so the run id is not pinned to an image it can never use.
+GATE_PROBED=0
+gate_node_image() {
+    local m forks
+    if [ "${NODE_PIN_FROM_MANIFEST}" -eq 1 ]; then
+        echo "    node image ${DOCKER_IMAGE} (pinned by this run's gate probe: manifest node_image_pinned)"
+    elif in_range 0 || in_range 5 || in_range 6 || in_range 7; then
+        bench_node_image_probe "${DOCKER_IMAGE}"
+        export BENCH_DOCKER_IMAGE="${BENCH_NODE_IMAGE_PINNED}" DOCKER_IMAGE="${BENCH_NODE_IMAGE_PINNED}"
+        GATE_PROBED=1
+        echo "    ✓ node image pinned: ${DOCKER_IMAGE} (git ${BENCH_NODE_GIT_SHA}, forks ${BENCH_NODE_FORK_SCHEDULE})"
+        fork_delay_check "${BENCH_NODE_FORK_SCHEDULE}"
+        return 0
+    else
+        echo "    node image ${DOCKER_IMAGE} (no selected step deploys it — not probed)"
+    fi
+    # A resume: the same check on what this run recorded (its build and its delays).
+    m="$(bench_manifest)"
+    [ -f "${m}" ] || return 0
+    forks="$(jq -r '.node_fork_schedule // empty' "${m}" 2>/dev/null || true)"
+    [ -n "${forks}" ] && jq -e '.consensus_parameters | type == "object"' "${m}" >/dev/null 2>&1 || return 0
+    fork_delay_check "${forks}"
+}
+
+# run_params_mhd — the max_header_delay (ms) this invocation leaves the nodes with, and where it
+# comes from, as "<ms> <source>": PARAMETERS_FILE when step 7 (which stages it) is selected or the
+# manifest has none recorded, else manifest.consensus_parameters. "<ms>" is "" when unknown.
+run_params_mhd() {
+    local m v=""
+    m="$(bench_manifest)"
+    if ! in_range 7 && [ -f "${m}" ]; then
+        v="$(jq -r '.consensus_parameters.max_header_delay_ms // empty' "${m}" 2>/dev/null || true)"
+        if [ -n "${v}" ]; then printf '%s %s' "${v}" "manifest consensus_parameters"; return 0; fi
+    fi
+    printf '%s %s' "$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" "${PARAMETERS_FILE}"
+}
+
+# fork_delay_check <fork schedule> — die when the nodes would run sub-second header delays on a
+# build that is not subsecond-from-genesis: such a build stamps whole-second timestamps, cannot
+# honour them, and the fleet would be spent measuring nothing.
+fork_delay_check() {
+    local forks="$1" r mhd src way
+    r="$(run_params_mhd)"; mhd="${r%% *}"; src="${r#* }"
+    case "${mhd}" in ''|*[!0-9]*) return 0 ;; esac
+    [ "${mhd}" -lt 1000 ] && [ "${forks}" != "subsecond-from-genesis" ] || return 0
+    way="a sub-second image (one the probe reports as subsecond-from-genesis) via BENCH_DOCKER_IMAGE"
+    [ "${NODE_PIN_FROM_MANIFEST}" -eq 0 ] || way="${way} — on a new run: this run is pinned to ${DOCKER_IMAGE}"
+    bench_die "node image ${DOCKER_IMAGE} has fork schedule ${forks}, but max_header_delay is ${mhd} ms (${src}).
+   A build without sub-second timestamps from genesis stamps whole seconds and cannot honour
+   sub-second delays; running it would waste the fleet. Either:
+     - ${way}, or
+     - BENCH_PARAMETERS_FILE=<a parameters file with delays >= 1 s> (e.g. common/parameters.yaml: 3s/1s/1s), with step 7 selected so it is staged"
+}
+
+# gate_manifest — record what the gate established: the node image probe (when it ran in this
+# invocation) and the consensus parameters. PARAMETERS_FILE reaches the nodes at step 7
+# (devnet-finalize.sh stages it), so consensus_parameters is (re)recorded only when step 7 is
+# selected; otherwise the recorded values stay (a warning when the file has changed since), and
+# step 9 checks the nodes against them.
+gate_manifest() {
+    local m have now
+    m="$(bench_manifest)"
+    if [ "${GATE_PROBED}" -eq 1 ]; then
+        bench_node_probe_manifest || bench_die "could not record the node image probe in ${m}"
+        have="$(jq -r '.docker_image // empty' "${m}")"
+        if [ "${have}" != "${DOCKER_IMAGE}" ]; then   # an older run's manifest, resumed
+            bench_manifest_note "docker_image ${have:-unset} -> ${DOCKER_IMAGE} (gate probe, $(bench_now_iso))"
+            bench_manifest_jq --arg i "${DOCKER_IMAGE}" '.docker_image = $i'
+        fi
+        echo "    ✓ manifest: node_image_pinned, node_git_sha, node_fork_schedule, node_probe"
+    fi
+    have="$(jq -r '.consensus_parameters.sha256 // empty' "${m}")"
+    if in_range 7; then
+        bench_consensus_params_manifest || bench_die "could not record ${PARAMETERS_FILE} in ${m}"
+        echo "    ✓ manifest: consensus_parameters $(jq -c '.consensus_parameters | {file, max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms}' "${m}")"
+    elif [ -n "${have}" ]; then
+        now="$(bench_file_sha256 "${PARAMETERS_FILE}" || true)"
+        [ "${have}" = "${now}" ] || bench_warn "${PARAMETERS_FILE} changed since step 7 staged it (sha256 ${have} recorded, ${now:-unreadable} now) — keeping the recorded consensus_parameters"
+    else
+        echo "    · consensus_parameters not recorded yet (recorded when a range including step 7 runs)"
+    fi
+}
+
 gate
-bench_manifest_init >/dev/null 2>&1 || true
+# Creates manifest.json, or keeps the existing one (a resume). A failure is fatal, not hidden.
+bench_manifest_init || bench_die "cannot initialise $(bench_manifest)"
+jq -e '.schema == "tn-bench-manifest/v1"' "$(bench_manifest)" >/dev/null 2>&1 \
+    || bench_die "$(bench_manifest) is not a readable tn-bench-manifest/v1 file — inspect it before re-running"
+gate_manifest
 run_step() {
     local n="$1"
     echo ""

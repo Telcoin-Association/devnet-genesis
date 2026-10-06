@@ -1,0 +1,4 @@
+>>> Step 9: post-config, one IAP session per node, serially
+      POSTCFG_OK bench-validator-01 chain=0x7e1e block=0x5 ip=192.0.2.9 progress=blocks 3->5 sha=0badc0de0badc0de0badc0de0badc0de0badc0de mhd=500 nhd=250 mbd=250 vt=? forks=subsecond-from-genesis
+operator note: telcoin-network 0.9.9 (0badc0de0badc0de0badc0de0badc0de0badc0de) starting
+Max header delay set to 9999 ms

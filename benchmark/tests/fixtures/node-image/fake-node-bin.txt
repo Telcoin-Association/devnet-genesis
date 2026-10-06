@@ -1,0 +1,13 @@
+# fake-node-bin: synthetic stand-in for the node binary the probe copies out of the image
+# (test_node_image.py). The probe counts each contract string in this file with grep -a -c -F;
+# the tests append the fork-schedule markers per case. One string per line.
+subdag committed
+quorum reached
+got new consensus
+catching up consensus blocks
+skipping execution for empty
+executing consensus output
+FatalDBFailure
+Max header delay set to
+Min header delay set to
+Max batch delay set to

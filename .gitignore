@@ -18,3 +18,12 @@ telcoin-network.yaml
 logs
 archive
 **/.DS_Store
+
+# local build output (publish bundles); never committed
+/dist/
+
+# subagent checkpoint files (scratch state, never committed)
+tasks/checkpoint-*.md
+
+# python bytecode (benchmark/report, benchmark/tests)
+__pycache__/

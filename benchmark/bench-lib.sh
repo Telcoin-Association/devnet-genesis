@@ -96,13 +96,30 @@ bench_iso_from_unix() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date 
 # --- results + manifest -----------------------------------------------------------
 bench_manifest() { printf '%s' "${BENCH_RESULTS_DIR}/manifest.json"; }
 
+# _bench_git_head <dir> — HEAD of the git work tree whose top level is exactly <dir>; "" otherwise
+# (e.g. a submodule that is not checked out, whose directory belongs to the superproject).
+_bench_git_head() {
+    local top
+    top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
+    [ "$(cd "${top}" && pwd -P)" = "$(cd "$1" && pwd -P)" ] || return 0
+    git -C "$1" rev-parse HEAD 2>/dev/null || true
+}
+
 # bench_manifest_init — write the tn-bench-manifest/v1 skeleton (never overwrites, so a
-# --from resume keeps the timestamps already recorded).
+# --from resume keeps the timestamps already recorded). harness records this checkout: its HEAD,
+# whether tracked files differ from it (dirty; untracked files do not count), and the HEADs of
+# the common and tn-node-deployment submodules (null when not available).
 bench_manifest_init() {
-    local f; f="$(bench_manifest)"
+    local f st dirty=null; f="$(bench_manifest)"
     mkdir -p "${BENCH_RESULTS_DIR}"
     if [ -f "${f}" ]; then echo "    manifest exists: ${f} (kept)"; return 0; fi
+    if st="$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no 2>/dev/null)"; then
+        if [ -n "${st}" ]; then dirty=true; else dirty=false; fi
+    fi
     jq -n \
+        --arg hsha "$(_bench_git_head "${REPO_ROOT}")" --argjson hdirty "${dirty}" \
+        --arg hcommon "$(_bench_git_head "${REPO_ROOT}/common")" \
+        --arg htnd "$(_bench_git_head "${REPO_ROOT}/tn-node-deployment")" \
         --arg run "${BENCH_RUN_ID}" --arg fleet "${BENCH_FLEET}" --arg mt "${MACHINE_TYPE}" \
         --arg ds "${NODE_DISK_SIZE}" --arg dt "${NODE_DISK_TYPE}" --arg cid "${CHAIN_ID}" \
         --arg diops "${NODE_DISK_IOPS}" --arg dtput "${NODE_DISK_THROUGHPUT}" \
@@ -110,10 +127,13 @@ bench_manifest_init() {
         --arg p "${PROJECT_ID}" --arg g "${BENCH_GRAFANA_URL}" --arg uid "${BENCH_PROM_DATASOURCE_UID}" \
         --arg nl "${BENCH_PROM_NETWORK_LABEL}" --arg now "$(bench_now_iso)" '
         def num_or_null: if . == "" then null else tonumber end;
+        def str_or_null: if . == "" then null else . end;
         {schema: "tn-bench-manifest/v1", run_id: $run, fleet: $fleet, machine_type: $mt,
          node_disk: {size_gb: ($ds|tonumber), type: $dt, provisioned_iops: ($diops|num_or_null),
                      provisioned_throughput: ($dtput|num_or_null)}, chain_id: ($cid|tonumber),
          epoch_duration_secs: ($ep|tonumber), docker_image: $di, txgen_image: $ti, project: $p,
+         harness: {sha: ($hsha|str_or_null), dirty: $hdirty,
+                   submodules: {common: ($hcommon|str_or_null), "tn-node-deployment": ($htnd|str_or_null)}},
          prometheus: {grafana_url: $g, datasource_uid: $uid, network_label: $nl},
          timestamps: {deploy_start: $now}, phases: [], chaos: [], instances: [], blasters: [],
          abort: null, notes: []}' > "${f}"
@@ -135,6 +155,56 @@ bench_manifest_ts() { bench_manifest_jq --arg k "$1" --arg v "${2:-$(bench_now_i
 # bench_manifest_note <text>
 bench_manifest_note() { bench_manifest_jq --arg n "$1" '.notes += [$n]'; }
 
+# --- files ------------------------------------------------------------------------------
+# bench_file_sha256 <file> — the file's SHA-256 in lower-case hex (shasum or sha256sum,
+# whichever exists). Non-zero and no output when the file cannot be read.
+bench_file_sha256() {
+    local h
+    [ -f "${1:-}" ] && [ -r "$1" ] || return 1
+    if command -v shasum >/dev/null 2>&1; then h="$(shasum -a 256 < "$1")" || return 1
+    elif command -v sha256sum >/dev/null 2>&1; then h="$(sha256sum < "$1")" || return 1
+    else return 1; fi
+    printf '%s\n' "${h%% *}"
+}
+
+# bench_params_ms <file> <key> — a top-level duration of a consensus parameters YAML in whole
+# milliseconds: `key: 500ms`, `key: 3s`, `key: 1.5s`, `key: 2m`, or the serde block form (`key:`
+# then indented `secs: N` and `nanos: M`). Sub-millisecond parts are dropped. "" when the key is
+# absent, the file unreadable or the value none of those forms; never fatal.
+bench_params_ms() {
+    [ -r "${1:-}" ] && [ -n "${2:-}" ] || return 0
+    awk -v k="$2" -v q="'" '
+        function dur(v,   u, n, i, f, mul) {
+            if (v !~ /^[0-9]+(\.[0-9]+)?(ms|s|m)$/) return ""
+            u = v; sub(/^[0-9.]+/, "", u)
+            n = substr(v, 1, length(v) - length(u)); i = n; f = ""
+            if (index(n, ".")) { i = substr(n, 1, index(n, ".") - 1); f = substr(n, index(n, ".") + 1) }
+            if (length(f) > 9) f = substr(f, 1, 9)
+            mul = (u == "ms") ? 1 : ((u == "s") ? 1000 : 60000)
+            return sprintf("%d", i * mul + (f == "" ? 0 : int(f * mul / (10 ^ length(f)))))
+        }
+        blk {
+            if ($0 ~ /^[ \t]*(#.*)?$/) next
+            if ($0 ~ /^[ \t]/) {
+                l = $0; sub(/^[ \t]+/, "", l); sub(/[ \t]*#.*$/, "", l); sub(/[ \t]+$/, "", l)
+                if (l ~ /^secs:[ \t]*[0-9]+$/) { sub(/^secs:[ \t]*/, "", l); s = l }
+                else if (l ~ /^nanos:[ \t]*[0-9]+$/) { sub(/^nanos:[ \t]*/, "", l); n = l }
+                next
+            }
+            exit
+        }
+        index($0, k ":") == 1 {
+            v = substr($0, length(k) + 2)
+            sub(/^[ \t]+/, "", v); sub(/(^|[ \t]+)#.*$/, "", v); sub(/[ \t]+$/, "", v)
+            if (length(v) >= 2 && ((v ~ /^".*"$/) || (substr(v, 1, 1) == q && substr(v, length(v), 1) == q))) v = substr(v, 2, length(v) - 2)
+            if (v == "") { blk = 1; next }
+            r = dur(v); if (r != "") print r
+            got = 1; exit
+        }
+        END { if (!got && blk && (s != "" || n != "")) printf "%d\n", s * 1000 + int(n / 1000000) }
+    ' "$1"
+}
+
 # --- GCP reads ----------------------------------------------------------------------
 # bench_instance_json <inst> <zone> — describe JSON ("" if absent).
 bench_instance_json() {
@@ -150,6 +220,20 @@ bench_machine_shape() {
         *)
             gcloud compute machine-types describe "$1" --zone="$2" --project="${PROJECT_ID}" \
                 --format='value(guestCpus,memoryMb)' 2>/dev/null | tr '\t' ' ' ;;
+    esac
+}
+
+# bench_cpu_quota_metric <machine-type> — the regional quota metric the type's vCPUs count
+# against, by machine family (the part before the first '-'): c3 -> C3_CPUS, c3d -> C3D_CPUS,
+# n2 -> N2_CPUS, n2d -> N2D_CPUS, n4 -> N4_CPUS; e2, n1 and any other family -> CPUS.
+bench_cpu_quota_metric() {
+    case "${1%%-*}" in
+        c3) echo C3_CPUS ;;
+        c3d) echo C3D_CPUS ;;
+        n2) echo N2_CPUS ;;
+        n2d) echo N2D_CPUS ;;
+        n4) echo N4_CPUS ;;
+        *) echo CPUS ;;
     esac
 }
 
@@ -769,7 +853,7 @@ bench_prom_scalar() { bench_prom_query "$1" | jq -r '.data.result[0].value[1] //
 # matching <filter> ("" when none). The access token goes to curl on STDIN.
 bench_monitoring_max() {
     local tok now start
-    tok="$(gcloud auth print-access-token 2>/dev/null)" || return 0   # "" = unavailable, never fatal
+    tok="$(perl -e 'alarm 90; exec @ARGV' gcloud auth print-access-token </dev/null 2>/dev/null)" || return 0   # "" = unavailable, never fatal
     now="$(bench_now_unix)"; start=$((now - ${2:-600}))
     printf 'header = "Authorization: Bearer %s"\n' "${tok}" | curl -sS --max-time 20 -K - --get \
         --data-urlencode "filter=$1" \
@@ -777,6 +861,65 @@ bench_monitoring_max() {
         --data-urlencode "interval.endTime=$(bench_iso_from_unix "${now}")" \
         "https://monitoring.googleapis.com/v3/projects/${PROJECT_ID}/timeSeries" \
         | jq -r '[.timeSeries[]?.points[0].value | (.doubleValue // .int64Value // empty) | tonumber] | max // empty' 2>/dev/null || true
+}
+
+# --- container images (digest, pin) -------------------------------------------------------
+# Tags are mutable: a step that must run the bytes an earlier step examined names the image as
+# <repo>@sha256:<digest>, resolved once (bench_image_digest) and pinned (bench_image_pin).
+BENCH_MANIFEST_ACCEPT="application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+
+# _bench_is_digest <s> — 0 for sha256:<64 lower-case hex>.
+_bench_is_digest() {
+    local h="${1#sha256:}"
+    [ "${h}" != "${1:-}" ] && [ "${#h}" -eq 64 ] || return 1
+    case "${h}" in *[!0123456789abcdef]*) return 1 ;; esac
+}
+
+# _bench_gcp_registry_host <host> — 0 for an Artifact Registry or Container Registry host: the
+# only hosts the operator's gcloud access token is ever sent to.
+_bench_gcp_registry_host() {
+    case "$1" in *-docker.pkg.dev|gcr.io|*.gcr.io) return 0 ;; esac
+    return 1
+}
+
+# bench_image_digest <ref> — the digest (sha256:<64 hex>) the registry serves for <ref> now; ""
+# when it cannot be resolved (never fatal). A <repo>@sha256:<digest> ref answers from the ref.
+# Otherwise `gcloud artifacts docker images describe` (needs read access to that repository's
+# project), then a HEAD on https://<host>/v2/<path>/manifests/<tag> read from its
+# Docker-Content-Digest header, for Google registry hosts only; the access token reaches curl
+# on STDIN (-K -), never on a command line.
+bench_image_digest() {
+    local ref="${1:-}" d host rest path tag tok hdr
+    case "${ref}" in
+        *@sha256:*) d="sha256:${ref##*@sha256:}"; _bench_is_digest "${d}" && printf '%s\n' "${d}"; return 0 ;;
+        '') return 0 ;;
+    esac
+    # gcloud once hung here for 10+ minutes (credential-store contention); a 90 s alarm and a
+    # closed stdin make a stuck describe fall through to the registry HEAD below instead.
+    d="$(perl -e 'alarm 90; exec @ARGV' gcloud artifacts docker images describe "${ref}" \
+        --format='value(image_summary.digest)' </dev/null 2>/dev/null || true)"
+    if _bench_is_digest "${d}"; then printf '%s\n' "${d}"; return 0; fi
+    case "${ref}" in */*) ;; *) return 0 ;; esac
+    host="${ref%%/*}"; rest="${ref#*/}"
+    _bench_gcp_registry_host "${host}" || return 0
+    case "${rest##*/}" in *:*) path="${rest%:*}"; tag="${rest##*:}" ;; *) path="${rest}"; tag="latest" ;; esac
+    tok="$(perl -e 'alarm 90; exec @ARGV' gcloud auth print-access-token </dev/null 2>/dev/null)" || return 0
+    [ -n "${tok}" ] || return 0
+    hdr="$(printf 'header = "Authorization: Bearer %s"\n' "${tok}" | curl -sS -I --max-time 20 -K - \
+        -H "Accept: ${BENCH_MANIFEST_ACCEPT}" "https://${host}/v2/${path}/manifests/${tag}" 2>/dev/null || true)"
+    d="$(printf '%s\n' "${hdr}" | tr -d '\r' \
+        | awk 'NR == 1 && $2 != "200" { exit } tolower($1) == "docker-content-digest:" { print $2; exit }')"
+    if _bench_is_digest "${d}"; then printf '%s\n' "${d}"; fi
+    return 0
+}
+
+# bench_image_pin <ref> <digest> — <repo>@<digest>: <ref> minus any @digest and any :tag.
+# Non-zero and no output unless <digest> is sha256:<64 hex>.
+bench_image_pin() {
+    local r="${1%%@*}"
+    _bench_is_digest "${2:-}" || return 1
+    case "${r##*/}" in *:*) r="${r%:*}" ;; esac
+    printf '%s@%s\n' "${r}" "$2"
 }
 
 # --- load-generator image (:blast-v2-<sha>) --------------------------------------------
@@ -791,9 +934,7 @@ bench_require_txgen_image() {
 }
 
 # bench_txgen_image_digest — registry digest of BENCH_TXGEN_IMAGE ("" if the tag is absent).
-bench_txgen_image_digest() {
-    gcloud artifacts docker images describe "${BENCH_TXGEN_IMAGE}" --format='value(image_summary.digest)' 2>/dev/null || true
-}
+bench_txgen_image_digest() { bench_image_digest "${BENCH_TXGEN_IMAGE}"; }
 
 # bench_txgen_cli_probe — when docker is available, run `IMAGE blast --help` and require every
 # flag of the CLI contract. A throwaway --config dir holds the registry login, so the
@@ -806,7 +947,7 @@ bench_txgen_cli_probe() {
     fi
     local cfg help f missing=""
     cfg="$(mktemp -d)"
-    gcloud auth print-access-token 2>/dev/null \
+    perl -e 'alarm 90; exec @ARGV' gcloud auth print-access-token </dev/null 2>/dev/null \
         | docker --config "${cfg}" login -u oauth2accesstoken --password-stdin "https://${BENCH_TXGEN_IMAGE%%/*}" >/dev/null 2>&1 || true
     help="$(docker --config "${cfg}" run --rm --platform linux/amd64 "${BENCH_TXGEN_IMAGE}" blast --help 2>&1 || true)"
     rm -rf "${cfg}"
@@ -818,6 +959,281 @@ bench_txgen_cli_probe() {
         bench_die "${BENCH_TXGEN_IMAGE} 'blast --help' lacks:${missing} (or the image could not be run; BENCH_SKIP_CLI_PROBE=1 to skip)"
     fi
     echo "    ✓ ${BENCH_TXGEN_IMAGE} blast --help carries every contract flag (incl. --stdout-json)"
+}
+
+# --- node image (the binary under test) ------------------------------------------------------
+# What the benchmark requires of the node image; bench_node_image_probe checks it before any
+# fleet exists. Fixed here, not knobs. The strings the binary must carry: node-image-contract.txt.
+BENCH_NODE_CONTRACT_FILE="${BENCH_LIB_DIR}/node-image-contract.txt"
+BENCH_NODE_BIN="/usr/local/bin/telcoin"
+BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --http --http.addr --ws --ws.addr --healthcheck --metrics"
+BENCH_NODE_FLAGS_GENESIS="--datadir --chain-id --bls-passphrase-source --accounts --epoch-duration-in-secs --min-header-delay-ms --max-header-delay-ms"
+BENCH_NODE_FLAGS_KEYTOOL="--datadir --address --external-primary-addr --external-worker-addrs"
+
+# _bench_help_missing <help-text> <flag...> — the flags <help-text> lacks, each with a leading
+# space ("" = all there). The word-boundary match of bench_txgen_cli_probe, with the flag's dots
+# literal and '.' counted as part of a flag, so --http.addr does not stand in for --http.
+_bench_help_missing() {
+    local help="$1" f re missing=""
+    shift
+    for f in "$@"; do
+        re="$(printf '%s' "${f}" | sed 's/[.]/[.]/g')"
+        printf '%s\n' "${help}" | LC_ALL=C grep -Eq -- "(^|[^a-z.-])${re}([^a-z.-]|$)" || missing="${missing} ${f}"
+    done
+    printf '%s' "${missing}"
+}
+
+# _bench_node_exec <image> <arg...> — run the node binary itself (not the image's entrypoint) in a
+# throwaway amd64 container. Never pulls: the probe has pulled <image> by digest already.
+_bench_node_exec() {
+    local img="$1"; shift
+    docker run --rm --pull=never --platform linux/amd64 --entrypoint "${BENCH_NODE_BIN}" "${img}" "$@"
+}
+
+# _bench_node_help_check <image> <flags> <subcommand...> — die unless `telcoin <subcommand...>
+# --help` lists every flag of the space-separated <flags> (the first 15 help lines go to stderr).
+_bench_node_help_check() {
+    local img="$1" flags="$2" help missing
+    shift 2
+    help="$(_bench_node_exec "${img}" "$@" --help 2>&1 || true)"
+    # shellcheck disable=SC2086  # <flags> is a space-separated list
+    missing="$(_bench_help_missing "${help}" ${flags})"
+    if [ -n "${missing}" ]; then
+        printf '%s\n' "${help}" | head -15 >&2
+        bench_die "node image ${img}: 'telcoin $* --help' lacks:${missing}"
+    fi
+}
+
+# _bench_node_image_probe_run <ref> — the body of bench_node_image_probe, in a subshell so its
+# EXIT trap removes the temp dirs and the container it created however it ends, without touching
+# the caller's traps. Progress on stdout, refusals through bench_die (which ends the subshell),
+# the results on fd 3 as KEY<TAB>value lines.
+_bench_node_image_probe_run() (
+    ref="$1"; work=""; cfg=""; cid=""
+    trap '[ -z "${cid}" ] || docker rm -f "${cid}" >/dev/null 2>&1; [ -z "${cfg}" ] || rm -rf "${cfg}"; [ -z "${work}" ] || rm -rf "${work}"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    # The expectations first: a malformed one must not cost a pull.
+    exp_digest="${BENCH_DOCKER_IMAGE_EXPECT_DIGEST:-}"
+    exp_sha="$(printf '%s' "${BENCH_NODE_EXPECT_SHA:-}" | tr 'ABCDEF' 'abcdef')"
+    exp_forks="${BENCH_NODE_EXPECT_FORKS:-}"
+    if [ -n "${exp_digest}" ] && ! _bench_is_digest "${exp_digest}"; then
+        bench_die "BENCH_DOCKER_IMAGE_EXPECT_DIGEST='${exp_digest}' is not sha256:<64 lower-case hex>"
+    fi
+    case "${exp_sha}" in
+        '') ;;
+        *[!0123456789abcdef]*) bench_die "BENCH_NODE_EXPECT_SHA='${BENCH_NODE_EXPECT_SHA}' is not a hex git sha" ;;
+        *) [ "${#exp_sha}" -ge 7 ] && [ "${#exp_sha}" -le 40 ] || bench_die "BENCH_NODE_EXPECT_SHA='${BENCH_NODE_EXPECT_SHA}' must be 7-40 hex characters" ;;
+    esac
+    case "${exp_forks}" in
+        ''|subsecond-from-genesis|adiri-schedule|pre-subsecond) ;;
+        *) bench_die "BENCH_NODE_EXPECT_FORKS='${exp_forks}' is not one of: subsecond-from-genesis adiri-schedule pre-subsecond" ;;
+    esac
+    [ -f "${BENCH_NODE_CONTRACT_FILE}" ] && [ -r "${BENCH_NODE_CONTRACT_FILE}" ] \
+        || bench_die "node image contract ${BENCH_NODE_CONTRACT_FILE} is missing"
+
+    # 1. docker: mandatory, no skip knob.
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        bench_die "the node image probe needs a running docker (it is mandatory: the benchmark never runs a node image it has not examined)"
+    fi
+
+    # 2. The digest the tag names now; everything after this uses <repo>@<digest>.
+    digest="$(bench_image_digest "${ref}")"
+    [ -n "${digest}" ] || bench_die "node image ${ref}: no registry digest (tag absent, or no read access to its repository)"
+    pinned="$(bench_image_pin "${ref}" "${digest}")" || bench_die "node image ${ref}: cannot pin to ${digest}"
+    if [ -n "${exp_digest}" ] && [ "${exp_digest}" != "${digest}" ]; then
+        bench_die "node image ${ref} resolves to ${digest}, not BENCH_DOCKER_IMAGE_EXPECT_DIGEST=${exp_digest}"
+    fi
+    echo "    ✓ node image digest: ${digest}"
+    echo "    ✓ pinned ref: ${pinned}"
+
+    # 3. Pull by digest, logged in through a throwaway --config dir (the operator's docker config
+    # is never touched; the access token goes only to a Google registry host).
+    work="$(mktemp -d)" && cfg="$(mktemp -d)" || bench_die "mktemp failed"
+    case "${ref}" in
+        */*) if _bench_gcp_registry_host "${ref%%/*}"; then
+                 perl -e 'alarm 90; exec @ARGV' gcloud auth print-access-token </dev/null 2>/dev/null \
+                     | docker --config "${cfg}" login -u oauth2accesstoken --password-stdin "https://${ref%%/*}" >/dev/null 2>&1 || true
+             fi ;;
+    esac
+    if docker --config "${cfg}" pull --quiet --platform linux/amd64 "${pinned}" >/dev/null 2>"${work}/pull.err"; then
+        img="${pinned}"
+    elif docker image inspect "${ref}" >/dev/null 2>&1; then
+        # A local image (tests, or an offline host). Its bytes are the pinned ones only when its
+        # repo digests say so; an applied run refuses anything else.
+        rd="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${ref}" 2>/dev/null || true)"
+        if _bench_in_lines "${pinned}" "${rd}"; then
+            bench_warn "pull of ${pinned} failed; probing the local ${ref}, whose repo digest is ${digest}"
+        elif [ "${BENCH_APPLY:-0}" = "1" ]; then
+            tail -3 "${work}/pull.err" >&2
+            bench_die "pull of ${pinned} failed and the local ${ref} is not ${digest} — refusing to certify other bytes than the fleet would run"
+        else
+            bench_warn "pull of ${pinned} failed ($(tail -1 "${work}/pull.err")); dry run: probing the LOCAL ${ref}, NOT verified to be ${digest}"
+        fi
+        img="${ref}"
+    else
+        tail -5 "${work}/pull.err" >&2
+        bench_die "node image ${pinned} could not be pulled, and ${ref} is not a local image"
+    fi
+    rm -rf "${cfg}"; cfg=""
+
+    # 4. Version and git sha, from the binary itself.
+    vout="$(_bench_node_exec "${img}" -V 2>"${work}/v.err")" \
+        || { tail -5 "${work}/v.err" >&2; bench_die "node image ${img}: '${BENCH_NODE_BIN} -V' failed"; }
+    vline="$(printf '%s\n' "${vout}" | awk 'NF { print; exit }')"
+    re='^([^[:space:]]+ )?(v?[0-9][^[:space:]]*) [(]([0-9a-f]+|unknown)[)][[:space:]]*$'
+    [[ "${vline}" =~ ${re} ]] || bench_die "node image ${img}: cannot parse '-V' output '${vline}' (want '[name ]<version> (<git sha>)')"
+    version="${BASH_REMATCH[2]}"; sha="${BASH_REMATCH[3]}"
+    if [ "${sha}" = "unknown" ]; then
+        bench_die "node image ${img}: '-V' says '${vline}' — image built without git metadata; refuse to benchmark an image whose source cannot be named"
+    fi
+    lout="$(_bench_node_exec "${img}" --version 2>&1)" || bench_die "node image ${img}: '${BENCH_NODE_BIN} --version' failed"
+    case "${lout}" in
+        *"Commit SHA:"*)
+            csha="$(printf '%s\n' "${lout}" | awk '/Commit SHA:/ { sub(/.*Commit SHA:[ \t]*/, ""); print $1; exit }')"
+            case "${csha}" in
+                ''|*[!0123456789abcdef]*) bench_die "node image ${img}: '--version' Commit SHA '${csha}' is not a git sha" ;;
+                "${sha}"*) sha="${csha}" ;;   # the longer of the two
+            esac
+            case "${sha}" in
+                "${csha}"*) ;;
+                *) bench_die "node image ${img}: '-V' names ${sha} but '--version' names Commit SHA ${csha}" ;;
+            esac ;;
+    esac
+    if [ -n "${exp_sha}" ]; then
+        case "${sha}" in
+            "${exp_sha}"*) ;;
+            *) bench_die "node image ${img} is git ${sha}, not BENCH_NODE_EXPECT_SHA=${exp_sha}" ;;
+        esac
+    fi
+    echo "    ✓ version ${version}, git sha ${sha}"
+
+    # 5. The CLI flags the deploy passes.
+    _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_NODE}" node
+    _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_GENESIS}" genesis
+    _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_KEYTOOL}" keytool generate validator
+    echo "    ✓ flags ok: node, genesis, keytool generate validator --help carry every contract flag"
+
+    # 6. The contract strings, counted in the binary copied out of the image.
+    cid="$(docker create --pull=never --platform linux/amd64 --entrypoint "${BENCH_NODE_BIN}" "${img}" 2>"${work}/c.err")" \
+        || { tail -3 "${work}/c.err" >&2; bench_die "node image ${img}: docker create failed"; }
+    docker cp -L "${cid}:${BENCH_NODE_BIN}" "${work}/telcoin" >/dev/null 2>"${work}/c.err" \
+        || { tail -3 "${work}/c.err" >&2; bench_die "node image ${img}: cannot copy ${BENCH_NODE_BIN} out of it"; }
+    docker rm -f "${cid}" >/dev/null 2>&1; cid=""
+    [ -s "${work}/telcoin" ] || bench_die "node image ${img}: ${BENCH_NODE_BIN} is empty"
+    : > "${work}/counts"
+    ln=0; n=0; nreq=0; nsub=0; sub_all=1; forbid=""; missing=""
+    while IFS= read -r line || [ -n "${line}" ]; do
+        ln=$((ln + 1))
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "${line}" in ''|'#'*) continue ;; esac
+        d="${line%% *}"; s="${line#* }"; s="${s#"${s%%[! ]*}"}"
+        if [ "${d}" = "${line}" ] || [ -z "${s}" ]; then
+            bench_die "${BENCH_NODE_CONTRACT_FILE}:${ln}: '${line}' is not '<directive> <string>'"
+        fi
+        c="$(LC_ALL=C grep -a -c -F -- "${s}" "${work}/telcoin")"
+        [ "$?" -le 1 ] && [ -n "${c}" ] || bench_die "grep failed on the copied binary"
+        printf '%s\t%s\n' "${c}" "${s}" >> "${work}/counts"
+        n=$((n + 1))
+        case "${d}" in
+            require) nreq=$((nreq + 1)); [ "${c}" -gt 0 ] || missing="${missing}"$'\n'"      ${s}" ;;
+            require-if-subsecond) nsub=$((nsub + 1)); [ "${c}" -gt 0 ] || sub_all=0 ;;
+            forbid-if-subsecond) [ "${c}" -eq 0 ] || forbid="${forbid} '${s}'" ;;
+            *) bench_die "${BENCH_NODE_CONTRACT_FILE}:${ln}: unknown directive '${d}'" ;;
+        esac
+    done < "${BENCH_NODE_CONTRACT_FILE}"
+    [ "${nreq}" -gt 0 ] || bench_die "${BENCH_NODE_CONTRACT_FILE} has no require line"
+    [ -z "${missing}" ] || bench_die "node image ${img}: ${BENCH_NODE_BIN} lacks these contract strings:${missing}"
+    if [ "${nsub}" -gt 0 ] && [ "${sub_all}" -eq 1 ]; then
+        [ -z "${forbid}" ] || bench_die "node image ${img}: image carries both markers: the sub-second ones and${forbid}"
+        forks="subsecond-from-genesis"
+    elif [ -n "${forbid}" ]; then
+        forks="adiri-schedule"
+    else
+        forks="pre-subsecond"
+    fi
+    if [ -n "${exp_forks}" ] && [ "${exp_forks}" != "${forks}" ]; then
+        bench_die "node image ${img}: fork schedule is ${forks}, not BENCH_NODE_EXPECT_FORKS=${exp_forks}"
+    fi
+    strings="$(jq -Rnc '[inputs | capture("^(?<c>[0-9]+)\t(?<s>.*)$") | {key: .s, value: (.c | tonumber)}] | from_entries' < "${work}/counts")" \
+        || bench_die "could not build the string counts JSON"
+    echo "    ✓ fork schedule: ${forks}"
+    echo "    ✓ ${n} contract strings checked (${nreq} required, all present)"
+
+    # 7. Hand the results to bench_node_image_probe.
+    printf '%s\t%s\n' BENCH_NODE_PROBE_AT "$(bench_now_iso)" BENCH_NODE_IMAGE_REF "${ref}" \
+        BENCH_NODE_IMAGE_DIGEST "${digest}" BENCH_NODE_IMAGE_PINNED "${pinned}" BENCH_NODE_VERSION "${version}" \
+        BENCH_NODE_GIT_SHA "${sha}" BENCH_NODE_FORK_SCHEDULE "${forks}" BENCH_NODE_FLAGS_OK 1 \
+        BENCH_NODE_STRINGS_JSON "${strings}" >&3
+)
+
+# bench_node_image_probe <ref> — examine the node image the fleet will run; die on any failure.
+# Resolves <ref> to its registry digest (BENCH_DOCKER_IMAGE_EXPECT_DIGEST, when set, must match),
+# pulls <repo>@<digest>, runs ${BENCH_NODE_BIN} -V and --version (a git sha is required, the two
+# must agree, and BENCH_NODE_EXPECT_SHA, 7-40 hex, must prefix it), checks the CLI flags of
+# node / genesis / keytool generate validator --help, and counts every string of
+# node-image-contract.txt in the binary: each `require` must be present; the fork schedule is
+# subsecond-from-genesis (all require-if-subsecond present, refused if a forbid-if-subsecond one is
+# too), adiri-schedule (a forbid-if-subsecond present) or pre-subsecond (neither), and must equal
+# BENCH_NODE_EXPECT_FORKS when that is set. Needs docker; there is no skip. A pull failure falls
+# back to a local image of <ref> (tests); unless its repo digest is <digest>, only in a dry run.
+# Exports BENCH_NODE_PROBE_AT, BENCH_NODE_IMAGE_REF, BENCH_NODE_IMAGE_DIGEST,
+# BENCH_NODE_IMAGE_PINNED, BENCH_NODE_VERSION, BENCH_NODE_GIT_SHA, BENCH_NODE_FORK_SCHEDULE,
+# BENCH_NODE_FLAGS_OK=1 and BENCH_NODE_STRINGS_JSON ({"<string>": <count>, ...}).
+bench_node_image_probe() {
+    local res="" rc=0 k v
+    [ -n "${1:-}" ] || bench_die "bench_node_image_probe <image-ref>"
+    echo "    probing node image ${1}"
+    { res="$(_bench_node_image_probe_run "$1" 3>&1 1>&4)" || rc=$?; } 4>&1
+    [ "${rc}" -eq 0 ] || exit "${rc}"
+    while IFS="$(printf '\t')" read -r k v; do
+        case "${k}" in
+            BENCH_NODE_PROBE_AT|BENCH_NODE_IMAGE_REF|BENCH_NODE_IMAGE_DIGEST|BENCH_NODE_IMAGE_PINNED|\
+            BENCH_NODE_VERSION|BENCH_NODE_GIT_SHA|BENCH_NODE_FORK_SCHEDULE|BENCH_NODE_FLAGS_OK|BENCH_NODE_STRINGS_JSON)
+                printf -v "${k}" '%s' "${v}"
+                export "${k?}" ;;
+        esac
+    done <<< "${res}"
+    [ "${BENCH_NODE_FLAGS_OK:-}" = "1" ] && [ "${BENCH_NODE_IMAGE_REF:-}" = "$1" ] \
+        || bench_die "node image probe of $1 returned no result"
+}
+
+# bench_node_probe_manifest — record this shell's bench_node_image_probe in the manifest:
+# node_image_ref, node_image_digest, node_image_pinned, node_version, node_git_sha,
+# node_fork_schedule and node_probe {at, flags_ok, strings}. Non-zero when no probe has run.
+bench_node_probe_manifest() {
+    if [ -z "${BENCH_NODE_IMAGE_DIGEST:-}" ] || [ -z "${BENCH_NODE_STRINGS_JSON:-}" ]; then
+        echo "❌ bench_node_probe_manifest: no node image probe in this shell (run bench_node_image_probe first)" >&2
+        return 1
+    fi
+    bench_manifest_jq --arg ref "${BENCH_NODE_IMAGE_REF}" --arg dg "${BENCH_NODE_IMAGE_DIGEST}" \
+        --arg pin "${BENCH_NODE_IMAGE_PINNED}" --arg ver "${BENCH_NODE_VERSION}" --arg sha "${BENCH_NODE_GIT_SHA}" \
+        --arg fs "${BENCH_NODE_FORK_SCHEDULE}" --arg at "${BENCH_NODE_PROBE_AT}" --arg ok "${BENCH_NODE_FLAGS_OK:-}" \
+        --argjson strings "${BENCH_NODE_STRINGS_JSON}" '
+        .node_image_ref = $ref | .node_image_digest = $dg | .node_image_pinned = $pin
+        | .node_version = $ver | .node_git_sha = $sha | .node_fork_schedule = $fs
+        | .node_probe = {at: $at, flags_ok: ($ok == "1"), strings: $strings}'
+}
+
+# bench_consensus_params_manifest — record PARAMETERS_FILE in the manifest: consensus_parameters
+# {file (its basename), sha256, max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms}; a
+# key the file lacks (or cannot be read as a duration) is null. Non-zero when the file is unreadable.
+bench_consensus_params_manifest() {
+    local f="${PARAMETERS_FILE:-}" sha
+    if ! sha="$(bench_file_sha256 "${f}")"; then
+        echo "❌ bench_consensus_params_manifest: cannot read PARAMETERS_FILE '${f}'" >&2
+        return 1
+    fi
+    bench_manifest_jq --arg file "${f##*/}" --arg sha "${sha}" \
+        --arg max "$(bench_params_ms "${f}" max_header_delay)" \
+        --arg min "$(bench_params_ms "${f}" min_header_delay)" \
+        --arg batch "$(bench_params_ms "${f}" max_batch_delay)" '
+        def num_or_null: if . == "" then null else tonumber end;
+        .consensus_parameters = {file: $file, sha256: $sha, max_header_delay_ms: ($max | num_or_null),
+                                 min_header_delay_ms: ($min | num_or_null),
+                                 max_batch_delay_ms: ($batch | num_or_null)}'
 }
 
 # --- leftovers (anything the benchmark could have created) -----------------------------

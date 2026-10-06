@@ -1,0 +1,2 @@
+ts=2026-01-01T00:00:00.100000000Z level=INFO target=cli message="telcoin-network 0.1.0 (5ca1ab1e0ddba11c0ffee0123456789abcdef012) starting"
+ts=2026-01-01T00:00:00.300000000Z level=INFO target=cli message="fork schedule (adiri): subsecond_timestamp at epoch 12"

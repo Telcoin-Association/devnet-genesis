@@ -1,0 +1,18 @@
+ts=2026-01-01T00:00:00.100000000Z level=INFO target=cli message="telcoin-network 0.1.0 (5ca1ab1e0ddba11c0ffee0123456789abcdef012) starting"
+ts=2026-01-01T00:00:00.150000000Z level=INFO target=cli message="starting node and launching first epoch"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max header delay set to 500 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Min header delay set to 250 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max batch delay set to 250 ms"
+ts=2026-01-01T00:00:00.210000000Z level=INFO target=tn_config::node message="Vote timeout set to 1500 ms"
+ts=2026-01-01T00:00:00.220000000Z level=INFO target=tn_network message="Sync retry delay set to 5000 ms"
+ts=2026-01-01T00:00:00.300000000Z level=INFO target=cli message="fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
+ts=2026-01-01T00:00:02.000000000Z level=INFO target=consensus message="subdag committed" round=4
+ts=2026-01-01T00:10:00.100000000Z level=INFO target=cli message="telcoin-network 0.1.0 (5ca1ab1e0ddba11c0ffee0123456789abcdef012) starting"
+ts=2026-01-01T00:10:00.150000000Z level=INFO target=cli message="starting node and launching first epoch"
+ts=2026-01-01T00:10:00.200000000Z level=INFO target=tn_config::node message="Max header delay set to 500 ms"
+ts=2026-01-01T00:10:00.200000000Z level=INFO target=tn_config::node message="Min header delay set to 250 ms"
+ts=2026-01-01T00:10:00.200000000Z level=INFO target=tn_config::node message="Max batch delay set to 250 ms"
+ts=2026-01-01T00:10:00.210000000Z level=INFO target=tn_config::node message="Vote timeout set to 1500 ms"
+ts=2026-01-01T00:10:00.220000000Z level=INFO target=tn_network message="Sync retry delay set to 5000 ms"
+ts=2026-01-01T00:10:00.300000000Z level=INFO target=cli message="fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
+ts=2026-01-01T00:10:02.000000000Z level=INFO target=consensus message="subdag committed" round=4

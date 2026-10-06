@@ -1,0 +1,4 @@
+telcoin 0.1.0 (5ca1ab1e0ddb)
+Version: 0.1.0
+Commit SHA: 5ca1ab1e0ddba11c0ffee0123456789abcdef012
+Build Features: default

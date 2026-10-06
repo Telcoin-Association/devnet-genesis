@@ -1,8 +1,11 @@
 # Per-run artefacts of the benchmark profile. Only the scripts, config, README and the
-# committed testnet_accounts.yaml belong in git.
+# committed testnet_accounts.yaml and consensus-parameters.yaml belong in git.
 genesis/
+# Written by `telcoin genesis` at deploy step 6; the committed timing file is consensus-parameters.yaml.
 parameters.yaml
 results/
 logs/
 work/
 .secrets/
+# Operator-only notes and drafts that never get published.
+private/

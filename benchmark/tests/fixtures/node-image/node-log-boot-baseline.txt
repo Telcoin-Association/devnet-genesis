@@ -1,0 +1,7 @@
+ts=2026-01-01T00:00:00.100000000Z level=INFO target=cli message="telcoin-network 0.1.0 (5ca1ab1e0ddba11c0ffee0123456789abcdef012) starting"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max header delay set to 3000 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Min header delay set to 1000 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Max batch delay set to 1000 ms"
+ts=2026-01-01T00:00:00.200000000Z level=INFO target=tn_config::node message="Vote timeout set to 1500 ms"
+ts=2026-01-01T00:00:00.300000000Z level=INFO target=cli message="fork schedule: seed_signature, multi_workers, prevrandao, and leader_seeded_ordering active from genesis"
+ts=2026-01-01T00:00:02.000000000Z level=INFO target=consensus message="quorum reached" round=4

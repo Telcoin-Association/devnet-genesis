@@ -1,0 +1,38 @@
+# benchmark/node-image-contract.txt — the strings the node image under test must carry.
+# Calibrated 2026-10-05 against the baseline adiri@sha256:f6fcef5d… (telcoin-network e85bd7a3f): the
+# Prometheus metric names (tn_primary_round, tn_node_mode, ...) are composed at runtime and are NOT
+# literal strings in the binary, so they are not required here; step 10 checks them live instead.
+#
+# bench_node_image_probe copies /usr/local/bin/telcoin out of the image (by digest) and counts
+# each string below in the binary with `LC_ALL=C grep -a -c -F`. Directives, one per line:
+#   require <string>                the binary must contain it, or the image is refused
+#   require-if-subsecond <string>   all present = a build with sub-second timestamps from genesis
+#   forbid-if-subsecond <string>    present = the adiri fork schedule (never sub-second); refused
+#                                   alongside the require-if-subsecond strings ("both markers")
+# Everything after the directive and one run of spaces is the string, verbatim (no quoting, no
+# trailing comments). Lines starting with # and blank lines are ignored.
+#
+# Calibration: the orchestrator runs the probe against the known-good baseline image and keeps a
+# `require` line only if the baseline passes it. A `require` the baseline cannot pass is a broken
+# check, not a finding: fix or drop the line, never the baseline. Strings that are built at run
+# time (format! arguments, metric names assembled from parts) may not appear verbatim in the
+# binary; those are exactly the lines calibration removes or rewrites.
+
+# Log phrases the step-9 checks and the run analysis read from the node logs.
+require subdag committed
+require quorum reached
+require got new consensus
+require catching up consensus blocks
+require skipping execution for empty
+require executing consensus output
+require FatalDBFailure
+
+
+# Boot line that confirms the consensus parameters the node loaded.
+require Max header delay set to
+require Min header delay set to
+require Max batch delay set to
+
+# Fork schedule markers (classify the build; see bench_node_image_probe).
+require-if-subsecond subsecond_timestamp active from genesis
+forbid-if-subsecond fork schedule (adiri)

@@ -1,0 +1,11 @@
+Run the node
+Usage: telcoin node [OPTIONS]
+Options:
+  -d, --datadir <DATADIR>              The path to the data dir
+      --log.stdout.format <FORMAT>     Log format
+      --http                           Enable the HTTP-RPC server
+      --http.addr <HTTP_ADDR>          Http server address
+      --ws                             Enable the WS-RPC server
+      --ws.addr <WS_ADDR>              Ws server address
+      --healthcheck <ADDR>             Healthcheck listener
+      --metrics <SOCKET>               Enable Prometheus metrics
