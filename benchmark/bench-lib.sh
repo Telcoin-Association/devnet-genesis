@@ -1270,7 +1270,10 @@ bench_consensus_params_manifest() {
 # Never archived: the genesis workspace (validator keystores), the tunnel pid and dot-files (an
 # interrupted pull's temp files). gcloud matches it from the start of the path relative to
 # results/<run>/ (re.match); the ^ keeps that so if it ever searches instead.
-BENCH_ARCHIVE_EXCLUDE='^(genesis[^/]*/|(.*/)?tunnel\.pid$|(.*/)?\.)'
+# No leading ^: gcloud reads a list argument that starts with ^ as its custom-delimiter form
+# (^DELIM^a DELIM b) and mangles the pattern (r20261006-0458 collect: "unbalanced parenthesis").
+# re.match anchors at the start of the relative path anyway.
+BENCH_ARCHIVE_EXCLUDE='(genesis[^/]*/|(.*/)?tunnel\.pid$|(.*/)?\.)'
 
 # bench_archive_ensure — the archive bucket exists, or is created (uniform bucket-level access,
 # public access prevention, then labels BENCH_ARCHIVE_LABELS). Only a "not found" describe counts

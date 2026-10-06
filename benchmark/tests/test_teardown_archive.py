@@ -179,6 +179,8 @@ class ExcludeRegexTests(unittest.TestCase):
     def test_one_pattern_no_comma(self):
         # gcloud splits --exclude on commas: a comma would cut the pattern in two.
         self.assertNotIn(",", EXCLUDE)
+        # A leading ^ makes gcloud parse the value as ^DELIM^list (seen live: "unbalanced parenthesis").
+        self.assertFalse(EXCLUDE.startswith("^"), EXCLUDE)
 
 
 class ArchiveHelperTests(unittest.TestCase):
