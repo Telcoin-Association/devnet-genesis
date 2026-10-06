@@ -45,6 +45,7 @@ ID_V1, ID_V2, ID_O1, ID_B1 = ("88" + "1234567890123401", "88" + "123456789012340
 PROJECT = "acme" + "-bench-" + "proj"
 PRIVATE_PROJECT = "tn-" + "devnet"
 BUCKET = "acme" + "-bench-" + "results"
+ARCHIVE_BUCKET = PRIVATE_PROJECT + "-bench" + "mark-archive"
 GS = "gs" + "://"
 GRAFANA_HOST = "obs." + "acme-bench.example.net"
 USERS = "/" + "Users/"
@@ -84,6 +85,8 @@ def synthetic_manifest():
         "notes": ["results copied to %s%s/run" % (GS, BUCKET)],
         "fund": {"run_index": 0, "bucket_prefix": "%s%s/fund" % (GS, BUCKET)},
         "blast": {"run_index": 0, "chaos": 1, "bucket_prefix": "%s%s/blast" % (GS, BUCKET)},
+        "archive": {"uri": "%s%s/runs/r20260101-0000" % (GS, ARCHIVE_BUCKET), "status": "verified-before-delete",
+                    "verified_at": "2026-01-01T02:00:00Z"},
     }
 
 
@@ -188,13 +191,13 @@ class ScrubManifestTests(unittest.TestCase):
 
     def test_drops_exactly_the_documented_keys(self):
         self.assertEqual(sorted(self.ctx.dropped), sorted([
-            "manifest.project", "manifest.notes",
+            "manifest.project", "manifest.notes", "manifest.archive",
             "manifest.instances[].instance_id", "manifest.instances[].internal_ip",
             "manifest.instances[].external_ip",
             "manifest.blasters[].instance_id", "manifest.blasters[].node_url",
             "manifest.prometheus.grafana_url", "manifest.fund.bucket_prefix", "manifest.blast.bucket_prefix"]))
         self.assertEqual(len(self.ctx.dropped), len(set(self.ctx.dropped)))
-        self.assertEqual(set(self.out), set(self.raw) - {"project", "notes"})
+        self.assertEqual(set(self.out), set(self.raw) - {"project", "notes", "archive"})
         for got, raw in zip(self.out["instances"], self.raw["instances"]):
             self.assertEqual(set(got), set(raw) - {"instance_id", "internal_ip", "external_ip"})
         self.assertEqual(self.out["blasters"], [{"name": "load-1", "zone": "us-west2-a", "target": "val-1",
@@ -340,6 +343,7 @@ class ScanTextTests(unittest.TestCase):
         self.assertFires(ID_B1, "manifest-instance-id", manifest=m)
         self.assertFires(PROJECT, "manifest-name", manifest=m)
         self.assertFires(BUCKET, "manifest-name", manifest=m)
+        self.assertFires(ARCHIVE_BUCKET, "manifest-name", manifest=m)
         self.assertFires(GRAFANA_HOST, "manifest-name", manifest=m)
         self.assertEqual(self.rules("id %s" % ID_V2), [], "an instance id is only a leak given the manifest")
 

@@ -267,10 +267,34 @@ bench_serial_wait() {
     return 1
 }
 
-# bench_iap_scp_down <inst> <zone> <remote-src> <local-dest> (IAP; remote -> local)
+# bench_iap_scp_down <inst> <zone> <remote-src> <local-dest> (IAP; remote -> local). The copy lands
+# as <local-dest>.part and is renamed, so a cut-off copy never stands in for the file. IAP can
+# refuse a tunnel it grants seconds later (4033 on a healthy node at the r20261006-0053 collect;
+# 4003 and 4047 are the same class): only those are retried, up to BENCH_IAP_RETRIES attempts
+# (default 3), 10 s then 20 s apart. Every attempt has a 300 s alarm and a closed stdin.
 bench_iap_scp_down() {
-    gcloud compute scp "$1:$3" "$4" --zone="$2" --project="${PROJECT_ID}" \
-        --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    local tries="${BENCH_IAP_RETRIES:-3}" try=1 rc err
+    case "${tries}" in ''|*[!0-9]*|0*) bench_warn "BENCH_IAP_RETRIES='${tries}' is not a positive integer — using 3"; tries=3 ;; esac
+    err="$(mktemp)" || return 1
+    while :; do
+        rc=0
+        perl -e 'alarm shift; exec @ARGV' 300 gcloud compute scp "$1:$3" "$4.part" --zone="$2" --project="${PROJECT_ID}" \
+            --tunnel-through-iap --scp-flag="-o ConnectTimeout=20" </dev/null 2>"${err}" || rc=$?
+        if [ "${rc}" -eq 0 ]; then
+            rm -f "${err}"
+            mv -f "$4.part" "$4"
+            return
+        fi
+        cat "${err}" >&2
+        rm -f "$4.part"
+        if [ "${try}" -ge "${tries}" ] || ! grep -Eq '\[(4003|4033|4047): ' "${err}"; then
+            rm -f "${err}"
+            return "${rc}"
+        fi
+        echo "      … $1: IAP refused the tunnel (attempt ${try}/${tries}); retrying in $((try * 10)) s" >&2
+        sleep "$((try * 10))"
+        try=$((try + 1))
+    done
 }
 
 # --- node logs ---------------------------------------------------------------------
@@ -1236,12 +1260,116 @@ bench_consensus_params_manifest() {
                                  max_batch_delay_ms: ($batch | num_or_null)}'
 }
 
+# --- persistent archive (gs://${BENCH_ARCHIVE_BUCKET}/runs/<run>/) ---------------------------
+# A copy of every run outlives the teardown: results/<run>/ goes to ${BENCH_ARCHIVE_PREFIX}/results/
+# and each run bucket to ${BENCH_ARCHIVE_PREFIX}/bucket/<name>/. The copies only add or update
+# objects (never --delete-unmatched-destination-objects), so no later sync can remove what an
+# earlier one archived; the archive is cleaned by hand once the run's results are qualified.
+# Every gcloud call has an alarm and a closed stdin (tasks/lessons.md: gcloud can hang).
+
+# Never archived: the genesis workspace (validator keystores), the tunnel pid and dot-files (an
+# interrupted pull's temp files). gcloud matches it from the start of the path relative to
+# results/<run>/ (re.match); the ^ keeps that so if it ever searches instead.
+BENCH_ARCHIVE_EXCLUDE='^(genesis[^/]*/|(.*/)?tunnel\.pid$|(.*/)?\.)'
+
+# bench_archive_ensure — the archive bucket exists, or is created (uniform bucket-level access,
+# public access prevention, then labels BENCH_ARCHIVE_LABELS). Only a "not found" describe counts
+# as absent; any other describe failure (no access, a hang) is non-zero, never a blind create.
+# Dry run: says whether it exists or would be created.
+bench_archive_ensure() {
+    local b="gs://${BENCH_ARCHIVE_BUCKET}" err
+    if err="$(perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets describe "${b}" --project="${PROJECT_ID}" \
+            --format='value(name)' </dev/null 2>&1 >/dev/null)"; then
+        echo "    archive bucket ${b} exists"
+        return 0
+    fi
+    case "${err}" in
+        *"not found"*|*404*) ;;
+        *) echo "❌ archive bucket ${b} could not be described: $(printf '%s\n' "${err:-no output (timed out?)}" | tail -1)" >&2
+           return 1 ;;
+    esac
+    echo "    archive bucket ${b} absent — $([ "${BENCH_APPLY}" = "1" ] && echo creating || echo 'would be created') in ${BENCH_ARCHIVE_LOCATION} (the harness never deletes it)"
+    bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets create "${b}" --project="${PROJECT_ID}" \
+        --location="${BENCH_ARCHIVE_LOCATION}" --uniform-bucket-level-access --public-access-prevention </dev/null || return 1
+    bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets update "${b}" --project="${PROJECT_ID}" \
+        --update-labels="${BENCH_ARCHIVE_LABELS}" </dev/null
+}
+
+# bench_archive_results [<bucket>...] — results/<run>/ minus BENCH_ARCHIVE_EXCLUDE to
+# ${BENCH_ARCHIVE_PREFIX}/results/, then each <bucket> to ${BENCH_ARCHIVE_PREFIX}/bucket/<bucket>/
+# (server side). Tries every copy; non-zero when any failed. Dry run: prints each argv.
+bench_archive_results() {
+    local b rc=0
+    bench_run perl -e 'alarm shift; exec @ARGV' "${BENCH_ARCHIVE_TIMEOUT_SECS}" gcloud storage rsync -r \
+        --exclude="${BENCH_ARCHIVE_EXCLUDE}" --project="${PROJECT_ID}" \
+        "${BENCH_RESULTS_DIR}" "${BENCH_ARCHIVE_PREFIX}/results" </dev/null \
+        || { echo "    ✗ ${BENCH_RESULTS_DIR} not fully archived" >&2; rc=1; }
+    for b in "$@"; do
+        bench_run perl -e 'alarm shift; exec @ARGV' "${BENCH_ARCHIVE_TIMEOUT_SECS}" gcloud storage rsync -r \
+            --project="${PROJECT_ID}" "gs://${b}" "${BENCH_ARCHIVE_PREFIX}/bucket/${b}" </dev/null \
+            || { echo "    ✗ gs://${b} not fully archived" >&2; rc=1; }
+    done
+    return "${rc}"
+}
+
+# bench_archive_manifest — manifest.json alone to the archive, after an update that must travel with it.
+bench_archive_manifest() {
+    [ -f "$(bench_manifest)" ] || { echo "      (no manifest.json — nothing to upload)"; return 0; }
+    bench_run perl -e 'alarm shift; exec @ARGV' 300 gcloud storage cp --project="${PROJECT_ID}" \
+        "$(bench_manifest)" "${BENCH_ARCHIVE_PREFIX}/results/manifest.json" </dev/null
+}
+
+# bench_archive_verify — every node log (logs/*.log.gz), pull marker (logs/*.pulled*), recovery
+# evidence archive (logs/*-recovery-*.tgz) and manifest.json under results/<run>/ is in
+# ${BENCH_ARCHIVE_PREFIX}/results/ at its local size, by one listing. Name + size, as the pull
+# markers judge: the copies never rewrite a file. Prints the count; non-zero naming what is
+# missing or differs. Dry run: prints the listing argv and what it would require.
+bench_archive_verify() {
+    local d="${BENCH_RESULTS_DIR}" pre="${BENCH_ARCHIVE_PREFIX}/results/" f rel s got have lrc=0 \
+        nlog=0 nmark=0 nev=0 nman=0 nbad=0 bad="" ls_urls=() need_files=()
+    for f in "${d}"/logs/*.log.gz "${d}"/logs/*.pulled "${d}"/logs/*.pulled-* "${d}"/logs/*-recovery-*.tgz "${d}/manifest.json"; do
+        [ -f "${f}" ] || continue
+        rel="${f#"${d}/"}"; need_files+=("${rel}")
+        case "${rel}" in
+            manifest.json) nman=1 ;;
+            *-recovery-*.tgz) nev=$((nev + 1)) ;;
+            *.log.gz) nlog=$((nlog + 1)) ;;
+            *) nmark=$((nmark + 1)) ;;
+        esac
+    done
+    got="${nlog} log(s), ${nmark} pull marker(s), ${nev} recovery archive(s)$([ "${nman}" -eq 0 ] || echo ', manifest.json')"
+    if [ "${#need_files[@]}" -eq 0 ]; then echo "    - nothing to verify: results/${BENCH_RUN_ID}/ holds no node log and no manifest.json"; return 0; fi
+    [ "${nman}" -eq 0 ] || ls_urls+=("${pre}manifest.json")
+    [ "$((nlog + nmark + nev))" -eq 0 ] || ls_urls+=("${pre}logs/**")
+    printf '    +'; printf ' %q' perl -e 'alarm shift; exec @ARGV' 300 gcloud storage ls -l "${ls_urls[@]}" --project="${PROJECT_ID}"; printf '\n'
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      (dry run — not listed; with --yes it requires ${#need_files[@]} file(s) there at their local sizes: ${got})"
+        return 0
+    fi
+    have="$(perl -e 'alarm shift; exec @ARGV' 300 gcloud storage ls -l "${ls_urls[@]}" --project="${PROJECT_ID}" </dev/null 2>/dev/null \
+        | awk -v p="${pre}" 'NF == 3 && $1 ~ /^[0-9]+$/ && index($3, p) == 1 { print substr($3, length(p) + 1) " " $1 }')" || lrc=$?
+    for rel in "${need_files[@]}"; do
+        s="$(wc -c < "${d}/${rel}" | tr -d ' ')"
+        _bench_in_lines "${rel} ${s}" "${have}" && continue
+        nbad=$((nbad + 1))
+        [ "${nbad}" -gt 10 ] || bad="${bad}"$'\n'"      - ${rel}: ${s} bytes here, $(printf '%s\n' "${have}" | awk -v r="${rel}" '$1 == r { print $2 " bytes"; f = 1; exit } END { if (!f) print "absent" }') in the archive"
+    done
+    if [ "${nbad}" -gt 0 ]; then
+        echo "❌ archive ${pre} lacks ${nbad} of ${#need_files[@]} file(s) at their local sizes$([ "${lrc}" -eq 0 ] || echo " (listing exited ${lrc})"):${bad}" >&2
+        [ "${nbad}" -le 10 ] || echo "      … and $((nbad - 10)) more" >&2
+        return 1
+    fi
+    echo "    ✓ archive verified: ${#need_files[@]} file(s) in ${pre} at their local sizes (${got})"
+}
+
 # --- leftovers (anything the benchmark could have created) -----------------------------
 # bench_bucket_names — buckets that are ours by label benchmark=1 OR by name tn-devnet-bench-*
-# (step 12 labels in a second call, so an unlabelled bucket must still be found).
+# (step 12 labels in a second call, so an unlabelled bucket must still be found). Never the
+# archive bucket, whatever its labels: the teardown deletes what this lists.
 bench_bucket_names() {
     gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null \
-        | jq -r '.[] | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true
+        | jq -r --arg archive "${BENCH_ARCHIVE_BUCKET}" '.[] | select(.name != $archive)
+            | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true
 }
 
 # bench_leftovers — one line per existing instance / disk / firewall rule / bucket that is

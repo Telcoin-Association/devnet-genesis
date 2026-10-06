@@ -257,6 +257,8 @@ def scrub_manifest(m, ipmap, ctx=None):
     out = json.loads(json.dumps(m))
     _drop(out, "project", "manifest.project", ctx)
     _drop(out, "notes", "manifest.notes", ctx)
+    # The harness's archive record: its uri names the private archive bucket and the project.
+    _drop(out, "archive", "manifest.archive", ctx)
     if isinstance(out.get("instances"), list):
         out["instances"] = _drop_entry_keys(out["instances"], "manifest.instances", ctx)
     if isinstance(out.get("blasters"), list):

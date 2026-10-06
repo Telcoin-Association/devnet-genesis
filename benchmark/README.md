@@ -191,13 +191,21 @@ benchmark/benchmark-blast.sh run     --run r20260923-0100 --yes      # --keep le
 benchmark/benchmark-blast.sh collect --run r20260923-0100 --yes
 benchmark/benchmark-blast.sh status  --run r20260923-0100
 
-# 2. Tear down. Read the dry run, then apply.
+# 2. Tear down. Read the dry run, then apply. Before the first delete it copies the run to
+#    gs://tn-devnet-benchmark-archive/runs/r20260923-0100/ and verifies the copy.
 benchmark/benchmark-teardown.sh --run r20260923-0100
 benchmark/benchmark-teardown.sh --run r20260923-0100 --yes           # --purge also deletes the bench secrets
+
+# Only if the archive cannot be written and the fleet must go anyway (recorded in manifest.notes):
+BENCH_TEARDOWN_SKIP_ARCHIVE=1 benchmark/benchmark-teardown.sh --run r20260923-0100 --yes
 ```
 
 Every script is a dry run unless you pass `--yes`, and prints each gcloud argv before it
 runs it.
+
+The harness never deletes a node log. Each run's logs and results stay in `results/<run>/` and
+in the archive bucket `gs://tn-devnet-benchmark-archive` (`BENCH_ARCHIVE_BUCKET`), which no
+script deletes from. Clean the archive by hand, and only after the run's results are qualified.
 
 ### What the deploy does
 
@@ -214,10 +222,10 @@ runs it.
 | 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), reads the node's boot lines, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`. `bench-validator-01` goes first, and the first mismatch stops the run before any other node restarts. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
 | 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
-| 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
+| 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. Then checks that the archive bucket `gs://tn-devnet-benchmark-archive` exists, or creates it (uniform bucket-level access, public access prevention, labels `purpose=bench-archive,retain=true`). If the bucket can be neither read nor created, the step stops, because the teardown would refuse to delete anything later. |
 | 13 | Fund: the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders, then is deleted. |
 | 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
-| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. |
+| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. With `BENCH_COLLECT_ARCHIVE=1` (the default), the step then copies `results/<run>/` and the run bucket to the archive and records `manifest.archive.collect_sync_at`. A failure there is only a warning, because the teardown's archive gate makes the copy that counts. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
 
 ### Progress means consensus rounds, not blocks
@@ -247,10 +255,35 @@ Use `BENCH_CHAOS_BEFORE_CLOSE_SECS=600 BENCH_CHAOS_DOWNTIME_SECS=900` for a mid-
 kill that still crosses the boundary. The offset must fit the measured epoch duration and
 the downtime must exceed the offset. The drill keeps its existing owed-restart cleanup.
 
-`manifest.chaos_schedule` records the measured epoch, anchor block/hash, and planned times.
-`manifest.chaos_boundary` records the actual block that opened the next epoch.
-`chaos-remote.log` records the remote host's action begin/end times, including failed actions.
-These observed times establish how close the kill really landed to the boundary.
+Each action is staged so it lands on time. `BENCH_CHAOS_STAGE_SECS=30` seconds before it is
+due, the run opens one IAP session and sends a short script on stdin (`sudo bash -s`). The
+script saves the container log, waits on the node's own clock for the due time, prints
+`BENCH_CHAOS_BEGIN`, runs the action and prints `BENCH_CHAOS_END`. In epoch mode the restart is
+due `BENCH_CHAOS_DOWNTIME_SECS` after the kill's node-side begin, and the observer restart
+`BENCH_CHAOS_OBS_AFTER_BACK_SECS` after the restart's. No poll starts within
+`BENCH_CHAOS_GUARD_SECS=90` seconds of a due action; it runs right after the action instead.
+If the session fails before `BEGIN`, the action falls back to a direct `--command` at its due
+time and is recorded with `staged: false`. Before staging, r20261006-0053 killed 17 s late
+(a long poll, the log save and the IAP setup all ran first), and both restarts inherited it.
+
+Run `benchmark/benchmark-blast.sh chaos-stage-test --instance <node> --yes` once against a
+live fleet before a blast. It sends the same script with the harmless action `true`, due
+`BENCH_CHAOS_STAGE_SECS` ahead, saves that node's container log as
+`telcoin-stage-test-<UTC>.log.gz`, and prints `BEGIN`, `END` and how late the action began.
+It fails when the markers do not come back. Without `--yes` it only checks that the script
+parses.
+
+`manifest.chaos_schedule` records the measured epoch, anchor block/hash and planned times; the
+kill's `chaos[]` entry repeats them as `planned` (`closing_epoch`, `boundary_unix`,
+`restart_unix`). Whether the outage crossed the boundary is measured, not assumed. After the
+restart, each poll asks the registry for the block that opened the next epoch until it has
+opened. `manifest.chaos_boundary` then records that block, and the kill's entry gets
+`boundary_unix` and `crossed_boundary`: true when kill begin < boundary < restart begin, on
+the node's clock. A `chaos-boundary` note gives the verdict and the times. If the epoch has not
+opened by the end of the watch, `crossed_boundary` is null and the note says so. A registry
+entry at block height 0 counts as not opened, because the registry records the next epoch
+before it starts. Mixed timing records no boundary fields. `chaos-remote.log` keeps the raw
+output of every session, failed ones included.
 
 Enable `--log.stdout.filter 'info,state-sync=debug,consensus-chain=debug,tn::observer=debug'`
 in the deployed node command before a recovery investigation. The sampler appends decimal
@@ -275,8 +308,11 @@ For the legacy `BENCH_CHAOS_TIMING=mixed` mode, the mixed phase starts at
   already aborted.
 - **+25 min**: `systemctl restart telcoin` on `bench-observer-11`.
 
-Each action goes into `manifest.chaos[]` with its timestamp and exit code. Set
-`BENCH_CHAOS=0` to skip the schedule, or move it with `BENCH_CHAOS_{KILL,BACK,OBS}_AT_SECS`.
+Each action goes into `manifest.chaos[]`. `ts` is its node-side begin. `begin_unix` and
+`end_unix` (node clock, ms), `planned_unix`, `late_secs` (begin minus planned) and `staged` sit
+beside `rc`, the action's own exit code from `BENCH_CHAOS_END` (the ssh exit code when that line
+never came back). Set `BENCH_CHAOS=0` to skip the schedule, or move it with
+`BENCH_CHAOS_{KILL,BACK,OBS}_AT_SECS`.
 
 ## Abort rules
 
@@ -284,7 +320,8 @@ The run watchers poll every `BENCH_POLL_SECS` (240 s minimum; sustained IAP poll
 throttled, see `tasks/lessons.md`). They read each node's `BENCH_STATUS` serial line, which
 `node-sampler.sh` writes every two minutes, and obs-devnet memory from Cloud Monitoring, so
 the loop itself makes no SSH calls. The first rule to trip sets `manifest.abort`, stops every
-blaster (`docker stop txgen`) and allows 10 minutes for the results to upload.
+blaster (`docker stop txgen`) and allows 10 minutes for the results to upload. A poll that
+would start within `BENCH_CHAOS_GUARD_SECS` of a chaos action waits until the action has run.
 
 | Reason | Trigger |
 |---|---|
@@ -293,6 +330,17 @@ blaster (`docker stop txgen`) and allows 10 minutes for the results to upload.
 | `batch-cache-cliff` | `FatalDBFailure` shows up in a node's `docker logs telcoin`. This is the batch-cache defect, **not** a hardware limit, and the report must say so. |
 | `quorum-lost` | two consecutive polls in which no node's `max by (node)(tn_primary_round{network="bench"})` advanced. A failed Prometheus query counts as unknown, never as stalled. |
 | `node-stalled` | one validator's epoch/round stays unchanged for two consecutive polls while peers advance. Planned outages and pauses are exempt. Observers and missing metrics are not counted; an unknown poll resets the comparison. The victim's log is saved before aborting. |
+
+Commit stalls are noted, never aborted on. Consensus rounds can keep advancing while blocks
+stop (r20261006-0053: 301 s at block 15513), so `quorum-lost` does not catch one. Each poll
+reads every `BENCH_STATUS` sample since the previous poll. When the fleet's highest block has
+not moved for `BENCH_STALL_NOTE_SECS=60` seconds, the run prints one `⚠ commits flat` line.
+When the block moves again, `manifest.commit_stalls[]` gets `{start, end, secs, block,
+round_start, round_end, source: "watch"}` and a note; rounds use the watcher's
+epoch × 10^8 + round form, and the bounds are sample times. Only a stretch that starts in the
+planned mixed phase counts: in cooldown the generator only drains, so blocks stop by design.
+`collect` runs `stall-scan.py` over the sampler CSVs (fleet maximum per 30 s, same window)
+into `manifest.commit_stalls_sampled`, and notes any sampler file it could not copy.
 
 A blaster is deleted only when its serial marker says `rc=0 reason=ok`, which means its
 results are in the bucket. A failed upload reports `rc=75 reason=upload-failed`. Any other
@@ -314,7 +362,21 @@ operator machine dies, the blasters finish on their own and upload to the bucket
 - `pre-instances.json`, `pre-firewall.json`: project state before the run; teardown compares against them
 - `blasters/<name>.json` (`tn-blast/v2`), plus each blaster's docker log and generator log
 - `funder/prepare.json`, `sampler/<node>.csv`, `deployments-bench.json`, `metrics.json`
+- `logs/`: every node's logs, their pull markers and the recovery evidence, saved by the teardown
+- `bucket/<name>/`: the run bucket, copied here by the teardown before it deletes the bucket
 - `genesis/`: moved here from `benchmark/genesis/` at teardown, so the next run starts clean
+
+The teardown also copies the whole directory to the archive, apart from `genesis*/` (validator
+keystores), `tunnel.pid` and dot-files:
+
+```
+gs://tn-devnet-benchmark-archive/runs/<run>/results/        results/<run>/
+gs://tn-devnet-benchmark-archive/runs/<run>/bucket/<name>/  each run bucket, copied before its delete
+```
+
+`manifest.archive` records the copy: `uri` (`BENCH_ARCHIVE_PREFIX`), `status` (`pending`, then
+`verified-before-delete`, or `unverified` under the override), `verified_at`, `final_sync_at`
+and `collect_sync_at`. The publishing scrub drops it, together with `project` and `notes`.
 
 The provenance fields record which bytes the run measured:
 
@@ -335,13 +397,37 @@ The provenance fields record which bytes the run measured:
 buckets labelled `benchmark=1` or named `tn-devnet-bench-*` (copied into
 `results/<run>/bucket/` first; a non-empty bucket whose copy fails is left in place), orphaned bench
 disks, the compute SA's bindings on the bench secrets, the contracts worktree, `bench/r*`
-branches with no commits of their own, and local IAP tunnels. It deletes nothing if any
-single guard fails. It keeps the `bench-txgen-*` secrets unless you pass `--purge`. At the
-end it prints the "left nothing" checks, which confirm that no labelled or `bench-*`
-resource remains, that every devnet instance is still present, and that
-`devnet-allow-consensus` matches the pre-run snapshot.
+branches with no commits of their own, and local IAP tunnels. The archive bucket is never a
+candidate: `config.sh` refuses an archive name that matches `tn-devnet-bench-*` or labels
+that carry `benchmark=` or `bench-run=`, and the bucket listing skips the archive by name. It
+deletes nothing if any single guard fails. It keeps the `bench-txgen-*` secrets unless you
+pass `--purge`. At the end it prints the "left nothing" checks, which confirm that no labelled
+or `bench-*` resource remains, that every devnet instance is still present, and that
+`devnet-allow-consensus` matches the pre-run snapshot. It also prints how many objects the
+run has in the archive; the archive is kept.
 
-Before those checks, once teardown has saved the node logs and finished the deletes, it runs
+Nothing is deleted until three gates pass, in this order:
+
+1. **Logs.** Every live node's logs are pulled to `results/<run>/logs/` (`BENCH_TEARDOWN_SKIP_LOGS=1` overrides).
+2. **Recovery evidence.** Each node's service journal and sampler files are pulled.
+3. **Archive.** The teardown makes sure the archive bucket exists, sets `manifest.archive.status`
+   to `pending`, copies `results/<run>/` and every candidate bucket to
+   `BENCH_ARCHIVE_PREFIX`, and then lists the archive once. Every `logs/*.log.gz`, pull
+   marker, `logs/*-recovery-*.tgz` and `manifest.json` must be there at its local size.
+   The status then becomes `verified-before-delete` and `manifest.json` is uploaded again. If
+   any of this fails, the teardown prints `archive … failed — NOTHING was deleted` and exits 1;
+   re-run it once the bucket is reachable. `BENCH_TEARDOWN_SKIP_ARCHIVE=1` still tries the
+   copy, but deletes even if it fails, sets the status to `unverified` and adds a
+   `manifest.notes` entry.
+
+Every copy has an alarm (`BENCH_ARCHIVE_TIMEOUT_SECS`, default 1800 s) and a closed stdin. A
+copy only adds or replaces objects, so a later sync never removes what an earlier one saved.
+After the deletes and the provenance check below, `results/<run>/` is synced once more, which
+picks up the run bucket's local copy and the final manifest, and the time goes into
+`manifest.archive.final_sync_at`. That last sync only warns when it fails. The dry run prints
+the archive prefix, whether the bucket exists or would be created, and every copy command.
+
+Before the final sync, once teardown has saved the node logs and finished the deletes, it runs
 an informational provenance check:
 
 ```bash
