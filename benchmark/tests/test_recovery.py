@@ -170,7 +170,7 @@ class EvidenceTests(unittest.TestCase):
 set -euo pipefail
 source "$1/recovery-lib.sh"
 BENCH_APPLY=1
-tn_iap_ssh() { printf '%s' "$3" > "$REMOTE_COMMAND"; cat "$FIXTURE"; }
+tn_iap_ssh_stdin() { cat > "$REMOTE_COMMAND"; cat "$FIXTURE"; }
 bench_pull_recovery_evidence victim zone "$3" "$2"
 '''
             env = dict(os.environ, FIXTURE=str(fixture), REMOTE_COMMAND=str(root / "command"))
