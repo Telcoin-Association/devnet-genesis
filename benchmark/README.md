@@ -133,6 +133,54 @@ The gate records the file in `manifest.consensus_parameters`: its name, SHA-256 
 delays in milliseconds. A resume that does not re-run step 7 keeps the recorded values, and
 warns if the file has changed since. Step 9 checks every node's boot lines against them.
 
+### Per-node values
+
+`BENCH_NODE_PARAM_OVERRIDES` gives single nodes their own values on top of the file:
+space-separated `<index>:<key>=<value>[,<key>=<value>...]` items, the index into `INSTANCE_NAMES`,
+for example `"2:min_header_delay=50ms,max_header_delay=250ms 7:max_batch_delay=100ms"`. Durations
+are `<int>ms` or `<int>s`. The keys are the node's `Parameters` (listed in `BENCH_NODE_PARAM_KEYS`);
+`gc_depth` and `basefee_address` are refused because they must be the same on every node. config.sh
+refuses a malformed item at load, and the gate refuses a node the node itself would refuse at
+startup: `min_header_delay` above `max_header_delay`, a threshold outside
+`1..max_header_num_of_batches`, or a `vote_timeout` (5 s when unset) below `max_header_delay` +
+250 ms or at 10 s or more. The plan prints every node's resulting values.
+
+Step 9 writes a node's overrides into `<datadir>/parameters.yaml` before restarting it. The
+datadir is the host side of the wrapper's `-v <host>:<--datadir>` bind. Each line is rewritten in
+place, or appended, and marked `# bench-override`; the staged file is kept as
+`parameters.yaml.bak`, and a later step 9 starts again from it. The gate records the overrides as
+`manifest.consensus_parameters.overrides` (`{"<instance>": {"<key>": "<value>"}}`) whenever step 7
+or 9 runs. The fork-schedule check uses the smallest `max_header_delay` of any node.
+
+### Node log filter
+
+`BENCH_NODE_LOG_FILTER` (default `info,primary::certifier=debug,primary::proposer=debug`) goes
+onto each node's command line at step 9 as `--log.stdout.filter` and `--log.file.filter`, with
+`--log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}` (default 20). `primary::certifier` logs each
+vote request and response per peer; `primary::proposer` logs the parents and delays of each
+header. That is tens of lines per round: a 4-hour run writes a few GB uncompressed into the
+container log, and the file log under `<datadir>/.cache/reth/logs/telcoin-network-logs/` rotates
+at 200 MB per file. The hyperdisk has room. `BENCH_NODE_LOG_FILTER=` (empty) leaves the command
+line as it is. `manifest.node_startup[<instance>]` records `log_filter` and `log_max_files`.
+
+### What step 9 reports
+
+Each node's `POSTCFG_OK` line ends with the boot lines and then the readback:
+
+```
+POSTCFG_OK <inst> ... sha=<git> mhd=<ms> nhd=<ms> mbd=<ms> vt=<ms|?> forks=<label>
+    max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|-> filter=<filter|-> maxfiles=<n|->
+```
+
+`max`, `min`, `batch`, `thr` and `vote` are read from the node's `parameters.yaml` after the
+restart (`-` when the file lacks the key); `filter` and `maxfiles` from the running container's
+command line. Both the boot lines and the file must show that node's values (its override, else
+the manifest's), and the filter must be `BENCH_NODE_LOG_FILTER`, or the run stops before the next
+node restarts. They go into `manifest.node_startup[<instance>]` as `params` and `log_*`.
+
+Changing parameters on a live fleet between sweep arms is `tools/params-apply.sh`'s job (see
+`tools/README.md`); run its `--stage-test` on one node before an arm depends on it.
+
 ## Node image
 
 The bench never runs a node image it has not examined. `BENCH_DOCKER_IMAGE` names the image, as
@@ -240,7 +288,7 @@ up outside the repo once the teardown has finished.
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
 | 5–7 | The devnet drivers, on the bench profile: keygen, genesis build (in `benchmark/`) and finalize. |
 | 8 | Metrics-only observability in one IAP session per node. `setup-observability.sh` would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. |
-| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), reads the node's boot lines, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`. `bench-validator-01` goes first, and the first mismatch stops the run before any other node restarts. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
+| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, writes the node's `BENCH_NODE_PARAM_OVERRIDES` into its `parameters.yaml` and `BENCH_NODE_LOG_FILTER` onto its command line (see [Consensus timing](#consensus-timing)), restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), reads the node's boot lines, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`. `bench-validator-01` goes first, and the first mismatch stops the run before any other node restarts. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
 | 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |

@@ -44,7 +44,7 @@ _bench_caller="$(basename -- "${0:-}")"
 case "${_bench_caller}" in
     benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\
     devnet-keygen.sh|devnet-genesis-build.sh|devnet-finalize.sh|devnet-contracts.sh|\
-    create-instances.sh|genesis.sh|copy-committee.sh) ;;
+    create-instances.sh|genesis.sh|copy-committee.sh|params-apply.sh) ;;
     *)
         echo "❌ '${_bench_caller}' is not allowed to run with CONFIG_FILE=benchmark/config.sh." >&2
         echo "   The benchmark profile is driven only by benchmark/benchmark-*.sh (and the shared drivers they call)." >&2
@@ -173,6 +173,23 @@ export PARAMETERS_FILE="${BENCH_PARAMETERS_FILE:-${BENCH_DIR}/consensus-paramete
 # Absolute: the drivers re-source this file after changing directory.
 case "${PARAMETERS_FILE}" in /*) ;; *) PARAMETERS_FILE="$(pwd -P)/${PARAMETERS_FILE}" ;; esac
 export PARAMETERS_FILE
+# Per-node consensus parameters on top of PARAMETERS_FILE, written by deploy step 9 into that node's
+# <datadir>/parameters.yaml before its restart. Space-separated <index>:<key>=<value>[,<key>=<value>...],
+# index into INSTANCE_NAMES, e.g. "2:min_header_delay=50ms,max_header_delay=250ms 7:max_batch_delay=100ms".
+# Keys: BENCH_NODE_PARAM_KEYS (the node's Parameters at ba43a1f0e, crates/config/src/node.rs); durations
+# <int>ms or <int>s. gc_depth and basefee_address stay fleet-wide. Checked below; live changes between
+# sweep arms are tools/params-apply.sh's job, not this knob's.
+export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
+# <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. Keep in step with
+# tools/params-apply.sh PARAM_KEYS.
+export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
+# Node log filter: step 9 puts --log.stdout.filter <f> --log.file.filter <f> --log.file.max-files <n> on the
+# node's command line, so per-peer vote request/response timing (primary::certifier) and the proposer's
+# parents and delays (primary::proposer) are logged. Debug on these two targets is tens of lines per round,
+# a few GB uncompressed over a 4-hour run (the file log rotates at 200 MB x max-files; the hyperdisk has
+# room). BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
+export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug}"
+export BENCH_NODE_LOG_MAX_FILES="${BENCH_NODE_LOG_MAX_FILES:-20}"
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"
 
@@ -307,6 +324,50 @@ fi
 if [ ! -f "${PARAMETERS_FILE}" ] || [ ! -r "${PARAMETERS_FILE}" ]; then
     echo "❌ benchmark/config.sh: PARAMETERS_FILE='${PARAMETERS_FILE}' is not a readable regular file." >&2; exit 1
 fi
+# BENCH_NODE_PARAM_OVERRIDES: <index>:<key>=<value>[,...] items, each index once and a node of the fleet.
+case "${BENCH_NODE_PARAM_OVERRIDES}" in
+    *[*?[]*) echo "❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' holds a glob character." >&2; exit 1 ;;
+esac
+_bench_seen=" "
+for _bench_item in ${BENCH_NODE_PARAM_OVERRIDES}; do
+    _bench_bad=""
+    _bench_idx="${_bench_item%%:*}"
+    case "${_bench_item}" in *:*=*) ;; *) _bench_bad="not <index>:<key>=<value>[,<key>=<value>...]" ;; esac
+    case "${_bench_idx}" in ''|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index '${_bench_idx}' is not a number}" ;; esac
+    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${#INSTANCE_NAMES[@]}" ]; then _bench_bad="index ${_bench_idx} is past the last node ($(( ${#INSTANCE_NAMES[@]} - 1 )))"; fi
+    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac
+    _bench_seen="${_bench_seen}${_bench_idx} "
+    _bench_kvs="${_bench_item#*:},"; _bench_keys=" "
+    while [ -z "${_bench_bad}" ] && [ -n "${_bench_kvs}" ]; do
+        _bench_kv="${_bench_kvs%%,*}"; _bench_kvs="${_bench_kvs#*,}"
+        _bench_k="${_bench_kv%%=*}"; _bench_v="${_bench_kv#*=}"
+        case "${_bench_kv}" in *=*) ;; *) _bench_bad="'${_bench_kv}' is not <key>=<value>"; break ;; esac
+        case "${_bench_keys}" in *" ${_bench_k} "*) _bench_bad="${_bench_k} is given twice"; break ;; esac
+        _bench_keys="${_bench_keys}${_bench_k} "
+        case "${_bench_k}" in
+            gc_depth|basefee_address) _bench_bad="${_bench_k} must stay fleet-wide (set it in PARAMETERS_FILE, never per node)"; break ;;
+        esac
+        _bench_t=""
+        for _bench_arr in ${BENCH_NODE_PARAM_KEYS}; do [ "${_bench_arr#*:}" != "${_bench_k}" ] || _bench_t="${_bench_arr%%:*}"; done
+        case "${_bench_t}:${_bench_v}" in
+            :*) _bench_bad="unknown key '${_bench_k}' (known: $(printf '%s ' ${BENCH_NODE_PARAM_KEYS} | sed 's/[a-z]*://g'))" ;;
+            dur:*) case "${_bench_v}" in *ms) _bench_v="${_bench_v%ms}" ;; *s) _bench_v="${_bench_v%s}" ;; *) _bench_v="" ;; esac
+                case "${_bench_v}" in ''|*[!0-9]*) _bench_bad="${_bench_kv#*=} is not <int>ms or <int>s (${_bench_k})" ;; esac ;;
+            int:*[!0-9]*|int:|int:0*) _bench_bad="${_bench_k}=${_bench_v} is not a positive integer" ;;
+            bool:true|bool:false|int:*) ;;
+            bool:*) _bench_bad="${_bench_k}=${_bench_v} is not true or false" ;;
+        esac
+    done
+    if [ -n "${_bench_bad}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES item '${_bench_item}': ${_bench_bad}." >&2; exit 1
+    fi
+done
+case "${BENCH_NODE_LOG_FILTER}" in
+    *[!A-Za-z0-9_:,=.-]*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_FILTER='${BENCH_NODE_LOG_FILTER}' may hold only [A-Za-z0-9_:,=.-] (target=level directives)." >&2; exit 1 ;;
+esac
+case "${BENCH_NODE_LOG_MAX_FILES}" in
+    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_MAX_FILES='${BENCH_NODE_LOG_MAX_FILES}' must be a positive integer." >&2; exit 1 ;;
+esac
 case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
     e2-*:hyperdisk-*|n1-*:hyperdisk-*)
         echo "❌ benchmark/config.sh: MACHINE_TYPE='${MACHINE_TYPE}' cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
@@ -342,4 +403,4 @@ fi
 if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
     echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
 fi
-unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir
+unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys

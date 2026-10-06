@@ -145,21 +145,31 @@ PROM_LEAK_ANY_QUERY='count(count by (node) ({network="devnet", node=~"bench.*"})
 COLLECT_METRICS_PY="${BENCH_TXGEN_BENCH_DIR}/collect-gcp-metrics.py"
 DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
 
-# run_expect <sha|forks|mhd|nhd|mbd> — what this run's nodes must report at boot: the manifest
-# (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate recorded them) first,
-# else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
+# run_expect <sha|forks|mhd|nhd|mbd|vt|thr> [<node-index>] — what this run's nodes must report at
+# boot: the manifest (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate
+# recorded them) first, else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
+# With a node index, that node's BENCH_NODE_PARAM_OVERRIDES value of the key wins (step 9 writes it,
+# from this shell's knob, which the gate records as consensus_parameters.overrides). vt (vote_timeout)
+# is only ever an override: the fleet file need not set it and older builds do not log it.
 run_expect() {
-    local m v="" q g
+    local m v="" q="" g="" key="" ov=""
     m="$(bench_manifest)"
     case "$1" in
         sha)   q='.node_git_sha';                              g="${BENCH_NODE_GIT_SHA:-}" ;;
         forks) q='.node_fork_schedule';                        g="${BENCH_NODE_FORK_SCHEDULE:-}" ;;
-        mhd)   q='.consensus_parameters.max_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" ;;
-        nhd)   q='.consensus_parameters.min_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" min_header_delay)" ;;
-        mbd)   q='.consensus_parameters.max_batch_delay_ms';   g="$(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay)" ;;
+        mhd)   q='.consensus_parameters.max_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)"; key=max_header_delay ;;
+        nhd)   q='.consensus_parameters.min_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" min_header_delay)"; key=min_header_delay ;;
+        mbd)   q='.consensus_parameters.max_batch_delay_ms';   g="$(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay)"; key=max_batch_delay ;;
+        vt)    key=vote_timeout ;;
+        thr)   g="$(bench_params_raw "${PARAMETERS_FILE}" header_num_of_batches_threshold)"; key=header_num_of_batches_threshold ;;
         *) return 1 ;;
     esac
-    [ ! -f "${m}" ] || v="$(jq -r "${q} // empty" "${m}" 2>/dev/null || true)"
+    [ -z "${2:-}" ] || [ -z "${key}" ] || ov="$(bench_node_override "$2" "${key}")"
+    if [ -n "${ov}" ]; then
+        case "${key}" in header_num_of_batches_threshold) printf '%s' "${ov}" ;; *) bench_dur_ms "${ov}" | tr -d '\n' ;; esac
+        return 0
+    fi
+    [ -z "${q}" ] || [ ! -f "${m}" ] || v="$(jq -r "${q} // empty" "${m}" 2>/dev/null || true)"
     printf '%s' "${v:-${g}}"
 }
 
@@ -565,17 +575,91 @@ step_8() {
     unset token
 }
 
+# postconfig_params <node-index> — step 9's per-node section, run before the restart: that node's
+# BENCH_NODE_PARAM_OVERRIDES into <datadir>/parameters.yaml (`setp <key> <value>` lines) and
+# BENCH_NODE_LOG_FILTER onto the telcoin command in the wrapper (the `F=` line; none when the knob is
+# empty). It also sets P, the parameters file the readback after the restart reads.
+postconfig_params() {
+    local kv
+    cat <<'EOS'
+# 2b. this node's parameters and log filter. The datadir is the --datadir argument of the wrapper's
+#     telcoin command; under docker that is the container path, so the host side of its
+#     `-v <host>:<datadir>` bind is where parameters.yaml really is.
+D="$(grep -v '^[[:space:]]*#' "$W" | sed -nE 's/.*--datadir[ =]([^[:space:]]+).*/\1/p' | head -1 || true)"
+[ -n "$D" ] || fail "no --datadir in $W"
+H="$(grep -v '^[[:space:]]*#' "$W" | sed -nE "s#.*-v[[:space:]]+([^[:space:]:]+):${D}([:[:space:]].*)?\$#\1#p" | head -1 || true)"
+P="${H:-$D}/parameters.yaml"
+[ -f "$P" ] || fail "no $P"
+# A file an earlier step 9 rewrote (it has '# bench-override' lines) is first restored from its .bak;
+# any other file becomes the .bak. Written through `cat >`, so owner, mode and inode stay.
+if grep -q '# bench-override$' "$P"; then
+    [ -f "$P.bak" ] || fail "$P has bench-override lines but no $P.bak"
+    cat "$P.bak" > "$P"
+else
+    cp -p "$P" "$P.bak"
+fi
+# setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
+setp() {
+    local t
+    t="$(mktemp)"
+    if ! awk -v k="$1" -v v="$2" '
+        index($0, k ":") == 1 { r = substr($0, length(k) + 2); sub(/^[ \t]+/, "", r); sub(/[ \t]*#.*$/, "", r)
+                                if (r == "") blk = 1
+                                if (!n++) print k ": " v "  # bench-override"
+                                next }
+        { print }
+        END { if (!n) print k ": " v "  # bench-override"; exit (blk ? 3 : 0) }' "$P" > "$t"; then
+        rm -f "$t"; fail "$1 is a block (secs/nanos) in $P; write it as <int>ms there"
+    fi
+    cat "$t" > "$P"; rm -f "$t"
+    [ "$(grep -c "^$1: $2  # bench-override\$" "$P" || true)" = 1 ] || fail "$1 not rewritten in $P"
+}
+EOS
+    bench_node_overrides "$1" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
+    [ -n "${BENCH_NODE_LOG_FILTER:-}" ] || return 0
+    printf "F='%s'; MF='%s'\n" "${BENCH_NODE_LOG_FILTER}" "${BENCH_NODE_LOG_MAX_FILES}"
+    cat <<'EOS'
+# the filter goes right after --datadir <dir>, once; copies an earlier run left are dropped first
+[ "$(grep -v '^[[:space:]]*#' "$W" | grep -c -- '--datadir' || true)" = 1 ] || fail "not exactly one --datadir line in $W"
+sed -i -E -e 's/ --log\.(stdout|file)\.filter [^[:space:]]+//g' -e 's/ --log\.file\.max-files [^[:space:]]+//g' "$W"
+sed -i -E "/^[[:space:]]*#/!s#(--datadir[ =][^[:space:]]+)#\1 --log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}#" "$W"
+grep -qF -- "--log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}" "$W" || fail "log filter not set in $W"
+EOS
+}
+
+# postconfig_readback — step 9's readback after the restart, for the POSTCFG_OK line: pv <key> reads
+# a top-level value of the node's parameters.yaml (P, from postconfig_params), ms turns it into ms
+# (- when absent); rf / rff / rmf are the running container's --log.stdout.filter, --log.file.filter
+# and --log.file.max-files ("" when not set). The two filters must be the same.
+postconfig_readback() {
+    cat <<'EOS'
+# 3b. what the node now runs with: its parameters.yaml, and the container's command line
+pv() { awk -v k="$1" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/["\047]/, "", v); print v; exit }' "$P"; }
+ms() { case "$1" in '') echo - ;; *ms) echo "${1%ms}" ;; *s) awk -v s="${1%s}" 'BEGIN { printf "%d\n", s * 1000 }' ;; *) echo "?" ;; esac; }
+CMDL="$(docker inspect -f '{{.Path}} {{join .Args " "}}' telcoin 2>/dev/null || true)"
+arg() { printf '%s\n' "$CMDL" | sed -nE "s/.* $1 ([^[:space:]]+).*/\1/p" | tail -1 || true; }
+rf="$(arg '--log\.stdout\.filter')"; rff="$(arg '--log\.file\.filter')"; rmf="$(arg '--log\.file\.max-files')"
+[ "$rff" = "$rf" ] || fail "running --log.file.filter '$rff' differs from --log.stdout.filter '$rf'"
+pthr="$(pv header_num_of_batches_threshold)"
+EOS
+}
+
 # postconfig_script <instance> — step 9's remote script for one node (piped to `sudo bash -s`).
 # Everything that can fail transiently (the RPC while the node restarts) is polled with a
 # deadline and never trips set -e/pipefail; only the final assertions can fail the session.
 # Its last line: POSTCFG_OK <inst> chain=<hex> block=<hex|?> ip=<ip> progress=<text with spaces>
 #   sha=<git sha> mhd=<ms|?> nhd=<ms|?> mbd=<ms|?> vt=<ms|?> forks=<label|?>
+#   max=<ms|-> min=<ms|-> batch=<ms|-> thr=<n|-> vote=<ms|-> filter=<filter|-> maxfiles=<n|->
 # where sha / mhd / nhd / mbd / vt / forks come from the restarted container's boot lines (the
 # `telcoin-network <ver> (<sha>) starting` line, "Max|Min header delay set to N ms", "Max batch
 # delay set to N ms", "... vote timeout set to N ms" when logged, the fork-schedule line labelled
-# by report/provenance.py's rules); step_9 compares them with the run's manifest.
+# by report/provenance.py's rules); max / min / batch / thr / vote are read back from the node's
+# parameters.yaml after the restart (- = not in the file) and filter / maxfiles from the running
+# container's command line (--log.stdout.filter, --log.file.max-files; - = not set). step_9 compares
+# them with the run's manifest and this node's overrides.
 postconfig_script() {
-    local inst="$1" b64
+    local inst="$1" b64 idx
+    idx="$(bench_index_of "${inst}")" || bench_die "postconfig_script: ${inst} is not a bench instance"
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
     cat <<EOS
 set -euo pipefail
@@ -588,6 +672,7 @@ grep -q -- '--http.addr 0.0.0.0' "\$W" || fail "http.addr not rewritten"
 # 2. alloy labels were set in step 8's session; assert they are still bench labels
 E=/etc/telcoin/alloy/telcoin-alloy.env
 grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env lacks bench labels (re-run step 8)"
+$(postconfig_params "${idx}")
 # 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is
 #    progressing. An idle TN chain stays at block 0 (the engine skips empty non-epoch-closing
 #    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
@@ -654,6 +739,7 @@ done
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the restart"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
 [ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the restart"
+$(postconfig_readback)
 # 4. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
@@ -672,39 +758,70 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
-echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?}"
+echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--}"
 EOS
 }
 
 # postcfg_field <POSTCFG_OK line> <key> — the value of its last " <key>=<value>" ("" if absent).
 postcfg_field() { printf '%s\n' "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p" | tail -1; }
 
-# step9_node_check <inst> <POSTCFG_OK line> <sha> <mhd> <nhd> <mbd> <forks> — record the node's boot
-# lines as manifest.node_startup[<inst>], then die on the first one that differs from the run's
-# expectation (the sha matches when the node's starts with the expected one: a full 40-hex
-# expectation must match in full). vt is recorded, not compared (nothing to compare it with).
+# step9_node_check <node-index> <POSTCFG_OK line> <sha> <forks> — merge the node's boot lines and
+# readback into manifest.node_startup[<inst>] (sha mhd nhd mbd vt forks from the boot lines; params
+# {max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms, header_num_of_batches_threshold,
+# vote_timeout_ms} from its parameters.yaml; log_filter / log_max_files from its command line), then
+# die on the first value that differs from what this node must run (the sha matches when the node's
+# starts with the expected one: a full 40-hex expectation must match in full). Delays and the
+# threshold are this node's (run_expect <field> <node-index>: an override, else the manifest's). vt is
+# compared only with a vote_timeout override; the log fields only when BENCH_NODE_LOG_FILTER is set.
 step9_node_check() {
-    local inst="$1" line="$2" w_sha="$3" w_mhd="$4" w_nhd="$5" w_mbd="$6" w_forks="$7" sha mhd nhd mbd vt forks
+    local idx="$1" line="$2" w_sha="$3" w_forks="$4" inst sha mhd nhd mbd vt forks pmax pmin pbatch pthr pvote lf lmf
+    local w_mhd w_nhd w_mbd w_vt w_thr src
+    inst="${INSTANCE_NAMES[$idx]}"
+    w_mhd="$(run_expect mhd "${idx}")"; w_nhd="$(run_expect nhd "${idx}")"; w_mbd="$(run_expect mbd "${idx}")"
+    w_vt="$(run_expect vt "${idx}")"; w_thr="$(run_expect thr "${idx}")"
     sha="$(postcfg_field "${line}" sha | tr 'ABCDEF' 'abcdef')"
     mhd="$(postcfg_field "${line}" mhd)"; nhd="$(postcfg_field "${line}" nhd)"; mbd="$(postcfg_field "${line}" mbd)"
     vt="$(postcfg_field "${line}" vt)"; forks="$(postcfg_field "${line}" forks)"
+    pmax="$(postcfg_field "${line}" max)"; pmin="$(postcfg_field "${line}" min)"; pbatch="$(postcfg_field "${line}" batch)"
+    pthr="$(postcfg_field "${line}" thr)"; pvote="$(postcfg_field "${line}" vote)"
+    lf="$(postcfg_field "${line}" filter)"; lmf="$(postcfg_field "${line}" maxfiles)"
     bench_manifest_jq --arg i "${inst}" --arg sha "${sha}" --arg mhd "${mhd}" --arg nhd "${nhd}" \
-        --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" '
+        --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" --arg pmax "${pmax}" --arg pmin "${pmin}" \
+        --arg pbatch "${pbatch}" --arg pthr "${pthr}" --arg pvote "${pvote}" --arg lf "${lf}" --arg lmf "${lmf}" '
         def num: if test("^[0-9]+$") then tonumber else null end;
-        def str: if . == "" or . == "?" then null else . end;
-        .node_startup[$i] = {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num), mbd: ($mbd|num),
-                             vt: ($vt|num), forks: ($forks|str)}' \
+        def str: if . == "" or . == "?" or . == "-" then null else . end;
+        .node_startup[$i] = ((.node_startup[$i] // {}) + {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num),
+                             mbd: ($mbd|num), vt: ($vt|num), forks: ($forks|str),
+                             params: {max_header_delay_ms: ($pmax|num), min_header_delay_ms: ($pmin|num),
+                                      max_batch_delay_ms: ($pbatch|num), header_num_of_batches_threshold: ($pthr|num),
+                                      vote_timeout_ms: ($pvote|num)},
+                             log_filter: ($lf|str), log_max_files: ($lmf|num)})' \
         || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
     local stop="— stopping before any other node restarts"
+    src="manifest consensus_parameters"
+    [ -z "$(bench_node_overrides "${idx}")" ] || src="${src} + BENCH_NODE_PARAM_OVERRIDES"
     case "${sha}" in
         "${w_sha}"?*|"${w_sha}") ;;
         *) bench_die "${inst}: boot sha = ${sha:-<none>}, expected ${w_sha} (manifest node_git_sha) ${stop}" ;;
     esac
-    [ "${mhd}" = "${w_mhd}" ] || bench_die "${inst}: max_header_delay = ${mhd:-<none>} ms, expected ${w_mhd} ms (manifest consensus_parameters) ${stop}"
-    [ "${nhd}" = "${w_nhd}" ] || bench_die "${inst}: min_header_delay = ${nhd:-<none>} ms, expected ${w_nhd} ms (manifest consensus_parameters) ${stop}"
-    [ "${mbd}" = "${w_mbd}" ] || bench_die "${inst}: max_batch_delay = ${mbd:-<none>} ms, expected ${w_mbd} ms (manifest consensus_parameters) ${stop}"
+    [ "${mhd}" = "${w_mhd}" ] || bench_die "${inst}: max_header_delay = ${mhd:-<none>} ms, expected ${w_mhd} ms (${src}) ${stop}"
+    [ "${nhd}" = "${w_nhd}" ] || bench_die "${inst}: min_header_delay = ${nhd:-<none>} ms, expected ${w_nhd} ms (${src}) ${stop}"
+    [ "${mbd}" = "${w_mbd}" ] || bench_die "${inst}: max_batch_delay = ${mbd:-<none>} ms, expected ${w_mbd} ms (${src}) ${stop}"
     [ "${forks}" = "${w_forks}" ] || bench_die "${inst}: fork schedule = ${forks:-<none>}, expected ${w_forks} (manifest node_fork_schedule) ${stop}"
-    echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks} — as expected"
+    # The node's parameters.yaml must say what its boot lines say.
+    [ "${pmax}" = "${w_mhd}" ] && [ "${pmin}" = "${w_nhd}" ] && [ "${pbatch}" = "${w_mbd}" ] \
+        || bench_die "${inst}: parameters.yaml has max/min header delay ${pmax:-?}/${pmin:-?} ms and max batch delay ${pbatch:-?} ms, expected ${w_mhd}/${w_nhd}/${w_mbd} ms (${src}) ${stop}"
+    [ -z "${w_thr}" ] || [ "${pthr}" = "${w_thr}" ] \
+        || bench_die "${inst}: parameters.yaml has header_num_of_batches_threshold ${pthr:-?}, expected ${w_thr} (${src}) ${stop}"
+    if [ -n "${w_vt}" ]; then
+        [ "${pvote}" = "${w_vt}" ] || bench_die "${inst}: parameters.yaml has vote_timeout ${pvote:-?} ms, expected ${w_vt} ms (BENCH_NODE_PARAM_OVERRIDES) ${stop}"
+        case "${vt}" in ''|'?') ;; *) [ "${vt}" = "${w_vt}" ] || bench_die "${inst}: vote_timeout = ${vt} ms at boot, expected ${w_vt} ms (BENCH_NODE_PARAM_OVERRIDES) ${stop}" ;; esac
+    fi
+    if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
+        [ "${lf}" = "${BENCH_NODE_LOG_FILTER}" ] && [ "${lmf}" = "${BENCH_NODE_LOG_MAX_FILES}" ] \
+            || bench_die "${inst}: the node runs --log.stdout.filter ${lf:-<none>} --log.file.max-files ${lmf:-<none>}, expected ${BENCH_NODE_LOG_FILTER} / ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER) ${stop}"
+    fi
+    echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks}, yaml threshold ${pthr}, log filter ${lf} — as expected"
 }
 
 step_9() {
@@ -716,15 +833,17 @@ step_9() {
         bench_die "step 9 cannot check the nodes' boot lines: expected sha='${w_sha}' forks='${w_forks}' delays='${w_mhd}/${w_nhd}/${w_mbd}' — $(bench_manifest) lacks node_git_sha / node_fork_schedule / consensus_parameters (the gate records them when a step of 0, 5, 6, 7 runs) and no node image probe ran in this invocation"
     fi
     echo "    every node must boot git ${w_sha}, header delay max ${w_mhd} / min ${w_nhd} ms, batch delay ${w_mbd} ms, forks ${w_forks}"
+    [ -z "${BENCH_NODE_PARAM_OVERRIDES}" ] || echo "    except where BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' sets that node's own values"
+    echo "    node log filter: ${BENCH_NODE_LOG_FILTER:-untouched (BENCH_NODE_LOG_FILTER is empty)}${BENCH_NODE_LOG_FILTER:+, --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}}"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines, sampler"
+        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ) + log filter, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines + readback, sampler"
         bench_save_node_log "${i}" pre-step9 || bench_warn "${inst}: container log not saved before the step-9 restart — restarting anyway"
         out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
         line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
         [ -n "${line}" ] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
-        step9_node_check "${inst}" "${line}" "${w_sha}" "${w_mhd}" "${w_nhd}" "${w_mbd}" "${w_forks}"
+        step9_node_check "${i}" "${line}" "${w_sha}" "${w_forks}"
     done
 }
 
@@ -897,6 +1016,39 @@ plan_probe_line() {
     fi
 }
 
+# plan_node_params — the plan's "logs" line; with BENCH_NODE_PARAM_OVERRIDES set, one line per node:
+# the parameters step 9 leaves it with (the fleet file's, overrides applied); then every node whose
+# parameters the node would refuse at startup.
+plan_node_params() {
+    local i ov vt
+    if [ -n "${BENCH_NODE_LOG_FILTER}" ]; then
+        echo "  logs     --log.stdout.filter/--log.file.filter ${BENCH_NODE_LOG_FILTER} --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER, step 9)"
+    else
+        echo "  logs     node command line untouched (BENCH_NODE_LOG_FILTER is empty)"
+    fi
+    if [ -n "${BENCH_NODE_PARAM_OVERRIDES}" ]; then
+        for i in "${!INSTANCE_NAMES[@]}"; do
+            ov="$(bench_node_overrides "${i}" | paste -sd, -)"
+            vt="$(bench_node_param_ms "${i}" vote_timeout)"
+            printf '    %-20s max_header_delay %s ms, min_header_delay %s ms, max_batch_delay %s ms, threshold %s, vote_timeout %s%s\n' \
+                "${INSTANCE_NAMES[$i]}" "$(bench_node_param_ms "${i}" max_header_delay)" "$(bench_node_param_ms "${i}" min_header_delay)" \
+                "$(bench_node_param_ms "${i}" max_batch_delay)" "$(bench_node_param_int "${i}" header_num_of_batches_threshold)" \
+                "${vt:+${vt} ms}${vt:-5000 ms (node default)}" "${ov:+  [override ${ov}]}"
+        done
+    fi
+    bench_node_params_problems | sed 's/^/    ✗ the node would refuse to start: /'
+}
+
+# plan_step9_lines — per node, the lines of its step-9 script that differ between nodes: the setp
+# (parameters.yaml) and F= (log filter) lines.
+plan_step9_lines() {
+    local i l
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        l="$(postconfig_params "${i}" | grep -E '^(setp |F=)' | paste -sd'|' - | sed 's/|/; /g')"
+        printf '                       %-20s %s\n' "${INSTANCE_NAMES[$i]}:" "${l:-(nothing: no override, BENCH_NODE_LOG_FILTER empty)}"
+    done
+}
+
 # plan_harness — this checkout's HEAD, ",dirty" when tracked files differ from it (local git only).
 plan_harness() {
     local sha st
@@ -914,6 +1066,8 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
   chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
   probe    $(plan_probe_line)
   params   ${PARAMETERS_FILE}: max_header_delay $(bench_params_ms "${PARAMETERS_FILE}" max_header_delay) ms, min_header_delay $(bench_params_ms "${PARAMETERS_FILE}" min_header_delay) ms, max_batch_delay $(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay) ms
+  per-node ${BENCH_NODE_PARAM_OVERRIDES:-none} (BENCH_NODE_PARAM_OVERRIDES; step 9 writes them into that node's parameters.yaml)
+$(plan_node_params)
   harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
   metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
@@ -957,6 +1111,8 @@ EOP
                      bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
                      (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); boot lines (git sha, delays,
                      fork schedule) == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service
+                     before each restart (the whole script: --print-postconfig <instance>):
+$(plan_step9_lines)
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
                      cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
@@ -1071,6 +1227,16 @@ gate() {
             echo "    ✗ missing ${deps} and step 11 will not produce it (pass --with-contracts with a range that includes 11)" >&2; bad=1
         fi
     fi
+    if in_range 7 || in_range 9; then
+        local probs
+        probs="$(bench_node_params_problems)"
+        if [ -n "${probs}" ]; then
+            printf '%s\n' "${probs}" | sed 's/^/    ✗ /' >&2
+            bad=1
+        else
+            echo "    ✓ every node's effective parameters pass the node's startup checks${BENCH_NODE_PARAM_OVERRIDES:+ (overrides: ${BENCH_NODE_PARAM_OVERRIDES})}"
+        fi
+    fi
     [ "${bad}" -eq 0 ] || bench_die "prerequisites missing — nothing was started"
     gate_node_image
 }
@@ -1105,17 +1271,37 @@ gate_node_image() {
     fork_delay_check "${forks}"
 }
 
-# run_params_mhd — the max_header_delay (ms) this invocation leaves the nodes with, and where it
-# comes from, as "<ms> <source>": PARAMETERS_FILE when step 7 (which stages it) is selected or the
-# manifest has none recorded, else manifest.consensus_parameters. "<ms>" is "" when unknown.
+# run_params_mhd — the smallest max_header_delay (ms) this invocation leaves any node with, and where
+# it comes from, as "<ms> <source>". The fleet value: PARAMETERS_FILE when step 7 (which stages it)
+# is selected or the manifest has none recorded, else manifest.consensus_parameters. A per-node
+# override below it wins: one in BENCH_NODE_PARAM_OVERRIDES, or one the manifest records as applied
+# (consensus_parameters.overrides), so a single node cannot slip past fork_delay_check. "<ms>" is ""
+# when unknown.
 run_params_mhd() {
-    local m v=""
+    local m v="" src="" i o inst
     m="$(bench_manifest)"
     if ! in_range 7 && [ -f "${m}" ]; then
         v="$(jq -r '.consensus_parameters.max_header_delay_ms // empty' "${m}" 2>/dev/null || true)"
-        if [ -n "${v}" ]; then printf '%s %s' "${v}" "manifest consensus_parameters"; return 0; fi
+        [ -z "${v}" ] || src="manifest consensus_parameters"
     fi
-    printf '%s %s' "$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" "${PARAMETERS_FILE}"
+    if [ -z "${src}" ]; then v="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)"; src="${PARAMETERS_FILE}"; fi
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        o="$(bench_dur_ms "$(bench_node_override "${i}" max_header_delay)")"
+        if [ -n "${o}" ] && { [ -z "${v}" ] || [ "${o}" -lt "${v}" ]; }; then
+            v="${o}"; src="BENCH_NODE_PARAM_OVERRIDES (${INSTANCE_NAMES[$i]})"
+        fi
+    done
+    if [ -f "${m}" ]; then
+        while read -r inst o; do
+            o="$(bench_dur_ms "${o}")"
+            if [ -n "${o}" ] && { [ -z "${v}" ] || [ "${o}" -lt "${v}" ]; }; then
+                v="${o}"; src="manifest consensus_parameters.overrides (${inst})"
+            fi
+        done <<EOF
+$(jq -r '.consensus_parameters.overrides // {} | to_entries[] | select(.value.max_header_delay != null) | "\(.key) \(.value.max_header_delay)"' "${m}" 2>/dev/null || true)
+EOF
+    fi
+    printf '%s %s' "${v}" "${src}"
 }
 
 # fork_delay_check <fork schedule> — die when the nodes would run sub-second header delays on a
@@ -1161,6 +1347,15 @@ gate_manifest() {
         [ "${have}" = "${now}" ] || bench_warn "${PARAMETERS_FILE} changed since step 7 staged it (sha256 ${have} recorded, ${now:-unreadable} now) — keeping the recorded consensus_parameters"
     else
         echo "    · consensus_parameters not recorded yet (recorded when a range including step 7 runs)"
+    fi
+    # The per-node part is applied by step 9, so it is recorded whenever step 9 runs (with step 7, above).
+    if ! in_range 7 && in_range 9; then
+        bench_node_params_manifest || bench_die "could not record the per-node parameters in ${m}"
+    fi
+    if in_range 7 || in_range 9; then
+        echo "    ✓ manifest: consensus_parameters.overrides $(jq -c '.consensus_parameters.overrides' "${m}"), node_startup[*].log_filter ${BENCH_NODE_LOG_FILTER:-null}"
+    elif [ -f "${m}" ] && [ "$(jq -c '.consensus_parameters.overrides // {}' "${m}" 2>/dev/null || true)" != "$(bench_node_overrides_json)" ]; then
+        bench_warn "BENCH_NODE_PARAM_OVERRIDES differs from what step 9 applied ($(jq -c '.consensus_parameters.overrides // {}' "${m}")); it takes effect only when step 9 runs"
     fi
 }
 

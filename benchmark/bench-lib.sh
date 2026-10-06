@@ -1244,6 +1244,8 @@ bench_node_probe_manifest() {
 # bench_consensus_params_manifest — record PARAMETERS_FILE in the manifest: consensus_parameters
 # {file (its basename), sha256, max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms}; a
 # key the file lacks (or cannot be read as a duration) is null. Non-zero when the file is unreadable.
+# Then the per-node part (bench_node_params_manifest): consensus_parameters.overrides and
+# node_startup[<instance>].log_filter / .log_max_files.
 bench_consensus_params_manifest() {
     local f="${PARAMETERS_FILE:-}" sha
     if ! sha="$(bench_file_sha256 "${f}")"; then
@@ -1257,7 +1259,115 @@ bench_consensus_params_manifest() {
         def num_or_null: if . == "" then null else tonumber end;
         .consensus_parameters = {file: $file, sha256: $sha, max_header_delay_ms: ($max | num_or_null),
                                  min_header_delay_ms: ($min | num_or_null),
-                                 max_batch_delay_ms: ($batch | num_or_null)}'
+                                 max_batch_delay_ms: ($batch | num_or_null)}' || return 1
+    bench_node_params_manifest
+}
+
+# --- per-node consensus parameters and node log filter ------------------------------------------
+# BENCH_NODE_PARAM_OVERRIDES (config.sh checks its syntax and keys) puts per-node values on top of
+# PARAMETERS_FILE; deploy step 9 writes them into each node's <datadir>/parameters.yaml before its
+# restart, and BENCH_NODE_LOG_FILTER onto its command line. Live changes between sweep arms are
+# tools/params-apply.sh's (it records manifest.param_arms), not these helpers'.
+
+# bench_node_overrides <node-index> — that node's overrides, one "<key>=<value>" per line (none: no output).
+bench_node_overrides() {
+    local item
+    for item in ${BENCH_NODE_PARAM_OVERRIDES:-}; do
+        [ "${item%%:*}" = "${1:-}" ] || continue
+        printf '%s\n' "${item#*:}" | tr ',' '\n'
+    done
+}
+
+# bench_node_override <node-index> <key> — the node's override of <key> as written ("" when none).
+bench_node_override() { bench_node_overrides "$1" | sed -n "s/^$2=//p" | tail -1; }
+
+# bench_dur_ms <value> — a knob duration (<int>ms or <int>s) in ms; "" for anything else.
+bench_dur_ms() {
+    awk -v v="${1:-}" 'BEGIN {
+        if (v ~ /^[0-9]+ms$/) { sub(/ms$/, "", v); printf "%d\n", v }
+        else if (v ~ /^[0-9]+s$/) { sub(/s$/, "", v); printf "%d\n", v * 1000 }
+    }'
+}
+
+# bench_params_raw <file> <key> — a top-level scalar of a parameters YAML as written (comment and
+# quotes stripped); "" when absent, unreadable or a block.
+bench_params_raw() {
+    [ -r "${1:-}" ] && [ -n "${2:-}" ] || return 0
+    awk -v k="$2" 'index($0, k ":") == 1 {
+        v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/(^|[ \t]+)#.*$/, "", v); sub(/[ \t]+$/, "", v)
+        gsub(/^["\047]|["\047]$/, "", v); print v; exit }' "$1"
+}
+
+# bench_node_param_ms <node-index> <key> — what step 9 leaves node <node-index> with for a duration
+# key, in ms: its override, else PARAMETERS_FILE's value ("" when the file lacks the key).
+bench_node_param_ms() {
+    local ov
+    ov="$(bench_node_override "$1" "$2")"
+    if [ -n "${ov}" ]; then bench_dur_ms "${ov}"; else bench_params_ms "${PARAMETERS_FILE}" "$2"; fi
+}
+
+# bench_node_param_int <node-index> <key> — the same for an integer key.
+bench_node_param_int() {
+    local ov
+    ov="$(bench_node_override "$1" "$2")"
+    printf '%s' "${ov:-$(bench_params_raw "${PARAMETERS_FILE}" "$2")}"
+}
+
+# bench_node_params_problems — one line per node whose effective parameters the node would refuse at
+# startup (crates/config/src/node.rs validate_operational_floors, consensus.rs validate_vote_timeout
+# at ba43a1f0e): min_header_delay > max_header_delay, header_num_of_batches_threshold outside
+# 1..max_header_num_of_batches, vote_timeout (5 s when unset) below max_header_delay + 250 ms (the
+# drift tolerance, sub-second builds) or at/above 10 s. No output when every node is fine.
+bench_node_params_problems() {
+    local i inst mx mn vt thr cap
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        mx="$(bench_node_param_ms "${i}" max_header_delay)"; mn="$(bench_node_param_ms "${i}" min_header_delay)"
+        vt="$(bench_node_param_ms "${i}" vote_timeout)"; vt="${vt:-5000}"
+        thr="$(bench_node_param_int "${i}" header_num_of_batches_threshold)"
+        cap="$(bench_node_param_int "${i}" max_header_num_of_batches)"
+        if [ -n "${mx}" ] && [ -n "${mn}" ] && [ "${mn}" -gt "${mx}" ]; then
+            echo "${inst}: min_header_delay ${mn} ms > max_header_delay ${mx} ms"
+        fi
+        if [ -n "${mx}" ] && [ "${vt}" -lt $((mx + 250)) ]; then
+            echo "${inst}: vote_timeout ${vt} ms < max_header_delay ${mx} ms + 250 ms drift tolerance"
+        fi
+        [ "${vt}" -lt 10000 ] || echo "${inst}: vote_timeout ${vt} ms is not below the 10 s libp2p request timeout"
+        case "${thr}:${cap}" in
+            *[!0-9:]*|:*|*:) ;;
+            *) if [ "${thr}" -lt 1 ] || [ "${thr}" -gt "${cap}" ]; then
+                   echo "${inst}: header_num_of_batches_threshold ${thr} is outside 1..max_header_num_of_batches ${cap}"
+               fi ;;
+        esac
+    done
+}
+
+# bench_node_overrides_json — BENCH_NODE_PARAM_OVERRIDES as compact JSON {<instance>: {<key>: "<value>"}}.
+bench_node_overrides_json() {
+    local i kv
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        bench_node_overrides "${i}" | while IFS= read -r kv; do
+            printf '%s\t%s\t%s\n' "${INSTANCE_NAMES[$i]}" "${kv%%=*}" "${kv#*=}"
+        done
+    done | jq -c -R -s 'split("\n") | map(select(length > 0) | split("\t")) | reduce .[] as $r ({}; .[$r[0]][$r[1]] = $r[2])'
+}
+
+# bench_node_params_manifest — record what step 9 applies per node: consensus_parameters.overrides
+# = {<instance>: {<key>: "<value>"}} (nodes with overrides only; {} when none), and
+# node_startup[<instance>].log_filter / .log_max_files (null when BENCH_NODE_LOG_FILTER is empty:
+# the node's command line is left as it is). Step 9 overwrites both log fields with what it reads
+# back from the running node.
+bench_node_params_manifest() {
+    local ov insts mf=""
+    ov="$(bench_node_overrides_json)" || return 1
+    insts="$(printf '%s\n' "${INSTANCE_NAMES[@]}" | jq -R -s 'split("\n") | map(select(length > 0))')" || return 1
+    [ -z "${BENCH_NODE_LOG_FILTER:-}" ] || mf="${BENCH_NODE_LOG_MAX_FILES:-}"
+    bench_manifest_jq --argjson ov "${ov}" --argjson insts "${insts}" --arg f "${BENCH_NODE_LOG_FILTER:-}" \
+        --arg mf "${mf}" '
+        .consensus_parameters = ((.consensus_parameters // {}) + {overrides: $ov})
+        | reduce $insts[] as $i (.; .node_startup[$i] = ((.node_startup[$i] // {})
+            + {log_filter: (if $f == "" then null else $f end),
+               log_max_files: (if $mf == "" then null else ($mf | tonumber) end)}))'
 }
 
 # --- local results: results/<run>/ is the only copy ------------------------------------------
