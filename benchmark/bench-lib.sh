@@ -990,7 +990,8 @@ bench_txgen_cli_probe() {
 # fleet exists. Fixed here, not knobs. The strings the binary must carry: node-image-contract.txt.
 BENCH_NODE_CONTRACT_FILE="${BENCH_LIB_DIR}/node-image-contract.txt"
 BENCH_NODE_BIN="/usr/local/bin/telcoin"
-BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --http --http.addr --ws --ws.addr --healthcheck --metrics"
+# --log.* filter flags: deploy step 9 puts BENCH_NODE_LOG_FILTER / BENCH_NODE_LOG_MAX_FILES on the command line.
+BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --log.stdout.filter --log.file.filter --log.file.max-files --http --http.addr --ws --ws.addr --healthcheck --metrics"
 BENCH_NODE_FLAGS_GENESIS="--datadir --chain-id --bls-passphrase-source --accounts --epoch-duration-in-secs --min-header-delay-ms --max-header-delay-ms"
 BENCH_NODE_FLAGS_KEYTOOL="--datadir --address --external-primary-addr --external-worker-addrs"
 

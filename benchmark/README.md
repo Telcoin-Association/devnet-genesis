@@ -178,8 +178,9 @@ command line. Both the boot lines and the file must show that node's values (its
 the manifest's), and the filter must be `BENCH_NODE_LOG_FILTER`, or the run stops before the next
 node restarts. They go into `manifest.node_startup[<instance>]` as `params` and `log_*`.
 
-Changing parameters on a live fleet between sweep arms is `tools/params-apply.sh`'s job (see
-`tools/README.md`); run its `--stage-test` on one node before an arm depends on it.
+Changing parameters on a live fleet between sweep arms is `tools/params-apply.sh`'s job (one node
+restarted at a time, each arm recorded as `manifest.param_arms`; see `tools/README.md`, section
+"params-apply"). Run its `--stage-test` on one node before the first arm of a fleet.
 
 ## Node image
 

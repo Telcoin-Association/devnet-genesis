@@ -3,6 +3,9 @@ Usage: telcoin node [OPTIONS]
 Options:
   -d, --datadir <DATADIR>              The path to the data dir
       --log.stdout.format <FORMAT>     Log format
+      --log.stdout.filter <FILTER>     The filter to use for logs written to stdout
+      --log.file.filter <FILTER>       The filter to use for logs written to the log file
+      --log.file.max-files <COUNT>     The maximum amount of log files that will be stored
       --http                           Enable the HTTP-RPC server
       --http.addr <HTTP_ADDR>          Http server address
       --ws                             Enable the WS-RPC server

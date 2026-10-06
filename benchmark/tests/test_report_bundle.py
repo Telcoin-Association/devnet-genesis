@@ -777,6 +777,98 @@ class AssembleHelperTests(unittest.TestCase):
 # --------------------------------------------------------------------------- step 5: series
 
 
+class ConsensusPerNodeTests(unittest.TestCase):
+    """consensus_block with per-node values: consensus_parameters.overrides (deploy step 9) and
+    param_arms (tools/params-apply.sh) become tables, and explain a spread of logged values."""
+
+    FLEET = {"file": "consensus-parameters.yaml", "max_header_delay_ms": 500, "min_header_delay_ms": 250,
+             "max_batch_delay_ms": 250}
+    LOGS = {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250, "vote_timeout_ms": 5000}
+    ARMS = [
+        {"name": "a2", "begin": "2026-10-06T14:00:00Z", "end": None, "failed": "bench-validator-02",
+         "nodes": {"bench-validator-01": {"max_header_delay": "700ms"},
+                   "bench-validator-02": {"max_header_delay": "700ms"}}},
+        {"name": "a1", "begin": "2026-10-06T13:00:00Z", "end": "2026-10-06T14:00:00Z",
+         "nodes": {"bench-validator-01": {"max_header_delay": "600ms", "min_header_delay": "300ms"},
+                   "bench-validator-02": {"max_header_delay": "600ms", "min_header_delay": "250ms"},
+                   "bench-observer-11": {"max_header_delay": "600ms", "min_header_delay": "300ms"}}}]
+
+    def manifest(self, overrides=None, arms=None):
+        cp = dict(self.FLEET)
+        if overrides is not None:
+            cp["overrides"] = overrides
+        m = {"consensus_parameters": cp}
+        if arms is not None:
+            m["param_arms"] = arms
+        return m
+
+    def consensus(self, manifest, param_values):
+        caveats = []
+        block = mb.consensus_block(manifest, {"params": dict(self.LOGS), "param_values": param_values}, {}, caveats)
+        return block, caveats
+
+    def test_overrides_and_arms_are_tables_and_explain_the_spread(self):
+        m = self.manifest({"bench-validator-03": {"min_header_delay": "50ms", "max_header_delay": "250ms"}},
+                          copy.deepcopy(self.ARMS))
+        block, caveats = self.consensus(m, {"max_header_delay_ms": [250, 500, 600, 700],
+                                            "min_header_delay_ms": [50, 250, 300]})
+        self.assertEqual({k: block[k] for k in mb.CONSENSUS_NUM_KEYS},
+                         {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250,
+                          "vote_timeout_ms": 5000})
+        self.assertEqual(block["overrides"], [
+            {"instance": "bench-validator-03", "key": "max_header_delay", "value": "250ms"},
+            {"instance": "bench-validator-03", "key": "min_header_delay", "value": "50ms"}])
+        self.assertEqual(block["param_arms"], [
+            {"arm": "a1", "begin_utc": "2026-10-06T13:00:00Z", "end_utc": "2026-10-06T14:00:00Z",
+             "values": "all 3 nodes: max_header_delay=600ms; bench-observer-11: min_header_delay=300ms; "
+                       "bench-validator-01: min_header_delay=300ms; bench-validator-02: min_header_delay=250ms"},
+            {"arm": "a2", "begin_utc": "2026-10-06T14:00:00Z", "end_utc": None,
+             "values": "all 2 nodes: max_header_delay=700ms (stopped at bench-validator-02, which did not come "
+                       "back after its restart)"}])
+        self.assertEqual(caveats, [
+            "The nodes ran more than one max_header_delay_ms (250, 500, 600, 700) by design: the fleet value is "
+            "published here, and the per-node values are listed under consensus.overrides and consensus.param_arms.",
+            "The nodes ran more than one min_header_delay_ms (50, 250, 300) by design: the fleet value is "
+            "published here, and the per-node values are listed under consensus.overrides and consensus.param_arms."])
+        self.assertFalse(any("more than one max_header_delay_ms (250, 500, 600, 700);" in c for c in caveats))
+        json.dumps(block)   # serialisable as is
+
+    def test_a_value_no_node_was_given_keeps_the_old_caveat(self):
+        m = self.manifest({"bench-validator-03": {"max_header_delay": "250ms"}})
+        block, caveats = self.consensus(m, {"max_header_delay_ms": [250, 500, 900]})
+        self.assertEqual(caveats, ["The node logs show more than one max_header_delay_ms (250, 500, 900); "
+                                   "the last one logged is published."])
+        self.assertEqual(block["overrides"], [{"instance": "bench-validator-03", "key": "max_header_delay",
+                                               "value": "250ms"}])
+        self.assertNotIn("param_arms", block)
+
+    def test_without_per_node_values_the_block_is_unchanged(self):
+        for m in (self.manifest(), self.manifest({}, [])):
+            block, caveats = self.consensus(m, {"max_header_delay_ms": [500, 600]})
+            self.assertEqual(sorted(block), sorted(mb.CONSENSUS_NUM_KEYS + ("file", "confirmed_by")))
+            self.assertEqual(len(caveats), 1)
+            self.assertIn("more than one max_header_delay_ms (500, 600); the last one logged is published", caveats[0])
+
+    def test_rows_that_are_not_tool_written_are_refused(self):
+        bad_overrides = [
+            {"bench-validator-03": {"max_header_delay": "/" + "tmp/x"}},
+            {"bench-validator-03": {"max_header_delay": "192.0.2.7"}},
+            {"bench-validator-03": {"max_header_delay": 250}},
+            {"Bench Validator": {"max_header_delay": "250ms"}},
+            {"bench-validator-03": {"Max-Header": "250ms"}},
+        ]
+        for ov in bad_overrides:
+            with self.assertRaises(mb.BundleError, msg=ov):
+                self.consensus(self.manifest(ov), {})
+        arm = self.ARMS[1]
+        for bad in ({"name": "Arm_1"}, {"begin": "13:00"}, {"end": "tomorrow"}, {"failed": "x y"},
+                    {"nodes": ["bench-validator-01"]}):
+            with self.assertRaises(mb.BundleError, msg=bad):
+                self.consensus(self.manifest(None, [dict(arm, **bad)]), {})
+        with self.assertRaisesRegex(mb.BundleError, "param_arms is not a list"):
+            self.consensus(self.manifest(None, {"a1": arm}), {})
+
+
 class SeriesTests(unittest.TestCase):
     T0 = 1767225600
 

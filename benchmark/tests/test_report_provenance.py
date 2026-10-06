@@ -249,6 +249,92 @@ class CheckTests(RunDirCase):
         self.assertIsNone(r["expected_sha"])
 
 
+def boot_log(ts, max_ms, min_ms=250, batch_ms=250):
+    """One logfmt boot of build FULL at <ts> (YYYY-mm-ddTHH:MM:SS) with these delays."""
+    return "".join('ts=%s.%03dZ level=INFO target=%s message="%s"\n' % (ts, i, t, m) for i, (t, m) in enumerate([
+        ("cli", "telcoin-network 0.1.0 (%s) starting" % FULL),
+        ("tn_config::node", "Max header delay set to %d ms" % max_ms),
+        ("tn_config::node", "Min header delay set to %d ms" % min_ms),
+        ("tn_config::node", "Max batch delay set to %d ms" % batch_ms)]))
+
+
+class PerNodeValuesTests(RunDirCase):
+    """check() (d) with consensus_parameters.overrides (deploy step 9) and param_arms
+    (tools/params-apply.sh): per instance, the fleet value, its override or an arm's value."""
+
+    def run_with(self, logs, **manifest):
+        run = self.make_run({})
+        for name, text in logs.items():
+            (run / "logs" / name).write_text(text)
+        return P.scan_run(str(run)), manifest_for(**manifest)
+
+    def test_override_node_passes_with_its_own_value(self):
+        logs = {"bench-validator-01-telcoin.log": boot_log("2026-01-01T00:00:00", 500),
+                "bench-validator-03-telcoin.log": boot_log("2026-01-01T00:00:01", 600),
+                "bench-validator-03-unit-stdout.log": boot_log("2026-01-01T00:00:01", 600)}
+        cp = dict(GOOD_PARAMS, overrides={"bench-validator-03": {"max_header_delay": "600ms"}})
+        scan, m = self.run_with(logs, consensus_parameters=cp)
+        self.assertEqual([(e["instance"], e["value"]) for e in scan["param_events"] if e["key"] == "max_header_delay_ms"],
+                         [("bench-validator-01", 500), ("bench-validator-03", 600)])   # the unit copy is a repeat
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        # Without the override the old message stands.
+        r = P.check(scan, manifest_for())
+        self.assertEqual(r["problems"], ["logs show max_header_delay_ms=600, manifest "
+                                         "consensus_parameters.max_header_delay_ms is 500"])
+
+    def test_an_override_covers_only_its_own_node(self):
+        logs = {"bench-validator-01-telcoin.log": boot_log("2026-01-01T00:00:00", 600)}
+        cp = dict(GOOD_PARAMS, overrides={"bench-validator-03": {"max_header_delay": "600ms"}})
+        r = P.check(*self.run_with(logs, consensus_parameters=cp))
+        self.assertEqual(r["problems"], ["logs show max_header_delay_ms=600 on bench-validator-01; expected the fleet "
+                                         "value, its override or a param arm's (bench-validator-01: 500)"])
+
+    def test_arm_values_apply_from_the_arm_begin_and_stay(self):
+        logs = {"bench-validator-02-telcoin-pre-arm-a1-20260101T010000Z.log": boot_log("2026-01-01T00:00:00", 500),
+                "bench-validator-02-telcoin.log": boot_log("2026-01-01T01:00:05", 700, min_ms=350)
+                + boot_log("2026-01-01T03:00:00", 700, min_ms=350)}   # a restart after the arm closed
+        arms = [{"name": "a1", "begin": "2026-01-01T01:00:00Z", "end": "2026-01-01T02:00:00Z",
+                 "nodes": {"bench-validator-02": {"max_header_delay": "700ms", "min_header_delay": "350ms"}}}]
+        r = P.check(*self.run_with(logs, param_arms=arms))
+        self.assertTrue(r["ok"], r["problems"])
+        # An arm that began after the line does not cover it.
+        late = [dict(arms[0], begin="2026-01-01T01:30:00Z")]
+        r = P.check(*self.run_with(logs, param_arms=late))
+        self.assertEqual(r["problems"], [
+            "logs show max_header_delay_ms=700 on bench-validator-02; expected the fleet value, its override or a "
+            "param arm's (bench-validator-02: 500)",
+            "logs show min_header_delay_ms=350 on bench-validator-02; expected the fleet value, its override or a "
+            "param arm's (bench-validator-02: 250)"])
+
+    def test_mismatch_still_fails_with_overrides_and_arms(self):
+        logs = {"bench-validator-03-telcoin.log": boot_log("2026-01-01T01:00:10", 650)}
+        cp = dict(GOOD_PARAMS, overrides={"bench-validator-03": {"max_header_delay": "600ms"}})
+        arms = [{"name": "a1", "begin": "2026-01-01T01:00:00Z", "end": None,
+                 "nodes": {"bench-validator-03": {"max_header_delay": "1s"}}}]
+        r = P.check(*self.run_with(logs, consensus_parameters=cp, param_arms=arms))
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["problems"], ["logs show max_header_delay_ms=650 on bench-validator-03; expected the fleet "
+                                         "value, its override or a param arm's (bench-validator-03: 500, 600, 1000)"])
+
+    def test_helpers(self):
+        self.assertEqual([P.dur_ms(v) for v in ("500ms", "2s", "1.5s", "2m", 250, "x", None, True)],
+                         [500, 2000, 1500, 120000, 250, None, None, None])
+        self.assertEqual(P.ts_epoch("2026-01-01T00:00:01.5Z") - P.ts_epoch("2026-01-01T00:00:00Z"), 1.5)
+        self.assertEqual(P.ts_epoch("2026-01-01T02:00:00+02:00"), P.ts_epoch("2026-01-01T00:00:00Z"))
+        self.assertIsNone(P.ts_epoch("yesterday"))
+        m = {"consensus_parameters": dict(GOOD_PARAMS, overrides={"v1": {"max_header_delay": "300ms"}}),
+             "param_arms": [{"name": "a", "begin": "2026-01-01T01:00:00Z", "end": None,
+                             "nodes": {"v1": {"max_header_delay": "400ms"}, "v2": {"max_header_delay": "450ms"}}}]}
+        self.assertEqual(P.expected_param_values(m, "v1", "max_header_delay_ms", "2026-01-01T00:59:59Z"), [300, 500])
+        self.assertEqual(P.expected_param_values(m, "v1", "max_header_delay_ms", "2026-01-01T01:00:00Z"), [300, 400, 500])
+        self.assertEqual(P.expected_param_values(m, "v1", "max_header_delay_ms"), [300, 400, 500])
+        self.assertEqual(P.expected_param_values(m, "v3", "max_header_delay_ms"), [500])
+        self.assertTrue(P.per_node_values(m))
+        self.assertFalse(P.per_node_values(manifest_for()))
+        self.assertFalse(P.per_node_values({"consensus_parameters": {"overrides": {}}, "param_arms": []}))
+
+
 class CliTests(RunDirCase):
     def test_exit_codes(self):
         run = self.make_run(STANDARD, manifest=manifest_for())

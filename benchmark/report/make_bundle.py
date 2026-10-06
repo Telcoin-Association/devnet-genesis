@@ -863,9 +863,107 @@ def fleet_block(manifest, metrics, backfill, caveats):
     return fleet
 
 
+# Per-node values in the published consensus block: names and values are tool-written
+# (benchmark-deploy.sh step 9, tools/params-apply.sh); anything else in the manifest is refused.
+_NODE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+_PARAM_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_PARAM_VALUE_RE = re.compile(r"^(?:\d{1,12}(?:\.\d{1,9})?(?:ms|s|m)?|true|false)$")
+_ARM_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+_UTC_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+
+def _node_values(where, nodes):
+    """{instance: {key: value}} from the manifest, checked; sorted [(instance, key, value)]."""
+    if not isinstance(nodes, dict):
+        raise BundleError("%s is not an object" % where)
+    rows = []
+    for inst, kv in nodes.items():
+        if not _NODE_NAME_RE.match(str(inst)) or not isinstance(kv, dict):
+            raise BundleError("%s: %r is not an instance name with {key: value}" % (where, inst))
+        for k, v in kv.items():
+            if not _PARAM_KEY_RE.match(str(k)) or not isinstance(v, str) or not _PARAM_VALUE_RE.match(v):
+                raise BundleError("%s.%s: %r=%r is not a parameter key and value" % (where, inst, k, v))
+            rows.append((inst, k, v))
+    return sorted(rows)
+
+
+def override_rows(manifest):
+    """consensus_parameters.overrides as table rows [{instance, key, value}] ([] when none)."""
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    if not cp.get("overrides"):
+        return []
+    return [{"instance": i, "key": k, "value": v}
+            for i, k, v in _node_values("manifest consensus_parameters.overrides", cp["overrides"])]
+
+
+def _arm_values_text(rows):
+    """One arm's values as text: what every node of the arm got first ("all 11 nodes: k=v"), then
+    per node what differs ("bench-validator-03: k=v")."""
+    by_inst = {}
+    for inst, k, v in rows:
+        by_inst.setdefault(inst, {})[k] = v
+    insts = sorted(by_inst)
+    common = {}
+    if len(insts) > 1:
+        common = {k: v for k, v in by_inst[insts[0]].items() if all(by_inst[i].get(k) == v for i in insts)}
+    parts = []
+    if common:
+        parts.append("all %d nodes: %s" % (len(insts), ", ".join("%s=%s" % kv for kv in sorted(common.items()))))
+    for inst in insts:
+        rest = sorted((k, v) for k, v in by_inst[inst].items() if k not in common)
+        if rest:
+            parts.append("%s: %s" % (inst, ", ".join("%s=%s" % kv for kv in rest)))
+    return "; ".join(parts)
+
+
+def arm_rows(manifest):
+    """manifest.param_arms (tools/params-apply.sh) as table rows [{arm, begin_utc, end_utc, values}]
+    in begin order ([] when none); values is _arm_values_text, plus the node an arm stopped at."""
+    arms = manifest.get("param_arms")
+    if not arms:
+        return []
+    if not isinstance(arms, list):
+        raise BundleError("manifest param_arms is not a list")
+    out = []
+    for n, arm in enumerate(arms):
+        where = "manifest param_arms[%d]" % n
+        if not isinstance(arm, dict) or not _ARM_NAME_RE.match(str(arm.get("name"))):
+            raise BundleError("%s: no arm name of [a-z0-9-]" % where)
+        for k in ("begin", "end"):
+            if not (arm.get(k) is None and k == "end") and not _UTC_RE.match(str(arm.get(k))):
+                raise BundleError("%s.%s: %r is not YYYY-MM-DDTHH:MM:SSZ" % (where, k, arm.get(k)))
+        text = _arm_values_text(_node_values(where + ".nodes", arm.get("nodes")))
+        failed = arm.get("failed")
+        if failed is not None:
+            if not _NODE_NAME_RE.match(str(failed)):
+                raise BundleError("%s.failed: %r is not an instance name" % (where, failed))
+            text += " (stopped at %s, which did not come back after its restart)" % failed
+        out.append({"arm": arm["name"], "begin_utc": arm["begin"], "end_utc": arm.get("end"), "values": text})
+    return sorted(out, key=lambda r: r["begin_utc"])
+
+
+def _per_node_explains(manifest, key, values):
+    """True when every logged value of <key> (a provenance PARAM_KEYS name) is the fleet value, an
+    override or a param arm's value for some node."""
+    insts = set()
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    insts.update((cp.get("overrides") or {}) if isinstance(cp.get("overrides"), dict) else {})
+    for arm in manifest.get("param_arms") or []:
+        if isinstance(arm, dict) and isinstance(arm.get("nodes"), dict):
+            insts.update(arm["nodes"])
+    allowed = set()
+    for inst in insts:
+        allowed.update(provenance.expected_param_values(manifest, inst, key))
+    return bool(insts) and all(v in allowed for v in values)
+
+
 def consensus_block(manifest, prov, backfill, caveats):
+    """run.json "consensus": the fleet's values (manifest, node logs, backfill), plus, only when the
+    run had them, "overrides" (per-node values deploy step 9 wrote: rows instance / key / value)
+    and "param_arms" (tools/params-apply.sh's arms: rows arm / begin_utc / end_utc / values)."""
     cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else None
     logs = prov.get("params") or {}
+    overrides, arms = override_rows(manifest), arm_rows(manifest)
     bf = backfill.get("consensus") or {}
     vals, file_label, confirmed = {}, None, None
     if cp:
@@ -878,7 +976,13 @@ def consensus_block(manifest, prov, backfill, caveats):
         vals = {k: int(logs[k]) for k in DELAY_KEYS}
         file_label, confirmed = LOGS_PARAMS_FILE, LOGS_CONFIRMED_BY
     for k, values in (prov.get("param_values") or {}).items():
-        if len(values) > 1:
+        if len(values) > 1 and (overrides or arms) and _per_node_explains(manifest, k, values):
+            caveats.append("The nodes ran more than one %s (%s) by design: the fleet value is published here, "
+                           "and the per-node values are listed under %s."
+                           % (k, ", ".join(str(v) for v in values),
+                              " and ".join(t for t, rows in (("consensus.overrides", overrides),
+                                                             ("consensus.param_arms", arms)) if rows)))
+        elif len(values) > 1:
             caveats.append("The node logs show more than one %s (%s); the last one logged is published."
                            % (k, ", ".join(str(v) for v in values)))
     if logs.get("vote_timeout_ms") is not None:
@@ -909,6 +1013,10 @@ def consensus_block(manifest, prov, backfill, caveats):
                                             " comes" if len(from_backfill) == 1 else "s come"))
     block = {k: vals[k] for k in CONSENSUS_NUM_KEYS}
     block.update(file=file_label, confirmed_by=confirmed)
+    if overrides:
+        block["overrides"] = overrides
+    if arms:
+        block["param_arms"] = arms
     return block
 
 

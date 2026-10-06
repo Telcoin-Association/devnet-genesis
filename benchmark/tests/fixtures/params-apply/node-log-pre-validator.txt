@@ -1,0 +1,6 @@
+ts=2026-10-06T11:50:00.000000000Z level=info target=cli message="telcoin-network 0.1.0 (ba43a1f0e270ca1c572d1b8378b39d2fc6360b57) starting"
+ts=2026-10-06T11:50:00.100000000Z level=info target=tn_config::node message="Max header delay set to 500 ms"
+ts=2026-10-06T11:50:00.100000000Z level=info target=tn_config::node message="Min header delay set to 250 ms"
+ts=2026-10-06T11:59:58.000000000Z level=info target=consensus::metrics message="header proposed" round=104 epoch=0 num_batches=0 num_parents=7
+ts=2026-10-06T11:59:58.300000000Z level=info target=consensus::metrics message="quorum reached" round=105 epoch=0 voting_power=7 quorum_threshold=7 num_votes=7
+ts=2026-10-06T11:59:58.400000000Z level=info target=engine message="skipping execution for empty non-epoch-closing output" epoch=0 consensus_number=52
