@@ -993,3 +993,15 @@ the file today; CI (bash 5) does not see it.
 the `case` out of the substitution. Before committing shell that must run on macOS, run
 `/bin/bash -n <script>` in addition to `bash -n`, and run the bash-driven unit tests once with
 `PATH=/bin:$PATH`.
+
+## 2026-10-06 — a fork is not a fresh agent: it starts at the parent's context size
+- Launching the stage-1 sweep orchestrator as `subagent_type: fork` gave it the whole parent
+  conversation (~140k tokens) before its first tool call; after 14 tool uses it was at 184k, with a
+  4.5-hour live run ahead and a ~250k budget. Forks suit short tasks that need the parent's exact
+  context, not long-running orchestration.
+- Rule: a long-running or live-operations orchestrator is a FRESH agent (general-purpose, model per
+  the plan) with a written brief that names the files to read, the exact environment, the procedure
+  and the checkpoint. The brief costs ~5k tokens; the inherited context costs 100k+ of its budget.
+- When a fork is already running near budget: let it checkpoint and hand back (its prompt tells it
+  to at ~200k), then respawn fresh from `tasks/checkpoint-*.md`; do not stop it mid-step, its
+  background harness processes may be the only copy of the run's progress.
