@@ -1,0 +1,128 @@
+{
+ "src_zone": "bb-east1-b",
+ "src_ip": "192.0.2.11",
+ "machine_type": "e2-small",
+ "at": "2026-10-06T12:00:00Z",
+ "finished_at": "2026-10-06T12:00:30Z",
+ "params": {
+  "pings": 3,
+  "ping_interval_s": 0.25,
+  "udp_count": 3,
+  "udp_size": 1200,
+  "tcp_count": 3,
+  "rate_per_s": 4.0,
+  "timeout_s": 2.0,
+  "tcp_port": 7777,
+  "udp_port": 7778
+ },
+ "peers": {
+  "aa-west1-a": {
+   "ip": "192.0.2.10",
+   "icmp": {
+    "min": 8.7,
+    "avg": 9.2,
+    "max": 9.7,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     11.0,
+     12.0,
+     13.0
+    ],
+    "median_ms": 12.0,
+    "p95_ms": 13.0,
+    "loss_pct": 0.0,
+    "sent": 3,
+    "received": 3,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "median_ms": 10.0,
+    "p95_ms": 10.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "cc-north1-c": {
+   "ip": "192.0.2.12",
+   "icmp": {
+    "min": 28.0,
+    "avg": 28.5,
+    "max": 29.0,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     29.0,
+     30.0,
+     31.0
+    ],
+    "median_ms": 30.0,
+    "p95_ms": 31.0,
+    "loss_pct": 0.0,
+    "sent": 3,
+    "received": 3,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     29.0,
+     29.0,
+     29.0
+    ],
+    "median_ms": 29.0,
+    "p95_ms": 29.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "dd-south1-d": {
+   "ip": "192.0.2.13",
+   "icmp": {
+    "min": 78.5,
+    "avg": 79.0,
+    "max": 79.5,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     79.0,
+     80.0,
+     81.0
+    ],
+    "median_ms": 80.0,
+    "p95_ms": 81.0,
+    "loss_pct": 0.0,
+    "sent": 3,
+    "received": 3,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     80.0,
+     80.0,
+     80.0
+    ],
+    "median_ms": 80.0,
+    "p95_ms": 80.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  }
+ }
+}
