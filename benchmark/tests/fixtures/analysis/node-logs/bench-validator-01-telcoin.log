@@ -1,0 +1,19 @@
+ts=2026-10-06T05:59:59.100000000Z level=info target=cli span=node-startup span_path=node-startup message="telcoin-network 0.1.0 (ba43a1f0e270ca1c572d1b8378b39d2fc6360b57) starting"
+ts=2026-10-06T06:00:01.100000000Z level=info target=consensus::metrics message="header proposed" round=1 epoch=1 num_batches=1 num_parents=2
+ts=2026-10-06T06:00:02.100000000Z level=info target=consensus::metrics message="quorum reached" round=1 epoch=1 voting_power=2 quorum_threshold=2 num_votes=2
+ts=2026-10-06T06:00:03.100000000Z level=info target=consensus::metrics message="header proposed" round=2 epoch=1 num_batches=0 num_parents=2
+ts=2026-10-06T06:00:04.100000000Z level=info target=consensus::metrics message="quorum reached" round=2 epoch=1 voting_power=2 quorum_threshold=2 num_votes=2
+ts=2026-10-06T06:00:05.100000000Z level=warn target=primary::proposer message="re-proposing last header after max delay interval expired for round 2" interval=500ms
+ts=2026-10-06T06:00:06.100000000Z level=error target=primary::certifier message="failed to get vote for header FcLrxiRmPxcfvufc: B3(vA1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, e1, 0wbs, exec: NumHash { number: 0, hash: 0xb9 }): Canceled" auth=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+ts=2026-10-06T06:00:07.100000000Z level=error target=primary::certifier message="failed to get vote for header 8F3g96FE4CHfwXKr: B3(vA1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, e1, 0wbs, exec: NumHash { number: 0, hash: 0xb9 }): NetworkError(\"irrecoverable error requesting vote for B3(A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa): Header 8F3g96FE4CHfwXKr for round 3 is too new for max round 1\")" auth=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+ts=2026-10-06T06:00:10.100000000Z level=info target=consensus::metrics message="certificate committed" round=1 origin=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa digest=21VoSsHwfot9DSBmZd78tTbwge7T6tPsKoTtAcxsiQp6 committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.100000100Z level=info target=consensus::metrics message="certificate committed" round=1 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=Hb1vxc9LfkAWQfCoygDY4kjhEVEDH4Cjb4BFwpR97Mfe committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.100000200Z level=info target=consensus::metrics message="certificate committed" round=2 origin=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa digest=H5A252u7w6oxKU18utjDpuMqW5MW6rpn8RYHZqYR3CmF committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.100000300Z level=info target=consensus::metrics message="subdag committed" subdag_index=4294967298 leader_round=2 num_certificates=3 min_round=1 committed_round=2
+ts=2026-10-06T06:10:01.100000000Z level=info target=consensus::metrics message="header proposed" round=3 epoch=1 num_batches=2 num_parents=2
+ts=2026-10-06T06:10:02.100000000Z level=info target=consensus::metrics message="quorum reached" round=3 epoch=1 voting_power=2 quorum_threshold=2 num_votes=2
+ts=2026-10-06T06:10:03.100000000Z level=info target=consensus::metrics message="header proposed" round=4 epoch=1 num_batches=0 num_parents=2
+ts=2026-10-06T06:10:05.100000000Z level=info target=consensus::metrics message="certificate committed" round=2 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=7tquCpJ9xMvs3opYaaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.100000100Z level=info target=consensus::metrics message="certificate committed" round=3 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=5TDxMkcgiV9mGwEoaaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.100000200Z level=info target=consensus::metrics message="certificate committed" round=4 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=5Qeq9MnrQQzfrX52aaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.100000300Z level=info target=consensus::metrics message="subdag committed" subdag_index=4294967300 leader_round=4 num_certificates=3 min_round=2 committed_round=4

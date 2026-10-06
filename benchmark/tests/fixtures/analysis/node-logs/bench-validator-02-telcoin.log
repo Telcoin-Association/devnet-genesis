@@ -1,0 +1,15 @@
+ts=2026-10-06T06:00:01.200000000Z level=info target=consensus::metrics message="header proposed" round=1 epoch=1 num_batches=0 num_parents=2
+ts=2026-10-06T06:00:03.200000000Z level=info target=consensus::metrics message="header proposed" round=2 epoch=1 num_batches=0 num_parents=2
+ts=2026-10-06T06:00:04.200000000Z level=error target=primary::certifier message="Certifier error on proposed header task: Could not form a certificate for header DuEnqRpzRh2uaVV3" auth=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ts=2026-10-06T06:00:05.200000000Z level=info target=consensus::metrics message="header proposed" round=3 epoch=1 num_batches=0 num_parents=2
+ts=2026-10-06T06:00:06.200000000Z level=error target=primary::certifier message="Certifier error on proposed header task: Could not form a certificate for header GQj5RsUy1h26rrMD" auth=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ts=2026-10-06T06:00:10.200000000Z level=info target=consensus::metrics message="certificate committed" round=1 origin=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa digest=21VoSsHwfot9DSBmZd78tTbwge7T6tPsKoTtAcxsiQp6 committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.200000100Z level=info target=consensus::metrics message="certificate committed" round=1 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=Hb1vxc9LfkAWQfCoygDY4kjhEVEDH4Cjb4BFwpR97Mfe committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.200000200Z level=info target=consensus::metrics message="certificate committed" round=2 origin=A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa digest=H5A252u7w6oxKU18utjDpuMqW5MW6rpn8RYHZqYR3CmF committed_round=0 gc_round=0
+ts=2026-10-06T06:00:10.200000300Z level=info target=consensus::metrics message="subdag committed" subdag_index=4294967298 leader_round=2 num_certificates=3 min_round=1 committed_round=2
+ts=2026-10-06T06:10:01.200000000Z level=info target=consensus::metrics message="header proposed" round=3 epoch=1 num_batches=1 num_parents=2
+ts=2026-10-06T06:10:02.200000000Z level=info target=consensus::metrics message="quorum reached" round=3 epoch=1 voting_power=2 quorum_threshold=2 num_votes=2
+ts=2026-10-06T06:10:05.200000000Z level=info target=consensus::metrics message="certificate committed" round=2 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=7tquCpJ9xMvs3opYaaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.200000100Z level=info target=consensus::metrics message="certificate committed" round=3 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=5TDxMkcgiV9mGwEoaaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.200000200Z level=info target=consensus::metrics message="certificate committed" round=4 origin=B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb digest=5Qeq9MnrQQzfrX52aaaaaaaaaaaaaaaaaaaaaaaaaaaa committed_round=2 gc_round=0
+ts=2026-10-06T06:10:05.200000300Z level=info target=consensus::metrics message="subdag committed" subdag_index=4294967300 leader_round=4 num_certificates=3 min_round=2 committed_round=4
