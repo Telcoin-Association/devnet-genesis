@@ -799,6 +799,25 @@ def _region(zone):
     return re.sub(r"-[a-z]$", "", zone or "")
 
 
+# The city (or area) of each GCP region a bench fleet has run in or may move to, so fleet.regions
+# reads "asia-northeast1 (Tokyo)". A region missing here is published as its bare id.
+REGION_LABELS = {
+    "us-west2": "Los Angeles", "us-east1": "South Carolina", "us-central1": "Iowa",
+    "northamerica-northeast1": "Montréal", "southamerica-east1": "São Paulo",
+    "europe-west2": "London", "europe-west3": "Frankfurt", "europe-west4": "Netherlands",
+    "me-west1": "Tel Aviv", "asia-south1": "Mumbai", "asia-southeast1": "Singapore",
+    "asia-southeast2": "Jakarta", "asia-east1": "Taiwan", "asia-east2": "Hong Kong",
+    "asia-northeast1": "Tokyo", "asia-northeast2": "Osaka", "asia-northeast3": "Seoul",
+    "australia-southeast1": "Sydney", "australia-southeast2": "Melbourne",
+}
+
+
+def region_label(region):
+    """'<region> (<city>)' for a region in REGION_LABELS, else the region id as given."""
+    name = REGION_LABELS.get(region)
+    return "%s (%s)" % (region, name) if name else region
+
+
 def fleet_block(manifest, metrics, backfill, caveats):
     nodes = [i for i in manifest.get("instances") or [] if i.get("role") in ("validator", "observer")]
     validators = [i for i in nodes if i.get("role") == "validator"]
@@ -836,7 +855,8 @@ def fleet_block(manifest, metrics, backfill, caveats):
              "observers": sum(1 for i in nodes if i.get("role") == "observer"),
              "machine_type": manifest.get("machine_type"), "vcpus": shape.get("vcpus"),
              "memory_gb": _r(mem / 1024.0, 1) if mem is not None else None, "disk": disk_block,
-             "regions": sorted({_region(i.get("zone")) for i in nodes if i.get("zone")}), "load": load}
+             "regions": [region_label(r) for r in sorted({_region(i.get("zone")) for i in nodes if i.get("zone")})],
+             "load": load}
     for k, v in bf.items():
         if k not in ("disk", "load"):
             fleet[k] = v

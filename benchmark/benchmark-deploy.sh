@@ -21,8 +21,10 @@
 #                        deployments-bench.json that the selected steps need
 #    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
-#                        CPU quota per family metric (nodes: C3_CPUS for c3, ...; blasters: CPUS) +
-#                        a hyperdisk-* disk type offered in every fleet zone; pre-snapshots
+#                        MACHINE_TYPE in every fleet zone and the first blaster type in every validator
+#                        zone + a hyperdisk-* disk type offered in every fleet zone + quota headroom per
+#                        region (vCPUs per family metric, addresses, disk); one die lists every failure;
+#                        pre-snapshots
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
@@ -168,17 +170,36 @@ disk_desc() {
     printf '%s GB %s%s' "${NODE_DISK_SIZE}" "${NODE_DISK_TYPE}" "${p:+ (provisioned ${p})}"
 }
 
+# fleet_zones — the distinct zones of the whole fleet, space-separated, sorted.
+fleet_zones() {
+    local z; z="$(printf '%s\n' "${ZONES[@]}" | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# validator_zones — the distinct zones of the validators (each validator's blaster runs in its zone).
+validator_zones() {
+    local i z
+    z="$(for i in "${!ZONES[@]}"; do [ "${NODE_ROLES[$i]}" != "validator" ] || echo "${ZONES[$i]}"; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# fleet_regions — the distinct regions of the fleet, space-separated, sorted.
+fleet_regions() {
+    local z r; r="$(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${r% }"
+}
+
 # disk_type_check — a hyperdisk-* boot disk type must be offered in every zone the fleet uses;
 # dies naming the zones that lack it. The query goes through bench_run, so a dry run (the plan)
 # prints it and nothing else. Other disk types: no-op.
 disk_type_check() {
     case "${NODE_DISK_TYPE}" in hyperdisk-*) ;; *) return 0 ;; esac
     local zlist out have z lacking=""
-    zlist="$(printf '%s\n' "${ZONES[@]}" | sort -u | tr '\n' ' ')"; zlist="${zlist% }"
+    zlist="$(fleet_zones)"
     echo "    ${NODE_DISK_TYPE} must be offered in every fleet zone (${zlist})"
-    out="$(bench_run gcloud compute disk-types list --project="${PROJECT_ID}" \
-        --filter="name=${NODE_DISK_TYPE} AND zone:(${zlist})" --format='value(zone.basename())')" \
-        || bench_die "gcloud compute disk-types list failed"
+    out="$(bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disk-types list --project="${PROJECT_ID}" \
+        --filter="name=${NODE_DISK_TYPE} AND zone:(${zlist})" --format='value(zone.basename())' </dev/null)" \
+        || bench_die "gcloud compute disk-types list failed (or gave no answer within 120 s)"
     printf '%s\n' "${out}" | grep '^ ' || true    # bench_run's argv line (and its dry-run note)
     [ "${BENCH_APPLY}" = "1" ] || return 0
     have=" $(printf '%s\n' "${out}" | { grep -v '^ ' || true; } | tr '\n' ' ')"
@@ -187,6 +208,173 @@ disk_type_check() {
     done
     [ -z "${lacking}" ] || bench_die "${NODE_DISK_TYPE} is not offered in:${lacking} — pick another BENCH_NODE_DISK_TYPE"
     echo "    ✓ ${NODE_DISK_TYPE} offered in all fleet zones"
+}
+
+# machine_type_check <machine-type> <knob> "<zone...>" — the type must exist in every listed zone: a
+# zone without it fails the create part-way through the fleet (or the blast, an hour after the fleet
+# came up). One describe per zone, each under an alarm; every zone that fails is listed in a single
+# die. A dry run (the plan) prints the query and calls nothing.
+machine_type_check() {
+    local t="$1" knob="$2" zones="$3" z rc out bad="" n=0
+    echo "    ${t} must exist in every zone it is created in (${zones})"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe ${t} --zone=<each zone> --project=${PROJECT_ID} --format='value(name)'"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    for z in ${zones}; do
+        rc=0; n=$((n + 1))
+        out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "${t}" --zone="${z}" \
+            --project="${PROJECT_ID}" --format='value(name)' </dev/null 2>&1)" || rc=$?
+        [ "${rc}" -ne 0 ] || continue
+        case "${rc}:${out}" in
+            142:*) out="no answer within 60 s" ;;
+            *"was not found"*) out="not offered in this zone" ;;
+            *) out="describe failed (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200)" ;;
+        esac
+        bad="${bad}
+     ${z}: ${out}"
+    done
+    [ -z "${bad}" ] || bench_die "${t} cannot be created in every zone it needs — change ZONES (benchmark/config.sh) or ${knob}:${bad}"
+    echo "    ✓ ${t} offered in all ${n} zones"
+}
+
+# machine_vcpus <machine-type> <zone> — its vCPU count: from the name when the name carries it
+# (<family>-custom-<vcpus>-<mb>, <family>-<class>-<vcpus>), else (--yes only) from an alarmed
+# describe in <zone>; "" when unknown.
+machine_vcpus() {
+    local n
+    case "$1" in *-custom-*) n="${1#*-custom-}"; n="${n%%-*}" ;; *) n="${1##*-}" ;; esac
+    case "${n}" in ''|*[!0-9]*) n="" ;; esac
+    if [ -z "${n}" ] && [ "${BENCH_APPLY}" = "1" ]; then
+        n="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "$1" --zone="$2" \
+            --project="${PROJECT_ID}" --format='value(guestCpus)' </dev/null 2>/dev/null || true)"
+    fi
+    printf '%s' "${n}"
+}
+
+# region_needs <region> — "<quota metric> <need>" lines: what the fleet's nodes in <region> and their
+# blasters (one per validator, in its zone, on the first BENCH_BLASTER_MACHINE_TYPES type) take from
+# the region's quotas. vCPUs count against each type's family metric (bench_cpu_quota_metric), one sum
+# when nodes and blasters share it; every node and blaster holds one external address; the blasters'
+# pd-balanced boot disks count against SSD_TOTAL_GB; the node disks against HDB_TOTAL_{GB,IOPS,
+# THROUGHPUT} (hyperdisk-balanced; the IOPS/throughput only when provisioned), SSD_TOTAL_GB (pd-ssd,
+# pd-balanced) or DISKS_TOTAL_GB (pd-standard). A need is "?" when a vCPU count is unknown.
+region_needs() {
+    local region="$1" i z="" nodes=0 vals=0 bt nc bc
+    for i in "${!ZONES[@]}"; do
+        [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
+        z="${ZONES[$i]}"; nodes=$((nodes + 1))
+        [ "${NODE_ROLES[$i]}" != "validator" ] || vals=$((vals + 1))
+    done
+    bt="${BENCH_BLASTER_MACHINE_TYPES%% *}"
+    nc="$(machine_vcpus "${MACHINE_TYPE}" "${z}")"; nc="${nc:+$(( nodes * nc ))}"
+    bc="$(machine_vcpus "${bt}" "${z}")"; bc="${bc:+$(( vals * bc ))}"
+    {
+        echo "$(bench_cpu_quota_metric "${MACHINE_TYPE}") ${nc:-?}"
+        [ "${vals}" -eq 0 ] || echo "$(bench_cpu_quota_metric "${bt}") ${bc:-?}"
+        echo "IN_USE_ADDRESSES $(( nodes + vals ))"
+        case "${NODE_DISK_TYPE}" in
+            hyperdisk-balanced)
+                echo "HDB_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))"
+                [ -z "${NODE_DISK_IOPS}" ] || echo "HDB_TOTAL_IOPS $(( nodes * NODE_DISK_IOPS ))"
+                [ -z "${NODE_DISK_THROUGHPUT}" ] || echo "HDB_TOTAL_THROUGHPUT $(( nodes * NODE_DISK_THROUGHPUT ))" ;;
+            pd-ssd|pd-balanced) echo "SSD_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+            pd-standard) echo "DISKS_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+        esac
+        [ "${vals}" -eq 0 ] || echo "SSD_TOTAL_GB $(( vals * BENCH_BLASTER_BOOT_DISK_GB ))"
+    } | awk '{ if (!($1 in n)) { o[++k] = $1; n[$1] = 0 } if ($2 == "?") u[$1] = 1; else n[$1] += $2 }
+             END { for (i = 1; i <= k; i++) print o[i], ((o[i] in u) ? "?" : n[o[i]]) }'
+}
+
+# hdb_headroom <metric> <region> <quota-info json> <disks json> — a HDB_TOTAL_* quota's headroom in
+# <region>: the value in force (`gcloud beta quotas info describe` JSON: the region's own dimension,
+# else the default that applies to it) less what the region's hyperdisk-balanced disks already hold.
+# "unlimited" for -1; "" when the region has no value.
+hdb_headroom() {
+    local f limit used
+    case "$1" in
+        HDB_TOTAL_GB) f=sizeGb ;;
+        HDB_TOTAL_IOPS) f=provisionedIops ;;
+        *) f=provisionedThroughput ;;
+    esac
+    limit="$(printf '%s' "$3" | jq -r --arg r "$2" '
+        ([.dimensionsInfos[]? | select(.dimensions.region? == $r)]
+         + [.dimensionsInfos[]? | select((.dimensions.region? // null) == null and ((.applicableLocations // []) | index($r)))])
+        | .[0].details.value // empty' 2>/dev/null || true)"
+    case "${limit}" in
+        -1) echo unlimited; return 0 ;;
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    used="$(printf '%s' "$4" | jq -r --arg r "$2" --arg f "${f}" '
+        [.[]? | select((.type // "") | endswith("/hyperdisk-balanced"))
+              | select(((.zone // .region // "") | split("/") | last | sub("-[a-z]$"; "")) == $r)
+              | (.[$f] // "0" | tonumber)] | add // 0 | floor' 2>/dev/null || true)"
+    echo $(( limit - ${used:-0} ))
+}
+
+# quota_check — per region, the fleet's need (region_needs) against the headroom (limit - usage).
+# CPU family metrics, IN_USE_ADDRESSES and SSD_TOTAL_GB/DISKS_TOTAL_GB come from `gcloud compute
+# regions describe`, which lists no hyperdisk quota: the HDB_TOTAL_* limits come from the Cloud
+# Quotas API (HDB-TOTAL-{GB,IOPS,THROUGHPUT}-per-project-region) and their usage from the disks
+# list. Every shortfall is listed in one die; a quota that cannot be read is a warning. Every gcloud
+# call is under an alarm. A dry run (the plan) prints the needs and the queries and calls nothing.
+quota_check() {
+    local regions r m need have json qgb="" qiops="" qtput="" disks="[]" q qj ok short=""
+    regions="$(fleet_regions)"
+    echo "    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator:"
+    for r in ${regions}; do
+        echo "      ${r}: $(region_needs "${r}" | awk '{ printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2 }')"
+    done
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe <each region> --project=${PROJECT_ID} --format=json"
+        if [ "${NODE_DISK_TYPE}" = "hyperdisk-balanced" ]; then
+            echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe HDB-TOTAL-<GB|IOPS|THROUGHPUT>-per-project-region --service=compute.googleapis.com --project=${PROJECT_ID} --format=json"
+            echo "    + perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project=${PROJECT_ID} --format=json"
+        fi
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    if [ "${NODE_DISK_TYPE}" = "hyperdisk-balanced" ]; then
+        for q in GB IOPS THROUGHPUT; do
+            qj="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe "HDB-TOTAL-${q}-per-project-region" \
+                --service=compute.googleapis.com --project="${PROJECT_ID}" --format=json </dev/null 2>/dev/null)" || qj=""
+            case "${q}" in GB) qgb="${qj}" ;; IOPS) qiops="${qj}" ;; *) qtput="${qj}" ;; esac
+        done
+        disks="$(perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project="${PROJECT_ID}" \
+            --format=json </dev/null 2>/dev/null)" \
+            || { bench_warn "gcloud compute disks list failed — existing hyperdisk usage counted as 0"; disks="[]"; }
+    fi
+    for r in ${regions}; do
+        json="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe "${r}" --project="${PROJECT_ID}" \
+            --format=json </dev/null 2>/dev/null)" \
+            || bench_die "gcloud compute regions describe ${r} failed (or gave no answer within 60 s)"
+        ok=""
+        while read -r m need; do
+            [ -n "${m}" ] || continue
+            case "${m}" in
+                HDB_TOTAL_GB) have="$(hdb_headroom "${m}" "${r}" "${qgb}" "${disks}")" ;;
+                HDB_TOTAL_IOPS) have="$(hdb_headroom "${m}" "${r}" "${qiops}" "${disks}")" ;;
+                HDB_TOTAL_THROUGHPUT) have="$(hdb_headroom "${m}" "${r}" "${qtput}" "${disks}")" ;;
+                *) have="$(printf '%s' "${json}" | jq -r --arg q "${m}" \
+                       '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty' 2>/dev/null || true)" ;;
+            esac
+            if [ -z "${have}" ] || [ "${need}" = "?" ]; then
+                bench_warn "${r}: ${m} not checked (need ${need}, headroom ${have:-not readable})"
+            elif [ "${have}" = "unlimited" ] || [ "${have}" -ge "${need}" ]; then
+                ok="${ok}, ${m} ${need}/${have}"
+            else
+                short="${short}
+     $(printf '%-24s %-22s %10s %10s' "${r}" "${m}" "${need}" "${have}")"
+            fi
+        done <<EOF
+$(region_needs "${r}")
+EOF
+        [ -z "${ok}" ] || echo "    ✓ ${r} need/headroom: ${ok#, }"
+    done
+    [ -z "${short}" ] || bench_die "quota shortfalls — nothing was created:
+     $(printf '%-24s %-22s %10s %10s' region metric need headroom)${short}
+   Raise the quota (console: IAM & Admin > Quotas; or gcloud beta quotas preferences create), or move the zone (ZONES in benchmark/config.sh)."
 }
 
 # ================================ steps ==============================================
@@ -232,37 +420,10 @@ step_0() {
     # so a Loki disk that is already nearly full is fixed before, not during, a run.
     [ "${obs_pct}" -lt "${BENCH_OBS_DISK_MAX_PCT:-70}" ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= ${BENCH_OBS_DISK_MAX_PCT:-70}%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate"
     echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
-    # vCPU quota is per machine family: node vCPUs count against the family metric of MACHINE_TYPE
-    # (C3_CPUS for c3), each validator's blaster (2 vCPU) against its type's (CPUS for e2); one sum
-    # when both are the same metric. A metric the region does not list is warned about, not fatal.
-    local region need have rq q i node_m blast_m need_node need_blast
-    node_m="$(bench_cpu_quota_metric "${MACHINE_TYPE}")"
-    blast_m="$(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}")"
-    for region in $(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u); do
-        need_node=0; need_blast=0
-        for i in "${!ZONES[@]}"; do
-            [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
-            need_node=$(( need_node + $(bench_machine_shape "${MACHINE_TYPE}" "${ZONES[$i]}" | awk '{print $1}') ))
-            [ "${NODE_ROLES[$i]}" = "validator" ] && need_blast=$(( need_blast + 2 ))   # its blaster (e2-standard-2)
-        done
-        rq="$(gcloud compute regions describe "${region}" --project="${PROJECT_ID}" --format=json)" \
-            || bench_die "gcloud compute regions describe ${region} failed"
-        for q in $(printf '%s\n' "${node_m}" "${blast_m}" | awk '!seen[$0]++'); do
-            need=0
-            [ "${q}" != "${node_m}" ] || need=$(( need + need_node ))
-            [ "${q}" != "${blast_m}" ] || need=$(( need + need_blast ))
-            have="$(printf '%s' "${rq}" | jq -r --arg q "${q}" \
-                '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty')" \
-                || bench_die "${region}: cannot read the quotas from gcloud compute regions describe"
-            if [ -z "${have}" ]; then
-                bench_warn "${region}: no ${q} quota listed — ${need} vCPU not checked against it"
-                continue
-            fi
-            [ "${have}" -ge "${need}" ] || bench_die "${region}: ${q} headroom ${have} < ${need}"
-            echo "    ✓ ${region}: ${q} headroom ${have} >= ${need}"
-        done
-    done
+    machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+    machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
     disk_type_check
+    quota_check
     mkdir -p "${BENCH_RESULTS_DIR}"
     [ -f "${BENCH_RESULTS_DIR}/pre-instances.json" ] \
         || gcloud compute instances list --project="${PROJECT_ID}" --format=json > "${BENCH_RESULTS_DIR}/pre-instances.json"
@@ -767,12 +928,13 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
   harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
   metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
-  load     ${BENCH_TXGEN_IMAGE}, ${BENCH_BLASTER_MACHINE_TYPE} COS blasters x ${BENCH_SENDERS} senders, bucket gs://${BENCH_BUCKET}
+  load     ${BENCH_TXGEN_IMAGE}, COS blasters x ${BENCH_SENDERS} senders on ${BENCH_BLASTER_MACHINE_TYPES// / -> } (next type on a zone stockout), bucket gs://${BENCH_BUCKET}
   results  ${BENCH_RESULTS_DIR}
 EOP
     for i in "${!INSTANCE_NAMES[@]}"; do
         printf '    %-20s %-10s %-26s %s %s\n' "${INSTANCE_NAMES[$i]}" "${NODE_ROLES[$i]}" "${ZONES[$i]}" "${NODE_NAMES[$i]}" "${EXECUTION_ADDRESSES[$i]}"
     done
+    echo "    ${#INSTANCE_NAMES[@]} instances in $(fleet_zones | wc -w | tr -d ' ') zones, $(fleet_regions | wc -w | tr -d ' ') regions"
     cat <<EOP
 
    -  gate           (--yes, before any step) node image probe + pin (when steps 0/5/6/7 run; see "probe" above),
@@ -780,10 +942,15 @@ EOP
                      ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
    0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
                      bench-node tag hygiene, obs-devnet df over IAP (< 70%),
-                     CPU quota: nodes on $(bench_cpu_quota_metric "${MACHINE_TYPE}"), blasters on $(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}"),
+                     machine types, disk type and quota headroom (below; every failure listed in one die),
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
 EOP
-    disk_type_check | sed 's/^    /                     /'
+    {
+        machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+        machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+        disk_type_check
+        quota_check
+    } | sed 's/^    /                     /'
     cat <<EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
                      if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}

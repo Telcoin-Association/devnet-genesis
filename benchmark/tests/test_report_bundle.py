@@ -612,7 +612,7 @@ class AssembleHelperTests(unittest.TestCase):
             "label": "three validators", "validators": 3, "observers": 1, "machine_type": "n2-standard-8",
             "vcpus": 8, "memory_gb": 32.0,
             "disk": {"type": "hyperdisk-balanced", "size_gb": 200, "iops": 6000, "throughput_mibps": 400},
-            "regions": ["europe-west4", "us-east1", "us-west2"],
+            "regions": ["europe-west4 (Netherlands)", "us-east1 (South Carolina)", "us-west2 (Los Angeles)"],
             "load": {"blasters": 2, "machine_type": "not recorded", "senders_each": 200,
                      "placement": mb.DEFAULT_PLACEMENT}})
         self.assertEqual(len(caveats), 2)
@@ -636,6 +636,19 @@ class AssembleHelperTests(unittest.TestCase):
         self.assertEqual(mb._region("us-west2-a"), "us-west2")
         self.assertEqual(mb._region("europe-west4"), "europe-west4")
         self.assertEqual(mb._region(None), "")
+
+    def test_region_labels_cover_the_fleet_and_its_alternates(self):
+        fleet = {"us-west2": "Los Angeles", "europe-west2": "London", "australia-southeast1": "Sydney",
+                 "asia-northeast1": "Tokyo", "northamerica-northeast1": "Montréal", "europe-west4": "Netherlands",
+                 "asia-southeast1": "Singapore", "asia-east2": "Hong Kong", "asia-northeast3": "Seoul",
+                 "asia-south1": "Mumbai"}
+        alternates = {"asia-southeast2": "Jakarta", "asia-east1": "Taiwan", "asia-northeast2": "Osaka",
+                      "australia-southeast2": "Melbourne", "europe-west3": "Frankfurt",
+                      "southamerica-east1": "São Paulo", "me-west1": "Tel Aviv"}
+        for region, city in list(fleet.items()) + list(alternates.items()):
+            self.assertEqual(mb.region_label(region), "%s (%s)" % (region, city))
+        self.assertEqual(mb.region_label("xx-nowhere9"), "xx-nowhere9")
+        self.assertEqual(mb.region_label(mb._region("asia-south1-c")), "asia-south1 (Mumbai)")
 
     def test_chaos_block(self):
         m = {"chaos": [
@@ -929,7 +942,7 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
         self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
         self.assertEqual(doc["kpis"][-1]["id"], "x_published")
-        self.assertEqual(doc["fleet"]["regions"], ["us-east1", "us-west2"])
+        self.assertEqual(doc["fleet"]["regions"], ["us-east1 (South Carolina)", "us-west2 (Los Angeles)"])
         self.assertEqual(doc["chain"], {"chain_id": 2017, "network": "bench", "epoch_secs": 86400})
         self.assertEqual(doc["windows"]["merged_mixed"]["secs"], 700)
         self.assertEqual(doc["series"]["tps_1s"], "series/tps-1s.json")

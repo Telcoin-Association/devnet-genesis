@@ -144,7 +144,21 @@ node_url() {
     printf '%s=http://%s:8545' "${INSTANCE_NAMES[$1]}" "${ip}"
 }
 
-# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> — one COS load VM.
+# is_stockout <gcloud output> — 0 when a create failed because the zone has run out of the machine
+# type (code ZONE_RESOURCE_POOL_EXHAUSTED[_WITH_DETAILS], reason: stockout). gcloud wraps its YAML
+# error ("does not have\n  enough resources"), so whitespace is folded before matching.
+is_stockout() {
+    case "$(printf '%s' "$1" | tr -s ' \t\n' '   ')" in
+        *ZONE_RESOURCE_POOL_EXHAUSTED*|*stockout*|*"does not have enough resources"*) return 0 ;;
+    esac
+    return 1
+}
+
+# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> — one COS load VM on
+# the first BENCH_BLASTER_MACHINE_TYPES type the zone has in stock: a create that fails on a stockout
+# is retried at once with the next type, and the substitution is logged. The type used is written
+# to meta/<name>/MACHINE_TYPE (manifest blasters[].machine_type). Any other failure returns the
+# create's status (142: no answer within 600 s).
 create_vm() {
     local name="$1" zone="$2" mode="$3" urls="$4" senders="$5" start="$6" at="$7" mdir
     bench_assert_bench_name "instance" "${name}"
@@ -161,15 +175,54 @@ create_vm() {
     meta="${meta}##BENCH_BUCKET=${BENCH_BUCKET}##RUN_ID=${BENCH_RUN_ID}##RUN_INDEX=${BENCH_RUN_INDEX}##LABEL=${name}"
     meta="${meta}##MASTER_SECRET=${BENCH_TXGEN_MASTER_SECRET}##SEED_SECRET=${BENCH_TXGEN_SEED_SECRET}"
     meta="${meta}##WARMUP_SECS=${BENCH_WARMUP_SECS}##DURATION_SECS=${BENCH_DURATION_SECS}##COOLDOWN_SECS=${BENCH_COOLDOWN_SECS}"
-    bench_run gcloud compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}" \
-        --machine-type="${BENCH_BLASTER_MACHINE_TYPE}" \
-        --image-family=cos-stable --image-project=cos-cloud \
-        --boot-disk-size=20GB --boot-disk-type=pd-balanced \
-        --service-account="${SERVICE_ACCOUNT}" --scopes=cloud-platform \
-        --tags=bench-blaster \
-        --labels="${BENCH_LABELS},tn-role=blaster" \
-        --metadata-from-file="${files}" \
-        --metadata="${meta}"
+    local pre=(compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}")
+    local post=(--image-family=cos-stable --image-project=cos-cloud
+        --boot-disk-size="${BENCH_BLASTER_BOOT_DISK_GB}GB" --boot-disk-type=pd-balanced
+        --service-account="${SERVICE_ACCOUNT}" --scopes=cloud-platform
+        --tags=bench-blaster
+        --labels="${BENCH_LABELS},tn-role=blaster"
+        --metadata-from-file="${files}"
+        --metadata="${meta}")
+    local t out rc=0 tried="" first="${BENCH_BLASTER_MACHINE_TYPES%% *}"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${first}" "${post[@]}"
+        [ "${BENCH_BLASTER_MACHINE_TYPES}" = "${first}" ] \
+            || echo "      on a zone stockout: the same create with --machine-type=${BENCH_BLASTER_MACHINE_TYPES#* } (in turn)"
+        return 0
+    fi
+    for t in ${BENCH_BLASTER_MACHINE_TYPES}; do
+        rc=0
+        out="$(bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${t}" "${post[@]}" </dev/null 2>&1)" || rc=$?
+        printf '%s\n' "${out}"
+        if [ "${rc}" -eq 0 ]; then
+            printf '%s\n' "${t}" > "${mdir}/MACHINE_TYPE"
+            [ -z "${tried}" ] || bench_warn "${name}: created on ${t} in ${zone} after a stockout of${tried}"
+            return 0
+        fi
+        is_stockout "${out}" || return "${rc}"
+        tried="${tried} ${t}"
+        bench_warn "${name}: ${t} is out of stock in ${zone} (stockout); trying the next blaster type"
+    done
+    bench_warn "${name}: every blaster type is out of stock in ${zone} (${BENCH_BLASTER_MACHINE_TYPES})"
+    return "${rc}"
+}
+
+# blasters_json — manifest .blasters: one entry per blaster; machine_type is the type its create used
+# (meta/<name>/MACHINE_TYPE from create_vm; null when that file is missing).
+blasters_json() {
+    local bl="[]" k name id mt
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        name="$(blaster_name "$k")"
+        id="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" \
+            --project="${PROJECT_ID}" --format='value(id)' </dev/null 2>/dev/null || true)"
+        mt="$(cat "${BENCH_RESULTS_DIR}/meta/${name}/MACHINE_TYPE" 2>/dev/null || true)"
+        bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
+            --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" --arg mt "${mt}" \
+            --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
+            '. + [{name:$n, zone:$z, machine_type:(if $mt == "" then null else $mt end), instance_id:$id, target:$t, node_url:$u,
+                   sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
+    done
+    printf '%s' "${bl}"
 }
 
 # assert_load_vm <name> <zone> — created VM carries tag bench-blaster + label benchmark=1.
@@ -1202,9 +1255,13 @@ do_run() {
         fi
     done
     [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN — re-run with --yes."; return 0; }
-    local failed=0 j
+    local failed=0 j used note
     for j in "${!pids[@]}"; do
-        if wait "${pids[$j]}"; then echo "    ✓ created ${names[$j]}"; else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
+        if wait "${pids[$j]}"; then
+            used="$(cat "${BENCH_RESULTS_DIR}/meta/${names[$j]}/MACHINE_TYPE" 2>/dev/null || true)"; note=""
+            [ -z "${used}" ] || [ "${used}" = "${BENCH_BLASTER_MACHINE_TYPES%% *}" ] || note=", fallback after a stockout"
+            echo "    ✓ created ${names[$j]} (${used:-type not recorded}${note})"
+        else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
     done
     [ "${failed}" -eq 0 ] || bench_die "blaster creation failed — clean up with: benchmark/benchmark-blast.sh delete --yes"
     for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
@@ -1216,16 +1273,7 @@ do_run() {
         --arg c "$(bench_iso_from_unix "${p2}")" --arg d "$(bench_iso_from_unix "${p3}")" --arg e "$(bench_iso_from_unix "${p4}")" \
         '.phases = [{name:"preamble",start:$a,end:$b},{name:"warmup",start:$b,end:$c},{name:"mixed",start:$c,end:$d},{name:"cooldown",start:$d,end:$e}]
          | .notes += ["phases are PLANNED from BENCH_START_AT + configured durations; the per-blaster tn-blast/v2 run.phases are authoritative"]'
-    local bl="[]" id
-    for k in $(seq 0 $((VAL_COUNT - 1))); do
-        name="$(blaster_name "$k")"
-        id="$(gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null || true)"
-        bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
-            --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" \
-            --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
-            '. + [{name:$n, zone:$z, instance_id:$id, target:$t, node_url:$u, sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
-    done
-    bench_manifest_jq --argjson b "${bl}" '.blasters = $b'
+    bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
 
     # --- watch loop: chaos + abort watchers + done markers ---
     local next_poll=$(( start_at + 60 )) all_done=0 target due back_due n

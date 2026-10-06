@@ -73,13 +73,18 @@ fi
 export BENCH_RUN_ID
 
 #
-# Fleet: 10 validators + 1 observer, two per region across devnet's five regions,
-# the observer beside validator-01 in us-west2-a. Spelled out (bash 3.2 has no
-# brace-expansion-with-padding worth trusting in an array literal).
+# Fleet: 10 validators + 1 observer, one validator in each of ten regions (APAC-weighted), the
+# observer beside validator-01 in us-west2-a. ZONES[0] also hosts the funder and the IAP tunnel;
+# index 2 (Sydney) is BENCH_LAG_IDX's default and index 4 (Montreal) CHAOS_KILL_IDX's.
+# Two planned zones cannot host c3-highcpu-8 (tasks/regions/evaluation.md, 2026-10-06):
+# asia-southeast2 (Jakarta) offers it in no zone, so validator-07 runs in Singapore
+# (asia-southeast1-b); asia-south1 (Mumbai) offers it only in zone c. Alternates checked there:
+# asia-northeast1-c (v04), asia-east1-a (v08), asia-northeast3-b (v09).
+# Spelled out (bash 3.2 has no brace-expansion-with-padding worth trusting in an array literal).
 #
 export INSTANCE_NAMES=("bench-validator-01" "bench-validator-02" "bench-validator-03" "bench-validator-04" "bench-validator-05" "bench-validator-06" "bench-validator-07" "bench-validator-08" "bench-validator-09" "bench-validator-10" "bench-observer-11")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "observer")
-export ZONES=("us-west2-a" "us-west2-a" "australia-southeast1-c" "australia-southeast1-c" "northamerica-northeast1-b" "northamerica-northeast1-b" "europe-west4-a" "europe-west4-a" "europe-west2-b" "europe-west2-b" "us-west2-a")
+export ZONES=("us-west2-a" "europe-west2-b" "australia-southeast1-c" "asia-northeast1-b" "northamerica-northeast1-b" "europe-west4-a" "asia-southeast1-b" "asia-east2-a" "asia-northeast3-a" "asia-south1-c" "us-west2-a")
 export NODE_NAMES=("bench01" "bench02" "bench03" "bench04" "bench05" "bench06" "bench07" "bench08" "bench09" "bench10" "bench11")
 # From benchmark/.secrets/exec-keys.json (gitignored); validators 01-10, then observer 11.
 export EXECUTION_ADDRESSES=("0xc7d975abd962345e9a6024aab692f6bf19140f03" "0x92862b13608e00925551233f21b6f44f6acc7f91" "0x3205c561e8183aae91ef1ab26a1db3fea83bb120" "0x213aff13862c86b3159a9552cc2424b92f8cfcfc" "0x31faf1673f324c688fff60172099f944171d6ab3" "0xe47fbdfdedadd35501eb7c3f38884238bf251103" "0x58114823ab8b21c4162cc28472ff2a6810e123e2" "0x8e7abe6740a452ade8f02a1f005002976e77fb0a" "0xc2f61840713de91b60e5b5c404350d705877911e" "0x52791a4607b5944ec0da0828d0ee78205b208ef1" "0xe88cc26183754978af15a67c1597324eec9ec806")
@@ -206,7 +211,17 @@ export BENCH_TXGEN_CONFIG="${BENCH_TXGEN_CONFIG:-${BENCH_TXGEN_REPO}/config.benc
 export BENCH_TXGEN_MASTER_ADDRESS="0xb1F7fB246DDF3F621442368e4122b087b1Ea3C8E"
 export BENCH_TXGEN_MASTER_SECRET="bench-txgen-master-key"
 export BENCH_TXGEN_SEED_SECRET="bench-txgen-children-seed"
-export BENCH_BLASTER_MACHINE_TYPE="${BENCH_BLASTER_MACHINE_TYPE:-e2-standard-2}"
+# Blaster machine types, tried in this order: a create that fails because the zone is out of the
+# type (a stockout) is retried at once on the next one, and the type used is recorded as
+# manifest blasters[].machine_type. Keep them one shape (2 vCPU). BENCH_BLASTER_MACHINE_TYPE=<type>
+# pins a single type (no fallback) and wins over the list. Boot disk: BENCH_BLASTER_BOOT_DISK_GB of
+# pd-balanced (SSD_TOTAL_GB quota). Both are read by benchmark-blast.sh create_vm and deploy step 0.
+[ -z "${BENCH_BLASTER_MACHINE_TYPE:-}" ] || BENCH_BLASTER_MACHINE_TYPES="${BENCH_BLASTER_MACHINE_TYPE}"
+export BENCH_BLASTER_MACHINE_TYPES="${BENCH_BLASTER_MACHINE_TYPES:-e2-standard-2 n2-standard-2 n2d-standard-2}"
+case "${BENCH_BLASTER_MACHINE_TYPES}" in
+    ''|' '*|*' '|*'  '*|*[!a-z0-9\ -]*) echo "❌ benchmark/config.sh: BENCH_BLASTER_MACHINE_TYPES='${BENCH_BLASTER_MACHINE_TYPES}' must be machine types separated by single spaces." >&2; exit 1 ;;
+esac
+export BENCH_BLASTER_BOOT_DISK_GB=20
 export BENCH_SENDERS="${BENCH_SENDERS:-600}"            # per blaster
 export BENCH_RUN_INDEX="${BENCH_RUN_INDEX:-0}"          # re-blast on the same fleet with fresh senders
 export BENCH_WARMUP_SECS="${BENCH_WARMUP_SECS:-120}"

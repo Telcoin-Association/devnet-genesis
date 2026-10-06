@@ -61,7 +61,27 @@ interactive shell, because its exports would leak into a later devnet command.
 
 ## Fleet shape
 
-The default fleet is `c3-hdb`: every node is a `c3-highcpu-8` with a 100 GB
+Ten validators, one per region, and an observer. Six of the ten are in Asia-Pacific. The order
+is `ZONES` in `config.sh`:
+
+| Index | Instance | Zone | Region | Role | Why this slot |
+|---|---|---|---|---|---|
+| 0 | `bench-validator-01` | `us-west2-a` | Los Angeles | validator | `ZONES[0]` also hosts the funder, and step 10's IAP tunnel lands here |
+| 1 | `bench-validator-02` | `europe-west2-b` | London | validator | |
+| 2 | `bench-validator-03` | `australia-southeast1-c` | Sydney | validator | `BENCH_LAG_IDX` default: the node lag injection pauses |
+| 3 | `bench-validator-04` | `asia-northeast1-b` | Tokyo | validator | alternate `asia-northeast1-c` |
+| 4 | `bench-validator-05` | `northamerica-northeast1-b` | Montréal | validator | `CHAOS_KILL_IDX`: the node the chaos schedule kills, in the same region as before |
+| 5 | `bench-validator-06` | `europe-west4-a` | Netherlands | validator | |
+| 6 | `bench-validator-07` | `asia-southeast1-b` | Singapore | validator | stands in for Jakarta: no asia-southeast2 zone offers `c3-highcpu-8` |
+| 7 | `bench-validator-08` | `asia-east2-a` | Hong Kong | validator | alternate `asia-east1-a` (Taiwan) |
+| 8 | `bench-validator-09` | `asia-northeast3-a` | Seoul | validator | alternate `asia-northeast3-b` |
+| 9 | `bench-validator-10` | `asia-south1-c` | Mumbai | validator | zone c is the only Mumbai zone with `c3-highcpu-8` |
+| 10 | `bench-observer-11` | `us-west2-a` | Los Angeles | observer | beside validator-01; restarted by the chaos schedule |
+
+Each validator's blaster runs in that validator's zone. Moving a node means editing `ZONES` only;
+step 0 then checks the new zone before anything is created (see the runbook).
+
+The default shape is `c3-hdb`: every node is a `c3-highcpu-8` with a 100 GB
 `hyperdisk-balanced` boot disk provisioned at 20000 IOPS and 800 MiB/s. These variables change
 the shape:
 
@@ -73,6 +93,7 @@ the shape:
 | `BENCH_NODE_DISK_IOPS` | `20000` on `hyperdisk-balanced`, else empty | Hyperdisk only. Set it empty (`BENCH_NODE_DISK_IOPS=`) to give the disk its type's default. |
 | `BENCH_NODE_DISK_THROUGHPUT` | `800` on `hyperdisk-balanced`, else empty | MiB/s. Same rules as the IOPS. |
 | `BENCH_FLEET` | from the shape | The fleet label in the manifest and the report. |
+| `BENCH_BLASTER_MACHINE_TYPES` | `e2-standard-2 n2-standard-2 n2d-standard-2` | Blaster types, tried in order. A create that fails on a zone stockout is retried at once on the next type; the type used is `manifest.blasters[].machine_type`. `BENCH_BLASTER_MACHINE_TYPE=<type>` pins one type with no fallback. |
 
 Only `hyperdisk-balanced` gets the 20000/800 defaults. Other hyperdisk types provision only IOPS
 or only throughput, so set the knob they take yourself. Either knob on a non-hyperdisk disk is
@@ -212,7 +233,7 @@ script deletes from. Clean the archive by hand, and only after the run's results
 | Step | What happens |
 |---|---|
 | gate | `--yes` only, before any step. Checks what the selected steps need: the `:blast-v2-<sha>` image, `cloudbuild.yaml`, `config.bench.toml` and `deployments-bench.json`. When step 0, 5, 6 or 7 is selected and the run has no pinned image yet, it probes the node image and pins it (see [Node image](#node-image)). It then creates `manifest.json`, or keeps it on a resume, and records the probe (`node_*`) and `consensus_parameters`. |
-| 0 | Preflight checks: auth, tools, accounts file, empty `genesis/`, no foreign rule selecting `bench-node`, obs-devnet `/mnt/obs-data` below 70 %, vCPU quota per region, and a hyperdisk type offered in every fleet zone. Node vCPUs count against their family's quota metric (`C3_CPUS` for c3) and the blasters' e2 vCPUs against `CPUS`. A metric the region does not list is a warning, not a failure. Writes the pre-snapshots. |
+| 0 | Preflight checks: auth, tools, accounts file, empty `genesis/`, no foreign rule selecting `bench-node`, obs-devnet `/mnt/obs-data` below 70 %. Then the fleet's footprint: the node machine type in every fleet zone and the first blaster type in every validator zone (one `machine-types describe` per zone), a hyperdisk type offered in every fleet zone, and quota headroom per region against what that region's nodes and blasters need. Node vCPUs count against their family's quota metric (`C3_CPUS` for c3) and the blasters' e2 vCPUs against `CPUS`; addresses against `IN_USE_ADDRESSES`; blaster boot disks against `SSD_TOTAL_GB`; hyperdisk-balanced against the `HDB-TOTAL-{GB,IOPS,THROUGHPUT}` quotas, read from the Cloud Quotas API (`gcloud beta quotas info describe`) because `regions describe` does not list them. Each check lists every failing zone or region in one error. A quota it cannot read is a warning, not a failure. Writes the pre-snapshots. |
 | 1 | Asserts the `:blast-v2-<sha>` tag, builds it with Cloud Build if missing, and probes `blast --help` for the CLI contract flags (when docker is available). |
 | 2 | Runs `common/create-instances.sh` on the bench profile, then asserts `tags == [bench-node]` and `labels.benchmark == 1` on every node, labels the boot disks and records `manifest.instances[]`. |
 | 3 | Waits for the `devnet-startup.sh complete` serial marker on each node. |

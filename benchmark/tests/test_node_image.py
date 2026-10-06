@@ -555,5 +555,340 @@ class RemoteScriptTests(BashCase):
         self.assertFalse((self.node / "usr/local/bin/bench-node-sampler.sh").exists())
 
 
+# --------------------------------------------------------------------------- deploy step 0 + blasters
+# The preflight checks (benchmark-deploy.sh) and the blaster create path (benchmark-blast.sh) run as
+# extracted functions under an inline fake gcloud: the fixture stub-gcloud.sh knows only the probe
+# and step 9. The stockout text is a real one (r20261006-0458, create-bench-blaster-03.log), line
+# wrap included, project renamed.
+STOCKOUT = """ERROR: (gcloud.compute.instances.create) Could not fetch resource:
+---
+code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS
+errorDetails:
+- localizedMessage:
+    locale: en-US
+    message: A e2-standard-2 VM instance is currently unavailable in the australia-southeast1-c
+      zone. Try requesting the VM in another zone. For more information, view the
+      troubleshooting documentation.
+- errorInfo:
+    domain: compute.googleapis.com
+    metadatas:
+      vmType: e2-standard-2
+      zone: australia-southeast1-c
+      zonesAvailable: ''
+    reason: stockout
+message: The zone 'projects/tn-fake/zones/australia-southeast1-c' does not have
+  enough resources available to fulfill the request.  '(resource type:compute)'.
+"""
+QUOTA_EXCEEDED = """ERROR: (gcloud.compute.instances.create) Could not fetch resource:
+ - Quota 'N2_CPUS' exceeded.  Limit: 0.0 in region australia-southeast1.
+"""
+FAKE_GCLOUD = r"""#!/usr/bin/env bash
+# Inline fake gcloud for the preflight and blaster tests; every call is logged to $STUB_LOG.
+printf 'gcloud %s\n' "$*" >> "${STUB_LOG:?}"
+zone=""; mt=""
+for a in "$@"; do
+    case "$a" in --zone=*) zone="${a#--zone=}" ;; --machine-type=*) mt="${a#--machine-type=}" ;; esac
+done
+case "$*" in
+    "compute machine-types describe "*)
+        case " ${STUB_MT_MISSING:-} " in *" ${zone} "*)
+            printf "ERROR: (gcloud.compute.machine-types.describe) Could not fetch resource:\n - The resource 'projects/tn-fake/zones/%s/machineTypes/%s' was not found\n" "${zone}" "$4" >&2
+            exit 1 ;;
+        esac
+        case " ${STUB_MT_BROKEN:-} " in *" ${zone} "*) echo "ERROR: (gcloud) There was a problem refreshing your credentials." >&2; exit 1 ;; esac
+        case "$*" in *guestCpus*) echo 2 ;; *) echo "$4" ;; esac ;;
+    "compute disk-types list "*)
+        f="${*#*zone:(}"; f="${f%%)*}"
+        for z in ${f}; do case " ${STUB_DISK_MISSING:-} " in *" ${z} "*) ;; *) echo "${z}" ;; esac; done ;;
+    "compute regions describe "*)
+        if [ -f "${STUB_DIR}/region-$4.json" ]; then cat "${STUB_DIR}/region-$4.json"; else cat "${STUB_DIR}/region-default.json"; fi ;;
+    "beta quotas info describe "*) cat "${STUB_DIR}/qi-$5.json" 2>/dev/null || exit 1 ;;
+    "compute disks list "*) cat "${STUB_DIR}/disks.json" ;;
+    "compute instances create "*)
+        case " ${STUB_STOCKOUT:-} " in *" ${zone}/${mt} "*) cat "${STUB_DIR}/stockout.txt" >&2; exit 1 ;; esac
+        case " ${STUB_CREATE_FAIL:-} " in *" ${mt} "*) cat "${STUB_DIR}/quota-exceeded.txt" >&2; exit 1 ;; esac
+        echo "Created [https://www.googleapis.com/compute/v1/projects/tn-fake/zones/${zone}/instances/$4]." ;;
+    "compute instances describe "*) echo 4242 ;;
+    *) echo "fake gcloud: unexpected: $*" >&2; exit 1 ;;
+esac
+"""
+FLEET_REGIONS = ["asia-east2", "asia-northeast1", "asia-northeast3", "asia-south1", "asia-southeast1",
+                 "australia-southeast1", "europe-west2", "europe-west4", "northamerica-northeast1", "us-west2"]
+PREFLIGHT_FNS = ("fleet_zones", "validator_zones", "fleet_regions", "disk_type_check", "machine_type_check",
+                 "machine_vcpus", "region_needs", "hdb_headroom", "quota_check")
+
+
+def shell_functions(script, *names):
+    """The named functions of <script> (a one-line function is its own line)."""
+    lines = Path(script).read_text().splitlines()
+    out = []
+    for name in names:
+        start = next(i for i, line in enumerate(lines) if line.startswith(name + "() {"))
+        end = start if lines[start].rstrip().endswith("}") else lines.index("}", start)
+        out.extend(lines[start:end + 1])
+    return "\n".join(out) + "\n"
+
+
+def region_json(**headroom):
+    """A `regions describe` answer: ample quotas, minus <metric>=<headroom> overrides."""
+    limits = {"C3_CPUS": 300, "CPUS": 1500, "N2_CPUS": 500, "IN_USE_ADDRESSES": 575, "SSD_TOTAL_GB": 40960,
+              "DISKS_TOTAL_GB": 102400}
+    quotas = [{"metric": m, "limit": float(v), "usage": 0.0} for m, v in limits.items()]
+    for q in quotas:
+        if q["metric"] in headroom:
+            q["usage"] = q["limit"] - headroom[q["metric"]]
+    return json.dumps({"name": "x", "quotas": quotas})
+
+
+def quota_info(default, **per_region):
+    """A `gcloud beta quotas info describe` answer: per-region values, else <default> for the rest."""
+    infos = [{"dimensions": {"region": r}, "details": {"value": str(v)}, "applicableLocations": [r]}
+             for r, v in per_region.items()]
+    infos.append({"details": {"value": str(default)},
+                  "applicableLocations": [r for r in FLEET_REGIONS if r not in per_region]})
+    return json.dumps({"quotaId": "x", "dimensionsInfos": infos})
+
+
+class FakeGcloudCase(BashCase):
+    def setUp(self):
+        super().setUp()
+        (self.bin / "gcloud").write_text(FAKE_GCLOUD)
+        (self.bin / "gcloud").chmod(0o755)
+        self.stub = self.root / "stub-data"
+        self.stub.mkdir()
+        (self.stub / "region-default.json").write_text(region_json())
+        (self.stub / "qi-HDB-TOTAL-GB-per-project-region.json").write_text(quota_info(40960))
+        (self.stub / "qi-HDB-TOTAL-IOPS-per-project-region.json").write_text(quota_info(-1))
+        (self.stub / "qi-HDB-TOTAL-THROUGHPUT-per-project-region.json").write_text(quota_info(-1))
+        (self.stub / "disks.json").write_text("[]")
+        (self.stub / "stockout.txt").write_text(STOCKOUT)
+        (self.stub / "quota-exceeded.txt").write_text(QUOTA_EXCEEDED)
+
+    def env(self, **extra):
+        return super().env(STUB_DIR=str(self.stub), **extra)
+
+
+PREFLIGHT = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+eval "$2"
+BENCH_APPLY="${TEST_APPLY:-1}"
+[ -z "${TEST_ZONES:-}" ] || read -r -a ZONES <<< "${TEST_ZONES}"
+eval "$3"
+'''
+
+
+class PreflightTests(FakeGcloudCase):
+    """Deploy step 0's machine type, disk type and quota checks (all zones/regions, one die)."""
+
+    def preflight(self, body, **env):
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", *PREFLIGHT_FNS)
+        return self.bash(PREFLIGHT, self.bench, fns, body, **env)
+
+    def test_fleet_spans_ten_regions_one_validator_each(self):
+        p = self.preflight('echo "Z $(fleet_zones)"; echo "V $(validator_zones)"; echo "R $(fleet_regions)"')
+        self.assertEqual(p.returncode, 0, p.stdout)
+        out = dict(line.split(" ", 1) for line in p.stdout.splitlines() if line[:2] in ("Z ", "V ", "R "))
+        self.assertEqual(out["R"].split(), FLEET_REGIONS)
+        self.assertEqual(len(out["Z"].split()), 10)
+        self.assertEqual(out["V"], out["Z"])          # the observer shares validator-01's zone
+        self.assertEqual(self.calls(), [])
+
+    def test_machine_type_check_lists_every_failing_zone_in_one_die(self):
+        zones = ("us-west2-a europe-west2-b australia-southeast1-c asia-northeast1-b northamerica-northeast1-b "
+                 "europe-west4-a asia-southeast2-a asia-east2-a asia-northeast3-a asia-south1-a us-west2-a")
+        p = self.preflight('machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"; echo PASSED',
+                           TEST_ZONES=zones, STUB_MT_MISSING="asia-southeast2-a asia-south1-a",
+                           STUB_MT_BROKEN="asia-east2-a")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("PASSED", p.stdout)
+        self.assertIn("c3-highcpu-8 cannot be created in every zone it needs — change ZONES "
+                      "(benchmark/config.sh) or BENCH_MACHINE_TYPE:", p.stdout)
+        self.assertIn("     asia-south1-a: not offered in this zone\n", p.stdout)
+        self.assertIn("     asia-southeast2-a: not offered in this zone\n", p.stdout)
+        self.assertIn("     asia-east2-a: describe failed (rc 1): ERROR: (gcloud) There was a problem", p.stdout)
+        # Every distinct zone was asked (all failures collected, not the first one only).
+        described = [c for c in self.calls() if c.startswith("gcloud compute machine-types describe c3-highcpu-8 ")]
+        self.assertEqual(len(described), 10, self.calls())
+
+    def test_machine_type_check_passes_and_dry_run_calls_nothing(self):
+        p = self.preflight('machine_type_check e2-standard-2 BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"')
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✓ e2-standard-2 offered in all 10 zones", p.stdout)
+        self.log.write_text("")
+        p = self.preflight('machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"; disk_type_check; '
+                           'quota_check', TEST_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("gcloud compute machine-types describe c3-highcpu-8 --zone=<each zone>", p.stdout)
+        self.assertIn("      us-west2: C3_CPUS 16, CPUS 2, IN_USE_ADDRESSES 3, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, "
+                      "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 20\n", p.stdout)
+        self.assertIn("      asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, ", p.stdout)
+        self.assertEqual(p.stdout.count("(dry run — not executed)"), 3)
+
+    def test_quota_check_passes_with_headroom(self):
+        p = self.preflight("quota_check")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✓ us-west2 need/headroom: C3_CPUS 16/300, CPUS 2/1500, IN_USE_ADDRESSES 3/575, "
+                      "HDB_TOTAL_GB 200/40960, HDB_TOTAL_IOPS 40000/unlimited, HDB_TOTAL_THROUGHPUT 1600/unlimited, "
+                      "SSD_TOTAL_GB 20/40960", p.stdout)
+        self.assertEqual(p.stdout.count("need/headroom:"), 10)
+        calls = self.calls()
+        self.assertEqual(sorted(c.split()[4] for c in calls if c.startswith("gcloud compute regions describe ")),
+                         FLEET_REGIONS)
+        self.assertEqual(len([c for c in calls if c.startswith("gcloud beta quotas info describe HDB-TOTAL-")]), 3)
+
+    def test_quota_check_lists_every_shortfall_in_one_table(self):
+        (self.stub / "region-asia-northeast1.json").write_text(region_json(C3_CPUS=4))
+        (self.stub / "region-us-west2.json").write_text(region_json(IN_USE_ADDRESSES=2, CPUS=1))
+        (self.stub / "qi-HDB-TOTAL-GB-per-project-region.json").write_text(quota_info(40960, **{"asia-south1": 50}))
+        (self.stub / "qi-HDB-TOTAL-IOPS-per-project-region.json").write_text(quota_info(-1, **{"europe-west2": 30000}))
+        # Disks already in europe-west4 / europe-west2 count against the hyperdisk limits; a pd-ssd does not.
+        (self.stub / "disks.json").write_text(json.dumps([
+            {"name": "other", "zone": ".../zones/europe-west4-b", "type": ".../diskTypes/hyperdisk-balanced",
+             "sizeGb": "40900", "provisionedIops": "3000", "provisionedThroughput": "140"},
+            {"name": "other2", "zone": ".../zones/europe-west2-a", "type": ".../diskTypes/hyperdisk-balanced",
+             "sizeGb": "10", "provisionedIops": "15000", "provisionedThroughput": "140"},
+            {"name": "ssd", "zone": ".../zones/asia-east2-a", "type": ".../diskTypes/pd-ssd", "sizeGb": "40960"}]))
+        p = self.preflight("quota_check; echo PASSED")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("PASSED", p.stdout)
+        rows = [line.split() for line in p.stdout.split("quota shortfalls — nothing was created:", 1)[1].splitlines()[1:]
+                if line.startswith("     ") and len(line.split()) == 4]
+        self.assertEqual(rows[0], ["region", "metric", "need", "headroom"])
+        self.assertEqual(sorted(rows[1:]), sorted([
+            ["asia-northeast1", "C3_CPUS", "8", "4"],
+            ["asia-south1", "HDB_TOTAL_GB", "100", "50"],
+            ["europe-west2", "HDB_TOTAL_IOPS", "20000", "15000"],
+            ["europe-west4", "HDB_TOTAL_GB", "100", "60"],
+            ["us-west2", "CPUS", "2", "1"],
+            ["us-west2", "IN_USE_ADDRESSES", "3", "2"]]))
+        # All ten regions were read before the die.
+        self.assertEqual(len([c for c in self.calls() if c.startswith("gcloud compute regions describe ")]), 10)
+
+    def test_region_needs_sum_a_shared_metric_and_count_pd_disks(self):
+        # The e2 baseline (fleet A): nodes and blasters both on CPUS, node disks on SSD_TOTAL_GB.
+        p = self.preflight('region_needs us-west2; region_needs asia-south1; echo "SHARED $(machine_vcpus e2-medium x)"',
+                           BENCH_MACHINE_TYPE="e2-custom-4-8192", BENCH_NODE_DISK_TYPE="pd-ssd",
+                           BENCH_BLASTER_MACHINE_TYPES="e2-medium")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        lines = [l for l in p.stdout.splitlines() if l and l[0].isupper()]
+        self.assertEqual(lines, ["CPUS 10", "IN_USE_ADDRESSES 3", "SSD_TOTAL_GB 220",
+                                 "CPUS 6", "IN_USE_ADDRESSES 2", "SSD_TOTAL_GB 120", "SHARED 2"])
+        # e2-medium's name carries no vCPU count: an alarmed describe answered it.
+        self.assertTrue(any(c.startswith("gcloud compute machine-types describe e2-medium --zone=")
+                            and "guestCpus" in c for c in self.calls()), self.calls())
+
+
+BLAST = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+eval "$2"
+BENCH_APPLY=1
+STARTUP="$3/startup.sh"; DEPLOYMENTS_FILE="$3/deployments.json"; BENCH_TXGEN_CONFIG="$3/config.toml"
+VAL_COUNT=2
+blaster_name() { printf 'bench-blaster-%02d' "$(( $1 + 1 ))"; }
+rc=0
+create_vm bench-blaster-01 "${ZONES[0]}" blast "bench-validator-01=http://192.0.2.1:8545" 600 0 1700000000 || rc=$?
+echo "RC1=${rc}"; rc=0
+create_vm bench-blaster-02 "${ZONES[1]}" blast "bench-validator-02=http://192.0.2.2:8545" 600 600 1700000000 || rc=$?
+echo "RC2=${rc}"
+[ "${TEST_MANIFEST:-1}" = "0" ] || echo "MANIFEST $(blasters_json | jq -c .)"
+'''
+
+
+class BlasterFallbackTests(FakeGcloudCase):
+    """benchmark-blast.sh create_vm: a stockout retries the same blaster on the next type."""
+
+    def blast(self, **env):
+        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm", "blasters_json")
+        files = self.root / "blast-files"
+        files.mkdir(exist_ok=True)
+        p = self.bash(BLAST, self.bench, fns, files, **env)
+        manifest = None
+        for line in p.stdout.splitlines():
+            if line.startswith("MANIFEST "):
+                manifest = json.loads(line[len("MANIFEST "):])
+        return p, manifest
+
+    def creates(self):
+        return [(c.split()[4], re.search(r"--machine-type=(\S+)", c).group(1))
+                for c in self.calls() if c.startswith("gcloud compute instances create ")]
+
+    def meta(self, name):
+        f = self.bench / "results" / "rtest-node-image" / "meta" / name / "MACHINE_TYPE"
+        return f.read_text().strip() if f.exists() else None
+
+    def test_stockout_retries_next_type_and_manifest_records_it(self):
+        p, manifest = self.blast(STUB_STOCKOUT="us-west2-a/e2-standard-2")
+        self.assertIn("RC1=0", p.stdout)
+        self.assertIn("RC2=0", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "e2-standard-2"), ("bench-blaster-01", "n2-standard-2"),
+                                          ("bench-blaster-02", "e2-standard-2")])
+        self.assertIn("bench-blaster-01: e2-standard-2 is out of stock in us-west2-a (stockout); "
+                      "trying the next blaster type", p.stdout)
+        self.assertIn("bench-blaster-01: created on n2-standard-2 in us-west2-a after a stockout of e2-standard-2",
+                      p.stdout)
+        self.assertEqual((self.meta("bench-blaster-01"), self.meta("bench-blaster-02")),
+                         ("n2-standard-2", "e2-standard-2"))
+        self.assertEqual([(b["name"], b["zone"], b["machine_type"], b["instance_id"]) for b in manifest],
+                         [("bench-blaster-01", "us-west2-a", "n2-standard-2", "4242"),
+                          ("bench-blaster-02", "europe-west2-b", "e2-standard-2", "4242")])
+        # The retry is the same create: only --machine-type differs.
+        first, second = [c for c in self.calls() if c.startswith("gcloud compute instances create bench-blaster-01 ")]
+        self.assertEqual(first.replace("--machine-type=e2-standard-2", "--machine-type=n2-standard-2"), second)
+
+    def test_other_failure_is_not_retried(self):
+        p, _ = self.blast(STUB_CREATE_FAIL="e2-standard-2", TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "e2-standard-2"), ("bench-blaster-02", "e2-standard-2")])
+        self.assertIn("Quota 'N2_CPUS' exceeded", p.stdout)
+        self.assertIsNone(self.meta("bench-blaster-01"))
+
+    def test_pinned_type_has_no_fallback(self):
+        p, _ = self.blast(BENCH_BLASTER_MACHINE_TYPE="n2d-standard-2", STUB_STOCKOUT="us-west2-a/n2d-standard-2",
+                          TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertIn("RC2=0", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "n2d-standard-2"), ("bench-blaster-02", "n2d-standard-2")])
+        self.assertIn("bench-blaster-01: every blaster type is out of stock in us-west2-a (n2d-standard-2)", p.stdout)
+        self.assertIsNone(self.meta("bench-blaster-01"))
+        self.assertEqual(self.meta("bench-blaster-02"), "n2d-standard-2")
+
+    def test_dry_run_prints_the_first_type_and_the_fallback(self):
+        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm")
+        script = BLAST.split("BENCH_APPLY=1")[0] + ("BENCH_APPLY=0\nSTARTUP=s DEPLOYMENTS_FILE=d BENCH_TXGEN_CONFIG=c\n"
+                                                    "create_vm bench-blaster-03 australia-southeast1-c blast u 600 1200 1\n")
+        p = self.bash(script, self.bench, fns, self.root)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        argv = [l for l in p.stdout.splitlines() if l.startswith("    + perl -e")]
+        self.assertEqual(len(argv), 1, p.stdout)
+        self.assertIn(" 600 gcloud compute instances create bench-blaster-03 ", argv[0])
+        self.assertIn(" --zone=australia-southeast1-c --machine-type=e2-standard-2 ", argv[0])
+        self.assertIn(" --boot-disk-size=20GB --boot-disk-type=pd-balanced ", argv[0])
+        self.assertIn("on a zone stockout: the same create with --machine-type=n2-standard-2 n2d-standard-2 (in turn)",
+                      p.stdout)
+
+    def test_is_stockout_reads_each_marker_through_line_wraps(self):
+        fn = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout")
+        cases = [(STOCKOUT, 0), (QUOTA_EXCEEDED, 1), ("code: ZONE_RESOURCE_POOL_EXHAUSTED\n", 0),
+                 ("    reason: stockout\n", 0), ("The zone 'z' does not have\n  enough resources available\n", 0),
+                 ("The resource 'projects/p/zones/z/machineTypes/t' was not found\n", 1)]
+        for text, want in cases:
+            with self.subTest(text=text[:40]):
+                p = subprocess.run(["bash", "-c", fn + 'is_stockout "$1"', "x", text])
+                self.assertEqual(p.returncode, want)
+
+    def test_every_type_out_of_stock_fails(self):
+        p, _ = self.blast(STUB_STOCKOUT="us-west2-a/e2-standard-2 us-west2-a/n2-standard-2 us-west2-a/n2d-standard-2",
+                          TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertEqual([t for n, t in self.creates() if n == "bench-blaster-01"],
+                         ["e2-standard-2", "n2-standard-2", "n2d-standard-2"])
+        self.assertIn("every blaster type is out of stock in us-west2-a "
+                      "(e2-standard-2 n2-standard-2 n2d-standard-2)", p.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
