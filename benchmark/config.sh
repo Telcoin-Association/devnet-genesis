@@ -234,6 +234,7 @@ export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
 export BENCH_CHAOS_STAGE_SECS="${BENCH_CHAOS_STAGE_SECS:-30}"
 export BENCH_CHAOS_GUARD_SECS="${BENCH_CHAOS_GUARD_SECS:-90}"
 export BENCH_STALL_NOTE_SECS="${BENCH_STALL_NOTE_SECS:-60}"
+export BENCH_STALL_NOTE_MAX_ROUNDS="${BENCH_STALL_NOTE_MAX_ROUNDS:-4}"   # rounds may rise by this much and still count as flat
 # Lag injection (BENCH_LAG_INJECT=1): pause one validator's container at BENCH_LAG_AT_SECS after
 # the mixed phase starts, for BENCH_LAG_PAUSE_SECS. BENCH_LAG_IDX is zero-based; the default 2
 # (bench-validator-03) has its own blaster; with BENCH_CHAOS=1 it must not be the node chaos kills.

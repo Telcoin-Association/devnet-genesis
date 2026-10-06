@@ -331,16 +331,28 @@ would start within `BENCH_CHAOS_GUARD_SECS` of a chaos action waits until the ac
 | `quorum-lost` | two consecutive polls in which no node's `max by (node)(tn_primary_round{network="bench"})` advanced. A failed Prometheus query counts as unknown, never as stalled. |
 | `node-stalled` | one validator's epoch/round stays unchanged for two consecutive polls while peers advance. Planned outages and pauses are exempt. Observers and missing metrics are not counted; an unknown poll resets the comparison. The victim's log is saved before aborting. |
 
-Commit stalls are noted, never aborted on. Consensus rounds can keep advancing while blocks
-stop (r20261006-0053: 301 s at block 15513), so `quorum-lost` does not catch one. Each poll
-reads every `BENCH_STATUS` sample since the previous poll. When the fleet's highest block has
-not moved for `BENCH_STALL_NOTE_SECS=60` seconds, the run prints one `⚠ commits flat` line.
-When the block moves again, `manifest.commit_stalls[]` gets `{start, end, secs, block,
-round_start, round_end, source: "watch"}` and a note; rounds use the watcher's
-epoch × 10^8 + round form, and the bounds are sample times. Only a stretch that starts in the
-planned mixed phase counts: in cooldown the generator only drains, so blocks stop by design.
+Commit stalls are noted, never aborted on. `quorum-lost` needs two whole polls without a
+round, so a stall shorter than that goes unseen (r20261006-0053: 301 s at block 15513). Each
+poll therefore reads every `BENCH_STATUS` sample since the previous poll. A stall needs both
+signals: the fleet's highest block has not moved for `BENCH_STALL_NOTE_SECS=60` seconds, and
+the fleet's highest consensus round rose by at most `BENCH_STALL_NOTE_MAX_ROUNDS=4` over the
+last `BENCH_STALL_NOTE_SECS` of that stretch. The round comes from Prometheus, read with
+`offset` at those times. The last stretch is used, not the whole one, because in the 6 Oct
+stall blocks stopped about 28 s before rounds did. A stall prints one `⚠ commits flat` line.
+When the block moves again, even after cooldown, `manifest.commit_stalls[]` gets `{start, end,
+secs, block, round_start, round_end, source: "watch"}` and a note. The bounds are sample times,
+and the rounds (epoch × 10^8 + round) are read at those times. A stall still flat when the
+watch ends gets `open: true`. Blocks flat while rounds keep rising is an idle chain, not a
+stall: empty consensus outputs are not executed, so blocks stop once the generators do
+(r20261006-0458 finished about 37 s before the planned mixed end). That prints one `idle:` line
+and records nothing. Only a stretch that starts in the planned mixed phase counts: in cooldown
+the generator only drains.
+
 `collect` runs `stall-scan.py` over the sampler CSVs (fleet maximum per 30 s, same window)
-into `manifest.commit_stalls_sampled`, and notes any sampler file it could not copy.
+into `manifest.commit_stalls_sampled`, and notes any sampler file it could not copy. The sampler
+records blocks but no consensus round, so this scan cannot tell a stall from an idle chain. Its
+entries carry `source: "sampler-blocks-only"`. Read one as a stall only when
+`manifest.commit_stalls` (the watch, which checks rounds) has a matching entry.
 
 A blaster is deleted only when its serial marker says `rc=0 reason=ok`, which means its
 results are in the bucket. A failed upload reports `rc=75 reason=upload-failed`. Any other

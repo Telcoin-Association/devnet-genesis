@@ -94,6 +94,9 @@ OBSERVER_IDX=""
 for i in "${!NODE_ROLES[@]}"; do [ "${NODE_ROLES[$i]}" = "observer" ] && OBSERVER_IDX="$i"; done
 CHAOS_KILL_IDX=4          # bench-validator-05
 [ "${BENCH_POLL_SECS}" -ge 240 ] || bench_die "BENCH_POLL_SECS=${BENCH_POLL_SECS} < 240 (IAP/serial polling lesson)"
+# Commit-stall note (commit_flat_check): rounds allowed over a stall's last BENCH_STALL_NOTE_SECS.
+BENCH_STALL_NOTE_MAX_ROUNDS="${BENCH_STALL_NOTE_MAX_ROUNDS:-4}"
+case "${BENCH_STALL_NOTE_MAX_ROUNDS}" in ''|*[!0-9]*) bench_die "BENCH_STALL_NOTE_MAX_ROUNDS='${BENCH_STALL_NOTE_MAX_ROUNDS}' must be a whole number" ;; esac
 # A poll the guard lets through must end before the next action's session opens.
 [ "${BENCH_CHAOS_STAGE_SECS}" -lt "${BENCH_CHAOS_GUARD_SECS}" ] \
     || bench_die "BENCH_CHAOS_STAGE_SECS=${BENCH_CHAOS_STAGE_SECS} must be below BENCH_CHAOS_GUARD_SECS=${BENCH_CHAOS_GUARD_SECS}"
@@ -472,8 +475,8 @@ STALL_POLLS=0; LAST_ADVANCE_TS=0
 NODE_STALL_COUNTS="{}"
 STATUS_SEEN=()    # per node index: ts of the newest BENCH_STATUS sample already read
 POLL_SAMPLES=""   # "<ts> <block>" of every node's BENCH_STATUS samples since the last poll
-FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_WARNED=0; FLAT_ROUND=""; FLAT_LAST_TS=0   # commit_flat_check
-STALL_WIN_START=0; STALL_MIXED_END=0; STALL_WIN_END=0   # planned mixed start, mixed end, cooldown end
+FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_UNTIL=0; FLAT_STATE=""; FLAT_ROUND=""; FLAT_ROUNDS_UP=""   # commit_flat_check
+STALL_WIN_START=0; STALL_MIXED_END=0   # planned mixed start and end
 
 record_abort() { # <reason> <node> <detail>
     [ -n "${ABORTED}" ] && return 0
@@ -814,54 +817,91 @@ status_collect() {
     STATUS_SEEN[$1]="$(printf '%s\n' "${new}" | sort -n | tail -1 | cut -d' ' -f1)"
 }
 
-# fleet_round — the highest consensus round the quorum watcher read at this poll (epoch*1e8+round,
-# bench_prom_rounds' encoding); nothing when unknown. round_text <value> spells it out.
-fleet_round() { [ -z "${PREV_ROUNDS}" ] || printf '%s' "${PREV_ROUNDS}" | jq -r '[.[] | numbers] | max // empty | floor' 2>/dev/null || true; }
+# fleet_round_at <unix> — the fleet's highest consensus round at that time (epoch*1e8+round, as
+# bench_prom_rounds encodes it), from Prometheus with `offset`; nothing when unknown. The watcher's
+# own reads are a poll (240 s) apart, too coarse to judge a stall. round_text <value> spells it out.
+fleet_round_at() {
+    local off=$(( $(bench_now_unix) - $1 )) l="${BENCH_PROM_NETWORK_LABEL}" o=""
+    [ "${off}" -le 0 ] || o=" offset ${off}s"
+    bench_prom_query "max(max by (node) (tn_epoch_current{network=\"${l}\"}${o}) * 100000000 + max by (node) (tn_primary_round{network=\"${l}\"}${o}))" 2>/dev/null \
+        | jq -r 'select(.status == "success") | .data.result[0].value[1] // empty | tonumber | floor' 2>/dev/null || true
+}
 round_text() {
     case "$1" in ''|*[!0-9]*) printf '?' ;; *) printf '%s (epoch %s)' "$(( $1 % 100000000 ))" "$(( $1 / 100000000 ))" ;; esac
 }
 
 # commit_flat_check <samples> — a note, never an abort. <samples> are "<ts> <block>" lines, oldest
-# first, from every node's BENCH_STATUS lines since the last poll. Once the fleet's highest block
-# has not moved for BENCH_STALL_NOTE_SECS, one console line; when it moves again, .commit_stalls[]
-# and a note. Consensus rounds can advance through a commit stall, so the quorum watcher misses
-# one (r20261006-0053: 301 s at block 15513, never noted). Only samples between the mixed start and
-# the end of cooldown count, and a stretch must start in the mixed phase: in cooldown the
-# generator only drains, so blocks stop by design.
+# first, from every node's BENCH_STATUS lines since the last poll. A commit stall is the fleet's
+# highest block AND its highest consensus round standing still: blocks flat for at least
+# BENCH_STALL_NOTE_SECS, and rounds up by at most BENCH_STALL_NOTE_MAX_ROUNDS over the last
+# BENCH_STALL_NOTE_SECS of that (r20261006-0053: 301 s at block 15513, rounds +0 after the first
+# 28 s). Blocks flat while rounds advance is an idle chain: empty consensus outputs are not
+# executed, so blocks stop once the generators do (r20261006-0458 noted 213 s of that by mistake).
+# A stall prints one line, and goes into .commit_stalls[] with a note when the block moves again;
+# idle prints one line and is judged again at each poll. A stretch must start in the mixed phase
+# (in cooldown the generator only drains); a later advance closes it, after cooldown too.
 commit_flat_check() {
     local ts blk
     while read -r ts blk; do
         case "${ts}:${blk}" in *[!0-9:]*|:*|*:) continue ;; esac
-        { [ "${ts}" -ge "${STALL_WIN_START}" ] && [ "${ts}" -le "${STALL_WIN_END}" ]; } || continue
-        FLAT_LAST_TS="${ts}"
-        if [ -z "${FLAT_BLOCK}" ] || [ "${blk}" -gt "${FLAT_BLOCK}" ]; then
-            [ "${FLAT_WARNED}" -eq 0 ] || commit_stall_record "${ts}" false
-            FLAT_BLOCK="${blk}"; FLAT_SINCE="${ts}"; FLAT_WARNED=0
-        elif [ "${FLAT_WARNED}" -eq 0 ] && [ "${FLAT_SINCE}" -lt "${STALL_MIXED_END}" ] \
-                && [ $(( ts - FLAT_SINCE )) -ge "${BENCH_STALL_NOTE_SECS}" ]; then
-            FLAT_WARNED=1; FLAT_ROUND="$(fleet_round)"
-            echo "    ⚠ commits flat at block ${FLAT_BLOCK} since $(bench_iso_from_unix "${FLAT_SINCE}") ($(( ts - FLAT_SINCE ))s; round $(round_text "${FLAT_ROUND}")) — note only"
-        fi
+        [ "${ts}" -ge "${STALL_WIN_START}" ] || continue
+        if [ -n "${FLAT_BLOCK}" ] && [ "${blk}" -le "${FLAT_BLOCK}" ]; then FLAT_UNTIL="${ts}"; continue; fi
+        [ -z "${FLAT_BLOCK}" ] || commit_flat_close "${ts}"
+        FLAT_BLOCK="${blk}"; FLAT_SINCE="${ts}"; FLAT_UNTIL="${ts}"; FLAT_STATE=""
     done <<< "$1"
+    commit_flat_judge
 }
 
-# commit_stall_record <end-unix> <open: true|false> — the flat stretch commit_flat_check warned
-# about, into .commit_stalls[] and a note. Its bounds are sample times.
+# commit_flat_judge — the current stretch, once blocks have been flat for BENCH_STALL_NOTE_SECS:
+# stall when the rounds were flat over its last BENCH_STALL_NOTE_SECS, else idle. Unknown rounds
+# leave it for the next poll. A stall stays one until the block moves.
+commit_flat_judge() {
+    local span=$(( FLAT_UNTIL - FLAT_SINCE )) r0 r1 d since
+    { [ -n "${FLAT_BLOCK}" ] && [ "${FLAT_STATE}" != stall ] && [ "${FLAT_SINCE}" -lt "${STALL_MIXED_END}" ] \
+        && [ "${span}" -ge "${BENCH_STALL_NOTE_SECS}" ]; } || return 0
+    since="$(bench_iso_from_unix "${FLAT_SINCE}")"
+    r0="$(fleet_round_at $(( FLAT_UNTIL - BENCH_STALL_NOTE_SECS )))"; r1="$(fleet_round_at "${FLAT_UNTIL}")"
+    if [ -z "${r0}" ] || [ -z "${r1}" ] || [ "${r1}" -lt "${r0}" ]; then
+        echo "    blocks flat at ${FLAT_BLOCK} since ${since} (${span}s); consensus rounds unknown — judged again at the next poll"
+        return 0
+    fi
+    d=$(( r1 - r0 ))
+    if [ "${d}" -le "${BENCH_STALL_NOTE_MAX_ROUNDS}" ]; then
+        FLAT_STATE=stall; FLAT_ROUND="$(fleet_round_at "${FLAT_SINCE}")"; FLAT_ROUNDS_UP="${d}"
+        echo "    ⚠ commits flat at block ${FLAT_BLOCK} since ${since} (${span}s; rounds +${d} in its last ${BENCH_STALL_NOTE_SECS}s, at $(round_text "${r1}")) — note only"
+    elif [ "${FLAT_STATE}" != idle ]; then
+        FLAT_STATE=idle
+        echo "    idle: blocks flat at ${FLAT_BLOCK} since ${since} (${span}s), consensus rounds advancing (+${d} in ${BENCH_STALL_NOTE_SECS}s) — not a stall"
+    fi
+}
+
+# commit_flat_close <end-unix> — the block moved again at <end> (a sample of this poll): the stretch
+# is judged one last time, and a stall goes into .commit_stalls[].
+commit_flat_close() {
+    commit_flat_judge
+    [ "${FLAT_STATE}" != stall ] || commit_stall_record "$1" false
+    FLAT_STATE=""
+}
+
+# commit_stall_record <end-unix> <open: true|false> — the stall into .commit_stalls[] and a note.
+# Its bounds are sample times; round_start/round_end are the rounds at those times.
 commit_stall_record() {
-    local r1 s e; r1="$(fleet_round)"
+    local r1 s e; r1="$(fleet_round_at "$1")"
     s="$(bench_iso_from_unix "${FLAT_SINCE}")"; e="$(bench_iso_from_unix "$1")"
     bench_manifest_jq --arg s "${s}" --arg e "${e}" --argjson secs "$(( $1 - FLAT_SINCE ))" --argjson b "${FLAT_BLOCK}" \
         --arg r0 "${FLAT_ROUND}" --arg r1 "${r1}" --argjson o "$2" '
         def num: if . == "" then null else tonumber end;
         .commit_stalls += [{start: $s, end: $e, secs: $secs, block: $b, round_start: ($r0|num), round_end: ($r1|num),
                             source: "watch"} + (if $o then {open: true} else {} end)]' || true
-    bench_manifest_note "commit-stall (note only, no abort): the fleet's highest block stayed at ${FLAT_BLOCK} from ${s} to ${e}$([ "$2" = false ] || echo ' (still flat at the end of the watch)') ($(( $1 - FLAT_SINCE ))s between BENCH_STATUS samples); consensus round $(round_text "${FLAT_ROUND}") -> $(round_text "${r1}")" || true
+    bench_manifest_note "commit-stall (note only, no abort): the fleet's highest block stayed at ${FLAT_BLOCK} from ${s} to ${e}$([ "$2" = false ] || echo ' (still flat at the end of the watch)') ($(( $1 - FLAT_SINCE ))s between BENCH_STATUS samples); consensus rounds +${FLAT_ROUNDS_UP} in its last ${BENCH_STALL_NOTE_SECS}s, $(round_text "${FLAT_ROUND}") -> $(round_text "${r1}")" || true
 }
 
-# commit_flat_flush — at the end of the watch, record a stretch that is still flat (open).
+# commit_flat_flush — at the end of the watch: a stall still flat goes in as open, ending at its
+# last flat sample.
 commit_flat_flush() {
-    [ "${FLAT_WARNED}" -eq 0 ] || commit_stall_record "${FLAT_LAST_TS}" true
-    FLAT_WARNED=0
+    commit_flat_judge
+    [ "${FLAT_STATE}" != stall ] || commit_stall_record "${FLAT_UNTIL}" true
+    FLAT_BLOCK=""; FLAT_STATE=""
 }
 
 # chaos_boundary_check [final] — epoch timing, once the restart is confirmed: the block that opened
@@ -1195,7 +1235,7 @@ do_run() {
     [ -z "${recovery_schedule}" ] \
         || kill_extra="$(printf '%s' "${recovery_schedule}" | jq -c '{planned: {closing_epoch, boundary_unix, restart_unix}}')"
     LAST_ADVANCE_TS="${start_at}"
-    STALL_WIN_START="${mixed_start}"; STALL_MIXED_END="${p3}"; STALL_WIN_END="${p4}"
+    STALL_WIN_START="${mixed_start}"; STALL_MIXED_END="${p3}"
     while :; do
         now="$(bench_now_unix)"
         if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ] && [ "${now}" -ge "$(( t_kill - stage ))" ]; then

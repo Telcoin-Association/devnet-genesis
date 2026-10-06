@@ -360,46 +360,125 @@ bench_manifest_jq '.chaos = [{"action": "docker kill -s KILL telcoin"}]'
 
 
 class CommitFlatTests(unittest.TestCase):
-    FUNCTIONS = blast_functions("status_samples", "status_collect", "fleet_round", "round_text",
-                                "commit_flat_check", "commit_stall_record", "commit_flat_flush")
+    FUNCTIONS = blast_functions("status_samples", "status_collect", "fleet_round_at", "round_text",
+                                "commit_flat_check", "commit_flat_judge", "commit_flat_close",
+                                "commit_stall_record", "commit_flat_flush")
     STATE = r'''
 STATUS_SEEN=(); POLL_SAMPLES=""
-FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_WARNED=0; FLAT_ROUND=""; FLAT_LAST_TS=0
-STALL_WIN_START=1000; STALL_MIXED_END=5000; STALL_WIN_END=6000
-PREV_ROUNDS='{"bench-validator-01":300000123,"bench-observer-11":300000100}'
+FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_UNTIL=0; FLAT_STATE=""; FLAT_ROUND=""; FLAT_ROUNDS_UP=""
+STALL_WIN_START=1000; STALL_MIXED_END=5000; BENCH_STALL_NOTE_MAX_ROUNDS=4
+'''
+    # Fleet-max round (epoch 3) at a time, as Prometheus would answer with `offset`.
+    ROUNDS_FLAT = r'''
+fleet_round_at() {   # 1 round/s, flat from 1150 (blocks went flat at 1120: the stall's leading edge)
+    echo "fleet_round_at $1" >> "$CALLS"
+    if [ "$1" -lt 1150 ]; then echo $(( 300000000 + $1 )); else echo 300001150; fi
+}
+'''
+    ROUNDS_ADVANCING = r'''
+fleet_round_at() { echo $(( 300000000 + $1 )); }   # 1 round/s throughout: an idle chain
 '''
 
-    def test_flat_commits_noted_once_and_never_abort(self):
-        run = run_chaos_shell(self.FUNCTIONS + self.STATE + r'''
+    def flat_lines(self, out):
+        return [line for line in out.splitlines() if "commits flat" in line or "idle:" in line]
+
+    def test_blocks_and_rounds_flat_is_a_stall_noted_once_without_abort(self):
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + self.ROUNDS_FLAT + r'''
 commit_flat_check $'400 5\n520 5\n640 5\n760 5'          # preamble: flat, before the mixed phase
 commit_flat_check $'1000 10\n1120 15\n1240 15'           # one poll ...
-PREV_ROUNDS='{"bench-validator-01":300000400}'
 commit_flat_check $'1360 15\n1480 20'                    # ... and the next
 commit_flat_flush
 ''')
-        self.assertEqual([line for line in run["out"].splitlines() if "commits flat" in line], [
-            "    ⚠ commits flat at block 15 since 1970-01-01T00:18:40Z (120s; round 123 (epoch 3)) — note only"])
+        self.assertEqual(self.flat_lines(run["out"]), [
+            "    ⚠ commits flat at block 15 since 1970-01-01T00:18:40Z (120s; rounds +0 in its last 60s, "
+            "at 1150 (epoch 3)) — note only"])
         self.assertEqual(run["manifest"]["commit_stalls"], [dict(
             start="1970-01-01T00:18:40Z", end="1970-01-01T00:24:40Z", secs=360, block=15,
-            round_start=300000123, round_end=300000400, source="watch")])
+            round_start=300001120, round_end=300001150, source="watch")])
         note, = run["manifest"]["notes"]
         self.assertIn("stayed at 15", note)
+        self.assertIn("rounds +0 in its last 60s", note)
         self.assertEqual(run["aborts"], "")
+        self.assertNotIn("fleet_round_at 760", run["calls"])     # the preamble is never judged
 
-    def test_cooldown_drain_ignored_and_open_stretch_flushed(self):
-        run = run_chaos_shell(self.FUNCTIONS + self.STATE + r'''
-STALL_MIXED_END=1100
-commit_flat_check $'1000 10\n1120 15\n1240 15\n1360 15'  # starts after the mixed phase: the drain
-echo "WARNED $FLAT_WARNED"
-FLAT_BLOCK=""; STALL_MIXED_END=5000; STALL_WIN_END=1400
-commit_flat_check $'1120 15\n1240 15\n1360 15\n1480 20'  # 1480 falls after the window
+    def test_blocks_flat_while_rounds_advance_is_idle_not_recorded(self):
+        # r20261006-0458: the generators finished before the planned mixed end; blocks sat still for
+        # 213 s while rounds kept rising, then an epoch close moved the block after cooldown.
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + self.ROUNDS_ADVANCING + r'''
+commit_flat_check $'1000 10\n1120 15\n1240 15'
+commit_flat_check $'1360 15\n1480 15'
+commit_flat_check $'5300 16'
 commit_flat_flush
 ''')
-        self.assertIn("WARNED 0", run["out"])
+        self.assertEqual(self.flat_lines(run["out"]), [
+            "    idle: blocks flat at 15 since 1970-01-01T00:18:40Z (120s), consensus rounds advancing "
+            "(+60 in 60s) — not a stall"])
+        self.assertNotIn("commit_stalls", run["manifest"])
+        self.assertEqual((run["manifest"]["notes"], run["aborts"]), ([], ""))
+
+    def test_close_after_cooldown_takes_end_and_round_from_the_advance(self):
+        # Judged a stall at one poll, still flat at the next, closed by a sample the poll after the
+        # window: end and round_end come from that sample, and nothing stays open.
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + r'''
+fleet_round_at() { if [ "$1" -lt 1150 ]; then echo $(( 300000000 + $1 )); elif [ "$1" -lt 5600 ]; then echo 300001150; else echo 400000003; fi; }
+STALL_MIXED_END=1500
+commit_flat_check $'1000 10\n1120 15\n1240 15'
+commit_flat_check $'1360 15\n1480 15\n1600 15'
+commit_flat_check $'5650 16'
+commit_flat_flush
+''')
         stall, = run["manifest"]["commit_stalls"]
-        self.assertEqual((stall["start"], stall["end"], stall["secs"], stall["open"]),
-                         ("1970-01-01T00:18:40Z", "1970-01-01T00:22:40Z", 240, True))
-        self.assertEqual(run["aborts"], "")
+        self.assertEqual((stall["end"], stall["secs"], stall["round_start"], stall["round_end"]),
+                         ("1970-01-01T01:34:10Z", 4530, 300001120, 400000003))
+        self.assertNotIn("open", stall)
+        self.assertEqual(len(self.flat_lines(run["out"])), 1)
+
+    def test_stall_still_flat_at_the_end_of_the_watch_is_open(self):
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + self.ROUNDS_FLAT + r'''
+commit_flat_check $'1000 10\n1120 15\n1240 15\n1360 15'
+commit_flat_flush
+''')
+        stall, = run["manifest"]["commit_stalls"]
+        self.assertEqual((stall["end"], stall["secs"], stall["round_end"], stall["open"]),
+                         ("1970-01-01T00:22:40Z", 240, 300001150, True))
+
+    def test_cooldown_drain_ignored(self):
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + self.ROUNDS_FLAT + r'''
+STALL_MIXED_END=1100
+commit_flat_check $'1000 10\n1120 15\n1240 15\n1360 15\n1480 20'   # starts after the mixed phase
+commit_flat_flush
+''')
+        self.assertEqual(self.flat_lines(run["out"]), [])
+        self.assertNotIn("commit_stalls", run["manifest"])
+
+    def test_rounds_unknown_judged_again_at_the_next_poll(self):
+        run = run_chaos_shell(self.FUNCTIONS + self.STATE + r'''
+fleet_round_at() { [ -f "$WORK/prom-up" ] || return 0; echo 300001150; }
+commit_flat_check $'1000 10\n1120 15\n1240 15'
+touch "$WORK/prom-up"
+commit_flat_check $'1360 15'
+commit_flat_flush
+''')
+        lines = run["out"].splitlines()
+        self.assertIn("    blocks flat at 15 since 1970-01-01T00:18:40Z (120s); consensus rounds unknown — "
+                      "judged again at the next poll", lines)
+        self.assertEqual(len(run["manifest"]["commit_stalls"]), 1)
+
+    def test_fleet_round_at_reads_prometheus_with_an_offset(self):
+        run = run_chaos_shell(self.FUNCTIONS + r'''
+BENCH_PROM_NETWORK_LABEL=bench
+bench_now_unix() { echo 2000; }
+bench_prom_query() { printf '%s\n' "$1" >> "$CALLS"; printf '{"status":"success","data":{"result":[{"value":[2000,"300000123"]}]}}'; }
+echo "AT $(fleet_round_at 1880) NOW $(fleet_round_at 2000)"
+bench_prom_query() { return 1; }
+echo "DOWN <$(fleet_round_at 1880)>"
+''')
+        self.assertIn("AT 300000123 NOW 300000123", run["out"])
+        self.assertIn("DOWN <>", run["out"])
+        past, now = run["calls"].splitlines()
+        self.assertEqual(past, 'max(max by (node) (tn_epoch_current{network="bench"} offset 120s) * 100000000 '
+                               '+ max by (node) (tn_primary_round{network="bench"} offset 120s))')
+        self.assertNotIn("offset", now)
 
     def test_status_samples_since_the_last_poll(self):
         run = run_chaos_shell(self.FUNCTIONS + self.STATE + r'''

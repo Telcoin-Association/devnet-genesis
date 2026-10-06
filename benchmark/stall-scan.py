@@ -7,6 +7,11 @@ manifest.commit_stalls_sampled. The fleet maximum is taken per 30 s bucket. A st
 it starts inside the mixed phase, lasts at least --min-secs and ends (or the window does) by the
 end of cooldown; one that starts in cooldown is the generator's drain, not a stall. A note only:
 benchmark-blast.sh never aborts on it.
+
+Blocks only: node-sampler.sh records no consensus round, so an idle chain (generators done, rounds
+still advancing, no blocks because empty outputs are not executed) looks the same as a stall here.
+Each entry says so in its source ("sampler-blocks-only"); the watch's manifest.commit_stalls checks
+the rounds too and is the one to trust.
 """
 import argparse
 import csv
@@ -14,6 +19,9 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
+
+
+SOURCE = "sampler-blocks-only"
 
 
 def iso(unix):
@@ -63,7 +71,7 @@ def flat_stretches(series, mixed_end, min_secs):
 
     def add(end, still_open):
         if since < mixed_end and end - since >= min_secs:
-            entry = dict(start=iso(since), end=iso(end), secs=end - since, block=block, source="sampler")
+            entry = dict(start=iso(since), end=iso(end), secs=end - since, block=block, source=SOURCE)
             if still_open:
                 entry["open"] = True
             out.append(entry)
