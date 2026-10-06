@@ -5,10 +5,12 @@ Usage:
   cert-rate.py --logs DIR [--node-glob GLOB] [--node-name-regex RE] [--authority NODE=ID ...]
                [--windows MANIFEST | --from ISO --to ISO | --bucket-min N] [--format md|json|csv]
 
-Reads every file in DIR matching --node-glob (gzip or plain text; default
-bench-validator-*-telcoin*.log.gz, i.e. each validator's current container log and the container
-logs saved before a restart or kill), groups them by node (group 1 of --node-name-regex on the
-file name; default ^(.+?)-telcoin) and counts, per node and window, from the default log filter:
+Reads every file in DIR matching --node-glob (gzip or plain text; default bench-validator-*.log.gz:
+each validator's container logs, the container logs saved before a restart or kill, and the unit's
+stdout file, which alone covers the seconds between a pre-kill save and the kill), groups them by
+node (group 1 of --node-name-regex on the file name; default ^(bench-validator-[0-9]+)-) and counts,
+per node and window, from the default log filter (an event line found in two files of a node counts
+once):
 
   proposed        "header proposed"                 own headers proposed (re-proposals included)
   quorum          "quorum reached"                  own headers that formed a certificate
@@ -336,9 +338,9 @@ def to_csv(doc):
 def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--logs", required=True, help="directory holding the node logs")
-    p.add_argument("--node-glob", default="bench-validator-*-telcoin*.log.gz",
+    p.add_argument("--node-glob", default="bench-validator-*.log.gz",
                    help="file names to read (fnmatch; default %(default)s)")
-    p.add_argument("--node-name-regex", default=r"^(.+?)-telcoin",
+    p.add_argument("--node-name-regex", default=r"^(bench-validator-[0-9]+)-",
                    help="group 1 on the file name is the node (default %(default)s)")
     p.add_argument("--authority", action="append", default=[], metavar="NODE=ID",
                    help="the node's authority id, when its log has no auth= line")

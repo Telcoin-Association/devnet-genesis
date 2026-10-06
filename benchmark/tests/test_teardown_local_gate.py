@@ -179,7 +179,7 @@ class LocalHelperTests(unittest.TestCase):
         self.results = self.root / "results" / RUN
         files = {"manifest.json": manifest_bytes(), "sampler/%s.csv" % INST: b"ts_unix,block\n1,2\n",
                  "genesis/validators/v1/bls-keystore.json": b"KEYSTORE", "notes-by-hand.txt": b"mine\n",
-                 "path with space/x.json": b"{}\n"}
+                 "path with space/x.json": b"{}\n", ".DS_Store": b"x", "genesis/.DS_Store": b"x"}
         files.update(node_logs("bench-validator-01"))
         files.update(node_logs("bench-validator-02", "77"))
         write_tree(self.results, files)
@@ -256,7 +256,7 @@ class LocalHelperTests(unittest.TestCase):
         self.assertEqual(set(sums), set(files) - {"CHECKSUMS.sha256"})
         for rel, hexd in sums.items():
             self.assertEqual(hexd, hashlib.sha256(files[rel]).hexdigest(), rel)
-        self.assertFalse([f for f in files if os.path.basename(f).startswith(".")], files)
+        self.assertFalse([f for f in files if os.path.basename(f).startswith(".") and not f.endswith(".DS_Store")], files)
         # The manifest records what CHECKSUMS covers, at the manifest's own final size.
         a = json.loads(files["manifest.json"])["archive"]
         self.assertEqual(a["kind"], "local")
@@ -270,6 +270,7 @@ class LocalHelperTests(unittest.TestCase):
         self.assertEqual(by_path["logs/<node>-telcoin.log.gz"][0], 2)
         self.assertEqual(by_path["logs/<node>.pulled*"][0], 2)
         self.assertEqual(by_path["genesis*/*"][0], 1)
+        self.assertEqual(by_path[".DS_Store, */.DS_Store"][0], 2)
         for unknown in ("notes-by-hand.txt", "path with space/x.json"):
             self.assertEqual(by_path[unknown][:3], (1, unknown, "not known to the harness"))
         self.assertIn("✓ %s/INDEX.md and CHECKSUMS.sha256: %d file(s)" % (self.results, len(sums)), p.stdout)

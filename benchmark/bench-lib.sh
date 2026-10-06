@@ -1289,9 +1289,10 @@ _bench_results_totals() {
 
 # _bench_index_kind <path> — "<order>|<group>|<what it is>|<written by>" for a path relative to
 # results/<run>/, from the patterns below (first match wins); unknown paths get order 99 and their
-# own row. The order keeps INDEX.md in this table's order.
+# own row. INDEX.md lists the groups by <order>.
 _bench_index_kind() {
     case "$1" in
+        .DS_Store|*/.DS_Store) echo "29|.DS_Store, */.DS_Store|macOS Finder metadata|not the harness" ;;
         manifest.json) echo "01|manifest.json|run manifest: fleet, image, parameters, phases, blast, chaos, stalls, notes, archive (local gate)|benchmark-deploy.sh, benchmark-blast.sh, benchmark-teardown.sh" ;;
         INDEX.md) echo "02|INDEX.md|this index|bench_local_index (collect, deploy step 15, teardown)" ;;
         CHECKSUMS.sha256) echo "03|CHECKSUMS.sha256|SHA-256 of every other file here; check: shasum -a 256 -c CHECKSUMS.sha256|bench_local_index (collect, deploy step 15, teardown)" ;;
@@ -1320,7 +1321,6 @@ _bench_index_kind() {
         funder-*/*) echo "26|funder-<index>-<UTC>/*|an earlier funder output set aside, with its manifest copy|benchmark-blast.sh fund" ;;
         bucket/*) echo "27|bucket/<run bucket>/*|copy of the run bucket gs://tn-devnet-bench-<run>, taken before its delete|benchmark-teardown.sh" ;;
         genesis*/*) echo "28|genesis*/*|genesis workspace: committee, genesis and validator files (keys: never publish)|benchmark-teardown.sh (moves benchmark/genesis)" ;;
-        .DS_Store|*/.DS_Store) echo "29|.DS_Store|macOS Finder metadata|not the harness" ;;
         *) echo "99|$1|not known to the harness|?" ;;
     esac
 }
@@ -1441,7 +1441,7 @@ bench_local_analysis() {
     command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — no analysis"; return 0; }
     mkdir -p "${a}" || { bench_warn "could not create ${a} — no analysis"; return 0; }
     for name in cert-rate block-rate; do
-        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/bench-validator-*-telcoin*.log.gz" >/dev/null; then
+        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/bench-validator-*.log.gz" >/dev/null; then
             echo "      - cert-rate: no validator log in logs/ yet (the teardown pulls them)"
             continue
         fi
