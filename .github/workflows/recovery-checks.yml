@@ -32,7 +32,7 @@ jobs:
         run: shellcheck -S warning ${BENCH_SHELL_SCRIPTS}
       - name: Python compile and 3.9 grammar
         run: |
-          python3 -m py_compile benchmark/report/*.py benchmark/tests/*.py
+          python3 -m py_compile benchmark/*.py benchmark/report/*.py benchmark/tests/*.py
           python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')]"
       - name: Unit tests (offline fixtures)
         run: python3 -m unittest discover -s benchmark/tests -v
