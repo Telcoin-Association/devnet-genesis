@@ -492,9 +492,9 @@ def recovery(metrics: dict, manifest: dict, target: str, caveats: List[str]) -> 
         caveats.append(f"recovery: failed_reports integrates the 1-m rate at the {step}-s step, which misses the "
                        "increment that creates the counter series and so can read a few low")
         whole = (sf.get("count") or {}).get(target)
-        if whole is not None:
-            caveats.append(f"recovery: the collector's exact {name} increase for {target} over the whole metrics "
-                           f"window (metrics.prometheus.series.{name}.count) is {whole}, outage or not")
+        if whole is not None and whole >= 2:
+            caveats.append(f"recovery: over the whole metrics window the batch-seal failure counter on {target} "
+                           f"rose by {whole} in total (metrics.prometheus.series.{name}.count), outage or not")
     return rec
 
 

@@ -327,7 +327,7 @@ class RecoveryTests(Fixture):
     def test_recovery_fields(self):
         out = self.compute()
         self.assertEqual(out["recovery"], EXPECTED_RECOVERY)
-        self.assertTrue(any("over the whole metrics window" in c and "is 42" in c for c in out["caveats"]))
+        self.assertTrue(any("over the whole metrics window" in c and "rose by 42" in c for c in out["caveats"]))
 
     def test_no_recovery_without_chaos_target(self):
         out = self.compute(targets=())
