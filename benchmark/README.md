@@ -455,7 +455,8 @@ repo once the teardown has finished.
   of every container run since setup, so it also covers the seconds between a pre-kill log save
   and the kill), the container logs saved on the node before a restart or kill
   (`<node>-telcoin-pre-step9-<UTC>.log.gz`, `-pre-kill-…`) and `<node>-recovery-<id>.*.tgz`.
-  Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
+  A validator below the certification threshold also has `<node>-telcoin-cert-fail-<UTC>.log.gz`
+  (see Certification outcome). Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
   load VM creates of the current blast index (`create-<vm>.log`); an earlier index's creates are
   in `blast-<index>-<UTC>/logs/`.
 - `bucket/<name>/`: the run bucket, copied here by the teardown before it deletes the bucket
@@ -466,6 +467,8 @@ repo once the teardown has finished.
 - `analysis/block-rate.md`: per phase, committed rounds/s, blocks/s and tx/s from the blasters'
   block lists, and per node rounds/s, blocks/s and commit latency (`tools/block-rate.py`).
   `tools/ANALYSIS.md` describes both tools and how to run them on devnet or testnet logs.
+- `analysis/certification.json`: `tools/cert-rate.py --format json` over the validator logs, the
+  numbers behind `manifest.certification` (see Certification outcome)
 - `INDEX.md`: one row per file group (what it is, which step or script wrote it, how many files);
   a file the harness does not know gets a row of its own.
 - `CHECKSUMS.sha256`: the SHA-256 of every other file. Check a copy with
@@ -494,6 +497,41 @@ The provenance fields record which bytes the run measured:
 | `node_startup[<inst>]` | step 9 | `sha`, `mhd`, `nhd`, `mbd`, `vt` and `forks` from the node's boot lines |
 | `registry_probe` | step 10 | the `recovery-schedule.py` reading: current epoch, its opening block and duration, and the drill it would schedule from that moment |
 | `node_startup_check` | teardown | the saved logs checked against `node_git_sha` (informational) |
+
+### Certification outcome
+
+A validator whose own headers are not certified is a result of the run, recorded with its logs.
+The usual case is a far-away validator in fast rounds. After every `collect` and at teardown,
+`bench_certification_record` runs `tools/cert-rate.py --windows manifest.json --format json` over
+`logs/`. `collect` does not pull node logs, so in practice the teardown records it, after the log
+and evidence pulls and before the local gate. It writes `analysis/certification.json` and three
+manifest fields:
+
+| Field | Holds |
+|---|---|
+| `certification` | `{<validator>: {<window>: {proposed, certified, rate_pct, own_cert_share_pct, own_leader_share_pct, not_committed_pct}}}` for every validator and every window cert-rate.py reports (`arm <name>`, `phase <name>`, `run`). The observer never proposes and is left out. |
+| `certification_meta` | `fail_below_pct`, `min_proposed`, `windows` (in order), `source`, `recorded_at` |
+| `cert_failures` | one entry per validator that certified fewer than `BENCH_CERT_FAIL_PCT` % (default 90) of its own headers in a window where it proposed at least 50: `inst`, `window` (the worst one), `rate_pct`, `proposed`, `certified`, `windows` (every failing one) and `logs` |
+
+`bench_cert_failures_snapshot` then saves each failing validator's container log on the node as
+`telcoin-cert-fail-<UTC>.log.gz`, pulls it into `logs/<node>-telcoin-cert-fail-<UTC>.log.gz`, and
+lists it in `cert_failures[].logs` with the node's `-telcoin.log.gz` and `-unit-stdout.log.gz`.
+The local gate requires every listed file, so a snapshot saved on the node but not pulled stops the
+teardown before any delete. A validator whose instance is already gone gets the logs on disk listed
+and a `manifest.notes` entry.
+
+Running it again replaces `certification` and merges `cert_failures` by validator. A validator
+judged again keeps its listed logs that are still on disk. One that passes now loses its entry,
+with a note, and its files stay. A validator with fewer than 50 proposals in every window is not
+judged. Neither step stops a collect or a teardown: a failure is a warning, and the local gate
+decides. The teardown prints the outcome in its last lines.
+
+`report/make_bundle.py` publishes it. The built report gets a "Certification by node" section
+after "Consensus health": one row per validator with its region, its rate in every window, and its
+own-leader and not-committed shares over the run, next to the fair share (100 / validators). When
+`cert_failures` is not empty, run.json gets a caveat naming the validators, the threshold and the
+windows. The site's run.json schema has no field for the table. An archived report is copied byte
+for byte, so it gets the caveat only.
 
 ## Teardown guarantees
 

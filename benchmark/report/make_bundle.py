@@ -41,7 +41,9 @@ Pipeline, one log line per step, numbered in execution order:
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
-                  (--compare ../../<R2>/scrubbed, built or reused on demand).
+                  (--compare ../../<R2>/scrubbed, built or reused on demand). After step 7, a
+                  "Certification by node" section from manifest.certification goes into the built
+                  report (never an archived one); manifest.cert_failures becomes a caveat at step 8.
     6 windows     merged / all-generators windows, 5-minute blocks and the 1-s series.
     7 kpis        kpis.compute() plus the backfill's published KPIs; recovery.
     8 assemble    run.json, every RUN_SCHEMA key, nothing else.
@@ -106,6 +108,7 @@ import argparse
 import datetime
 import glob
 import hashlib
+import html
 import json
 import math
 import os
@@ -1084,6 +1087,169 @@ def report_block(report_src, archived_path, backfill):
     return block
 
 
+# ------------------------------------------------------------------------- certification by node
+# The harness records which validators got their own headers certified (bench_certification_record:
+# manifest.certification, .certification_meta, .cert_failures). The site's run.json schema has no key
+# for it, so the table goes into the built report (a section after "Consensus health") and a failure
+# also becomes a run.json caveat. An archived report is kept byte for byte: no table, caveat only.
+
+CERT_SECTION_ID = "certification-by-node"
+CERT_DEFAULT_FAIL_PCT = 90
+CERT_DEFAULT_MIN_PROPOSED = 50
+
+
+def _cert_failures(manifest):
+    return [f for f in (manifest.get("cert_failures") or []) if isinstance(f, dict) and isinstance(f.get("inst"), str)]
+
+
+def _cert_meta(manifest):
+    meta = manifest.get("certification_meta") if isinstance(manifest.get("certification_meta"), dict) else {}
+    pct = meta.get("fail_below_pct")
+    minp = meta.get("min_proposed")
+    return (pct if isinstance(pct, (int, float)) and not isinstance(pct, bool) else CERT_DEFAULT_FAIL_PCT,
+            minp if isinstance(minp, int) and not isinstance(minp, bool) else CERT_DEFAULT_MIN_PROPOSED,
+            [w for w in (meta.get("windows") or []) if isinstance(w, str)])
+
+
+def _words(items):
+    """'a', 'a and b', 'a, b and c' ('' for none)."""
+    items = list(items)
+    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+
+
+def _pct_text(v):
+    return "–" if not isinstance(v, (int, float)) or isinstance(v, bool) else "%.1f" % v
+
+
+def _threshold_text(p):
+    return "%d" % p if float(p).is_integer() else "%.1f" % p
+
+
+def certification_table(manifest):
+    """The "Certification by node" table, or None when the run recorded no certification: {threshold_pct,
+    min_proposed, windows, fair_share_pct, validators, failing, rows}. A row per validator: inst, region
+    (from manifest.instances), cells {window: {rate_pct, proposed, certified, judged, failing}}, and the
+    own leader share and not-committed share over the "run" window (the last window when there is none)."""
+    cert = manifest.get("certification")
+    if not isinstance(cert, dict) or not cert:
+        return None
+    pct, minp, windows = _cert_meta(manifest)
+    for node in cert.values():
+        for w in (node if isinstance(node, dict) else {}):
+            if w not in windows:
+                windows.append(w)
+    whole = "run" if "run" in windows else (windows[-1] if windows else None)
+    zones = {i.get("name"): i.get("zone") for i in manifest.get("instances") or [] if isinstance(i, dict)}
+    validators = sum(1 for i in manifest.get("instances") or [] if isinstance(i, dict) and i.get("role") == "validator")
+    validators = validators or len(cert)
+    failing = {f["inst"]: set(f.get("windows") or [f.get("window")]) for f in _cert_failures(manifest)}
+    rows = []
+    for inst in sorted(cert):
+        node = cert[inst] if isinstance(cert[inst], dict) else {}
+        cells = {}
+        for w in windows:
+            c = node.get(w) if isinstance(node.get(w), dict) else {}
+            proposed = c.get("proposed") if isinstance(c.get("proposed"), int) else 0
+            cells[w] = {"rate_pct": c.get("rate_pct"), "proposed": proposed, "certified": c.get("certified"),
+                        "judged": proposed >= minp, "failing": w in failing.get(inst, ())}
+        run = node.get(whole) if isinstance(node.get(whole), dict) else {}
+        zone = zones.get(inst)
+        rows.append({"inst": inst, "region": region_label(_region(zone)) if zone else None, "cells": cells,
+                     "own_leader_share_pct": run.get("own_leader_share_pct"),
+                     "not_committed_pct": run.get("not_committed_pct"), "failing": inst in failing})
+    return {"threshold_pct": pct, "min_proposed": minp, "windows": windows, "share_window": whole,
+            "fair_share_pct": 100.0 / validators, "validators": validators,
+            "failing": sorted(failing),
+            "rows": rows}
+
+
+def certification_html(manifest):
+    """The report section for certification_table(manifest); "" when the run recorded none."""
+    t = certification_table(manifest)
+    if t is None:
+        return ""
+    esc = html.escape
+    pct = _threshold_text(t["threshold_pct"])
+    head = "".join("<th class='num'>%s</th>" % esc(w) for w in t["windows"])
+    body = []
+    for r in t["rows"]:
+        tds = []
+        for w in t["windows"]:
+            c = r["cells"][w]
+            title = "%s of %s own headers certified%s" % (
+                c["certified"] if c["certified"] is not None else "?", c["proposed"],
+                "" if c["judged"] else " (fewer than %d proposed: not judged)" % t["min_proposed"])
+            text = esc(_pct_text(c["rate_pct"]))
+            if c["failing"]:
+                text = "<strong>%s</strong>" % text
+            tds.append("<td class='num%s' title='%s'>%s</td>" % ("" if c["judged"] else " muted", esc(title, quote=True), text))
+        body.append("<tr><td>%s%s</td><td>%s</td>%s<td class='num'>%s</td><td class='num'>%s</td></tr>" % (
+            esc(r["inst"]), " <strong>below %s %%</strong>" % pct if r["failing"] else "", esc(r["region"] or "–"),
+            "".join(tds), esc(_pct_text(r["own_leader_share_pct"])), esc(_pct_text(r["not_committed_pct"]))))
+    share = esc(t["share_window"] or "run")
+    if t["failing"]:
+        verdict = "%s certified fewer than %s %% of %s own headers in a window where %s at least %d." % (
+            esc(_words(t["failing"])), pct, "its" if len(t["failing"]) == 1 else "their",
+            "it proposed" if len(t["failing"]) == 1 else "they proposed", t["min_proposed"])
+    else:
+        verdict = ("Every validator certified at least %s %% of its own headers in every window where it proposed at "
+                   "least %d." % (pct, t["min_proposed"]))
+    return ("<section id='%s'><h2>Certification by node</h2>"
+            "<p class='lede'>The share of each validator's own headers that formed a certificate, per window "
+            "(tools/cert-rate.py on the node logs). %s Own leader %% is the validator's share of the committed "
+            "leaders and not committed %% the share of its certificates no committed leader reached, both over "
+            "the %s window; the fair share is 100 / %d validators = %.1f %%. Greyed: fewer than %d headers "
+            "proposed, not judged.</p>"
+            "<div class='scroll'><table class='data' id='certification-table'><thead><tr><th>Validator</th>"
+            "<th>Region</th>%s<th class='num'>Own leader %%</th><th class='num'>Not committed %%</th></tr></thead>"
+            "<tbody>%s</tbody></table></div></section>"
+            % (CERT_SECTION_ID, verdict, share, t["validators"], t["fair_share_pct"], t["min_proposed"], head,
+               "".join(body)))
+
+
+def certification_caveat(manifest, run_id):
+    """The caveat naming the validators in manifest.cert_failures and their failing windows, or None
+    when there are none. Validators that failed different windows get theirs in parentheses."""
+    failures = _cert_failures(manifest)
+    if not failures:
+        return None
+    pct, _, order = _cert_meta(manifest)
+    groups = {}   # failing windows (in window order) -> validators; dicts keep insertion order
+    for f in sorted(failures, key=lambda f: f["inst"]):
+        seen = {w for w in (f.get("windows") or [f.get("window")]) if isinstance(w, str)}
+        key = tuple([w for w in order if w in seen] + sorted(seen - set(order))) or ("a window",)
+        if f["inst"] not in groups.setdefault(key, []):
+            groups[key].append(f["inst"])
+    one = sum(len(v) for v in groups.values()) == 1
+    if len(groups) == 1:
+        (windows, names), = groups.items()
+        who, where = _words(names), " in %s" % _words(windows)
+    else:
+        who, where = _words("%s (in %s)" % (_words(n), _words(w)) for w, n in groups.items()), ""
+    return ("%s %s certified fewer than %s %% of %s own headers%s; %s logs are preserved under results/%s/logs/ "
+            "(see INDEX.md)." % ("Validator" if one else "Validators", who, _threshold_text(pct),
+                                 "its" if one else "their", where, "its" if one else "their", run_id))
+
+
+def add_certification_section(report_path, section):
+    """Put <section> into the built report at <report_path>: after its "Consensus health" section, else
+    before its footer, else before </body>, else at the end. An earlier certification section is
+    replaced, so a rebuild never holds two. Nothing to add ("") leaves the file as it is."""
+    if not section:
+        return False
+    with open(report_path, encoding="utf-8") as fh:
+        text = fh.read()
+    text = re.sub(r"<section id='%s'>.*?</section>" % re.escape(CERT_SECTION_ID), "", text, flags=re.S)
+    m = re.search(r"<section id=['\"]consensus['\"]>.*?</section>", text, re.S)
+    if m:
+        at = m.end()
+    else:
+        at = next((i for i in (text.find("<footer"), text.lower().rfind("</body>")) if i >= 0), len(text))
+    with open(report_path, "w", encoding="utf-8") as fh:
+        fh.write(text[:at] + section + text[at:])
+    return True
+
+
 def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built, tps5, kpis_list, headline,
              recovery, computed_caveats, report, compare_to, backfill, tool_dir):
     caveats = []
@@ -1101,6 +1267,9 @@ def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built,
     chain = _fill({"chain_id": manifest.get("chain_id"),
                    "network": (manifest.get("prometheus") or {}).get("network_label"),
                    "epoch_secs": manifest.get("epoch_duration_secs")}, chain_bf)
+    cert_caveat = certification_caveat(manifest, run_id)
+    if cert_caveat:
+        caveats.append(cert_caveat)
     return {
         "schema": SCHEMA_ID,
         "id": run_id,
@@ -1443,6 +1612,12 @@ def _main(a):
     built, tps5, series_doc = windows_step(scratch, combined)
     blasters_docs = win.load_blasters(os.path.join(scratch, "blasters"))
     kpis_list, headline, recovery, kpi_caveats = kpis_step(scrubbed, combined, metrics, manifest, built, backfill)
+    cert_section = certification_html(manifest)
+    if archived:
+        if cert_section:
+            log(S_REPORT, "archived report kept byte for byte: no Certification by node table (caveat only)")
+    elif add_certification_section(report_src, cert_section):
+        log(S_REPORT, "Certification by node table added (%d below threshold)" % len(_cert_failures(manifest)))
     report = report_block(report_src, archived, backfill)
     run_doc = assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built, tps5, kpis_list,
                        headline, recovery, kpi_caveats, report, compare_to, backfill, tool_dir)
