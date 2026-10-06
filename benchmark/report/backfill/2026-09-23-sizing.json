@@ -1,0 +1,52 @@
+{
+  "_comment": "Backfill for r20260923-0708 (fleet A, 23 Sep 2026 sizing run). Build: python3 benchmark/report/make_bundle.py --run r20260923-0708 --compare r20260923-0515 --backfill benchmark/report/backfill/2026-09-23-sizing.json --force",
+  "title": "Fleet sizing: e2 baseline against c3 (A vs B)",
+  "summary": "Ten validators and one observer on e2-custom-4-8192 (4 vCPU, 8 GB) with 100 GB pd-ssd disks, run under a 40-minute mixed workload and compared with the same test on c3-highcpu-8 (run r20260923-0515). Over the window in which all ten generators ran, fleet A averaged 2,346.7 tx/s with a best 60 seconds of 3,569.4 tx/s, against 2,557.5 and 3,518.4 tx/s for fleet B over its own all-generators window. Fleet A's validators crossed the report's memory and disk lines, and the same pd-ssd volume limited both fleets, so on these disks the volume, not the machine shape, was the binding resource.",
+  "status": "complete",
+  "upstream": {
+    "sha": "e85bd7a3f07f510c548cac9d783fb907fdf7fcca",
+    "branch": "main",
+    "evidence": "inferred",
+    "evidence_detail": [
+      "No full node logs were saved for this run. It ran the mutable tag adiri:v0.1.0-devnet, which was not pinned to a digest at the time.",
+      "Six days later the 29 September run resolved the same tag to digest sha256:f6fcef5db5f14fec4011a7d86ad8c85d01d8efc26635b597531fa16491e093d2, whose node logs verified commit e85bd7a3f07f510c548cac9d783fb907fdf7fcca on main (\"fix(network): refresh published node records (#1371)\", 17 September 2026).",
+      "A filtered log excerpt kept from one node, bench-validator-03, shows telcoin-network 0.1.0 (e85bd7a3f07f510c548cac9d783fb907fdf7fcca) starting at 07:39 UTC during this run's deploy. The other ten nodes' logs were not kept, so the commit is not verified fleet-wide."
+    ]
+  },
+  "node_image": {
+    "version": "0.1.0"
+  },
+  "generator": {
+    "analysis_sha": "1046acb"
+  },
+  "fleet": {
+    "label": "e2-custom-4-8192 + pd-ssd (fleet A)",
+    "load": {
+      "machine_type": "e2-standard-2"
+    }
+  },
+  "methodology": [
+    "Deployed a throwaway fleet of ten validators and one observer on its own chain (id 32286, 20-minute epochs), separate from the live devnet. Two validators ran in each of five regions (us-west2, australia-southeast1, northamerica-northeast1, europe-west4 and europe-west2), and the observer ran in us-west2.",
+    "Ran every node on e2-custom-4-8192 (4 vCPU, 8 GB RAM) with a 100 GB pd-ssd boot disk. This is fleet A.",
+    "Started the nodes from the image tag adiri:v0.1.0-devnet with the devnet's default consensus timing. The harness is the one used for the 29 September hyperdisk run, but this run predates its image digest pinning, its shorter bench consensus delays and its hyperdisk volumes.",
+    "Placed one load generator (e2-standard-2) in each validator's zone. Each ran tn-transaction-generator blast with 600 funded senders and sent only to its own validator.",
+    "Each generator ran a 120-second warm-up, a 2,400-second mixed phase over 13 transaction types (native and stablecoin transfers, stablecoin approvals, wrapping and unwrapping TEL, Uniswap v2, v3 and v4 swaps, v2 liquidity changes, contract deploys, faucet drips and batched self-sends) and a cooldown of up to 180 seconds.",
+    "Fifteen minutes into the planned mixed phase, killed bench-validator-05 with SIGKILL, kept it down for five minutes and restarted it. Five minutes later, restarted the observer. The generator paired with validator-05 could not submit during the outage, by design.",
+    "Measured throughput and time to land from the blocks the chain produced. Each generator read every block, and the merged result counts each block once.",
+    "Collected CPU, memory, disk and network figures from Cloud Monitoring and Prometheus, and pressure-stall and memory figures from a sampler on every node.",
+    "Recomputed the KPIs on this page from the run's data. Each KPI names its window: all ten generators in their mixed phase, the merged mixed phase, or the whole run.",
+    "Rebuilt the report with build-report.py from the run's data, comparing fleet A with run r20260923-0515 (fleet B). Fleet B ran the same test about two hours earlier on c3-highcpu-8 (8 vCPU, 16 GB) with the same disks, regions and load.",
+    "The report's headroom section checks every node against fixed lines, for example CPU p95 above 70 % of vCPUs, memory used p95 above 75 % of RAM and IO pressure above 20 %, and rates each node class as at the limit, tight or with headroom."
+  ],
+  "caveats": [
+    "This report is a regeneration: it was rebuilt from the run's data and replaces an internal version of the same analysis. Its verdicts and headline figures match that version.",
+    "Full node logs were not kept, so the upstream commit is inferred, not verified. The provenance note explains the inference.",
+    "The devnet's default consensus timing was in force: 3 s maximum header delay, 1 s minimum header delay and 1 s maximum batch delay. Neither the manifest nor the node logs recorded it for this run.",
+    "Four of the ten generators (those for validators 01, 03, 07 and 08) reached their 600-second preamble timeout and began their mixed phase about ten minutes after the other six. The merged mixed window therefore spans 2,989 seconds, while all ten generators were in their mixed phase together for 1,811 seconds (08:23:37 to 08:53:48 UTC).",
+    "The all-generators window includes the five-minute validator-05 outage, when the generator paired with that node could not submit, so the average throughput includes that period.",
+    "The report's \"Sustained mixed TPS\" is each fleet's best 60-second mean over its whole mixed phase, so its A-versus-B table sets 3,569.4 tx/s against 5,383.5 tx/s (1.51×). Fleet B's best minute was the first minute of its mixed phase, before its last generator had started. Over each fleet's all-generators window the best 60 seconds are 3,569.4 tx/s (A) and 3,518.4 tx/s (B), and the averages 2,346.7 tx/s (A) and 2,557.5 tx/s (B).",
+    "The report's \"Landed transactions per second\" chart counts transactions per block-timestamp second and shows isolated spikes, the highest 65,169 tx in a single second, next to seconds with no blocks. These are bursts of blocks sharing a timestamp second, not sustained rates.",
+    "Disk headroom is judged against Google's published pd-ssd limits (9,000 IOPS and 240 MiB/s for a 100 GB volume on these machine types, as fetched on 22 September 2026), not against measured limits.",
+    "Fleet A and fleet B are one run each on separate deployments. The B ÷ A ratios in the report compare two single runs, not repeated trials."
+  ]
+}

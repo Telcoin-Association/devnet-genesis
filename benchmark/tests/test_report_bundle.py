@@ -1,0 +1,1169 @@
+"""report/make_bundle.py: everything that runs without the tn-transaction-generator tools.
+
+make_bundle reads benchmark/results/<R> and writes benchmark/work/report/<R>; both roots are
+module globals (RESULTS_ROOT, WORK_ROOT), so every test that touches them patches both to a
+temporary directory first. Bundles are written to temporary out dirs only.
+
+The site gate is ${BENCH_SITE_REPO}/scrub.py. CI has no site checkout, so the page-only path runs
+there against a stub gate (a tiny scrub.py written at run time); the same path against the real
+site scrub.py, and one full build of the 29 Sep blast-0 bundle, run only where the sibling
+checkouts and benchmark/results exist.
+
+Seeded leak values (IPs, links) are assembled at run time so this file stays clean.
+"""
+import argparse
+import contextlib
+import copy
+import gzip
+import hashlib
+import importlib.util
+import io
+import json
+import math
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+TESTS = Path(__file__).resolve().parent
+BENCH = TESTS.parent
+REPO = BENCH.parent
+MAKE_BUNDLE_PY = BENCH / "report" / "make_bundle.py"
+SPEC = importlib.util.spec_from_file_location("report_make_bundle", MAKE_BUNDLE_PY)
+mb = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(mb)
+
+FIX = TESTS / "fixtures" / "report"
+SYNTH = FIX / "synthetic-run"
+PAGE_BACKFILL = FIX / "bundle-backfill" / "page-only.json"
+PAGE_REPORT = FIX / "bundle-backfill" / "page-report.html"
+
+SITE_REPO = REPO.parent / "tn-benchmarks"
+SITE_SCRUB = SITE_REPO / "scrub.py"
+SITE_BUILD = SITE_REPO / "build.py"
+TXGEN_BENCH = REPO.parent / "tn-transaction-generator" / "bench"
+RESULTS_29 = BENCH / "results" / "r20260929-1647"
+HAS_GIT = shutil.which("git") is not None
+SITE_ORIGIN = "git@github.com:" + "Telcoin-Association/tn-benchmarks.git"
+
+# Name of the scratch dir's source marker (renamed once; both names are read back).
+MARKER = getattr(mb, "SOURCE_MARKER", ".bundle-source.json")
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+RUN_KEYS = sorted([
+    "caveats", "chain", "chaos", "compare_to", "consensus", "date", "ended_utc", "fleet", "generator",
+    "harness", "headline", "id", "kpis", "methodology", "node_image", "recovery", "report", "schema",
+    "series", "started_utc", "status", "summary", "title", "upstream", "windows", "workload"])
+
+STUB_GATE = (
+    "import json, os, sys\n"
+    "here = os.path.dirname(os.path.abspath(__file__))\n"
+    "with open(os.path.join(here, 'argv.json'), 'w') as fh:\n"
+    "    json.dump(sys.argv[1:], fh)\n"
+    "sys.exit(%d)\n")
+
+
+def ip(*octets):
+    return ".".join(str(o) for o in octets)
+
+
+def load_json(path):
+    with open(str(path)) as fh:
+        return json.load(fh)
+
+
+def write_json(path, doc):
+    path = str(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump(doc, fh)
+
+
+def write_text(path, text):
+    path = str(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def sha256(path):
+    with open(str(path), "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def tree(root):
+    """Every file under root as a sorted list of relative paths."""
+    out = []
+    for d, _, files in os.walk(root):
+        for f in files:
+            out.append(os.path.relpath(os.path.join(d, f), root))
+    return sorted(out)
+
+
+def quiet(fn, *args, **kwargs):
+    """Call fn with stdout/stderr captured; returns (result, stdout, stderr)."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        result = fn(*args, **kwargs)
+    return result, out.getvalue(), err.getvalue()
+
+
+def node_log(sha, version="0.1.0", vote_timeout=None):
+    lines = ["2026-01-01T00:00:00Z INFO telcoin-network %s (%s) starting" % (version, sha),
+             "2026-01-01T00:00:01Z INFO Max header delay set to 3000 ms",
+             "2026-01-01T00:00:01Z INFO Min header delay set to 1000 ms",
+             "2026-01-01T00:00:01Z INFO Max batch delay set to 1000 ms"]
+    if vote_timeout is not None:
+        lines.append("2026-01-01T00:00:01Z INFO Vote timeout set to %d ms" % vote_timeout)
+    return "\n".join(lines) + "\n"
+
+
+def outside_git(path):
+    return not HAS_GIT or mb.git_checkout_of(path) is None
+
+
+class TmpMixin(object):
+    """A temp dir with RESULTS_ROOT and WORK_ROOT patched inside it."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="tb2-bundle-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.results_root = os.path.join(self.tmp, "results")
+        self.work_root = os.path.join(self.tmp, "work", "report")
+        os.makedirs(self.results_root)
+        for name, value in (("RESULTS_ROOT", self.results_root), ("WORK_ROOT", self.work_root)):
+            p = mock.patch.object(mb, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def main(self, *argv, **env):
+        with mock.patch.dict(os.environ, env):
+            return quiet(mb.main, [str(a) for a in argv])
+
+
+# --------------------------------------------------------------------------- arguments
+
+
+class ParseArgsTests(unittest.TestCase):
+    def exit_code(self, argv):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            mb.parse_args(argv)
+        return cm.exception.code
+
+    def test_valid(self):
+        a = mb.parse_args(["--run", "r20260101-0000", "--blast-index", "0", "--analysis-sha", "abcdef0"])
+        self.assertEqual((a.run, a.blast_index, a.analysis_sha, a.force, a.no_results),
+                         ("r20260101-0000", 0, "abcdef0", False, False))
+        a = mb.parse_args(["--run", "r1", "--no-results", "--archived-report", "x.html", "--backfill", "b.json"])
+        self.assertTrue(a.no_results)
+
+    def test_usage_errors_exit_2(self):
+        cases = [
+            [],
+            ["--run", "R1"],
+            ["--run", "archived"],
+            ["--run", "a" * 65],
+            ["--run", "r1", "--compare", "Bad"],
+            ["--run", "r1", "--compare", "archived"],
+            ["--run", "r1", "--analysis-sha", "abc123"],
+            ["--run", "r1", "--analysis-sha", "ABCDEF0"],
+            ["--run", "r1", "--analysis-sha", "xyz1234"],
+            ["--run", "r1", "--analysis-sha", "a" * 41],
+            ["--run", "r1", "--no-results"],
+            ["--run", "r1", "--no-results", "--archived-report", "x.html"],
+            ["--run", "r1", "--no-results", "--backfill", "b.json"],
+            ["--run", "r1", "--no-results", "--archived-report", "x", "--backfill", "b", "--blast-index", "0"],
+            ["--run", "r1", "--blast-index", "-1"],
+            ["--run", "r1", "--blast-index", "one"],
+            ["--run", "r1", "--bogus"],
+        ]
+        for argv in cases:
+            self.assertEqual(self.exit_code(argv), 2, argv)
+
+    def test_cli_usage_exit_2(self):
+        for extra in ([], ["--run", "Bad"]):
+            p = subprocess.run([sys.executable, "-B", str(MAKE_BUNDLE_PY)] + extra, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            self.assertEqual(p.returncode, 2, p.stderr)
+            self.assertIn("usage:", p.stderr)
+
+
+# --------------------------------------------------------------------------- out dir
+
+
+class OutDirTests(TmpMixin, unittest.TestCase):
+    def test_last_component_must_be_run_id(self):
+        with self.assertRaisesRegex(mb.BundleError, "must end in /r1"):
+            mb.check_out_dir(os.path.join(self.tmp, "out", "r2"), "r1")
+        if outside_git(self.tmp):
+            self.assertIsNone(mb.check_out_dir(os.path.join(self.tmp, "out", "r1") + os.sep, "r1"))
+
+    def test_refuses_results_and_work_roots(self):
+        with self.assertRaisesRegex(mb.BundleError, "lies inside"):
+            mb.check_out_dir(os.path.join(self.results_root, "r1"), "r1")
+        with self.assertRaisesRegex(mb.BundleError, "lies inside"):
+            mb.check_out_dir(os.path.join(self.work_root, "x", "r1"), "r1")
+
+    def test_prepare_out(self):
+        out = os.path.join(self.tmp, "out", "r1")
+        mb.prepare_out(out)  # absent: fine
+        write_text(os.path.join(out, "run.json"), "{}\n")
+        write_text(os.path.join(out, "report.html"), "<p>x</p>\n")
+        write_text(os.path.join(out, "series", "tps-1s.json"), "{}\n")
+        write_text(os.path.join(out, "series", "old.json"), "{}\n")
+        mb.prepare_out(out)
+        write_text(os.path.join(out, "series", "x.csv"), "a\n")
+        with self.assertRaisesRegex(mb.BundleError, "series holds x.csv"):
+            mb.prepare_out(out)
+        os.remove(os.path.join(out, "series", "x.csv"))
+        write_text(os.path.join(out, "notes.txt"), "mine\n")
+        with self.assertRaisesRegex(mb.BundleError, "holds notes.txt"):
+            mb.prepare_out(out)
+        os.remove(os.path.join(out, "notes.txt"))
+        os.makedirs(os.path.join(out, "logs-copy"))
+        with self.assertRaisesRegex(mb.BundleError, "holds logs-copy"):
+            mb.prepare_out(out)
+        f = os.path.join(self.tmp, "out", "r3")
+        write_text(f, "file\n")
+        with self.assertRaisesRegex(mb.BundleError, "not a directory"):
+            mb.prepare_out(f)
+
+    def test_main_refusals_write_nothing(self):
+        bad = os.path.join(self.tmp, "out", "wrong")
+        rc, _, err = self.main("--run", "r1", "--out", bad)
+        self.assertEqual(rc, 1)
+        self.assertIn("must end in /r1", err)
+        self.assertFalse(os.path.exists(bad))
+        out = os.path.join(self.tmp, "out", "r1")
+        write_text(os.path.join(out, "keep.txt"), "mine\n")
+        rc, _, err = self.main("--run", "r1", "--out", out, "--no-results", "--archived-report", PAGE_REPORT,
+                               "--backfill", PAGE_BACKFILL)
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing to touch it", err)
+        self.assertEqual(tree(out), ["keep.txt"])
+
+
+@unittest.skipUnless(HAS_GIT, "git is not installed")
+class OutDirGitTests(TmpMixin, unittest.TestCase):
+    def git_repo(self, name, origin):
+        top = os.path.join(self.tmp, name)
+        os.makedirs(top)
+        subprocess.run(["git", "init", "-q", top], check=True)
+        if origin:
+            subprocess.run(["git", "-C", top, "remote", "add", "origin", origin], check=True)
+        return top
+
+    def test_foreign_checkout_refused(self):
+        top = self.git_repo("other", "git@github.com:" + "example/other-repo.git")
+        with self.assertRaisesRegex(mb.BundleError, "whose origin is not"):
+            mb.check_out_dir(os.path.join(top, "runs", "r1"), "r1")
+        rc, _, err = self.main("--run", "r1", "--out", os.path.join(top, "runs", "r1"), "--no-results",
+                               "--archived-report", PAGE_REPORT, "--backfill", PAGE_BACKFILL)
+        self.assertEqual(rc, 1)
+        self.assertIn("whose origin is not", err)
+        self.assertFalse(os.path.exists(os.path.join(top, "runs")))
+
+    def test_checkout_without_origin_refused(self):
+        top = self.git_repo("bare", None)
+        with self.assertRaisesRegex(mb.BundleError, "whose origin is not"):
+            mb.check_out_dir(os.path.join(top, "r1"), "r1")
+
+    def test_site_checkout_accepted(self):
+        top = self.git_repo("site", SITE_ORIGIN)
+        got = mb.check_out_dir(os.path.join(top, "runs", "r1"), "r1")  # runs/ does not exist yet
+        self.assertEqual(os.path.realpath(got), os.path.realpath(top))
+
+
+# --------------------------------------------------------------------------- step 1: scratch
+
+
+class ScratchTests(TmpMixin, unittest.TestCase):
+    RUN = "r20260101-0000"
+
+    def setUp(self):
+        super(ScratchTests, self).setUp()
+        self.tools = os.path.join(self.tmp, "tools")
+        write_json(os.path.join(self.tools, "reference-chains.json"), {"chains": []})
+        r = self.results = os.path.join(self.results_root, self.RUN)
+        write_json(os.path.join(r, "manifest.json"), {"which": "top"})
+        write_json(os.path.join(r, "metrics.json"), {"which": "top"})
+        write_json(os.path.join(r, "blasters", "load-a.json"), {"schema": "tn-blast/v2"})
+        write_text(os.path.join(r, "blasters", "notes.txt"), "not json\n")
+        write_text(os.path.join(r, "sampler", "val-1.csv"), "ts_unix,rss\n1,2\n")
+        write_text(os.path.join(r, "sampler", "val-1.txt"), "x\n")
+        write_text(os.path.join(r, "logs", "val-1-telcoin.log"), node_log(SHA))
+        with gzip.open(os.path.join(r, "logs", "val-2-telcoin-kill-20260101T000500Z.log.gz"), "wt") as fh:
+            fh.write(node_log(SHA))
+        write_text(os.path.join(r, "logs", "val-2-unit-stdout.log"), "x\n")
+        write_text(os.path.join(r, "logs", "deploy-20260101T000000Z.log"), "deploy\n")
+        write_text(os.path.join(r, "logs", "blast-0.log"), "blast\n")
+        for forbidden in ("bucket/x.json", "funder/f.json", "genesis/g.yaml", "evidence/e.json", "meta/m.json",
+                          ".secrets/k", "tunnel.log", "deployments-bench.json", "pre-instances.json"):
+            write_text(os.path.join(r, forbidden), "{}\n")
+        b0 = os.path.join(r, "blast-0-20260101T010000Z")
+        write_json(os.path.join(b0, "manifest.json"), {"which": "blast-0"})
+        write_json(os.path.join(b0, "metrics.json"), {"which": "blast-0"})
+        write_json(os.path.join(b0, "blasters", "load-b.json"), {"schema": "tn-blast/v2"})
+        for d in ("blast-1-20260101T020000Z", "blast-1-20260101T030000Z"):
+            write_json(os.path.join(r, d, "manifest.json"), {})
+        write_text(os.path.join(r, "blast-2-file"), "not a dir\n")
+
+    def prepare(self, blast_index=None, force=False, run=None):
+        return quiet(mb.prepare_scratch, run or self.RUN, blast_index, force)[0]
+
+    def test_allowlist_copy(self):
+        scratch = self.prepare()
+        self.assertEqual(scratch, os.path.join(self.work_root, self.RUN))
+        self.assertEqual(tree(scratch), sorted([
+            MARKER, "blasters/load-a.json", "logs/val-1-telcoin.log",
+            "logs/val-2-telcoin-kill-20260101T000500Z.log.gz", "logs/val-2-unit-stdout.log",
+            "manifest.json", "metrics.json", "reference-chains.json", "sampler/val-1.csv"]))
+        self.assertEqual(load_json(os.path.join(scratch, "manifest.json")), {"which": "top"})
+        marker = load_json(os.path.join(scratch, MARKER))
+        self.assertEqual({k: marker[k] for k in ("run", "blast_index", "source")},
+                         {"run": self.RUN, "blast_index": None, "source": self.RUN})
+
+    def test_blast_index_picks_its_dir(self):
+        scratch = self.prepare(blast_index=0)
+        self.assertEqual(load_json(os.path.join(scratch, "manifest.json")), {"which": "blast-0"})
+        self.assertEqual(load_json(os.path.join(scratch, "metrics.json")), {"which": "blast-0"})
+        self.assertEqual(os.listdir(os.path.join(scratch, "blasters")), ["load-b.json"])
+        self.assertTrue(os.path.isfile(os.path.join(scratch, "sampler", "val-1.csv")))
+        self.assertEqual(load_json(os.path.join(scratch, MARKER))["source"],
+                         os.path.join(self.RUN, "blast-0-20260101T010000Z"))
+
+    def test_blast_index_ambiguous_or_missing(self):
+        for index, found in ((1, 2), (2, 0), (7, 0)):
+            with self.assertRaisesRegex(mb.BundleError, "expected exactly one blast-%d-\\* dir.*found %d"
+                                        % (index, found)):
+                self.prepare(blast_index=index)
+        self.assertFalse(os.path.exists(os.path.join(self.work_root, self.RUN)))
+
+    def test_missing_sources(self):
+        with self.assertRaisesRegex(mb.BundleError, "results dir does not exist"):
+            self.prepare(run="r20990101-0000")
+        os.remove(os.path.join(self.results, "blasters", "load-a.json"))
+        with self.assertRaisesRegex(mb.BundleError, "no blasters"):
+            self.prepare()
+        os.remove(os.path.join(self.results, "metrics.json"))
+        with self.assertRaisesRegex(mb.BundleError, "missing .*metrics.json"):
+            self.prepare()
+
+    def test_existing_scratch_needs_force(self):
+        scratch = self.prepare()
+        sentinel = os.path.join(scratch, "sentinel.json")
+        write_text(sentinel, "{}\n")
+        with self.assertRaisesRegex(mb.BundleError, "pass --force"):
+            self.prepare()
+        self.assertTrue(os.path.exists(sentinel))
+        # --force with unusable sources refuses before deleting anything.
+        with self.assertRaises(mb.BundleError):
+            self.prepare(blast_index=1, force=True)
+        self.assertTrue(os.path.exists(sentinel))
+        self.prepare(blast_index=0, force=True)
+        self.assertFalse(os.path.exists(sentinel))
+        self.assertEqual(load_json(os.path.join(scratch, "manifest.json")), {"which": "blast-0"})
+
+    def test_scratch_path(self):
+        self.assertEqual(mb.scratch_path("r1"), os.path.join(self.work_root, "r1"))
+        for bad in ("archived", "R1", "", "../r1", "r1/x"):
+            with self.assertRaises(mb.BundleError):
+                mb.scratch_path(bad)
+
+    def test_remove_scratch_limited_to_work_report_children(self):
+        os.makedirs(os.path.join(self.work_root, "r1", "sub"))
+        os.makedirs(os.path.join(self.work_root, "archived"))
+        elsewhere = os.path.join(self.tmp, "elsewhere", "r1")
+        os.makedirs(elsewhere)
+        refused = [self.work_root, os.path.join(self.work_root, "archived"), os.path.join(self.work_root, "r1", "sub"),
+                   elsewhere, self.results]
+        if hasattr(os, "symlink"):
+            link = os.path.join(self.work_root, "r2")
+            os.symlink(elsewhere, link)
+            refused.append(link)
+        for path in refused:
+            with self.assertRaisesRegex(mb.BundleError, "refusing to delete"):
+                mb.remove_scratch(path)
+            self.assertTrue(os.path.exists(path), path)
+        mb.remove_scratch(os.path.join(self.work_root, "r1"))
+        self.assertFalse(os.path.exists(os.path.join(self.work_root, "r1")))
+        self.assertTrue(os.path.isdir(elsewhere))
+
+
+class CompareScratchTests(TmpMixin, unittest.TestCase):
+    """A compare run's scratch is reused only when its marker names the requested blast."""
+    R2 = "r20251201-0000"
+
+    def scratch(self, marker=None, marker_name=MARKER, complete=True):
+        s = os.path.join(self.work_root, self.R2)
+        os.makedirs(s)
+        if marker is not None:
+            write_json(os.path.join(s, marker_name), marker)
+        if complete:
+            for n in ("combined.json", "metrics.json", "manifest.json", "sizing.json", "reference-chains.json"):
+                write_json(os.path.join(s, "scrubbed", n), {})
+        return s
+
+    def test_scratch_state(self):
+        self.assertEqual(mb.scratch_state(self.R2, None), ("absent", None))
+        s = self.scratch({"run": self.R2, "blast_index": None})
+        self.assertEqual(mb.scratch_state(self.R2, None), ("reuse", None))
+        state, reason = mb.scratch_state(self.R2, 0)
+        self.assertEqual(state, "mismatch")
+        self.assertIn("top level", reason)
+        os.remove(os.path.join(s, "scrubbed", "sizing.json"))
+        self.assertEqual(mb.scratch_state(self.R2, None)[0], "mismatch")
+        shutil.rmtree(s)
+        self.scratch({"run": self.R2, "blast_index": 1}, marker_name=".bundle-source.json")
+        self.assertEqual(mb.scratch_state(self.R2, 1), ("reuse", None))
+        self.assertIn("blast 1", mb.scratch_state(self.R2, None)[1])
+
+    def test_unmarked_scratch_is_a_mismatch(self):
+        self.scratch(None)
+        state, reason = mb.scratch_state(self.R2, None)
+        self.assertEqual(state, "mismatch")
+        self.assertIn("no source marker", reason)
+
+    def test_check_compare(self):
+        with self.assertRaisesRegex(mb.BundleError, "names the run itself"):
+            mb.check_compare("r1", None, "r1", False)
+        with self.assertRaisesRegex(mb.BundleError, "results dir does not exist"):
+            mb.check_compare(self.R2, None, "r1", False)
+        os.makedirs(os.path.join(self.results_root, self.R2))
+        mb.check_compare(self.R2, None, "r1", False)  # no scratch yet: fine
+        self.scratch({"run": self.R2, "blast_index": 2})
+        with self.assertRaisesRegex(mb.BundleError, "pass --force.*--compare-blast-index"):
+            mb.check_compare(self.R2, None, "r1", False)
+        mb.check_compare(self.R2, None, "r1", True)
+        mb.check_compare(self.R2, 2, "r1", False)
+
+    def test_compare_blast_index_arguments(self):
+        err = io.StringIO()
+        for argv in (["--run", "r1", "--compare-blast-index", "0"],
+                     ["--run", "r1", "--compare", "r2", "--compare-blast-index", "-1"]):
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+                mb.parse_args(argv)
+            self.assertEqual(cm.exception.code, 2, argv)
+        a = mb.parse_args(["--run", "r1", "--compare", "r2", "--compare-blast-index", "3"])
+        self.assertEqual((a.compare, a.compare_blast_index), ("r2", 3))
+
+
+# --------------------------------------------------------------------------- backfill
+
+
+class BackfillTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="tb2-bf-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def load(self, doc):
+        path = os.path.join(self.tmp, "bf.json")
+        with open(path, "w") as fh:
+            fh.write(doc if isinstance(doc, str) else json.dumps(doc))
+        return mb.load_backfill(path)
+
+    def test_fixture_and_comments(self):
+        doc = mb.load_backfill(str(PAGE_BACKFILL))
+        self.assertNotIn("_comment", doc)
+        self.assertNotIn("_comment", doc["upstream"])
+        self.assertEqual(doc["upstream"]["sha"], SHA)
+        self.assertEqual(self.load({"_note": "x", "fleet": {"_why": "y", "label": "L"}}), {"fleet": {"label": "L"}})
+        self.assertEqual(mb.load_backfill(None), {})
+        self.assertEqual(mb.load_backfill(""), {})
+
+    def test_errors(self):
+        cases = [
+            ({"titel": "x"}, "unknown key 'titel'"),
+            ({"fleet": {"labl": "x"}}, "unknown key fleet.labl"),
+            ({"consensus": {"vote_timeout": 1}}, "unknown key consensus.vote_timeout"),
+            ({"fleet": "x"}, "fleet must be an object"),
+            ({"title": " "}, "title must be non-empty"),
+            ({"status": "done"}, "status must be"),
+            ({"date": "2026-1-2"}, "date must be"),
+            ({"started_utc": "2026-01-02 00:00:00"}, "started_utc must be"),
+            ({"compare_to": "Bad Id"}, "compare_to is not a run id"),
+            ({"caveats": "one"}, "caveats must be a list"),
+            ({"methodology": [""]}, "methodology must be a list"),
+            ({"upstream": {"sha": "ABCDEF0"}}, "upstream.sha must be"),
+            ({"upstream": {"sha": "abc12"}}, "upstream.sha must be"),
+            ({"upstream": {"evidence": "trusted"}}, "upstream.evidence"),
+            ({"upstream": {"evidence_detail": "x"}}, "evidence_detail"),
+            ({"kpis_published": {}}, "kpis_published must be a list"),
+            ({"report": {"modifications": [1]}}, "report.modifications"),
+        ]
+        for doc, msg in cases:
+            with self.assertRaisesRegex(mb.BundleError, msg):
+                self.load(doc)
+        for text in ("[1, 2]", "{not json"):
+            with self.assertRaises(mb.BundleError):
+                self.load(text)
+        with self.assertRaisesRegex(mb.BundleError, "backfill"):
+            mb.load_backfill(os.path.join(self.tmp, "missing.json"))
+
+    def test_published_kpis(self):
+        kpi = {"id": "k", "label": "K", "short_label": "K", "value": 1.5, "unit": "tx/s", "source": "s"}
+        self.assertEqual(mb.published_kpis([dict(kpi, _note="x")]),
+                         [{"id": "k", "label": "K", "short_label": "K", "unit": "tx/s", "window": None, "source": "s",
+                           "method": None, "provenance": "published", "value": 1.5}])
+        rng = dict(kpi, range=[1, 2])
+        del rng["value"]
+        self.assertEqual(mb.published_kpis([rng])[0]["range"], [1, 2])
+        bad = [(dict(kpi, range=[1, 2]), "exactly one of value / range"),
+               ({k: v for k, v in kpi.items() if k != "label"}, "missing label"),
+               (dict(kpi, provenance="computed"), "provenance must be"),
+               (dict(kpi, extra=1), "unknown key"),
+               ("k", "must be an object")]
+        for entry, msg in bad:
+            with self.assertRaisesRegex(mb.BundleError, msg):
+                mb.published_kpis([entry])
+
+
+# --------------------------------------------------------------------------- step 4: provenance
+
+
+class ProvenanceStepTests(unittest.TestCase):
+    def setUp(self):
+        self.scratch = tempfile.mkdtemp(prefix="tb2-prov-")
+        self.addCleanup(shutil.rmtree, self.scratch, True)
+
+    def logs(self, sha, **kw):
+        write_text(os.path.join(self.scratch, "logs", "val-1-telcoin.log"), node_log(sha, **kw))
+        write_text(os.path.join(self.scratch, "logs", "val-2-telcoin.log"), node_log(sha, **kw))
+
+    def step(self, manifest, backfill, allow=False):
+        return quiet(mb.provenance_step, self.scratch, manifest, backfill, allow)[0]
+
+    def test_logs_verify_manifest_sha(self):
+        self.logs(SHA)
+        p = self.step({"node_git_sha": SHA}, {})
+        up = p["upstream"]
+        self.assertEqual((up["evidence"], up["sha"], up["short"]), ("verified", SHA, SHA[:9]))
+        self.assertEqual(len(up["short"]), 9)
+        self.assertEqual(up["repo"], mb.UPSTREAM_REPO)
+        self.assertIn("2 node starts across 2 instances", up["evidence_detail"][0])
+        self.assertIn("The node image probe recorded the same commit before deploy", up["evidence_detail"])
+        self.assertEqual(p["version"], "0.1.0")
+        self.assertEqual(p["params"], {"max_header_delay_ms": 3000, "min_header_delay_ms": 1000,
+                                       "max_batch_delay_ms": 1000})
+        self.assertEqual(p["caveats"], [])
+
+    def test_short_backfill_sha_upgraded_to_logged_sha(self):
+        self.logs(SHA)
+        up = self.step({}, {"upstream": {"sha": SHA[:9], "evidence_detail": ["extra line"]}})["upstream"]
+        self.assertEqual((up["evidence"], up["sha"], up["short"]), ("verified", SHA, SHA[:9]))
+        self.assertEqual(up["evidence_detail"][-1], "extra line")
+
+    def test_mismatch_refused_unless_allowed(self):
+        self.logs(SHA)
+        with self.assertRaisesRegex(mb.BundleError, "provenance check failed"):
+            self.step({}, {"upstream": {"sha": OTHER_SHA}})
+        p = self.step({}, {"upstream": {"sha": OTHER_SHA}}, allow=True)
+        self.assertEqual((p["upstream"]["evidence"], p["upstream"]["sha"]), ("inferred", OTHER_SHA))
+        self.assertEqual(len(p["caveats"]), 1)
+        self.assertIn("did not confirm the upstream commit", p["caveats"][0])
+        p = self.step({}, {"upstream": {"sha": OTHER_SHA, "evidence": "not-recorded"}}, allow=True)
+        self.assertEqual(p["upstream"]["evidence"], "not-recorded")
+
+    def test_no_logs_uses_backfill_evidence(self):
+        up = self.step({}, {"upstream": {"sha": SHA}})["upstream"]
+        self.assertEqual((up["evidence"], up["sha"], up["short"]), ("inferred", SHA, SHA[:9]))
+        up = self.step({}, {"upstream": {"sha": SHA, "evidence": "not-recorded", "branch": "main"}})["upstream"]
+        self.assertEqual((up["evidence"], up["branch"]), ("not-recorded", "main"))
+        up = self.step({}, {})["upstream"]
+        self.assertEqual((up["evidence"], up["sha"], up["short"]), ("not-recorded", None, None))
+        up = self.step({}, {"upstream": {"sha": "abcdef0"}})["upstream"]
+        self.assertEqual((up["sha"], up["short"]), (None, "abcdef0"))
+        with self.assertRaisesRegex(mb.BundleError, "no node logs"):
+            self.step({}, {"upstream": {"sha": SHA, "evidence": "verified"}})
+
+
+# --------------------------------------------------------------------------- step 7: assembly helpers
+
+
+def fleet_manifest():
+    return {
+        "fleet": "three validators", "machine_type": "n2-standard-8",
+        "node_disk": {"type": "hyperdisk-balanced", "size_gb": 200, "provisioned_iops": 6000,
+                      "provisioned_throughput": 400},
+        "instances": [
+            {"name": "val-1", "role": "validator", "zone": "us-west2-a"},
+            {"name": "val-2", "role": "validator", "zone": "us-east1-b"},
+            {"name": "val-3", "role": "validator", "zone": "europe-west4-c"},
+            {"name": "obs-1", "role": "observer", "zone": "us-west2-b"},
+            {"name": "load-1", "role": "blaster", "zone": "asia-east1-a"},
+        ],
+        "blasters": [{"name": "load-1", "senders": 100}, {"name": "load-2", "senders": 200}],
+    }
+
+
+class AssembleHelperTests(unittest.TestCase):
+    def test_fleet_block(self):
+        metrics = {"instances": [{"name": "obs-1", "role": "observer", "vcpus": 2, "memory_mb": 4096},
+                                 {"name": "val-1", "role": "validator", "vcpus": 8, "memory_mb": 32768}]}
+        caveats = []
+        fleet = mb.fleet_block(fleet_manifest(), metrics, {}, caveats)
+        self.assertEqual(fleet, {
+            "label": "three validators", "validators": 3, "observers": 1, "machine_type": "n2-standard-8",
+            "vcpus": 8, "memory_gb": 32.0,
+            "disk": {"type": "hyperdisk-balanced", "size_gb": 200, "iops": 6000, "throughput_mibps": 400},
+            "regions": ["europe-west4", "us-east1", "us-west2"],
+            "load": {"blasters": 2, "machine_type": "not recorded", "senders_each": 200,
+                     "placement": mb.DEFAULT_PLACEMENT}})
+        self.assertEqual(len(caveats), 2)
+        self.assertIn("different sender counts (100, 200)", caveats[0])
+        self.assertIn("machine type was not recorded", caveats[1])
+
+    def test_fleet_backfill_wins_and_merges(self):
+        caveats = []
+        bf = {"fleet": {"label": "BF label", "disk": {"iops": 3000},
+                        "load": {"machine_type": "e2-standard-8", "placement": "custom"}}}
+        fleet = mb.fleet_block(fleet_manifest(), {}, bf, caveats)
+        self.assertEqual(fleet["label"], "BF label")
+        self.assertEqual(fleet["disk"], {"type": "hyperdisk-balanced", "size_gb": 200, "iops": 3000,
+                                         "throughput_mibps": 400})
+        self.assertEqual(fleet["load"]["machine_type"], "e2-standard-8")
+        self.assertEqual(fleet["load"]["placement"], "custom")
+        self.assertEqual((fleet["vcpus"], fleet["memory_gb"]), (None, None))
+        self.assertFalse(any("machine type" in c for c in caveats))
+
+    def test_region_from_zone(self):
+        self.assertEqual(mb._region("us-west2-a"), "us-west2")
+        self.assertEqual(mb._region("europe-west4"), "europe-west4")
+        self.assertEqual(mb._region(None), "")
+
+    def test_chaos_block(self):
+        m = {"chaos": [
+            {"ts": "2026-01-01T00:05:00Z", "node": "val-2", "action": "systemctl start", "note": "", "rc": 0},
+            {"ts": "2026-01-01T00:01:00Z", "node": "val-2", "action": "docker kill", "note": "outage", "rc": 0},
+            {"ts": "2026-01-01T00:08:00Z", "node": "val-1", "action": "docker kill", "note": "retry", "rc": 1},
+            {"ts": "2026-01-01T00:09:00Z", "node": "val-3", "action": "docker kill", "rc": 2},
+            {"ts": "not a time", "node": "val-1", "action": "x"},
+            {"ts": "2026-01-01T00:10:00Z", "node": "", "action": "x"},
+            {"ts": "2026-01-01T00:11:00Z", "node": "val-1"},
+        ]}
+        self.assertEqual(mb.chaos_block(m), [
+            {"t_utc": "2026-01-01T00:01:00Z", "node": "val-2", "action": "docker kill", "detail": "outage"},
+            {"t_utc": "2026-01-01T00:05:00Z", "node": "val-2", "action": "systemctl start", "detail": None},
+            {"t_utc": "2026-01-01T00:08:00Z", "node": "val-1", "action": "docker kill",
+             "detail": "retry; the command failed (rc 1)"},
+            {"t_utc": "2026-01-01T00:09:00Z", "node": "val-3", "action": "docker kill",
+             "detail": "the command failed (rc 2)"}])
+        self.assertEqual(mb.chaos_block({}), [])
+
+    def consensus(self, manifest, prov, backfill):
+        caveats = []
+        return mb.consensus_block(manifest, prov, backfill, caveats), caveats
+
+    def test_consensus_from_manifest_plus_backfill_vote_timeout(self):
+        m = {"consensus_parameters": {"file": "consensus-parameters.yaml", "max_header_delay_ms": 3000,
+                                      "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000}}
+        block, caveats = self.consensus(m, {}, {"consensus": {"vote_timeout_ms": 5000, "max_header_delay_ms": 3000}})
+        self.assertEqual(block, {"max_header_delay_ms": 3000, "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000,
+                                 "vote_timeout_ms": 5000, "file": "consensus-parameters.yaml",
+                                 "confirmed_by": "harness manifest (consensus_parameters)"})
+        self.assertEqual(len(caveats), 1)
+        self.assertIn("consensus.vote_timeout_ms is not in the node logs", caveats[0])
+
+    def test_consensus_contradiction_is_an_error(self):
+        m = {"consensus_parameters": {"max_header_delay_ms": 3000, "min_header_delay_ms": 1000,
+                                      "max_batch_delay_ms": 1000}}
+        with self.assertRaisesRegex(mb.BundleError, "consensus.max_header_delay_ms=2000 contradicts"):
+            self.consensus(m, {}, {"consensus": {"max_header_delay_ms": 2000}})
+        logs = {"params": {"max_header_delay_ms": 3000, "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000,
+                           "vote_timeout_ms": 4000}}
+        with self.assertRaisesRegex(mb.BundleError, "vote_timeout_ms=5000 contradicts"):
+            self.consensus({}, logs, {"consensus": {"vote_timeout_ms": 5000}})
+        block, caveats = self.consensus({}, logs, {})
+        self.assertEqual((block["vote_timeout_ms"], block["file"], block["confirmed_by"]),
+                         (4000, mb.LOGS_PARAMS_FILE, mb.LOGS_CONFIRMED_BY))
+        self.assertEqual(caveats, [])
+
+    def test_consensus_incomplete_is_null(self):
+        block, caveats = self.consensus({}, {"params": {"max_header_delay_ms": 3000, "min_header_delay_ms": 1000,
+                                                        "max_batch_delay_ms": 1000}}, {})
+        self.assertIsNone(block)
+        self.assertIn("vote_timeout_ms not recorded", caveats[0])
+        block, caveats = self.consensus({}, {}, {})
+        self.assertIsNone(block)
+        self.assertIn("were not recorded", caveats[0])
+
+    def test_workload_block(self):
+        docs = [{"run": {"args": {"warmup_secs": 120, "duration_secs": 2400, "cooldown_secs": 180}}},
+                {"run": {"args": {"warmup_secs": 120, "duration_secs": 2300, "cooldown_secs": 180}}}]
+        combined = {"types": {"native_transfer": {"submitted": 5}, "wtel_wrap": {"landed_own": 1},
+                              "unused": {"submitted": 0}, "odd": 3}}
+        caveats = []
+        self.assertEqual(mb.workload_block(docs, combined, {}, caveats), {
+            "warmup_secs": 120, "mixed_secs": 2400, "cooldown_secs": 180,
+            "tx_types": ["native_transfer", "wtel_wrap"]})
+        self.assertEqual(len(caveats), 1)
+        self.assertIn("different duration_secs (2300, 2400)", caveats[0])
+        caveats = []
+        self.assertIsNone(mb.workload_block([{}], {}, {}, caveats))
+        self.assertIn("phase lengths were not recorded", caveats[0])
+        bf = {"workload": {"warmup_secs": 60, "mixed_secs": 600, "cooldown_secs": 60, "tx_types": ["a"]}}
+        self.assertEqual(mb.workload_block([{}], {}, bf, []),
+                         {"warmup_secs": 60, "mixed_secs": 600, "cooldown_secs": 60, "tx_types": ["a"]})
+
+    def test_harness_block(self):
+        caveats = []
+        h = mb.harness_block({"harness": {"sha": "abc", "dirty": True, "submodules": {"a": "x", "b": ""}}}, {}, caveats)
+        self.assertEqual(h, {"sha": "abc", "submodules": {"a": "x", "b": None}})
+        self.assertEqual(len(caveats), 1)
+        self.assertEqual(mb.harness_block({}, {"harness": {"sha": "def", "submodules": {"c": None}}}, []),
+                         {"sha": "def", "submodules": {"c": None}})
+
+    def test_image_and_generator_blocks(self):
+        digest = "sha256:" + "ab" * 32
+        self.assertEqual(mb._image_parts("reg.example/p/r/node:v1@" + digest), ("node:v1", digest))
+        self.assertEqual(mb._image_parts("reg.example/p/r/node@sha256:abc"), (None, None))
+        self.assertEqual(mb._image_parts(None), (None, None))
+        block = mb.node_image_block({"docker_image": "reg.example/p/r/node:v1@" + digest},
+                                    {"version": "0.1.0", "fork_schedule": None},
+                                    {"node_image": {"fork_schedule": "pre-subsecond", "version": "9.9"}})
+        self.assertEqual(block, {"ref": "node:v1", "digest": digest, "version": "0.1.0",
+                                 "fork_schedule": "pre-subsecond"})
+        docs = [{"run": {"generator_git_sha": "aaa1111"}}, {"run": {"generator_git_sha": "aaa1111"}}]
+        g = mb.generator_block({}, docs, {"generator": {"analysis_sha": "bbb2222"}}, None, None, [])
+        self.assertEqual(g, {"sha": "aaa1111", "image_digest": None, "analysis_sha": "bbb2222"})
+        g = mb.generator_block({"txgen_git_sha": "ccc3333"}, docs, {"generator": {"analysis_sha": "bbb2222"}},
+                               "ddd4444", None, [])
+        self.assertEqual((g["sha"], g["analysis_sha"]), ("ccc3333", "ddd4444"))
+        docs.append({"run": {"generator_git_sha": "eee5555"}})
+        self.assertIsNone(mb.generator_block({}, docs, {}, None, None, [])["sha"])
+
+    def test_run_times_and_title(self):
+        m = {"timestamps": {"deploy_start": "2026-01-01T00:00:00Z", "b": "2026-01-01T02:00:00Z",
+                            "a": "2026-01-01T01:00:00Z", "bad": "x"}}
+        self.assertEqual(mb.run_times(m), ("2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"))
+        self.assertEqual(mb.run_times({}), (None, None))
+        title, summary = mb.default_title("r1", {"validators": 3, "observers": 1, "machine_type": "n2"},
+                                          {"mixed_secs": 2400})
+        self.assertEqual((title, summary), ("Benchmark run r1", "3 validators and 1 observer(s) on n2, "
+                                                                "40-minute mixed workload."))
+
+    def test_merge_recovery(self):
+        rec = {k: None for k in mb.RECOVERY_KEYS}
+        rec.update(node="val-3", catch_up_secs=120)
+        out, caveats = quiet(mb.merge_recovery, dict(rec), {"failed_reports": 7, "catch_up_secs": 99})[0]
+        self.assertEqual((out["catch_up_secs"], out["failed_reports"]), (120, 7))
+        self.assertEqual(caveats, ["recovery.failed_reports is the published value, not recomputed from the run data."])
+        out, caveats = mb.merge_recovery(None, {"node": "val-9", "catch_up_secs": 5})
+        self.assertEqual(sorted(out), sorted(mb.RECOVERY_KEYS))
+        self.assertEqual(out["node"], "val-9")
+        self.assertEqual(len(caveats), 1)
+        self.assertEqual(mb.merge_recovery(None, None), (None, []))
+
+
+# --------------------------------------------------------------------------- step 5: series
+
+
+class SeriesTests(unittest.TestCase):
+    T0 = 1767225600
+
+    def windows_step(self, secs):
+        scratch = tempfile.mkdtemp(prefix="tb2-series-")
+        self.addCleanup(shutil.rmtree, scratch, True)
+        t0 = self.T0
+        for label, lo, hi in (("load-a", t0, t0 + secs), ("load-b", t0 + 1, t0 + secs - 1)):
+            write_json(os.path.join(scratch, "blasters", label + ".json"), {
+                "schema": "tn-blast/v2",
+                "run": {"label": label, "phases": [{"name": "mixed", "start_unix": lo, "end_unix": hi}]}})
+        combined = {"landed": {"window_secs": {"start_unix": t0, "end_unix": t0 + secs}},
+                    "series": {"per_second_columns": ["s", "chain_tx"], "per_second_t0_unix": t0,
+                               "per_second": [[i, 100 + (i % 7)] for i in range(secs)]}}
+        built, tps5, series = quiet(mb.windows_step, scratch, combined)[0]
+        return combined, built, tps5, series
+
+    def test_downsampled_to_at_most_2000_rows(self):
+        for secs, step, rows in ((700, 1, 700), (2000, 1, 2000), (2001, 2, 1001), (5000, 3, 1667)):
+            combined, _, _, series = self.windows_step(secs)
+            self.assertEqual((series["step_s"], len(series["rows"])), (step, rows), secs)
+            self.assertLessEqual(len(series["rows"]), mb.MAX_1S_ROWS)
+            self.assertEqual([r[0] for r in series["rows"]], list(range(0, secs, step)))
+            vals = [100 + (i % 7) for i in range(secs)]
+            for off, value in series["rows"]:
+                chunk = vals[off:off + step]
+                self.assertEqual(value, mb._r(sum(chunk) / float(len(chunk)), 1))
+            self.assertEqual(series["schema"], mb.SERIES_SCHEMA_ID)
+            self.assertEqual(series["columns"], ["offset_s", "chain_tps"])
+            self.assertEqual(series["start_utc"], "2026-01-01T00:00:00Z")
+
+    def test_five_minute_blocks(self):
+        _, built, tps5, _ = self.windows_step(700)
+        self.assertEqual(tps5["columns"], ["start_utc", "end_utc", "generators_active", "chain_tps"])
+        self.assertEqual([r[:2] for r in tps5["rows"]], [
+            ["2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z"], ["2026-01-01T00:05:00Z", "2026-01-01T00:10:00Z"],
+            ["2026-01-01T00:10:00Z", "2026-01-01T00:11:40Z"]])
+        self.assertEqual(built["merged"]["secs"], 700)
+
+    def test_window_problems_refused(self):
+        scratch = tempfile.mkdtemp(prefix="tb2-series-")
+        self.addCleanup(shutil.rmtree, scratch, True)
+        write_json(os.path.join(scratch, "blasters", "a.json"), {
+            "schema": "tn-blast/v2", "run": {"label": "a", "phases": [{"name": "mixed", "start_unix": 0,
+                                                                       "end_unix": 10}]}})
+        with self.assertRaisesRegex(mb.BundleError, "windows:"):
+            quiet(mb.windows_step, scratch, {"landed": {"window_secs": {"start_unix": 0, "end_unix": 11}}})
+        os.remove(os.path.join(scratch, "blasters", "a.json"))
+        with self.assertRaisesRegex(mb.BundleError, "no tn-blast results"):
+            mb.windows_step(scratch, {})
+
+
+# --------------------------------------------------------------------------- step 8: write + rounding
+
+
+class WriteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="tb2-write-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_half_up_rounding(self):
+        self.assertEqual(mb._r(2.675, 2), 2.68)      # round() gives 2.67
+        self.assertEqual(mb._r(1.005, 2), 1.01)      # round() gives 1.0
+        self.assertEqual(mb._r(0.125, 2), 0.13)
+        self.assertEqual(mb._r(-0.25, 1), -0.3)
+        self.assertEqual(mb._r(4177.24999, 1), 4177.2)
+        self.assertEqual(mb._r(7, 1), 7.0)
+        self.assertIsNone(mb._r(None, 1))
+        out = mb._round_floats({"a": [1.23456, {"b": 2}], "c": float("nan"), "d": True, "e": "1.23456"})
+        self.assertEqual((out["a"], out["d"], out["e"]), ([1.235, {"b": 2}], True, "1.23456"))
+        self.assertTrue(math.isnan(out["c"]))
+        self.assertEqual(mb._round_floats([0.33333], nd=1), [0.3])
+
+    def test_dump_json_sorted_with_trailing_newline(self):
+        path = os.path.join(self.tmp, "x.json")
+        mb._dump_json({"b": 1, "a": {"d": "é", "c": 2}}, path)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{\n  "a": {\n    "c": 2,\n    "d": "é"\n  },\n  "b": 1\n}\n')
+
+    def test_write_bundle(self):
+        out = os.path.join(self.tmp, "out", "r1")
+        doc = {"z": 1.23456, "a": [0.5]}
+        series = {"rows": [[0, 10.04], [1, 1 / 3.0]]}
+        quiet(mb.write_bundle, out, doc, str(PAGE_REPORT), series)
+        self.assertEqual(tree(out), ["report.html", "run.json", "series/tps-1s.json"])
+        with open(os.path.join(out, "run.json")) as fh:
+            text = fh.read()
+        self.assertEqual(text, '{\n  "a": [\n    0.5\n  ],\n  "z": 1.235\n}\n')
+        self.assertEqual(load_json(os.path.join(out, "series", "tps-1s.json")), {"rows": [[0, 10.04], [1, 0.333]]})
+        self.assertEqual(sha256(os.path.join(out, "report.html")), sha256(PAGE_REPORT))
+        write_text(os.path.join(out, "series", "stale.json"), "{}\n")
+        quiet(mb.write_bundle, out, doc, str(PAGE_REPORT), series)
+        self.assertEqual(tree(out), ["report.html", "run.json", "series/tps-1s.json"])
+        quiet(mb.write_bundle, out, doc, str(PAGE_REPORT), None)
+        self.assertEqual(tree(out), ["report.html", "run.json"])
+        write_text(os.path.join(out, "extra.txt"), "x\n")
+        with self.assertRaises(mb.BundleError):
+            mb.write_bundle(out, doc, str(PAGE_REPORT), None)
+        self.assertTrue(os.path.exists(os.path.join(out, "extra.txt")))
+
+
+# --------------------------------------------------------------------------- steps 5-9 offline
+
+
+def enriched_synthetic_manifest():
+    """The synthetic-run manifest plus the fleet/chain fields a publishable run.json needs."""
+    m = load_json(SYNTH / "manifest.json")
+    m.update({"fleet": "3 validators + 1 observer", "machine_type": "n2-standard-4", "chain_id": 2017,
+              "epoch_duration_secs": 86400, "node_disk": {"type": "pd-ssd", "size_gb": 100},
+              "prometheus": {"network_label": "bench"},
+              "timestamps": {"deploy_start": "2025-12-31T23:30:00Z", "blast_end": "2026-01-01T00:20:00Z"}})
+    zones = {"val-1": "us-west2-a", "val-2": "us-east1-b", "val-3": "us-west2-c", "obs-1": "us-west2-a"}
+    for inst in m["instances"]:
+        if inst["name"] in zones:
+            inst["zone"] = zones[inst["name"]]
+    return m
+
+
+def load_site_scrub():
+    spec = importlib.util.spec_from_file_location("site_scrub_for_tests", str(SITE_SCRUB))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class OfflineAssemblyTests(unittest.TestCase):
+    """Steps 4-8 on the synthetic run (no tools): run.json shape, harness scan, site schema."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="tb2-asm-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def build(self, backfill):
+        manifest = enriched_synthetic_manifest()
+        metrics, combined = load_json(SYNTH / "metrics.json"), load_json(SYNTH / "combined.json")
+        a = mb.parse_args(["--run", "r20260101-synth", "--analysis-sha", "abcdef0"])
+
+        def run():
+            prov = mb.provenance_step(self.tmp, manifest, backfill, False)
+            built, tps5, series = mb.windows_step(str(SYNTH), combined)
+            kp, head, rec, kc = mb.kpis_step(str(SYNTH), combined, metrics, manifest, built, backfill)
+            report = mb.report_block(str(PAGE_REPORT), None, backfill)
+            docs = mb.win.load_blasters(str(SYNTH / "blasters"))
+            doc = mb.assemble("r20260101-synth", a, manifest, metrics, combined, docs, prov, built, tps5, kp, head,
+                              rec, kc, report, None, backfill, None)
+            out = os.path.join(self.tmp, "out", "r20260101-synth")
+            mb.write_bundle(out, doc, str(PAGE_REPORT), series)
+            return doc, out
+        (doc, out), _, err = quiet(run)
+        return manifest, doc, out, err
+
+    def test_run_json(self):
+        bf = {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA},
+              "caveats": ["First caveat."], "kpis_published": [
+                  {"id": "x_published", "label": "X", "short_label": "X", "value": 1, "unit": "u", "source": "s"}]}
+        manifest, doc, out, err = self.build(bf)
+        self.assertEqual(sorted(doc), RUN_KEYS)
+        self.assertEqual((doc["schema"], doc["id"], doc["status"], doc["date"]),
+                         (mb.SCHEMA_ID, "r20260101-synth", "complete", "2025-12-31"))
+        self.assertEqual((doc["started_utc"], doc["ended_utc"]), ("2025-12-31T23:30:00Z", "2026-01-01T00:20:00Z"))
+        self.assertEqual(doc["upstream"]["evidence"], "inferred")
+        self.assertEqual(doc["upstream"]["short"], SHA[:9])
+        self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
+        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
+        self.assertEqual(doc["kpis"][-1]["id"], "x_published")
+        self.assertEqual(doc["fleet"]["regions"], ["us-east1", "us-west2"])
+        self.assertEqual(doc["chain"], {"chain_id": 2017, "network": "bench", "epoch_secs": 86400})
+        self.assertEqual(doc["windows"]["merged_mixed"]["secs"], 700)
+        self.assertEqual(doc["series"]["tps_1s"], "series/tps-1s.json")
+        self.assertEqual(len(doc["chaos"]), 4)
+        self.assertEqual(doc["recovery"]["node"], "val-3")
+        self.assertEqual(doc["caveats"][0], "First caveat.")
+        self.assertEqual(len(doc["caveats"]), len(set(doc["caveats"])))
+        self.assertEqual(doc["report"]["archived_from"], None)
+        self.assertEqual(doc["generator"]["analysis_sha"], "abcdef0")
+        self.assertNotIn("no backfill title/summary", err)
+        self.assertEqual(mb.hscrub.scan_dir(out, manifest), [])
+        series = load_json(os.path.join(out, "series", "tps-1s.json"))
+        self.assertEqual((series["step_s"], len(series["rows"])), (1, 700))
+
+    def test_placeholders_without_title(self):
+        _, doc, _, err = self.build({})
+        self.assertIn("no backfill title/summary", err)
+        self.assertEqual(doc["title"], "Benchmark run r20260101-synth")
+        self.assertEqual(doc["upstream"]["evidence"], "not-recorded")
+
+    @unittest.skipUnless(SITE_SCRUB.is_file(), "no tn-benchmarks checkout next to this repo")
+    def test_site_schema_accepts_it(self):
+        site = load_site_scrub()
+        _, doc, out, _ = self.build({"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}})
+        self.assertEqual(site.validate_run(load_json(os.path.join(out, "run.json"))), [])
+        self.assertEqual([f.format() for f in site.check_bundle(out)], [])
+
+
+# --------------------------------------------------------------------------- page-only end to end
+
+
+class PageOnlyStubGateTests(TmpMixin, unittest.TestCase):
+    """--no-results --archived-report into a temp out dir, gate = a stub scrub.py (runs in CI)."""
+    RUN = "r20260102-page"
+
+    def setUp(self):
+        super(PageOnlyStubGateTests, self).setUp()
+        if not outside_git(self.tmp):
+            self.skipTest("the temp dir lies inside a git checkout")
+        self.site = os.path.join(self.tmp, "site")
+        self.out = os.path.join(self.tmp, "out", self.RUN)
+
+    def stub(self, rc):
+        write_text(os.path.join(self.site, "scrub.py"), STUB_GATE % rc)
+
+    def page(self, *extra, **kw):
+        backfill = kw.get("backfill", PAGE_BACKFILL)
+        return self.main("--run", self.RUN, "--no-results", "--archived-report", PAGE_REPORT, "--backfill", backfill,
+                         "--out", self.out, *extra, BENCH_SITE_REPO=self.site)
+
+    def test_page_only_bundle(self):
+        self.stub(0)
+        rc, out, err = self.page()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("make_bundle: OK %s" % self.RUN, out)
+        self.assertIn("gates: harness scan_dir: clean", out)
+        self.assertEqual(load_json(os.path.join(self.site, "argv.json")), [self.out])
+        self.assertEqual(tree(self.out), ["report.html", "run.json"])
+        self.assertEqual(sha256(os.path.join(self.out, "report.html")), sha256(PAGE_REPORT))
+        with open(os.path.join(self.out, "run.json")) as fh:
+            text = fh.read()
+        doc = json.loads(text)
+        self.assertEqual(text, json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+        bf = load_json(PAGE_BACKFILL)
+        self.assertEqual(sorted(doc), RUN_KEYS)
+        self.assertEqual((doc["schema"], doc["id"], doc["status"], doc["date"], doc["title"], doc["summary"]),
+                         (mb.SCHEMA_ID, self.RUN, "superseded", "2026-01-02", bf["title"], bf["summary"]))
+        self.assertEqual(doc["upstream"], {"repo": mb.UPSTREAM_REPO, "sha": SHA, "short": SHA[:9], "branch": "main",
+                                           "evidence": "inferred",
+                                           "evidence_detail": ["Synthetic: the image tag was built from this commit."]})
+        self.assertEqual(doc["report"], {"file": "report.html", "sha256": sha256(PAGE_REPORT),
+                                         "bytes": os.path.getsize(str(PAGE_REPORT)),
+                                         "archived_from": "synthetic archived page",
+                                         "modifications": ["Synthetic modification."]})
+        self.assertEqual(doc["kpis"], bf["kpis_published"])
+        self.assertEqual(doc["headline"], "tps_published")
+        for key in ("windows", "series", "consensus", "workload", "recovery", "compare_to"):
+            self.assertIsNone(doc[key], key)
+        self.assertEqual(doc["chaos"], [])
+        self.assertEqual(doc["fleet"]["disk"], {"type": "pd-ssd", "size_gb": 100, "iops": None, "throughput_mibps": None})
+        self.assertEqual(doc["generator"], {"sha": None, "image_digest": None, "analysis_sha": None})
+        self.assertEqual((doc["caveats"], doc["methodology"]), (bf["caveats"], bf["methodology"]))
+        # A second run into the same out dir is byte-identical.
+        rc, _, err = self.page("--analysis-sha", "abcdef0", "--compare", "r20260101-0000")
+        self.assertEqual(rc, 0, err)
+        doc2 = load_json(os.path.join(self.out, "run.json"))
+        self.assertEqual((doc2["generator"]["analysis_sha"], doc2["compare_to"]), ("abcdef0", "r20260101-0000"))
+        doc2["generator"]["analysis_sha"], doc2["compare_to"] = None, None
+        self.assertEqual(doc2, doc)
+
+    def test_no_results_backfill_requirements(self):
+        self.stub(0)
+        bf = load_json(PAGE_BACKFILL)
+        for mutate, msg in ((lambda d: d.pop("date"), "must give date"),
+                            (lambda d: d["fleet"].pop("regions"), "backfill fleet needs"),
+                            (lambda d: d["fleet"]["disk"].pop("size_gb"), "backfill fleet needs"),
+                            (lambda d: d["chain"].pop("network"), "chain needs chain_id and network"),
+                            (lambda d: d["upstream"].update(evidence="verified"), "cannot be 'verified'")):
+            doc = copy.deepcopy(bf)
+            mutate(doc)
+            path = os.path.join(self.tmp, "bf.json")
+            write_json(path, doc)
+            rc, _, err = self.page(backfill=path)
+            self.assertEqual(rc, 1, msg)
+            self.assertIn(msg, err)
+            self.assertFalse(os.path.exists(self.out), msg)
+
+    def test_gate_failures_keep_the_bundle(self):
+        self.stub(1)
+        rc, _, err = self.page()
+        self.assertEqual(rc, 1)
+        self.assertIn("site gate (scrub.py) failed", err)
+        self.assertEqual(tree(self.out), [])  # staged write: a failed gate installs nothing
+        os.remove(os.path.join(self.site, "scrub.py"))
+        rc, _, err = self.page()
+        self.assertEqual(rc, 1)
+        self.assertIn("site gate unavailable", err)
+
+    def test_harness_scan_blocks_a_leak_before_the_site_gate(self):
+        self.stub(0)
+        doc = load_json(PAGE_BACKFILL)
+        leak = ip(10, 168, 0, 21)
+        doc["caveats"] = ["leak test %s here" % leak]
+        path = os.path.join(self.tmp, "bf-leak.json")
+        write_json(path, doc)
+        rc, _, err = self.page(backfill=path)
+        self.assertEqual(rc, 1)
+        self.assertIn("harness leak scan found 1 issue(s)", err)
+        self.assertIn("run.json:", err)
+        self.assertNotIn(leak, err)
+        self.assertFalse(os.path.exists(os.path.join(self.site, "argv.json")), "the site gate must not run")
+        self.assertFalse(os.path.exists(os.path.join(self.out, "run.json")), "a failed gate installs nothing")
+
+
+@unittest.skipUnless(SITE_SCRUB.is_file() and SITE_BUILD.is_file(), "no tn-benchmarks checkout next to this repo")
+class PageOnlyRealSiteTests(TmpMixin, unittest.TestCase):
+    """The same path against a temp copy of the real site scrub.py / build.py."""
+    RUN = "r20260102-page"
+
+    def setUp(self):
+        super(PageOnlyRealSiteTests, self).setUp()
+        self.site = os.path.join(self.tmp, "site")
+        os.makedirs(self.site)
+        for f in (SITE_SCRUB, SITE_BUILD):
+            shutil.copyfile(str(f), os.path.join(self.site, f.name))
+
+    def page(self, out=None, backfill=PAGE_BACKFILL):
+        argv = ["--run", self.RUN, "--no-results", "--archived-report", PAGE_REPORT, "--backfill", backfill]
+        if out:
+            argv += ["--out", out]
+        return self.main(*argv, BENCH_SITE_REPO=self.site)
+
+    def test_outside_a_checkout_uses_site_scrub(self):
+        if not outside_git(self.tmp):
+            self.skipTest("the temp dir lies inside a git checkout")
+        out = os.path.join(self.tmp, "out", self.RUN)
+        rc, stdout, err = self.page(out)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("gates: site scrub.py: scrub: 0 error(s)", stdout)
+        doc = load_json(PAGE_BACKFILL)
+        doc["caveats"] = ["see https://" + "grafana.example.com/d/abc for details"]
+        path = os.path.join(self.tmp, "bf-link.json")
+        write_json(path, doc)
+        rc, _, err = self.page(out, backfill=path)
+        self.assertEqual(rc, 1)
+        self.assertIn("site gate (scrub.py) failed", err)
+
+    @unittest.skipUnless(HAS_GIT, "git is not installed")
+    def test_inside_the_site_checkout_uses_build_check(self):
+        subprocess.run(["git", "init", "-q", self.site], check=True)
+        subprocess.run(["git", "-C", self.site, "remote", "add", "origin", SITE_ORIGIN], check=True)
+        rc, stdout, err = self.page()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("build.py --check runs/%s: check: ok" % self.RUN, stdout)
+        self.assertEqual(tree(os.path.join(self.site, "runs")),
+                         [self.RUN + "/report.html", self.RUN + "/run.json"])
+
+
+# --------------------------------------------------------------------------- full integration (local only)
+
+
+@unittest.skipUnless(RESULTS_29.is_dir() and (TXGEN_BENCH / "build-report.py").is_file()
+                     and (TXGEN_BENCH / "aggregate.py").is_file() and (TXGEN_BENCH / "derive-sizing.py").is_file()
+                     and SITE_SCRUB.is_file(),
+                     "needs benchmark/results/r20260929-1647, ../tn-transaction-generator/bench and ../tn-benchmarks")
+class Run20260929IntegrationTests(unittest.TestCase):
+    """SLOW (~15 s): the 29 Sep blast-0 bundle built end to end into a temp out dir."""
+    RUN = "r20260929-1647"
+
+    def test_slow_blast0_bundle(self):
+        tmp = os.path.realpath(tempfile.mkdtemp(prefix="tb2-r0929-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        real_scratch = os.path.join(mb.WORK_ROOT, self.RUN)
+        existed = os.path.lexists(real_scratch)
+        work = os.path.join(tmp, "work", "report")
+        site = os.path.join(tmp, "site")
+        os.makedirs(site)
+        shutil.copyfile(str(SITE_SCRUB), os.path.join(site, "scrub.py"))
+        out = os.path.join(tmp, "out", self.RUN)
+        backfill = os.path.join(tmp, "bf.json")
+        write_json(backfill, {
+            "title": "Ten validators on Hyperdisk, blast 0", "summary": "Integration test bundle.",
+            "upstream": {"sha": "e85bd7a3f07f510c548cac9d783fb907fdf7fcca", "branch": None},
+            "consensus": {"vote_timeout_ms": 5000},
+            "kpis_published": [{"id": "failed_reports_published", "label": "Failed reports (published)",
+                                "short_label": "Failed reports", "value": 1207, "unit": "reports", "window": None,
+                                "source": "published report", "method": None, "provenance": "published"}]})
+        argv = ["--run", self.RUN, "--blast-index", "0", "--backfill", backfill, "--out", out,
+                "--txgen-bench", str(TXGEN_BENCH), "--analysis-sha", "abcdef0"]
+        with mock.patch.object(mb, "WORK_ROOT", work), mock.patch.dict(os.environ, {"BENCH_SITE_REPO": site}):
+            rc, stdout, err = quiet(mb.main, argv)
+        self.assertEqual(rc, 0, err[-3000:])
+        self.assertEqual(os.path.lexists(real_scratch), existed, "the real work/report dir must not be touched")
+        self.assertTrue(os.path.isfile(os.path.join(work, self.RUN, "scrubbed", "report.html")))
+        self.assertIn("gates: harness scan_dir: clean", stdout)
+        self.assertIn("gates: site scrub.py: scrub: 0 error(s)", stdout)
+        self.assertEqual(tree(out), ["report.html", "run.json", "series/tps-1s.json"])
+        doc = load_json(os.path.join(out, "run.json"))
+        head = next(k for k in doc["kpis"] if k["id"] == doc["headline"])
+        self.assertEqual(head["value"], 4177.2)
+        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
+        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("published"), 1)
+        self.assertEqual(doc["upstream"]["evidence"], "verified")
+        self.assertEqual(doc["upstream"]["short"], "e85bd7a3f")
+        self.assertEqual(doc["consensus"]["vote_timeout_ms"], 5000)
+        self.assertEqual(doc["fleet"]["validators"], 10)
+        series = load_json(os.path.join(out, "series", "tps-1s.json"))
+        secs = doc["windows"]["merged_mixed"]["secs"]
+        self.assertLessEqual(len(series["rows"]), mb.MAX_1S_ROWS)
+        self.assertEqual(series["step_s"], int(math.ceil(secs / 2000.0)))
+        raw_manifest = os.path.join(work, self.RUN, "manifest.json")
+        self.assertEqual(mb.hscrub.scan_dir(out, raw_manifest), [])
+        self.assertEqual(doc["report"]["sha256"], sha256(os.path.join(out, "report.html")))
+
+
+if __name__ == "__main__":
+    unittest.main()

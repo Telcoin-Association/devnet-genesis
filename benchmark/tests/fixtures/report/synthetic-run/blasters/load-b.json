@@ -1,0 +1,26 @@
+{
+ "schema": "tn-blast/v2",
+ "run": {
+  "run_id": "synthetic-load-b",
+  "label": "load-b",
+  "started_unix": 1767225630,
+  "ended_unix": 1767226280,
+  "phases": [
+   {
+    "name": "preamble",
+    "start_unix": 1767225630,
+    "end_unix": 1767225660
+   },
+   {
+    "name": "mixed",
+    "start_unix": 1767225660,
+    "end_unix": 1767226260
+   },
+   {
+    "name": "cooldown",
+    "start_unix": 1767226260,
+    "end_unix": 1767226280
+   }
+  ]
+ }
+}

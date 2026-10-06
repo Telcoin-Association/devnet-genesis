@@ -1,0 +1,139 @@
+{
+  "_comment": "Backfill for r20260929-1647 blast 0, published with: make_bundle.py --run r20260929-1647 --blast-index 0 --compare r20260923-0515 --backfill benchmark/report/backfill/2026-09-29-hyperdisk.json --archived-report benchmark/work/report/archived/r20260929-1647.html. Sources: the published 29 Sep report (title, summary, caveats, published figures), benchmark/README.md and config.sh at the run's commit (methodology).",
+  "title": "Hyperdisk Balanced on the c3 fleet",
+  "summary": "We re-ran the 23 September ten-validator benchmark on the same c3-highcpu-8 machines and changed one thing: the boot disks went from pd-ssd to Hyperdisk Balanced provisioned at 20,000 IOPS and 800 MiB/s. Against the 23 September c3 run on pd-ssd (fleet B, r20260923-0515), average chain throughput with all ten load generators running rose 63%, from 2,558 to 4,177 tx/s, and the median time for a transaction to land over the whole blast fell from 7.7 s to 4.0 s. A validator killed and restarted mid-run then spent about 25 minutes in catch-up mode, sealing the same batch about once a second without being able to report it, and rejoined only as the load eased.",
+  "status": "complete",
+  "date": "2026-09-29",
+  "upstream": {
+    "sha": "e85bd7a3f07f510c548cac9d783fb907fdf7fcca",
+    "branch": "main",
+    "evidence_detail": [
+      "Commit e85bd7a3f is \"fix(network): refresh published node records (#1371)\" on main."
+    ]
+  },
+  "node_image": {
+    "ref": "adiri:v0.1.0-devnet"
+  },
+  "generator": {
+    "analysis_sha": "1046acb"
+  },
+  "fleet": {
+    "label": "c3-highcpu-8 + Hyperdisk Balanced (c3-hdb)",
+    "load": {
+      "machine_type": "e2-standard-2",
+      "placement": "one blaster per validator, in that validator's zone, sending only to it"
+    }
+  },
+  "methodology": [
+    "Preflight checked access, tools, quotas and a clean genesis directory, confirmed the load-generator image built from tn-transaction-generator commit 3644adc, and pinned the node image by digest.",
+    "The harness created ten validators and one observer on c3-highcpu-8 (8 vCPU, 16 GB), each with a 100 GB Hyperdisk Balanced boot disk provisioned at 20,000 IOPS and 800 MiB/s, two validators in each of five regions, and opened the consensus ports between the nodes only.",
+    "It generated validator keys and built genesis for a separate benchmark chain (chain id 32286, 20-minute epochs) with the devnet default consensus parameters: maximum header delay 3 s, minimum header delay 1 s and maximum batch delay 1 s.",
+    "It finalized each node's configuration and started the chain.",
+    "It relabelled each node's metrics agent so that every sample from these nodes is recorded under the benchmark network, never the live devnet.",
+    "It restarted the nodes one at a time with RPC open on the internal network, waiting after each until the node answered with the benchmark chain id and consensus rounds were advancing, then started an on-node sampler and checked that all eleven nodes reported and advanced.",
+    "It deployed the devnet contract set that the mixed workload calls.",
+    "A one-off funder VM funded 600 sender accounts for each of ten e2-standard-2 load generators, one per validator in that validator's zone and sending only to it, and the generators then started together.",
+    "Each generator ran 120 s of warm-up, 2,400 s of mixed load across 13 transaction types and 180 s of cool-down.",
+    "A fixed schedule, timed from the planned start of the mixed phase, killed validator-05's container with SIGKILL after 15 minutes and held it down, restarted it about five minutes later, and restarted the observer five minutes after that.",
+    "Afterwards the harness collected each generator's results and the on-node sampler files, merged the generator results with aggregate.py, derived the sizing figures with derive-sizing.py, and pulled 60-second machine metrics from Cloud Monitoring and 15-second node metrics from Prometheus.",
+    "A second blast with a separate container-pause test followed (not published here); after 35 idle minutes every node's logs were saved and the fleet was torn down at 20:50 UTC."
+  ],
+  "caveats": [
+    "Throughput figures marked 'all generators active' cover 18:05:30 to 18:35:40 UTC (1,810 s), when all ten load generators were in their mixed phase. Three of the ten generators (those for validators 01, 02 and 08) started their mixed phase about ten minutes late; in the fleet B baseline on 23 September only one generator did. The longer merged mixed window, 17:55:40 to 18:45:30 UTC, therefore includes stretches with fewer generators running; it averages about 4,200 tx/s. The original report compares the all-generators figures.",
+    "The all-generators window (18:05:30 to 18:35:40 UTC) contains bench-validator-05's five-minute outage (killed 18:12:05, restarted 18:17:01) and its catch-up, which lasted past the end of the window, so from 18:12 onward the headline figures come from nine working validators.",
+    "Recovery figures for validator-05 come from 15-second Prometheus samples: 1,500 s in catch-up mode (rejoined 18:42:23 UTC) and 1,203 failed batch reports. The original report read the validator's own logs and the collector's exact counter instead: demoted 18:17:04, rejoined 18:42:13, 25 min 09 s (1,509 s) in catch-up, and 1,207 failed reports, which is listed with the KPIs as a published figure.",
+    "Write IOPS p95 is 7,710 here (7,710.48 before rounding). The original report printed 7,711 because it rounded an intermediate value of 7,710.5.",
+    "The run held a second blast, a three-minute container pause of validator-03, as a separate test. It has not been through the report tooling and is not published here. The idle-memory figures were read from the nodes' kernels in the 35 idle minutes after it and are carried over from the original report as published figures.",
+    "The nodes ran an image pinned by digest (sha256:f6fcef5d…). The tag v0.1.0-devnet shown with it is mutable; it pointed at this digest from 17 September through this run. The fleet B baseline on 23 September recorded only the tag, so its digest is inferred from the tag's history.",
+    "The full report's baseline link opens the 23 September page for fleet A (r20260923-0708, e2-custom-4-8192); the run this report compares against, fleet B (r20260923-0515, c3-highcpu-8 on pd-ssd), appears on that page only as its comparison column.",
+    "This is one run on each disk type. The differences are large against the spread between validators within a run, but that the disk caused them is inferred, not proven.",
+    "Cloud Monitoring's disk-throttling series was unavailable in both runs, so the write ceiling is read from the peak one-second write rate."
+  ],
+  "kpis_published": [
+    {
+      "id": "failed_batch_reports_published",
+      "label": "Failed batch reports, validator-05 after its restart (exact counter)",
+      "short_label": "Failed reports (exact)",
+      "value": 1207,
+      "unit": "reports",
+      "window": null,
+      "source": "published report (2026-09-29), exact collector counter",
+      "method": "Increase of validator-05's tn_batch_builder_seal_failures_total{reason=\"failed_to_report\"} counter as the collector recorded it, not integrated from 15-s rate samples (the recovery table's 1,203 is the sampled figure).",
+      "provenance": "published"
+    },
+    {
+      "id": "idle_anon_mem_start_gb",
+      "label": "Anonymous memory per validator at the start of the idle period (19:53 UTC)",
+      "short_label": "Anon mem, idle start",
+      "range": [7.78, 9.20],
+      "unit": "GB",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': GB, read from each node's kernel",
+      "method": "Range over the ten validators of the node's anonymous memory at the start of the 35-minute idle period.",
+      "provenance": "published"
+    },
+    {
+      "id": "idle_anon_mem_end_gb",
+      "label": "Anonymous memory per validator after 35 idle minutes (20:28 UTC)",
+      "short_label": "Anon mem, idle end",
+      "range": [7.79, 9.21],
+      "unit": "GB",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': GB, read from each node's kernel",
+      "method": "Range over the ten validators of the node's anonymous memory at the end of the idle period, with every pool empty, nothing executing and two epochs closed.",
+      "provenance": "published"
+    },
+    {
+      "id": "idle_anon_mem_unchanged_validators",
+      "label": "Validators whose anonymous memory did not move while idle",
+      "short_label": "Anon mem unchanged",
+      "value": 9,
+      "unit": "of 10 validators",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': Anonymous memory on nine of ten validators did not move",
+      "method": "Nine validators changed by at most 0.02 GB between 19:53 and 20:28 UTC; validator-04 fell 0.47 GB (9.16 to 8.69 GB).",
+      "provenance": "published"
+    },
+    {
+      "id": "idle_file_backed_mem_gb",
+      "label": "File-backed memory per validator while idle",
+      "short_label": "File-backed mem",
+      "range": [3.38, 5.78],
+      "unit": "GB",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': GB, read from each node's kernel",
+      "method": "Range over the ten validators. File-backed memory is mapped database pages, which the kernel reclaims on demand.",
+      "provenance": "published"
+    },
+    {
+      "id": "peak_resident_mem_gb",
+      "label": "Peak resident memory per validator",
+      "short_label": "Peak resident mem",
+      "range": [13.11, 14.94],
+      "unit": "GB",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': GB, read from each node's kernel",
+      "method": "Range over the ten validators of the node's peak resident memory as the report's idle-memory table gives it; the machines have 16 GB.",
+      "provenance": "published"
+    },
+    {
+      "id": "idle_mem_available_gb",
+      "label": "Memory the kernel reported available while idle",
+      "short_label": "Mem available",
+      "range": [6.4, 7.8],
+      "unit": "GB",
+      "window": "idle after the second blast, 19:53–20:28 UTC",
+      "source": "published report (2026-09-29), 'Memory is not returned after load stops': Machines have 16 GB; the kernel reported 6.4 to 7.8 GB available and no memory pressure",
+      "method": null,
+      "provenance": "published"
+    }
+  ],
+  "report": {
+    "archived_from": "Internal report 'The disk was holding the c3 fleet back' (2026-09-29)",
+    "modifications": [
+      "Wrapped the original fragment in a complete HTML document (doctype, head, charset, viewport).",
+      "Baseline-report link repointed from an external artifact URL to ../r20260923-0708/report.html.",
+      "Section 'Where the fixes stand' removed (internal status notes)."
+    ]
+  }
+}

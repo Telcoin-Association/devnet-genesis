@@ -1,0 +1,64 @@
+{
+ "schema": "tn-bench-manifest/v1",
+ "run_id": "synthetic",
+ "instances": [
+  {
+   "name": "val-1",
+   "role": "validator"
+  },
+  {
+   "name": "val-2",
+   "role": "validator"
+  },
+  {
+   "name": "val-3",
+   "role": "validator"
+  },
+  {
+   "name": "obs-1",
+   "role": "observer"
+  },
+  {
+   "name": "load-a",
+   "role": "blaster"
+  },
+  {
+   "name": "load-b",
+   "role": "blaster"
+  },
+  {
+   "name": "load-c",
+   "role": "blaster"
+  }
+ ],
+ "chaos": [
+  {
+   "ts": "2026-01-01T00:02:30Z",
+   "node": "obs-1",
+   "action": "systemctl restart",
+   "note": "observer bounce",
+   "rc": 0
+  },
+  {
+   "ts": "2026-01-01T00:03:20Z",
+   "node": "val-3",
+   "action": "docker kill",
+   "note": "kill",
+   "rc": 0
+  },
+  {
+   "ts": "2026-01-01T00:04:20Z",
+   "node": "val-3",
+   "action": "systemctl start",
+   "note": "start",
+   "rc": 0
+  },
+  {
+   "ts": "2026-01-01T00:08:20Z",
+   "node": "val-1",
+   "action": "docker kill",
+   "note": "failed attempt",
+   "rc": 1
+  }
+ ]
+}

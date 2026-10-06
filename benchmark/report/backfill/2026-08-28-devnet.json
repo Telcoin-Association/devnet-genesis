@@ -1,0 +1,59 @@
+{
+  "_comment": "Backfill for r20260828-devnet (archived page only, superseded). Build: python3 benchmark/report/make_bundle.py --run r20260828-devnet --no-results --archived-report benchmark/work/report/archived/2026-08-devnet-native.html --backfill benchmark/report/backfill/2026-08-28-devnet.json --force",
+  "title": "Devnet native-transfer throughput (superseded)",
+  "summary": "An August 2026 native-transfer flood against the live devnet, kept as an archived copy for the record. Its maintainers marked the page superseded because its figures are internally inconsistent; do not cite any number from it.",
+  "status": "superseded",
+  "date": "2026-08-28",
+  "upstream": {
+    "sha": null,
+    "branch": null,
+    "evidence": "not-recorded",
+    "evidence_detail": [
+      "The page did not record which telcoin-network commit the devnet nodes ran, and no node logs from the measurement were kept."
+    ]
+  },
+  "node_image": {
+    "ref": "adiri:v0.12.1-devnet-fork740"
+  },
+  "fleet": {
+    "label": "Live devnet: node1 to node5 (validator-1 to validator-4, observer-5)",
+    "validators": 4,
+    "observers": 1,
+    "machine_type": "not recorded",
+    "disk": {
+      "type": "pd-ssd",
+      "size_gb": 100
+    },
+    "regions": [
+      "australia-southeast1",
+      "europe-west2",
+      "europe-west4",
+      "northamerica-northeast1",
+      "us-west2"
+    ]
+  },
+  "chain": {
+    "chain_id": 32285,
+    "network": "devnet"
+  },
+  "kpis_published": [],
+  "methodology": [
+    "The page reported a short native-transfer flood against the live devnet (chain id 32285), not a dedicated benchmark fleet.",
+    "Five load generators, each in the same cloud zone as the node it targeted, sent pre-signed EIP-1559 transfers from accounts pinned to one node each.",
+    "Throughput was counted from the blocks read back from the chain over RPC, bucketed by block-timestamp second, with the generators' block lists merged so each block counted once.",
+    "No harness manifest, raw results or node logs exist for this measurement, so none of its figures can be recomputed."
+  ],
+  "caveats": [
+    "The original page carries the maintainers' notice: \"Superseded — do not cite any number on this page.\" It explains that the page's own figures disagree with one another and that they counted foreign and reverted transactions as throughput.",
+    "Published only as an archived copy for the record. No figures from the page are republished here.",
+    "The validator and observer counts follow the instance names (validator-1 to validator-4 and observer-5). Committee membership at the time was not recorded, and the page itself calls all five nodes validators.",
+    "The disk type and size are the devnet deploy configuration's defaults at the time. The page recorded neither, nor the machine type."
+  ],
+  "report": {
+    "archived_from": "internal load-generator archive (August 2026)",
+    "modifications": [
+      "Wrapped the original fragment in a complete HTML document (doctype, head, charset).",
+      "Archived copy carrying the maintainers' superseded notice; no figures from this page are republished."
+    ]
+  }
+}

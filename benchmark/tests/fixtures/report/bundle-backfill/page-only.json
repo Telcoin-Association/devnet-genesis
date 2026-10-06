@@ -1,0 +1,41 @@
+{
+ "_comment": "Synthetic backfill for the --no-results --archived-report path (test_report_bundle.py).",
+ "title": "Synthetic page-only run",
+ "summary": "An archived report published without its raw results.",
+ "status": "superseded",
+ "date": "2026-01-02",
+ "started_utc": "2026-01-02T00:00:00Z",
+ "ended_utc": "2026-01-02T01:00:00Z",
+ "upstream": {
+  "_comment": "a made-up commit",
+  "sha": "0123456789abcdef0123456789abcdef01234567",
+  "branch": "main",
+  "evidence": "inferred",
+  "evidence_detail": ["Synthetic: the image tag was built from this commit."]
+ },
+ "fleet": {
+  "label": "3 validators + 1 observer",
+  "validators": 3,
+  "observers": 1,
+  "machine_type": "n2-standard-4",
+  "disk": {"type": "pd-ssd", "size_gb": 100},
+  "regions": ["us-west2"]
+ },
+ "chain": {"chain_id": 2017, "network": "devnet"},
+ "kpis_published": [
+  {
+   "id": "tps_published",
+   "label": "Average chain throughput (published figure)",
+   "short_label": "Avg TPS",
+   "value": 1234.5,
+   "unit": "tx/s",
+   "window": null,
+   "source": "archived report",
+   "method": null,
+   "provenance": "published"
+  }
+ ],
+ "methodology": ["Synthetic methodology line."],
+ "caveats": ["Synthetic caveat line."],
+ "report": {"archived_from": "synthetic archived page", "modifications": ["Synthetic modification."]}
+}

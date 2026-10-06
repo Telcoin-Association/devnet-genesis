@@ -1,0 +1,13 @@
+{
+ "_about": "Strings that look sensitive but are not; scan_dir must report nothing here.",
+ "listen": "0.0.0.0:8545",
+ "loopback": "http://127.0.0.1:8545",
+ "flag": "the deploy reads --bls-passphrase-source from a file",
+ "container_path": "/var/lib/bench/out.json",
+ "config_path": "/etc/txgen/deployments.json",
+ "asset": "icon@2x.png",
+ "digest": "0xabababababababababababababababababababababababababababababababab",
+ "node": "http://val-1:8545",
+ "version": "v1.2.3",
+ "dotted": "1.2.3.4.5"
+}
