@@ -5,9 +5,8 @@
 # Candidates (each re-proven before anything is deleted):
 #   instances   bench INSTANCE_NAMES ∪ every instance labelled benchmark=1
 #   firewall    BENCH_FIREWALL_RULES (only if they target exactly bench-node + say benchmark=1)
-#   buckets     every bucket labelled benchmark=1 or named tn-devnet-bench-*, never the archive
-#               bucket (archived, then copied into results/<run>/bucket/; a non-empty bucket
-#               whose copy failed is LEFT)
+#   buckets     every bucket labelled benchmark=1 or named tn-devnet-bench-* (copied into
+#               results/<run>/bucket/ first; a non-empty bucket whose copy failed is LEFT)
 #   disks       labelled benchmark=1 or named ^bench-, unattached after the instances are gone, and
 #               labelled bench-run=<run>; another run's disk or one with no bench-run label is kept
 #   IAM         the compute SA's secretAccessor binding on the two bench-txgen-* secrets
@@ -26,15 +25,18 @@
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
 # instance that holds its name NOW and every log that marker lists is still here; a marker or a
 # log an earlier fleet left under the same name never counts. An instance already gone never blocks.
-# Then the service journal + sampler evidence per node, then the ARCHIVE GATE: results/<run>/ (logs,
-# markers, evidence, manifest; never genesis*/ or dot-files) and every candidate bucket are copied
-# to gs://${BENCH_ARCHIVE_BUCKET}/runs/<run>/, a bucket no teardown deletes, and the logs and the
-# manifest are verified there by name and size. A failure stops the teardown with nothing deleted;
-# BENCH_TEARDOWN_SKIP_ARCHIVE=1 deletes anyway and notes it in the manifest. The archive is cleaned
-# by hand once the run's results are qualified; the harness never deletes a node log.
+# Then the service journal + sampler evidence per node, then the LOCAL GATE: results/<run>/ is the
+# only copy of the run (no bucket keeps another), so before the first delete it must hold, for every
+# node in INSTANCE_NAMES, a non-empty logs/<node>-telcoin.log.gz, logs/<node>-unit-stdout.log.gz and
+# logs/<node>-recovery-*.tgz, a manifest.json that parses, and every log manifest.cert_failures[]
+# names. It then writes INDEX.md and CHECKSUMS.sha256 there and records manifest.archive (kind
+# local, path, verified_at, files, bytes). A missing file stops the teardown with nothing deleted,
+# naming every one; BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes anyway and notes it in the manifest
+# (archive.skipped_gate). The harness never deletes a node log.
 # After the deletes, report/provenance.py checks the node build the saved logs show against the
-# manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks),
-# and results/<run>/ is synced to the archive once more (never blocks).
+# manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks);
+# then tools/cert-rate.py and tools/block-rate.py write analysis/, and INDEX.md + CHECKSUMS.sha256
+# are written again over the final tree (never blocks).
 #
 # Instance rule: labels.benchmark == "1" AND (name ∈ bench INSTANCE_NAMES OR name ~
 # ^bench-(blaster|funder)) AND name ∉ the devnet denylist (INSTANCE_NAMES of a clean
@@ -66,6 +68,8 @@ while [ $# -gt 0 ]; do
 done
 SKIP_LOGS="${BENCH_TEARDOWN_SKIP_LOGS:-0}"
 case "${SKIP_LOGS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOGS must be 0 or 1 (got '${SKIP_LOGS}')" >&2; exit 1 ;; esac
+SKIP_GATE="${BENCH_TEARDOWN_SKIP_LOCAL_GATE:-0}"
+case "${SKIP_GATE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOCAL_GATE must be 0 or 1 (got '${SKIP_GATE}')" >&2; exit 1 ;; esac
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
 # fleet_runs — "<name> <bench-run label, or (none)>" per bench instance that exists (labelled
 # benchmark=1 or named in INSTANCE_NAMES, as the candidate list below). Call it with a
@@ -458,46 +462,33 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     fi
 done
 
-# ================================ archive gate (before any delete) ========================
-# The local results dir is one disk away from losing the only copy of the node logs once the
-# fleet is gone, so a verified copy goes to the persistent archive first (see the header).
-# archive_gate — ensure the bucket, mark the manifest pending, copy, verify, mark it verified and
-# upload it again. Non-zero at the first failure. Dry run: prints the plan and every argv.
-archive_gate() {
-    bench_archive_ensure || return 1
-    if [ "${BENCH_APPLY}" = "1" ]; then
-        bench_manifest_jq --arg u "${BENCH_ARCHIVE_PREFIX}" '.archive = ((.archive // {}) + {uri: $u, status: "pending"})' || return 1
-    else
-        echo "    (dry run) manifest .archive = {uri: \"${BENCH_ARCHIVE_PREFIX}\", status: \"pending\"}"
-    fi
-    bench_archive_results "${CAND_BKT[@]+"${CAND_BKT[@]}"}" || return 1
-    bench_archive_verify || return 1
-    if [ "${BENCH_APPLY}" = "1" ]; then
-        bench_manifest_jq --arg t "$(bench_now_iso)" '.archive.status = "verified-before-delete" | .archive.verified_at = $t' || return 1
-    else
-        echo "    (dry run) manifest .archive.status = \"verified-before-delete\", .archive.verified_at = <now>"
-    fi
-    bench_archive_manifest
-}
+# ================================ local gate (before any delete) ==========================
+# results/<run>/ is the only copy of the run once the fleet is gone (see the header).
 echo ""
-echo ">>> archive -> ${BENCH_ARCHIVE_PREFIX}/ (persistent; nothing is deleted until the copy is verified)$([ "${BENCH_TEARDOWN_SKIP_ARCHIVE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_ARCHIVE=1')"
-if ! archive_gate; then
-    if [ "${BENCH_TEARDOWN_SKIP_ARCHIVE}" = "1" ]; then
-        bench_warn "BENCH_TEARDOWN_SKIP_ARCHIVE=1 — deleting WITHOUT a verified archive in ${BENCH_ARCHIVE_PREFIX}/ (the local copy in ${BENCH_RESULTS_DIR} stays)"
-        if [ "${BENCH_APPLY}" = "1" ]; then
-            bench_manifest_jq '.archive.status = "unverified"' || true
-            bench_manifest_note "teardown: deleted without a verified archive in ${BENCH_ARCHIVE_PREFIX}/ (BENCH_TEARDOWN_SKIP_ARCHIVE=1) at $(bench_now_iso)" || true
-        fi
-    elif [ "${BENCH_APPLY}" = "1" ]; then
-        echo "" >&2
-        echo "❌ archive of ${BENCH_RESULTS_DIR} to ${BENCH_ARCHIVE_PREFIX}/ failed — NOTHING was deleted." >&2
-        echo "   Fix the copy (access to gs://${BENCH_ARCHIVE_BUCKET}, network) and re-run; logs already in" >&2
-        echo "   ${LOG_DIR} are kept." >&2
-        echo "   Or delete without it: BENCH_TEARDOWN_SKIP_ARCHIVE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
+echo ">>> local gate: ${BENCH_RESULTS_DIR} (the only copy; nothing is deleted until it holds every node's logs)$([ "${SKIP_GATE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOCAL_GATE=1')"
+[ "${BENCH_APPLY}" = "1" ] || echo "    (dry run — the pulls above did not run; this is what results/${BENCH_RUN_ID}/ holds now)"
+RESULTS_ABS="$(cd "${BENCH_RESULTS_DIR}" && pwd -P)"
+if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then
+    bench_local_index --arg p "${RESULTS_ABS}" --arg t "$(bench_now_iso)" '.archive = {kind: "local", path: $p, verified_at: $t}' || {
+        echo "❌ ${BENCH_RESULTS_DIR}: INDEX.md, CHECKSUMS.sha256 or manifest.archive not written — NOTHING was deleted." >&2
         exit 1
-    else
-        echo "    ✗ with --yes the teardown stops here, before any delete (BENCH_TEARDOWN_SKIP_ARCHIVE=1 deletes without the archive)"
+    }
+elif [ "${SKIP_GATE}" = "1" ]; then
+    bench_warn "BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 — deleting although ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above; they are lost with the fleet"
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        bench_local_index --arg p "${RESULTS_ABS}" '.archive = {kind: "local", path: $p, skipped_gate: true}' \
+            || bench_warn "INDEX.md, CHECKSUMS.sha256 or manifest.archive not written"
+        bench_manifest_note "teardown: deleted without the local gate (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1) at $(bench_now_iso)" || true
     fi
+elif [ "${BENCH_APPLY}" = "1" ]; then
+    echo "" >&2
+    echo "❌ ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above — NOTHING was deleted." >&2
+    echo "   It is the only copy of the run. Fix the pull (the teardown pulls what is missing from the" >&2
+    echo "   live nodes) and re-run; what is already in ${LOG_DIR} is kept." >&2
+    echo "   Or delete without them: BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
+    exit 1
+else
+    echo "    ✗ with --yes the teardown stops here, before any delete, unless the pulls above land them (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes without them)"
 fi
 
 # ================================ delete ==================================================
@@ -627,23 +618,21 @@ node_startup_check() {
 }
 node_startup_check || bench_warn "node startup provenance check failed — teardown continues"
 
-# ================================ archive final sync ======================================
-# Since the gate, the deletes copied the run bucket into results/<run>/bucket/ and the manifest
-# has grown (teardown_start, node_startup_check, notes): sync once more. Never blocks.
-archive_final_sync() {
+# ================================ final local index =======================================
+# Since the gate, the deletes copied the run bucket into results/<run>/bucket/, genesis/ moved in
+# and the manifest has grown: analysis/ is written (the node logs are here now), then INDEX.md and
+# CHECKSUMS.sha256 again over the final tree. Never blocks.
+final_local_index() {
     echo ""
-    echo ">>> archive final sync -> ${BENCH_ARCHIVE_PREFIX}/results (informational — never blocks the teardown)"
-    if ! bench_archive_results; then
-        bench_warn "final archive sync failed — the archive keeps the gate's copy; re-run the teardown, or by hand: gcloud storage rsync -r --exclude='${BENCH_ARCHIVE_EXCLUDE}' ${BENCH_RESULTS_DIR} ${BENCH_ARCHIVE_PREFIX}/results"
-        [ "${BENCH_APPLY}" != "1" ] || bench_manifest_note "teardown: final archive sync failed at $(bench_now_iso)" || true
-        return 0
+    echo ">>> final local index: ${BENCH_RESULTS_DIR} (informational — never blocks the teardown)"
+    bench_local_analysis
+    if [ "${BENCH_APPLY}" = "1" ] && jq -e '.archive.kind == "local"' "$(bench_manifest)" >/dev/null 2>&1; then
+        bench_local_index --arg t "$(bench_now_iso)" '.archive.final_index_at = $t'
+    else
+        bench_local_index
     fi
-    [ "${BENCH_APPLY}" = "1" ] || return 0
-    bench_manifest_jq --arg t "$(bench_now_iso)" '.archive.final_sync_at = $t' && bench_archive_manifest \
-        || bench_warn "archive: manifest.json with final_sync_at not uploaded"
-    return 0
 }
-archive_final_sync || bench_warn "final archive sync failed — teardown continues"
+final_local_index || bench_warn "final local index failed — the gate's INDEX.md and CHECKSUMS.sha256 stay; re-run the teardown to rewrite them"
 
 # ================================ left-nothing checks =====================================
 echo ""
@@ -670,8 +659,7 @@ for s in "${SECRETS[@]}"; do
         | jq -e --arg m "serviceAccount:${SERVICE_ACCOUNT}" '[.bindings[]? | .members[]] | index($m)' >/dev/null && acc=$((acc + 1))
 done
 chk "compute-SA bindings on bench secrets" "${acc}"
-arch_n="$(perl -e 'alarm shift; exec @ARGV' 300 gcloud storage ls "${BENCH_ARCHIVE_PREFIX}/**" --project="${PROJECT_ID}" </dev/null 2>/dev/null | grep -c '^gs://' || true)"
-echo "    · archive (kept; cleaned by hand once the results are qualified): ${arch_n:-0} object(s) under ${BENCH_ARCHIVE_PREFIX}/"
+echo "    · results/${BENCH_RUN_ID}/ kept, the only copy (back it up outside the repo): $(_bench_results_totals "${BENCH_RESULTS_DIR}" | awk '{ print $1 " file(s), " $2 " bytes" }')"
 echo "    devnet instances (must all be present):"
 for d in "${DENY[@]}"; do
     st="$(printf '%s' "${now_inst}" | jq -r --arg n "${d}" '.[] | select(.name == $n) | .status')"

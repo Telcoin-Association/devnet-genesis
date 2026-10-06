@@ -1,0 +1,16 @@
+{
+ "schema": "tn-bench-manifest/v1",
+ "run_id": "r20991231-0101",
+ "phases": [
+  {
+   "name": "warmup",
+   "start": "2026-10-06T06:00:00Z",
+   "end": "2026-10-06T06:10:00Z"
+  },
+  {
+   "name": "mixed",
+   "start": "2026-10-06T06:10:00Z",
+   "end": "2026-10-06T06:20:00Z"
+  }
+ ]
+}

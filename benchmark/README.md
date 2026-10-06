@@ -212,21 +212,21 @@ benchmark/benchmark-blast.sh run     --run r20260923-0100 --yes      # --keep le
 benchmark/benchmark-blast.sh collect --run r20260923-0100 --yes
 benchmark/benchmark-blast.sh status  --run r20260923-0100
 
-# 2. Tear down. Read the dry run, then apply. Before the first delete it copies the run to
-#    gs://tn-devnet-benchmark-archive/runs/r20260923-0100/ and verifies the copy.
+# 2. Tear down. Read the dry run, then apply. Before the first delete it checks that
+#    results/r20260923-0100/ (the only copy of the run) holds every node's logs and the manifest.
 benchmark/benchmark-teardown.sh --run r20260923-0100
 benchmark/benchmark-teardown.sh --run r20260923-0100 --yes           # --purge also deletes the bench secrets
 
-# Only if the archive cannot be written and the fleet must go anyway (recorded in manifest.notes):
-BENCH_TEARDOWN_SKIP_ARCHIVE=1 benchmark/benchmark-teardown.sh --run r20260923-0100 --yes
+# Only if a node's logs cannot be saved and the fleet must go anyway (recorded in manifest.notes):
+BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 benchmark/benchmark-teardown.sh --run r20260923-0100 --yes
 ```
 
 Every script is a dry run unless you pass `--yes`, and prints each gcloud argv before it
 runs it.
 
-The harness never deletes a node log. Each run's logs and results stay in `results/<run>/` and
-in the archive bucket `gs://tn-devnet-benchmark-archive` (`BENCH_ARCHIVE_BUCKET`), which no
-script deletes from. Clean the archive by hand, and only after the run's results are qualified.
+The harness never deletes a node log. Each run's logs and results stay in `results/<run>/`,
+the only copy: no bucket keeps another. The directory is gitignored and on one disk, so back it
+up outside the repo once the teardown has finished.
 
 ### What the deploy does
 
@@ -243,10 +243,10 @@ script deletes from. Clean the archive by hand, and only after the run's results
 | 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), reads the node's boot lines, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`. `bench-validator-01` goes first, and the first mismatch stops the run before any other node restarts. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
 | 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
-| 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. Then checks that the archive bucket `gs://tn-devnet-benchmark-archive` exists, or creates it (uniform bucket-level access, public access prevention, labels `purpose=bench-archive,retain=true`). If the bucket can be neither read nor created, the step stops, because the teardown would refuse to delete anything later. |
+| 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
 | 13 | Fund: the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders, then is deleted. |
 | 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
-| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. With `BENCH_COLLECT_ARCHIVE=1` (the default), the step then copies `results/<run>/` and the run bucket to the archive and records `manifest.archive.collect_sync_at`. A failure there is only a warning, because the teardown's archive gate makes the copy that counts. |
+| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. Then `analysis/block-rate.md` (and `analysis/cert-rate.md` once node logs are on disk), `INDEX.md` and `CHECKSUMS.sha256` are written into `results/<run>/`; a failure there is only a warning. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
 
 ### Progress means consensus rounds, not blocks
@@ -389,27 +389,49 @@ operator machine dies, the blasters finish on their own and upload to the bucket
 
 ## Outputs (`results/<run>/`, gitignored)
 
+`results/<run>/` is the only copy of a run. No bucket keeps another: the persistent archive
+`gs://tn-devnet-benchmark-archive` is retired, and the run bucket is deleted at teardown once it
+is copied into `bucket/`. The directory is gitignored and on one disk, so back it up outside the
+repo once the teardown has finished.
+
 - `manifest.json`: `tn-bench-manifest/v1` (see
   `tn-transaction-generator/bench/schema/manifest.example.json`), plus the provenance fields
   below
 - `pre-instances.json`, `pre-firewall.json`: project state before the run; teardown compares against them
 - `blasters/<name>.json` (`tn-blast/v2`), plus each blaster's docker log and generator log
 - `funder/prepare.json`, `sampler/<node>.csv`, `deployments-bench.json`, `metrics.json`
-- `logs/`: every node's logs, their pull markers and the recovery evidence, saved by the teardown
+- `logs/`: every node's logs, their pull markers and the recovery evidence, saved by the
+  teardown. Per node: `<node>-telcoin.log.gz` (the container running at the pull),
+  `<node>-unit-stdout.log.gz` (the unit's append file `/var/log/telcoin/telcoin.log`: the output
+  of every container run since setup, so it also covers the seconds between a pre-kill log save
+  and the kill), the container logs saved on the node before a restart or kill
+  (`<node>-telcoin-pre-step9-<UTC>.log.gz`, `-pre-kill-…`) and `<node>-recovery-<id>.*.tgz`.
+  Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
+  load VM creates of the current blast index (`create-<vm>.log`); an earlier index's creates are
+  in `blast-<index>-<UTC>/logs/`.
 - `bucket/<name>/`: the run bucket, copied here by the teardown before it deletes the bucket
 - `genesis/`: moved here from `benchmark/genesis/` at teardown, so the next run starts clean
+- `analysis/cert-rate.md`: per validator and phase, the certification rate, re-proposals, failed
+  vote requests and the node's share of committed certificates and leaders
+  (`tools/cert-rate.py`). It needs the node logs, so it appears at the end of the teardown.
+- `analysis/block-rate.md`: per phase, committed rounds/s, blocks/s and tx/s from the blasters'
+  block lists, and per node rounds/s, blocks/s and commit latency (`tools/block-rate.py`).
+  `tools/ANALYSIS.md` describes both tools and how to run them on devnet or testnet logs.
+- `INDEX.md`: one row per file group (what it is, which step or script wrote it, how many files);
+  a file the harness does not know gets a row of its own.
+- `CHECKSUMS.sha256`: the SHA-256 of every other file. Check a copy with
+  `cd results/<run> && shasum -a 256 -c CHECKSUMS.sha256` (`sha256sum -c` on Linux).
 
-The teardown also copies the whole directory to the archive, apart from `genesis*/` (validator
-keystores), `tunnel.pid` and dot-files:
+`analysis/`, `INDEX.md` and `CHECKSUMS.sha256` are written after `collect` and at deploy step 15
+(non-fatal, so an interrupted run still has them), by the teardown's local gate, and once more
+after the teardown's deletes.
 
-```
-gs://tn-devnet-benchmark-archive/runs/<run>/results/        results/<run>/
-gs://tn-devnet-benchmark-archive/runs/<run>/bucket/<name>/  each run bucket, copied before its delete
-```
-
-`manifest.archive` records the copy: `uri` (`BENCH_ARCHIVE_PREFIX`), `status` (`pending`, then
-`verified-before-delete`, or `unverified` under the override), `verified_at`, `final_sync_at`
-and `collect_sync_at`. The publishing scrub drops it, together with `project` and `notes`.
+`manifest.archive` records the local gate: `kind` (`local`), `path` (the absolute results
+directory), `verified_at`, `files` and `bytes` (what `CHECKSUMS.sha256` covers, the manifest
+at its final size included) and `final_index_at`. Under the override it holds
+`skipped_gate: true` instead of `verified_at`. Runs before the gate carry the retired archive's
+`uri` and `status` here instead. The publishing scrub drops `manifest.archive`, together with
+`project` and `notes`.
 
 The provenance fields record which bytes the run measured:
 
@@ -430,37 +452,36 @@ The provenance fields record which bytes the run measured:
 buckets labelled `benchmark=1` or named `tn-devnet-bench-*` (copied into
 `results/<run>/bucket/` first; a non-empty bucket whose copy fails is left in place), orphaned bench
 disks, the compute SA's bindings on the bench secrets, the contracts worktree, `bench/r*`
-branches with no commits of their own, and local IAP tunnels. The archive bucket is never a
-candidate: `config.sh` refuses an archive name that matches `tn-devnet-bench-*` or labels
-that carry `benchmark=` or `bench-run=`, and the bucket listing skips the archive by name. It
-deletes nothing if any single guard fails. It keeps the `bench-txgen-*` secrets unless you
-pass `--purge`. At the end it prints the "left nothing" checks, which confirm that no labelled
-or `bench-*` resource remains, that every devnet instance is still present, and that
-`devnet-allow-consensus` matches the pre-run snapshot. It also prints how many objects the
-run has in the archive; the archive is kept.
+branches with no commits of their own, and local IAP tunnels. It deletes nothing if any single
+guard fails. It keeps the `bench-txgen-*` secrets unless you pass `--purge`. At the end it
+prints the "left nothing" checks, which confirm that no labelled or `bench-*` resource remains,
+that every devnet instance is still present, and that `devnet-allow-consensus` matches the
+pre-run snapshot. It also prints the file count and size of `results/<run>/`, which it keeps.
 
 Nothing is deleted until three gates pass, in this order:
 
 1. **Logs.** Every live node's logs are pulled to `results/<run>/logs/` (`BENCH_TEARDOWN_SKIP_LOGS=1` overrides).
 2. **Recovery evidence.** Each node's service journal and sampler files are pulled.
-3. **Archive.** The teardown makes sure the archive bucket exists, sets `manifest.archive.status`
-   to `pending`, copies `results/<run>/` and every candidate bucket to
-   `BENCH_ARCHIVE_PREFIX`, and then lists the archive once. Every `logs/*.log.gz`, pull
-   marker, `logs/*-recovery-*.tgz` and `manifest.json` must be there at its local size.
-   The status then becomes `verified-before-delete` and `manifest.json` is uploaded again. If
-   any of this fails, the teardown prints `archive … failed — NOTHING was deleted` and exits 1;
-   re-run it once the bucket is reachable. `BENCH_TEARDOWN_SKIP_ARCHIVE=1` still tries the
-   copy, but deletes even if it fails, sets the status to `unverified` and adds a
-   `manifest.notes` entry.
+3. **Local gate.** `results/<run>/` is the only copy of the run, so for every node in
+   `INSTANCE_NAMES` it must hold a non-empty `logs/<node>-telcoin.log.gz`,
+   `logs/<node>-unit-stdout.log.gz` and `logs/<node>-recovery-*.tgz`, plus a `manifest.json`
+   that parses and every log listed in `manifest.cert_failures[].logs[]` (relative to
+   `results/<run>/` unless absolute). A node whose instance is already gone needs these from an
+   earlier pull. If anything is missing, the teardown names every missing file, prints
+   `NOTHING was deleted` and exits 1. Otherwise it writes `INDEX.md` and `CHECKSUMS.sha256` and
+   sets `manifest.archive` (see Outputs). `BENCH_TEARDOWN_SKIP_LOCAL_GATE=1` deletes even with
+   files missing: it warns, sets `manifest.archive.skipped_gate` and adds a `manifest.notes`
+   entry. `BENCH_TEARDOWN_SKIP_LOGS=1` does not relax this gate; a node it abandoned needs this
+   override too.
 
-Every copy has an alarm (`BENCH_ARCHIVE_TIMEOUT_SECS`, default 1800 s) and a closed stdin. A
-copy only adds or replaces objects, so a later sync never removes what an earlier one saved.
-After the deletes and the provenance check below, `results/<run>/` is synced once more, which
-picks up the run bucket's local copy and the final manifest, and the time goes into
-`manifest.archive.final_sync_at`. That last sync only warns when it fails. The dry run prints
-the archive prefix, whether the bucket exists or would be created, and every copy command.
+The dry run runs the gate's checks against what `results/<run>/` holds at that moment (it pulls
+nothing) and says which files it would write. After the deletes and the provenance check below,
+the teardown writes `analysis/` (the node logs are on disk by then), then `INDEX.md` and
+`CHECKSUMS.sha256` again over the final tree, which now holds the run bucket's copy and
+`genesis/`, and records `manifest.archive.final_index_at`. That last step only warns when it
+fails.
 
-Before the final sync, once teardown has saved the node logs and finished the deletes, it runs
+Before the final index, once teardown has saved the node logs and finished the deletes, it runs
 an informational provenance check:
 
 ```bash

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline stand-in for gcloud (test_teardown_archive.py, test_collect_retry.py).
+"""Offline stand-in for gcloud (test_teardown_local_gate.py, test_collect_retry.py).
 
 State lives under $FAKE_ROOT:
   gcs/<bucket>/<object name>   objects; a bucket exists when its directory does

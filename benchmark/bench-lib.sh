@@ -1260,119 +1260,215 @@ bench_consensus_params_manifest() {
                                  max_batch_delay_ms: ($batch | num_or_null)}'
 }
 
-# --- persistent archive (gs://${BENCH_ARCHIVE_BUCKET}/runs/<run>/) ---------------------------
-# A copy of every run outlives the teardown: results/<run>/ goes to ${BENCH_ARCHIVE_PREFIX}/results/
-# and each run bucket to ${BENCH_ARCHIVE_PREFIX}/bucket/<name>/. The copies only add or update
-# objects (never --delete-unmatched-destination-objects), so no later sync can remove what an
-# earlier one archived; the archive is cleaned by hand once the run's results are qualified.
-# Every gcloud call has an alarm and a closed stdin (tasks/lessons.md: gcloud can hang).
+# --- local results: results/<run>/ is the only copy ------------------------------------------
+# Nothing is copied to a persistent bucket. The run bucket gs://tn-devnet-bench-<run> is only the
+# blasters' upload transport: the teardown copies it into results/<run>/bucket/ and deletes it.
+# So the teardown's local gate proves, before its first delete, that results/<run>/ holds every
+# node's logs and the manifest, and leaves INDEX.md and CHECKSUMS.sha256 beside them. Back
+# results/ up outside the repo: it is gitignored and on one disk.
 
-# Never archived: the genesis workspace (validator keystores), the tunnel pid and dot-files (an
-# interrupted pull's temp files). gcloud matches it from the start of the path relative to
-# results/<run>/ (re.match); the ^ keeps that so if it ever searches instead.
-# No leading ^: gcloud reads a list argument that starts with ^ as its custom-delimiter form
-# (^DELIM^a DELIM b) and mangles the pattern (r20261006-0458 collect: "unbalanced parenthesis").
-# re.match anchors at the start of the relative path anyway.
-BENCH_ARCHIVE_EXCLUDE='(genesis[^/]*/|(.*/)?tunnel\.pid$|(.*/)?\.)'
+# _bench_sha256_cmd — the SHA-256 tool, printed one word per line: shasum -a 256 where it exists
+# (macOS), else sha256sum (Linux). Both print "<hex>  <file>" and both check with -c.
+_bench_sha256_cmd() {
+    if command -v shasum >/dev/null 2>&1; then printf '%s\n' shasum -a 256
+    elif command -v sha256sum >/dev/null 2>&1; then printf '%s\n' sha256sum
+    else echo "❌ neither shasum nor sha256sum is on PATH" >&2; return 1; fi
+}
 
-# bench_archive_ensure — the archive bucket exists, or is created (uniform bucket-level access,
-# public access prevention, then labels BENCH_ARCHIVE_LABELS). Only a "not found" describe counts
-# as absent; any other describe failure (no access, a hang) is non-zero, never a blind create.
-# Dry run: says whether it exists or would be created.
-bench_archive_ensure() {
-    local b="gs://${BENCH_ARCHIVE_BUCKET}" err
-    if err="$(perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets describe "${b}" --project="${PROJECT_ID}" \
-            --format='value(name)' </dev/null 2>&1 >/dev/null)"; then
-        echo "    archive bucket ${b} exists"
-        return 0
-    fi
-    case "${err}" in
-        *"not found"*|*404*) ;;
-        *) echo "❌ archive bucket ${b} could not be described: $(printf '%s\n' "${err:-no output (timed out?)}" | tail -1)" >&2
-           return 1 ;;
+# _bench_results_files <dir> — every regular file under <dir> as a path relative to it, sorted,
+# one per line, except CHECKSUMS.sha256 and its temp files.
+_bench_results_files() {
+    (cd "$1" && find . -type f ! -path ./CHECKSUMS.sha256 ! -path './.CHECKSUMS.sha256.*' | sed 's#^\./##' | LC_ALL=C sort)
+}
+
+# _bench_results_totals <dir> — "<files> <bytes>" over _bench_results_files <dir>.
+_bench_results_totals() {
+    (cd "$1" && find . -type f ! -path ./CHECKSUMS.sha256 ! -path './.CHECKSUMS.sha256.*' -exec wc -c {} + \
+        | awk '!(NF == 2 && $2 == "total") { n++; b += $1 } END { printf "%d %d\n", n, b }')
+}
+
+# _bench_index_kind <path> — "<order>|<group>|<what it is>|<written by>" for a path relative to
+# results/<run>/, from the patterns below (first match wins); unknown paths get order 99 and their
+# own row. INDEX.md lists the groups by <order>.
+_bench_index_kind() {
+    case "$1" in
+        .DS_Store|*/.DS_Store) echo "29|.DS_Store, */.DS_Store|macOS Finder metadata|not the harness" ;;
+        manifest.json) echo "01|manifest.json|run manifest: fleet, image, parameters, phases, blast, chaos, stalls, notes, archive (local gate)|benchmark-deploy.sh, benchmark-blast.sh, benchmark-teardown.sh" ;;
+        INDEX.md) echo "02|INDEX.md|this index|bench_local_index (collect, deploy step 15, teardown)" ;;
+        CHECKSUMS.sha256) echo "03|CHECKSUMS.sha256|SHA-256 of every other file here; check: shasum -a 256 -c CHECKSUMS.sha256|bench_local_index (collect, deploy step 15, teardown)" ;;
+        analysis/cert-rate.md) echo "04|analysis/cert-rate.md|per-validator certification rate per window (tools/cert-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
+        analysis/block-rate.md) echo "05|analysis/block-rate.md|rounds/s, blocks/s, tx/s and commit latency per window (tools/block-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
+        analysis/*) echo "06|analysis/*|other analysis output|bench_local_analysis" ;;
+        metrics.json) echo "07|metrics.json|Cloud Monitoring + Prometheus series over the run window|deploy step 15 (tn-transaction-generator collect-gcp-metrics.py)" ;;
+        pre-instances.json|pre-firewall.json) echo "08|pre-instances.json, pre-firewall.json|project snapshot before the run (the teardown compares the devnet rule to it)|benchmark-deploy.sh preflight" ;;
+        deployments-bench.json) echo "09|deployments-bench.json|app contract addresses on the bench chain|deploy step 11" ;;
+        tunnel.log|tunnel.pid) echo "10|tunnel.log, tunnel.pid|local IAP tunnel to the first node's RPC|bench_tunnel_up (deploy step 10)" ;;
+        chaos-remote.log) echo "11|chaos-remote.log|output of the staged chaos sessions on the nodes|benchmark-blast.sh run (chaos)" ;;
+        logs/*.pulled|logs/*.pulled-*) echo "12|logs/<node>.pulled*|pull markers: which instance id each node log came from|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*-recovery-*.tgz) echo "13|logs/<node>-recovery-<id>.*.tgz|service journal + sampler files of the node (recovery evidence)|teardown (recovery-lib.sh bench_pull_recovery_evidence)" ;;
+        logs/*-unit-stdout*.log.gz|logs/*-unit-stderr*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.log.gz|the unit's append files /var/log/telcoin/telcoin{,-error}.log: every container run's output since setup|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*-telcoin.log.gz|logs/*-telcoin-[0-9]*Z.log.gz) echo "15|logs/<node>-telcoin.log.gz|the current container's log at the pull|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*.log.gz) echo "16|logs/<node>-<saved>.log.gz|container logs saved on the node before a restart, kill or pause (pre-step9, pre-kill, ...)|bench_save_node_log (deploy step 9, blast chaos); pulled by the teardown" ;;
+        logs/deploy-*.log) echo "17|logs/deploy-*.log|benchmark-deploy.sh output, one file per invocation|benchmark-deploy.sh" ;;
+        logs/blast-*.log) echo "18|logs/blast-<action>-*.log|benchmark-blast.sh output, one file per invocation|benchmark-blast.sh" ;;
+        logs/create-*.log) echo "19|logs/create-<vm>.log|load VM create output (current blast index)|benchmark-blast.sh fund/run" ;;
+        sampler/*.csv) echo "20|sampler/<node>.csv|node-sampler.sh rows every 30 s (memory, I/O, PSI, disk, block)|benchmark-blast.sh collect" ;;
+        sampler/*.epochs.txt) echo "21|sampler/<node>.epochs.txt|epoch-file inventory of the node every minute|benchmark-blast.sh collect" ;;
+        blasters/*) echo "22|blasters/*|blaster results (<vm>.json), txgen and docker logs|benchmark-blast.sh collect (from the run bucket)" ;;
+        funder/*) echo "23|funder/*|funder output (prepare.json) and logs|benchmark-blast.sh collect (from the run bucket)" ;;
+        meta/*) echo "24|meta/<vm>/*|arguments and node URLs each load VM was created with|benchmark-blast.sh fund/run" ;;
+        blast-*/*) echo "25|blast-<index>-<UTC>/*|an earlier blast index set aside, with its manifest copy|benchmark-blast.sh run (archive_prev_blast)" ;;
+        funder-*/*) echo "26|funder-<index>-<UTC>/*|an earlier funder output set aside, with its manifest copy|benchmark-blast.sh fund" ;;
+        bucket/*) echo "27|bucket/<run bucket>/*|copy of the run bucket gs://tn-devnet-bench-<run>, taken before its delete|benchmark-teardown.sh" ;;
+        genesis*/*) echo "28|genesis*/*|genesis workspace: committee, genesis and validator files (keys: never publish)|benchmark-teardown.sh (moves benchmark/genesis)" ;;
+        *) echo "99|$1|not known to the harness|?" ;;
     esac
-    echo "    archive bucket ${b} absent — $([ "${BENCH_APPLY}" = "1" ] && echo creating || echo 'would be created') in ${BENCH_ARCHIVE_LOCATION} (the harness never deletes it)"
-    bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets create "${b}" --project="${PROJECT_ID}" \
-        --location="${BENCH_ARCHIVE_LOCATION}" --uniform-bucket-level-access --public-access-prevention </dev/null || return 1
-    bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud storage buckets update "${b}" --project="${PROJECT_ID}" \
-        --update-labels="${BENCH_ARCHIVE_LABELS}" </dev/null
 }
 
-# bench_archive_results [<bucket>...] — results/<run>/ minus BENCH_ARCHIVE_EXCLUDE to
-# ${BENCH_ARCHIVE_PREFIX}/results/, then each <bucket> to ${BENCH_ARCHIVE_PREFIX}/bucket/<bucket>/
-# (server side). Tries every copy; non-zero when any failed. Dry run: prints each argv.
-bench_archive_results() {
-    local b rc=0
-    bench_run perl -e 'alarm shift; exec @ARGV' "${BENCH_ARCHIVE_TIMEOUT_SECS}" gcloud storage rsync -r \
-        --exclude="${BENCH_ARCHIVE_EXCLUDE}" --project="${PROJECT_ID}" \
-        "${BENCH_RESULTS_DIR}" "${BENCH_ARCHIVE_PREFIX}/results" </dev/null \
-        || { echo "    ✗ ${BENCH_RESULTS_DIR} not fully archived" >&2; rc=1; }
-    for b in "$@"; do
-        bench_run perl -e 'alarm shift; exec @ARGV' "${BENCH_ARCHIVE_TIMEOUT_SECS}" gcloud storage rsync -r \
-            --project="${PROJECT_ID}" "gs://${b}" "${BENCH_ARCHIVE_PREFIX}/bucket/${b}" </dev/null \
-            || { echo "    ✗ gs://${b} not fully archived" >&2; rc=1; }
-    done
-    return "${rc}"
+# _bench_write_index <dir> — <dir>/INDEX.md: one row per file group (_bench_index_kind) with its
+# file count, every unknown file on a row of its own. Written through a temp file.
+_bench_write_index() {
+    local d="$1" tmp
+    tmp="$(mktemp "${d}/.INDEX.md.XXXXXX")" || return 1
+    {
+        echo "# results/$(basename -- "${d}")/ — index"
+        echo ""
+        echo "Generated $(bench_now_iso). This directory is the only copy of the run: no bucket keeps"
+        echo "another. Back it up outside the repo. \`CHECKSUMS.sha256\` holds the SHA-256 of every"
+        echo "other file; check them with \`shasum -a 256 -c CHECKSUMS.sha256\` (Linux: \`sha256sum -c\`)"
+        echo "from this directory."
+        echo ""
+        echo "| files | path | what it is | written by |"
+        echo "|------:|------|------------|------------|"
+        { _bench_results_files "${d}" | grep -v -x -e 'INDEX\.md' -e '\.INDEX\.md\..*' || true; printf '%s\n' INDEX.md CHECKSUMS.sha256; } \
+            | while IFS= read -r f; do _bench_index_kind "${f}"; done \
+            | LC_ALL=C sort | uniq -c \
+            | awk '{ n = $1; sub(/^ *[0-9]+ /, ""); split($0, a, "|"); printf "| %d | `%s` | %s | %s |\n", n, a[2], a[3], a[4] }'
+    } > "${tmp}" || { rm -f "${tmp}"; return 1; }
+    mv "${tmp}" "${d}/INDEX.md"
 }
 
-# bench_archive_manifest — manifest.json alone to the archive, after an update that must travel with it.
-bench_archive_manifest() {
-    [ -f "$(bench_manifest)" ] || { echo "      (no manifest.json — nothing to upload)"; return 0; }
-    bench_run perl -e 'alarm shift; exec @ARGV' 300 gcloud storage cp --project="${PROJECT_ID}" \
-        "$(bench_manifest)" "${BENCH_ARCHIVE_PREFIX}/results/manifest.json" </dev/null
+# _bench_write_checksums <dir> — <dir>/CHECKSUMS.sha256 over _bench_results_files <dir>, written
+# through a temp file. Paths are relative to <dir>.
+_bench_write_checksums() {
+    local d="$1" tmp sha
+    sha="$(_bench_sha256_cmd)" || return 1
+    tmp="$(mktemp "${d}/.CHECKSUMS.sha256.XXXXXX")" || return 1
+    # shellcheck disable=SC2086  # the tool and its flags, one word each
+    if ! (cd "${d}" && _bench_results_files . | tr '\n' '\0' | xargs -0 ${sha}) > "${tmp}"; then
+        rm -f "${tmp}"; return 1
+    fi
+    mv "${tmp}" "${d}/CHECKSUMS.sha256"
 }
 
-# bench_archive_verify — every node log (logs/*.log.gz), pull marker (logs/*.pulled*), recovery
-# evidence archive (logs/*-recovery-*.tgz) and manifest.json under results/<run>/ is in
-# ${BENCH_ARCHIVE_PREFIX}/results/ at its local size, by one listing. Name + size, as the pull
-# markers judge: the copies never rewrite a file. Prints the count; non-zero naming what is
-# missing or differs. Dry run: prints the listing argv and what it would require.
-bench_archive_verify() {
-    local d="${BENCH_RESULTS_DIR}" pre="${BENCH_ARCHIVE_PREFIX}/results/" f rel s got have lrc=0 \
-        nlog=0 nmark=0 nev=0 nman=0 nbad=0 bad="" ls_urls=() need_files=()
-    for f in "${d}"/logs/*.log.gz "${d}"/logs/*.pulled "${d}"/logs/*.pulled-* "${d}"/logs/*-recovery-*.tgz "${d}/manifest.json"; do
-        [ -f "${f}" ] || continue
-        rel="${f#"${d}/"}"; need_files+=("${rel}")
-        case "${rel}" in
-            manifest.json) nman=1 ;;
-            *-recovery-*.tgz) nev=$((nev + 1)) ;;
-            *.log.gz) nlog=$((nlog + 1)) ;;
-            *) nmark=$((nmark + 1)) ;;
-        esac
-    done
-    got="${nlog} log(s), ${nmark} pull marker(s), ${nev} recovery archive(s)$([ "${nman}" -eq 0 ] || echo ', manifest.json')"
-    if [ "${#need_files[@]}" -eq 0 ]; then echo "    - nothing to verify: results/${BENCH_RUN_ID}/ holds no node log and no manifest.json"; return 0; fi
-    [ "${nman}" -eq 0 ] || ls_urls+=("${pre}manifest.json")
-    [ "$((nlog + nmark + nev))" -eq 0 ] || ls_urls+=("${pre}logs/**")
-    printf '    +'; printf ' %q' perl -e 'alarm shift; exec @ARGV' 300 gcloud storage ls -l "${ls_urls[@]}" --project="${PROJECT_ID}"; printf '\n'
+# bench_local_index [<jq argument>... <filter>] — results/<run>/INDEX.md, then CHECKSUMS.sha256.
+# With arguments, it first runs bench_manifest_jq with them and records manifest.archive.files and
+# .bytes: the count and total size of what CHECKSUMS.sha256 then covers, the manifest at its final
+# size included. Non-zero when a write failed. Dry run: says what it would write.
+bench_local_index() {
+    local d="${BENCH_RESULTS_DIR}" t prev="" i
     if [ "${BENCH_APPLY}" != "1" ]; then
-        echo "      (dry run — not listed; with --yes it requires ${#need_files[@]} file(s) there at their local sizes: ${got})"
+        echo "      (dry run) would write ${d}/INDEX.md and ${d}/CHECKSUMS.sha256$([ "$#" -eq 0 ] || echo ', and set manifest.archive')"
         return 0
     fi
-    have="$(perl -e 'alarm shift; exec @ARGV' 300 gcloud storage ls -l "${ls_urls[@]}" --project="${PROJECT_ID}" </dev/null 2>/dev/null \
-        | awk -v p="${pre}" 'NF == 3 && $1 ~ /^[0-9]+$/ && index($3, p) == 1 { print substr($3, length(p) + 1) " " $1 }')" || lrc=$?
-    for rel in "${need_files[@]}"; do
-        s="$(wc -c < "${d}/${rel}" | tr -d ' ')"
-        _bench_in_lines "${rel} ${s}" "${have}" && continue
-        nbad=$((nbad + 1))
-        [ "${nbad}" -gt 10 ] || bad="${bad}"$'\n'"      - ${rel}: ${s} bytes here, $(printf '%s\n' "${have}" | awk -v r="${rel}" '$1 == r { print $2 " bytes"; f = 1; exit } END { if (!f) print "absent" }') in the archive"
+    [ -d "${d}" ] || { echo "❌ ${d} does not exist" >&2; return 1; }
+    _bench_write_index "${d}" || { echo "❌ could not write ${d}/INDEX.md" >&2; return 1; }
+    if [ "$#" -gt 0 ]; then
+        bench_manifest_jq "$@" || return 1
+        # The totals include manifest.json, which grows as they are written into it: repeat until
+        # they describe the file they are written in (two or three passes).
+        for i in 1 2 3 4 5; do
+            t="$(_bench_results_totals "${d}")" || return 1
+            [ "${t}" != "${prev}" ] || break
+            bench_manifest_jq --argjson n "${t% *}" --argjson b "${t#* }" '.archive.files = $n | .archive.bytes = $b' || return 1
+            prev="${t}"
+        done
+    fi
+    _bench_write_checksums "${d}" || { echo "❌ could not write ${d}/CHECKSUMS.sha256" >&2; return 1; }
+    t="$(_bench_results_totals "${d}")"
+    echo "    ✓ ${d}/INDEX.md and CHECKSUMS.sha256: ${t% *} file(s), ${t#* } bytes"
+}
+
+# bench_local_gate_check [<inst>...] — what results/<run>/ must hold before the teardown deletes
+# anything: for each <inst>, non-empty logs/<inst>-telcoin.log.gz, logs/<inst>-unit-stdout.log.gz
+# and logs/<inst>-recovery-*.tgz (the names bench_pull_node_logs and bench_pull_recovery_evidence
+# write); manifest.json, parsing as JSON; and every path in manifest.cert_failures[].logs[]
+# (relative to results/<run>/ unless absolute), non-empty. Reads only. Prints a ✓ line, or one
+# ✗ line per missing file; non-zero when anything is missing.
+bench_local_gate_check() {
+    local d="${BENCH_RESULTS_DIR}" inst f p ok miss=() nf=0 mf="${BENCH_RESULTS_DIR}/manifest.json" cf
+    for inst in "$@"; do
+        for f in "logs/${inst}-telcoin.log.gz" "logs/${inst}-unit-stdout.log.gz"; do
+            if [ -s "${d}/${f}" ]; then nf=$((nf + 1)); else miss+=("${f}"); fi
+        done
+        ok=0
+        for p in "${d}/logs/${inst}-recovery-"*.tgz; do [ -s "${p}" ] && ok=1; done
+        if [ "${ok}" -eq 1 ]; then nf=$((nf + 1)); else miss+=("logs/${inst}-recovery-*.tgz"); fi
     done
-    if [ "${nbad}" -gt 0 ]; then
-        echo "❌ archive ${pre} lacks ${nbad} of ${#need_files[@]} file(s) at their local sizes$([ "${lrc}" -eq 0 ] || echo " (listing exited ${lrc})"):${bad}" >&2
-        [ "${nbad}" -le 10 ] || echo "      … and $((nbad - 10)) more" >&2
+    if [ ! -s "${mf}" ]; then
+        miss+=("manifest.json")
+    elif ! jq -e 'type == "object"' "${mf}" >/dev/null 2>&1; then
+        miss+=("manifest.json (does not parse as a JSON object)")
+    else
+        nf=$((nf + 1))
+        cf="$(jq -r '[(.cert_failures // [])[]? | objects | (.logs // [])[]? | strings] | unique[]' "${mf}")" || cf=""
+        while IFS= read -r p; do
+            [ -n "${p}" ] || continue
+            case "${p}" in /*) f="${p}" ;; *) f="${d}/${p}" ;; esac
+            if [ -s "${f}" ]; then nf=$((nf + 1)); else miss+=("${p} (manifest.cert_failures)"); fi
+        done <<< "${cf}"
+    fi
+    if [ "${#miss[@]}" -gt 0 ]; then
+        for f in "${miss[@]}"; do echo "    ✗ missing or empty: ${f}"; done
         return 1
     fi
-    echo "    ✓ archive verified: ${#need_files[@]} file(s) in ${pre} at their local sizes (${got})"
+    echo "    ✓ ${nf} required file(s) present and non-empty: logs of ${#} node(s) (container, unit stdout, recovery evidence), manifest.json$([ -z "${cf}" ] || echo ', manifest.cert_failures logs')"
+}
+
+# bench_local_analysis — results/<run>/analysis/cert-rate.md (tools/cert-rate.py over the pulled
+# validator logs, windows from the manifest; only once the teardown has pulled them) and
+# block-rate.md (tools/block-rate.py over the run dir). Informational: a tool that fails leaves a
+# warning and no file, never a non-zero status. Dry run: prints the commands.
+bench_local_analysis() {
+    local d="${BENCH_RESULTS_DIR}" a="${BENCH_RESULTS_DIR}/analysis" t="${BENCH_DIR}/tools" name tmp err rc
+    echo "    analysis -> ${a}/ (informational)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      + python3 ${t}/cert-rate.py --logs ${d}/logs --windows ${d}/manifest.json > ${a}/cert-rate.md"
+        echo "      + python3 ${t}/block-rate.py --run ${d} > ${a}/block-rate.md"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — no analysis"; return 0; }
+    mkdir -p "${a}" || { bench_warn "could not create ${a} — no analysis"; return 0; }
+    for name in cert-rate block-rate; do
+        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/bench-validator-*.log.gz" >/dev/null; then
+            echo "      - cert-rate: no validator log in logs/ yet (the teardown pulls them)"
+            continue
+        fi
+        tmp="$(mktemp "${a}/.${name}.md.XXXXXX")" || { bench_warn "${name}: no temp file"; continue; }
+        rc=0
+        if [ "${name}" = cert-rate ]; then
+            err="$(python3 "${t}/cert-rate.py" --logs "${d}/logs" --windows "${d}/manifest.json" 2>&1 > "${tmp}")" || rc=$?
+        else
+            err="$(python3 "${t}/block-rate.py" --run "${d}" 2>&1 > "${tmp}")" || rc=$?
+        fi
+        if [ "${rc}" -eq 0 ] && [ -s "${tmp}" ]; then
+            mv "${tmp}" "${a}/${name}.md" && echo "      ✓ ${a}/${name}.md"
+        else
+            rm -f "${tmp}"
+            bench_warn "${name}.py failed — ${a}/${name}.md not written: $(printf '%s\n' "${err:-no output}" | tail -1)"
+        fi
+    done
+    return 0
 }
 
 # --- leftovers (anything the benchmark could have created) -----------------------------
 # bench_bucket_names — buckets that are ours by label benchmark=1 OR by name tn-devnet-bench-*
-# (step 12 labels in a second call, so an unlabelled bucket must still be found). Never the
-# archive bucket, whatever its labels: the teardown deletes what this lists.
+# (step 12 labels in a second call, so an unlabelled bucket must still be found). The teardown
+# deletes what this lists, after copying each into results/<run>/bucket/.
 bench_bucket_names() {
     gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null \
-        | jq -r --arg archive "${BENCH_ARCHIVE_BUCKET}" '.[] | select(.name != $archive)
-            | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true
+        | jq -r '.[] | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true
 }
 
 # bench_leftovers — one line per existing instance / disk / firewall rule / bucket that is

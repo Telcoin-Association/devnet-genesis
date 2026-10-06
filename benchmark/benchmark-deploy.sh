@@ -849,9 +849,6 @@ step_12() {
             --location="${BENCH_BUCKET_LOCATION}" --uniform-bucket-level-access
     fi
     bench_run gcloud storage buckets update "gs://${BENCH_BUCKET}" --update-labels="${BENCH_LABELS}"
-    # The teardown refuses to delete anything until the run is archived; a bucket this account
-    # cannot create or read must stop the run now, not at teardown.
-    bench_archive_ensure || bench_die "archive bucket gs://${BENCH_ARCHIVE_BUCKET} can be neither read nor created — the teardown's archive gate would refuse. Fix access, then resume: benchmark/benchmark-deploy.sh --run ${BENCH_RUN_ID} --yes --from 12"
 }
 
 step_13() { echo ">>> Step 13: fund senders"; "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}"; }
@@ -867,18 +864,10 @@ step_15() {
         bench_warn "${COLLECT_METRICS_PY} not found — metrics.json not produced (re-run --only 15 once it exists)"
         bench_manifest_note "collect: ${COLLECT_METRICS_PY} missing at $(bench_now_iso)"
     fi
-    # An early copy: if the operator machine is lost before the teardown, the run survives. The
-    # teardown's archive gate is what guarantees the copy, so a failure here only warns.
-    if [ "${BENCH_COLLECT_ARCHIVE}" = "1" ]; then
-        echo "    archive (BENCH_COLLECT_ARCHIVE=1; non-fatal) -> ${BENCH_ARCHIVE_PREFIX}/"
-        if bench_archive_ensure && bench_archive_results "${BENCH_BUCKET}"; then
-            bench_manifest_jq --arg u "${BENCH_ARCHIVE_PREFIX}" --arg t "$(bench_now_iso)" \
-                '.archive = ((.archive // {}) + {uri: $u, collect_sync_at: $t})' && bench_archive_manifest \
-                || bench_warn "archive: manifest.json with collect_sync_at not uploaded"
-        else
-            bench_warn "archive at collect failed — the teardown's archive gate copies the run before any delete"
-        fi
-    fi
+    # metrics.json is new since the collect: analysis/ and the index again (non-fatal; the
+    # teardown's local gate is what guards results/<run>/, the only copy of the run).
+    bench_local_analysis
+    bench_local_index || bench_warn "INDEX.md / CHECKSUMS.sha256 not written — the teardown writes them"
 }
 
 step_16() {
@@ -977,11 +966,10 @@ EOP
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
-                     archive gs://${BENCH_ARCHIVE_BUCKET} exists or is created (${BENCH_ARCHIVE_LOCATION}, labels ${BENCH_ARCHIVE_LABELS}; never deleted by the harness)
   13  fund           benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
   14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, chaos on v05 + observer)
   15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
-                     $([ "${BENCH_COLLECT_ARCHIVE}" = "1" ] && echo "archive results/${BENCH_RUN_ID}/ + gs://${BENCH_BUCKET} -> ${BENCH_ARCHIVE_PREFIX}/ (non-fatal; BENCH_COLLECT_ARCHIVE=0 skips)" || echo "no archive at collect (BENCH_COLLECT_ARCHIVE=0); the teardown archives before any delete")
+                     tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
   16  teardown       $([ "${WITH_TEARDOWN}" -eq 1 ] && echo "benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" || echo "SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)")
 
 Scope: $([ -n "${ONLY}" ] && echo "ONLY step ${ONLY}" || echo "steps ${FROM}..${LAST_STEP}")
