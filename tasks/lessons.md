@@ -964,3 +964,15 @@ blast index (fund + create + exit cleanup, ~8 min) and the fleet sat idle.
 (`BENCH_BLASTER_MACHINE_TYPE=n2-standard-2` worked first time) rather than waiting or re-trying the
 same family; record the substitution for the backfill (the manifest does not carry the blaster
 type). Consider making the blast step try a fallback family by itself.
+
+## A subagent that must both evaluate live and then implement on the findings is two agents (2026-10-06)
+
+**Symptom:** the W2 agent (region evaluation + ZONES + three preflights + blaster fallback + README +
+report labels + tests) finished correctly but used ~346k tokens, against a ~250k budget. Nothing was
+lost, but a rate limit mid-way would have cost the whole implementation half.
+
+**Rule:** when a workstream has a live-evaluation phase whose output decides the implementation
+(zone list, quota verdicts), split it: one agent evaluates and writes the verdict file, the
+orchestrator reads the verdict, and a fresh agent implements against it. Each half then stays
+within budget and the verdict file doubles as the checkpoint. The same applies to "measure, then
+build the arms" work.

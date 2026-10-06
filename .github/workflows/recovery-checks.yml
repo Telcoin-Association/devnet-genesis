@@ -19,6 +19,7 @@ jobs:
         benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
         benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/benchmark-deploy.sh
         benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
+        benchmark/tools/latency-probe.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install shell lint tool
@@ -32,8 +33,8 @@ jobs:
         run: shellcheck -S warning ${BENCH_SHELL_SCRIPTS}
       - name: Python compile and 3.9 grammar
         run: |
-          python3 -m py_compile benchmark/*.py benchmark/report/*.py benchmark/tests/*.py
-          python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')]"
+          python3 -m py_compile benchmark/*.py benchmark/report/*.py benchmark/tests/*.py benchmark/tools/*.py
+          python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')+glob.glob('benchmark/tools/*.py')]"
       - name: Unit tests (offline fixtures)
         run: python3 -m unittest discover -s benchmark/tests -v
       - name: Mutation checks
