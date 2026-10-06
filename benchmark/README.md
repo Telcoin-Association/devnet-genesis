@@ -545,11 +545,17 @@ prints the "left nothing" checks, which confirm that no labelled or `bench-*` re
 that every devnet instance is still present, and that `devnet-allow-consensus` matches the
 pre-run snapshot. It also prints the file count and size of `results/<run>/`, which it keeps.
 
-Nothing is deleted until three gates pass, in this order:
+Nothing is deleted until four gates pass, in this order:
 
 1. **Logs.** Every live node's logs are pulled to `results/<run>/logs/` (`BENCH_TEARDOWN_SKIP_LOGS=1` overrides).
 2. **Recovery evidence.** Each node's service journal and sampler files are pulled.
-3. **Local gate.** `results/<run>/` is the only copy of the run, so for every node in
+3. **Certification.** `tools/cert-rate.py` runs over the pulled logs and records every validator's
+   per-window certification in `manifest.certification`; a validator that certified fewer than
+   `BENCH_CERT_FAIL_PCT` % (default 90) of at least 50 proposed headers in a window is listed in
+   `manifest.cert_failures[]`, its container log is saved on the node as a `cert-fail` snapshot and
+   pulled, and every one of its logs is named in `cert_failures[].logs[]` (see "Certification
+   outcome"). This step warns rather than blocks; the local gate enforces the files it listed.
+4. **Local gate.** `results/<run>/` is the only copy of the run, so for every node in
    `INSTANCE_NAMES` it must hold a non-empty `logs/<node>-telcoin.log.gz`,
    `logs/<node>-unit-stdout.log.gz` and `logs/<node>-recovery-*.tgz`, plus a `manifest.json`
    that parses and every log listed in `manifest.cert_failures[].logs[]` (relative to

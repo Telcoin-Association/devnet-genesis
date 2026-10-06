@@ -976,3 +976,20 @@ lost, but a rate limit mid-way would have cost the whole implementation half.
 orchestrator reads the verdict, and a fresh agent implements against it. Each half then stays
 within budget and the verdict file doubles as the checkpoint. The same applies to "measure, then
 build the arms" work.
+Addendum, same day: W4 (441k) and W3a (273k, stopped itself at the budget) overran too. The
+workstreams that stayed in budget were the ones with ONE new tool or ONE harness region. Rule of
+thumb for sizing: a new tool + its tests + its doc section is one agent; a harness change across
+deploy/lib/config + tests is one agent; a live evaluation is one agent. Never combine two of those.
+
+## bash 3.2 misparses `case` inside `$(...)`; run the bash tests once with /bin/bash first on PATH (2026-10-06)
+
+**Symptom:** a new bench-lib function with a `case` statement inside a command substitution passed
+every test under Homebrew bash 5 and failed under macOS /bin/bash 3.2, which the shebang never
+selects here but an operator's shell might. The same construct already sits in
+`benchmark-blast.sh` (CHAOS_STAGE_SCRIPT heredoc inside `$(...)`, ~line 607): `/bin/bash -n` rejects
+the file today; CI (bash 5) does not see it.
+
+**Rule:** inside `$(...)`, write case patterns as `(pattern)` with the opening parenthesis, or move
+the `case` out of the substitution. Before committing shell that must run on macOS, run
+`/bin/bash -n <script>` in addition to `bash -n`, and run the bash-driven unit tests once with
+`PATH=/bin:$PATH`.

@@ -25,7 +25,10 @@
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
 # instance that holds its name NOW and every log that marker lists is still here; a marker or a
 # log an earlier fleet left under the same name never counts. An instance already gone never blocks.
-# Then the service journal + sampler evidence per node, then the LOCAL GATE: results/<run>/ is the
+# Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
+# runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
+# window gets a cert-fail log snapshot saved on the node and pulled, listed in
+# manifest.cert_failures[].logs[]. Then the LOCAL GATE: results/<run>/ is the
 # only copy of the run (no bucket keeps another), so before the first delete it must hold, for every
 # node in INSTANCE_NAMES, a non-empty logs/<node>-telcoin.log.gz, logs/<node>-unit-stdout.log.gz and
 # logs/<node>-recovery-*.tgz, a manifest.json that parses, and every log manifest.cert_failures[]
