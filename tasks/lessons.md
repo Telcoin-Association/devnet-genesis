@@ -1,5 +1,56 @@
 # Lessons
 
+## A remote command string with nested quotes is parsed twice; ship remote scripts over stdin (2026-10-06)
+
+**Symptom:** the first live teardown of r20261006-0053 saved all 11 node logs and then refused to
+delete anything: the recovery-evidence capture (merged 2 Oct, exercised only through a stubbed
+`tn_iap_ssh` in unit tests) sent `sudo bash -c '… trap '\''rm -rf …'\'' EXIT …'` through
+`gcloud compute ssh --command`. The local single-quoted literal already collapsed the `'\''`
+sequences, so the node received a `trap` line without its quotes and printed `trap: usage`.
+The fleet sat idle (billing) until the function was rewritten.
+
+**Fix / rule:** anything longer than one simple command goes to the node on STDIN
+(`tn_iap_ssh_stdin` -> `sudo bash -s`, as step 9 already does); never build a `--command`
+string that quotes a quoted script. Corollary: a new remote-exec path whose tests only stub the
+SSH helper has never been parsed by a remote shell. Run it once against a live VM (any VM)
+before a teardown or a gate depends on it.
+
+## gcloud can hang indefinitely on the critical path; alarm-wrap it and fall through (2026-10-06)
+
+**Symptom:** `gcloud artifacts docker images describe <tag>` hung for 10+ minutes inside the
+image probe (0.35 s CPU, no output) while the same command returned in 3 s from another shell.
+Killing it let the registry-HEAD fallback finish in seconds. Cause unverified (credential-store
+contention is the suspicion).
+
+**Fix / rule:** every gcloud call that a gate or a timed step waits on gets
+`perl -e 'alarm N; exec @ARGV' gcloud … </dev/null` and a fallback (or a clear die). A hung
+helper looks exactly like a slow network; a bounded one tells you which it was.
+
+## A mutable image tag moved three times in a day; pin by digest at the probe, never from a plan (2026-10-06)
+
+**Symptom:** the plan recorded `adiri:mmap-subsecond-10-5-2026` at digest 617502f6 and sha
+977166280 (tn-duplicate). By launch the tag pointed at 61fe433a, built from a different
+checkout (`telcoin-network`, integration branch devnet-bench-10-5-2026, sha 964087e0) that was
+not on GitHub yet. Only the probe caught it (and the plan's gate 1 stopped the run until the
+branch was pushed).
+
+**Fix / rule:** a plan may name a tag, never a digest or sha as fact. The gate resolves the
+digest, reads `telcoin -V`, confirms the sha is reachable on the public repo, and pins every
+later step to `repo@sha256:…`. Also: a `require` string gate is only valid after it passes on
+the known-good baseline image (Prometheus metric names are assembled at run time and are not in
+the binary; five such lines had to be dropped).
+
+## Reviewing a tree other agents are still editing produces false blockers (2026-10-06)
+
+**Symptom:** reviewer Rb reported two BLOCKING failures that were only the result of concurrent
+edits landing mid-review (a signature change in make_bundle.py vs an older test helper; a
+hygiene test tripping on a literal another unit had just added).
+
+**Fix / rule:** freeze the file set of a commit before its review starts (no unit may write to
+those paths until the review hands back), or review a copy. Treat a reviewer's "suite fails"
+as a possible race first and re-run the suite on the frozen tree before fixing anything.
+
+
 ## Inline multi-word loops die under zsh — drivers must be bash FILES (2026-07-22)
 
 **Symptom:** the G4-B boundary check "failed" with empty output from both nodes at T0+8 —
