@@ -477,6 +477,13 @@ with a note, and its files stay. A validator with fewer than 50 proposals in eve
 judged. Neither step stops a collect or a teardown: a failure is a warning, and the local gate
 decides. The teardown prints the outcome in its last lines.
 
+`report/make_bundle.py` publishes it. The built report gets a "Certification by node" section
+after "Consensus health": one row per validator with its region, its rate in every window, and its
+own-leader and not-committed shares over the run, next to the fair share (100 / validators). When
+`cert_failures` is not empty, run.json gets a caveat naming the validators, the threshold and the
+windows. The site's run.json schema has no field for the table. An archived report is copied byte
+for byte, so it gets the caveat only.
+
 ## Teardown guarantees
 
 `benchmark-teardown.sh` collects its candidates first: bench instances, bench firewall rules,
