@@ -285,3 +285,23 @@ With `<results-dir>/manifest.json` present (`--results-dir`, or `results/<run>` 
 An arm name is `[a-z0-9-]` and unique in the record. `report/provenance.py` accepts a logged value
 when it is the fleet value, the node's step-9 override, or a value an arm begun by then set for
 that node. `report/make_bundle.py` publishes the arms as rows in `consensus.param_arms`.
+
+## propose-latency
+
+`propose-latency.py` measures, per validator, the time from `header proposed` to the node's own
+`quorum reached` (C), the round period, and the gap from a quorum to the next proposal. It is the
+calibration input of `cadence-model.py`.
+
+```
+propose-latency.py --logs <dir> [--node-glob GLOB] [--node-name-regex RE] [--windows MANIFEST | --from ISO --to ISO]
+```
+
+File selection matches `cert-rate.py`: every `bench-validator-*.log.gz` in the directory, grouped
+by node with `^(bench-validator-[0-9]+)-`. A restart-per-arm sweep splits a node's history over the
+`telcoin-pre-arm-<arm>-<UTC>` logs, the last container's `telcoin` log and the `unit-stdout` file,
+and the same lines appear in more than one of them; an event line counts once per node, and
+proposals pair with quorums by (epoch, round). `--windows` prints one table per `param_arms[]` and
+`phases[]` entry plus a `run` table (an arm with no `end` is left out). `--from`/`--to` take full
+UTC times (`2026-10-06T23:50:00Z`); `HH:MM:SS` is accepted only when every event falls on one UTC
+day, so a window across midnight needs the date. Under each table, a node with no event in the
+window is named with the span its files cover. Its rate shows `—` rather than 0.

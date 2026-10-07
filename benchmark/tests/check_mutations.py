@@ -1,4 +1,4 @@
-"""Reject seven broken code paths in checked temporary copies of the source.
+"""Reject eight broken code paths in checked temporary copies of the source.
 
 Each case copies the files its test module needs into a temporary tree laid out like the repo
 (<tmp>/<tree>/config.sh, <tmp>/<tree>/benchmark/...), since the tests find their scripts and
@@ -20,6 +20,7 @@ suites = {
                       "benchmark/node-sampler.sh", "benchmark/benchmark-blast.sh"),
     "test_report_windows": ("benchmark/report/windows.py", "benchmark/tests/fixtures/report"),
     "test_report_scrub": ("benchmark/report/scrub.py", "benchmark/tests/fixtures/report"),
+    "test_propose_latency": ("benchmark/tools/propose-latency.py",),
     # test_node_image.TREE (copied from the repo root into each sandbox) plus its fixtures.
     "test_node_image": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
                         "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
@@ -46,6 +47,9 @@ cases = [
     # 10.x.y.z is no longer a private address.
     ("benchmark/report/scrub.py", '"' + "10." + '0.0.0/8", ', "",   # split: the hygiene test bans the literal
      "test_report_scrub.ScanTextTests.test_ten_slash_eight_is_private_ip"),
+    # A line found in two files of a node counts twice.
+    ("benchmark/tools/propose-latency.py", "if key in self._seen:", "if False:",
+     "test_propose_latency.ProposeLatencyTests.test_one_node_over_overlapping_files_counts_each_event_once"),
 ]
 
 
