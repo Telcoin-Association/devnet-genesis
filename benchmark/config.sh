@@ -184,11 +184,20 @@ export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
 # tools/params-apply.sh PARAM_KEYS.
 export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
 # Node log filter: step 9 puts --log.stdout.filter <f> --log.file.filter <f> --log.file.max-files <n> on the
-# node's command line, so per-peer vote request/response timing (primary::certifier) and the proposer's
-# parents and delays (primary::proposer) are logged. Debug on these two targets is tens of lines per round,
-# a few GB uncompressed over a 4-hour run (the file log rotates at 200 MB x max-files; the hyperdisk has
-# room). BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
-export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info}"
+# node's command line. The default logs per-peer vote request/response timing (primary::certifier), the
+# proposer's parents and delays (primary::proposer), the voter side (primary=debug: `Processing vote request
+# from peer`, `Created vote`; the three cert_* =info overrides drop the per-certificate dumps) and the
+# handler's missing-parent lines (tn_primary::network::handler).
+# The heavy diagnostic targets are opt-in: network=debug (`request received`, the vote request's arrival at
+# the voter, with the full header: the bulk), multistream_select=debug, libp2p_swarm::connection::pool=debug,
+# peer-manager=debug (per-substream negotiation and connection lifecycle, needed once to prove the
+# negotiation fix) and network-kad=info. With them on, r20261007-0316 logged ~1 MB per round per node:
+# ~3 GB/h raw idle and ~22 GB/h under load, on disk twice (container json-file log + unit append file), and
+# ~80 GB pulled at teardown; network=debug was 97 % of the bytes in a sample under load. For a diagnostic run,
+# append them to the default:
+#   BENCH_NODE_LOG_FILTER="<default>,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info"
+# BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
+export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug}"
 export BENCH_NODE_LOG_MAX_FILES="${BENCH_NODE_LOG_MAX_FILES:-20}"
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"

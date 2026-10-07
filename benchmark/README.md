@@ -154,14 +154,40 @@ or 9 runs. The fork-schedule check uses the smallest `max_header_delay` of any n
 
 ### Node log filter
 
-`BENCH_NODE_LOG_FILTER` (default `info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info`; the certifier and proposer lines give per-peer vote timing and parent choice, `primary=debug` with the three `=info` overrides gives the voter side (`Processing vote request from peer`, `Created vote`) without the per-certificate dumps, the handler target the rare missing-parent lines, the three libp2p/peer-manager targets the per-substream protocol negotiation and connection lifecycle that stage 1 found to cost a round trip per vote, and `network=debug` the `request received` line that timestamps a vote request's arrival at the voter (with the full header, ~15 KB per round); about 60 KB per node per round, ~250 MB per node over 40 min) goes
-onto each node's command line at step 9 as `--log.stdout.filter` and `--log.file.filter`, with
-`--log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}` (default 20). `primary::certifier` logs each
-vote request and response per peer; `primary::proposer` logs the parents and delays of each
-header. That is tens of lines per round: a 4-hour run writes a few GB uncompressed into the
-container log, and the file log under `<datadir>/.cache/reth/logs/telcoin-network-logs/` rotates
-at 200 MB per file. The hyperdisk has room. `BENCH_NODE_LOG_FILTER=` (empty) leaves the command
-line as it is. `manifest.node_startup[<instance>]` records `log_filter` and `log_max_files`.
+`BENCH_NODE_LOG_FILTER` (default
+`info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug`)
+goes onto each node's command line at step 9 as `--log.stdout.filter` and `--log.file.filter`,
+with `--log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}` (default 20). What each target gives:
+
+- `primary::certifier=debug`: each vote request and response per peer, so per-peer vote timing.
+- `primary::proposer=debug`: the parents and delays of each header.
+- `primary=debug`, with `primary::cert_validator`, `primary::cert_manager` and
+  `primary::cert_fetcher` held at `info`: the voter side (`Processing vote request from peer`,
+  `Created vote`) without the per-certificate dumps.
+- `tn_primary::network::handler=debug`: the rare missing-parent lines.
+
+The heavy diagnostic targets are opt-in: `network=debug` (the `request received` line, which
+timestamps a vote request's arrival at the voter and carries the full header),
+`multistream_select=debug`, `libp2p_swarm::connection::pool=debug` and `peer-manager=debug` (the
+per-substream protocol negotiation and connection lifecycle, which stage 1 needed once to prove
+the negotiation fix) and `network-kad=info`. They were the default in r20261007-0316, which logged
+about 1 MB per node per round: ~3 GB/h raw per node idle, ~22 GB/h under load, and ~80 GB pulled
+at teardown. `network=debug` is the bulk. Re-filtering bench-validator-01's log offline, the
+new default keeps about 31 % of the bytes of the first 24 minutes after the stage-2 restart
+and 1.2 % of a 98-second slice under load, where `network` debug lines were 97 % of the bytes.
+For a diagnostic run, append the heavy set to the default:
+
+```
+BENCH_NODE_LOG_FILTER="info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info"
+```
+
+Every container line lands on the node twice: in the docker json-file log, which has no size
+limit, and in the unit's append file `/var/log/telcoin/telcoin.log`, which duplicates it (the
+teardown pulls both, as `<node>-telcoin.log.gz` and `<node>-unit-stdout.log.gz`). The file log
+under `<datadir>/.cache/reth/logs/telcoin-network-logs/` is a third copy, but it rotates at
+200 MB per file. Bounding the json-file log (`--log-opt max-size`) is a follow-up, not done
+yet. `BENCH_NODE_LOG_FILTER=` (empty) leaves the command line as it is.
+`manifest.node_startup[<instance>]` records `log_filter` and `log_max_files`.
 
 ### What step 9 reports
 
