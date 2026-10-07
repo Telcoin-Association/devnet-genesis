@@ -320,14 +320,26 @@ class ScratchTests(TmpMixin, unittest.TestCase):
     def test_allowlist_copy(self):
         scratch = self.prepare()
         self.assertEqual(scratch, os.path.join(self.work_root, self.RUN))
+        # The node logs are not copied: provenance_step reads them in place in results/<run>/logs/.
         self.assertEqual(tree(scratch), sorted([
-            MARKER, "blasters/load-a.json", "logs/val-1-telcoin.log",
-            "logs/val-2-telcoin-kill-20260101T000500Z.log.gz", "logs/val-2-unit-stdout.log",
-            "manifest.json", "metrics.json", "reference-chains.json", "sampler/val-1.csv"]))
+            MARKER, "blasters/load-a.json", "manifest.json", "metrics.json", "reference-chains.json",
+            "sampler/val-1.csv"]))
+        self.assertEqual(len(os.listdir(os.path.join(self.results, "logs"))), 5)
         self.assertEqual(load_json(os.path.join(scratch, "manifest.json")), {"which": "top"})
         marker = load_json(os.path.join(scratch, MARKER))
         self.assertEqual({k: marker[k] for k in ("run", "blast_index", "source")},
                          {"run": self.RUN, "blast_index": None, "source": self.RUN})
+
+    def test_provenance_reads_the_logs_in_place(self):
+        """The same provenance as from a copy of the logs (the old scratch/logs), without the copy."""
+        self.prepare()
+        in_place = quiet(mb.provenance_step, mb.results_path(self.RUN), {"node_git_sha": SHA}, {}, False)[0]
+        copy_dir = os.path.join(self.tmp, "copied")
+        shutil.copytree(os.path.join(self.results, "logs"), os.path.join(copy_dir, "logs"))
+        copied = quiet(mb.provenance_step, copy_dir, {"node_git_sha": SHA}, {}, False)[0]
+        self.assertEqual(in_place, copied)
+        self.assertEqual(in_place["upstream"]["evidence"], "verified")
+        self.assertIn("2 node starts across 2 instances", in_place["upstream"]["evidence_detail"][0])
 
     def test_blast_index_picks_its_dir(self):
         scratch = self.prepare(blast_index=0)
@@ -1228,6 +1240,63 @@ class CertificationBundleTests(unittest.TestCase):
         self.assertEqual([f.format() for f in site.check_bundle(out)], [])
 
 
+# --------------------------------------------------------------------------- synthetic run end to end
+
+
+@unittest.skipUnless((TXGEN_BENCH / "aggregate.py").is_file() and SITE_SCRUB.is_file(),
+                     "needs tn-transaction-generator and tn-benchmarks checkouts next to this repo")
+class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
+    """The synthetic run built by main() with the real tools and the site's scrub.py as the gate: the
+    node logs are read in place and nothing under the work dir is a log."""
+    RUN = "r20260101-synth"
+
+    def setUp(self):
+        super(SyntheticEndToEndTests, self).setUp()
+        results = os.path.join(self.results_root, self.RUN)
+        shutil.copytree(str(SYNTH), results)
+        write_json(os.path.join(results, "manifest.json"), enriched_synthetic_manifest())
+        self.logs = os.path.join(results, "logs")
+        write_text(os.path.join(self.logs, "val-1-telcoin.log"), node_log(SHA, vote_timeout=5000))
+        with gzip.open(os.path.join(self.logs, "val-2-telcoin.log.gz"), "wt") as fh:
+            fh.write(node_log(SHA, vote_timeout=5000))
+        self.site = os.path.join(self.tmp, "site")
+        os.makedirs(self.site)
+        shutil.copyfile(str(SITE_SCRUB), os.path.join(self.site, "scrub.py"))
+        self.out = os.path.join(self.tmp, "out", self.RUN)
+        self.backfill = os.path.join(self.tmp, "bf.json")
+        write_json(self.backfill, {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}})
+
+    def test_bundle_without_copying_the_logs(self):
+        before = {n: sha256(os.path.join(self.logs, n)) for n in os.listdir(self.logs)}
+        rc, out, err = self.main("--run", self.RUN, "--backfill", self.backfill, "--out", self.out,
+                                 "--txgen-bench", TXGEN_BENCH, "--analysis-sha", "abcdef0", BENCH_SITE_REPO=self.site)
+        self.assertEqual(rc, 0, err[-3000:])
+        self.assertIn("2 provenance: 2 log files, 2 starts", out)
+        self.assertIn("gates: site scrub.py: scrub: 0 error(s)", out)
+        scratch = os.path.join(self.work_root, self.RUN)
+        self.assertFalse(os.path.lexists(os.path.join(scratch, "logs")))
+        self.assertEqual([p for p in tree(self.work_root) if ".log" in os.path.basename(p)], [])
+        self.assertEqual({n: sha256(os.path.join(self.logs, n)) for n in os.listdir(self.logs)}, before)
+        with open(os.path.join(self.out, "run.json"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotIn(self.tmp, text)
+        doc = json.loads(text)
+        self.assertEqual(doc["upstream"], {
+            "repo": mb.UPSTREAM_REPO, "sha": SHA, "short": SHA[:9], "branch": None, "evidence": "verified",
+            "evidence_detail": ["2 node starts across 2 instances logged telcoin-network 0.1.0 (%s)" % SHA]})
+        self.assertEqual(doc["consensus"], {
+            "max_header_delay_ms": 3000, "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000,
+            "vote_timeout_ms": 5000, "file": mb.LOGS_PARAMS_FILE, "confirmed_by": mb.LOGS_CONFIRMED_BY})
+        # The KPIs from the fixture's metrics and sampler (aggregate.py computes the others).
+        kpis = dict((k["id"], k.get("value", k.get("range"))) for k in doc["kpis"])
+        self.assertEqual({k: kpis.get(k) for k in (
+            "commit_latency_p95_s", "execution_time_per_output_s", "disk_write_p95_mibps_busiest",
+            "disk_write_iops_p95_busiest", "cpu_p95_pct_busiest", "rss_p95_gib_busiest", "psi_io_max_pct")}, {
+            "commit_latency_p95_s": [2.0, 2.5], "execution_time_per_output_s": [0.11, 0.22],
+            "disk_write_p95_mibps_busiest": 24.0, "disk_write_iops_p95_busiest": 1200, "cpu_p95_pct_busiest": 60.0,
+            "rss_p95_gib_busiest": 3.0, "psi_io_max_pct": [7.3, 12.5]})
+
+
 # --------------------------------------------------------------------------- page-only end to end
 
 
@@ -1414,6 +1483,7 @@ class Run20260929IntegrationTests(unittest.TestCase):
         self.assertEqual(rc, 0, err[-3000:])
         self.assertEqual(os.path.lexists(real_scratch), existed, "the real work/report dir must not be touched")
         self.assertTrue(os.path.isfile(os.path.join(work, self.RUN, "scrubbed", "report.html")))
+        self.assertFalse(os.path.lexists(os.path.join(work, self.RUN, "logs")), "node logs are read in place")
         self.assertIn("gates: harness scan_dir: clean", stdout)
         self.assertIn("gates: site scrub.py: scrub: 0 error(s)", stdout)
         self.assertEqual(tree(out), ["report.html", "run.json", "series/tps-1s.json"])

@@ -32,12 +32,13 @@ rebuilds it from the requested blast.
 Pipeline, one log line per step, numbered in execution order:
     0 setup       out dir (origin must end in Telcoin-Association/tn-benchmarks[.git]), backfill
                   and compare-scratch checks.
-    1 scratch     copy an allowlist (manifest.json, metrics.json, blasters/*.json, sampler/*.csv,
-                  node logs) into the scratch dir, plus an empty reference-chains.json. With
-                  --blast-index N the manifest, metrics and blasters come from blast-N-*/.
-    2 provenance  node logs vs the expected upstream sha (manifest node_git_sha, else the
-                  backfill's upstream.sha). A mismatch refuses here, before the slow steps,
-                  unless --allow-provenance-mismatch.
+    1 scratch     copy an allowlist (manifest.json, metrics.json, blasters/*.json, sampler/*.csv)
+                  into the scratch dir, plus an empty reference-chains.json. With --blast-index N
+                  the manifest, metrics and blasters come from blast-N-*/. The node logs are not
+                  copied (tens of GB for a debug-filter run); step 2 reads them in place.
+    2 provenance  node logs in results/<run>/logs/, read in place, vs the expected upstream sha
+                  (manifest node_git_sha, else the backfill's upstream.sha). A mismatch refuses
+                  here, before the slow steps, unless --allow-provenance-mismatch.
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
@@ -465,10 +466,16 @@ def compare_mismatch_error(r2, blast_index, reason):
                           "" if blast_index is not None else " (no --compare-blast-index)", blast_label(blast_index)))
 
 
+def results_path(run_id):
+    return os.path.join(RESULTS_ROOT, run_id)
+
+
 def prepare_scratch(run_id, blast_index, force, step=None):
-    """Allowlisted copy of results/<run_id> (or its blast-<N>-*/) into the scratch dir."""
+    """Allowlisted copy of results/<run_id> (or its blast-<N>-*/) into the scratch dir. The scratch
+    dir holds inputs the tools rewrite and their outputs only: the node logs stay in the results
+    dir, where provenance_step reads them."""
     step = step or S_SCRATCH
-    results = os.path.join(RESULTS_ROOT, run_id)
+    results = results_path(run_id)
     if not os.path.isdir(results):
         raise BundleError("results dir does not exist: %s" % results)
     scratch = scratch_path(run_id)
@@ -503,17 +510,12 @@ def prepare_scratch(run_id, blast_index, force, step=None):
         os.makedirs(os.path.join(scratch, "sampler"))
         for p in csvs:
             _copy_file(p, os.path.join(scratch, "sampler", os.path.basename(p)))
-    logs = provenance.node_log_files(results)  # node logs only, a subset of logs/*.log[.gz]
-    if logs:
-        os.makedirs(os.path.join(scratch, "logs"))
-        for p in logs:
-            _copy_file(p, os.path.join(scratch, "logs", os.path.basename(p)))
     write_empty_reference(os.path.join(scratch, REFERENCE_FILE))
     with open(os.path.join(scratch, SOURCE_MARKER), "w") as fh:
         json.dump({"run": run_id, "blast_index": blast_index, "source": os.path.relpath(src, RESULTS_ROOT),
                    "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-    log(step, "%s <- %s (%d blasters, %d sampler csv, %d node logs)"
-        % (os.path.relpath(scratch, REPO_ROOT), os.path.relpath(src, REPO_ROOT), len(blasters), len(csvs), len(logs)))
+    log(step, "%s <- %s (%d blasters, %d sampler csv)"
+        % (os.path.relpath(scratch, REPO_ROOT), os.path.relpath(src, REPO_ROOT), len(blasters), len(csvs)))
     return scratch
 
 
@@ -603,12 +605,13 @@ def ensure_compare(r2, blast_index, tool_dir, force):
 
 # ------------------------------------------------------------------------- step 2: provenance
 
-def provenance_step(scratch, manifest, backfill, allow_mismatch):
-    """Upstream block, logged version / fork schedule / parameters, and caveats."""
+def provenance_step(run_dir, manifest, backfill, allow_mismatch):
+    """Upstream block, logged version / fork schedule / parameters, and caveats, from the node logs
+    in <run_dir>/logs/ (the run's results dir: read in place, never copied)."""
     bf_up = backfill.get("upstream") or {}
     expected = manifest.get("node_git_sha") or bf_up.get("sha")
     expected = str(expected).strip().lower() if expected else None
-    scan = provenance.scan_run(scratch)
+    scan = provenance.scan_run(run_dir)
     caveats, detail = [], []
     out = {"version": None, "fork_schedule": None, "params": {}, "param_values": {}}
     sha = expected if expected and FULL_SHA_RE.fullmatch(expected) else None
@@ -1594,9 +1597,10 @@ def _main(a):
 
     scratch = prepare_scratch(run_id, a.blast_index, a.force)
     raw_manifest = _load_input(os.path.join(scratch, "manifest.json"))
-    # Provenance first (it only needs scratch/logs and the raw manifest, where node_git_sha and
-    # friends are unscrubbed), so a mismatch refuses before the slow report build.
-    prov = provenance_step(scratch, raw_manifest, backfill, a.allow_provenance_mismatch)
+    # Provenance first (it only needs the node logs, read in place in results/<run>/logs/, and the
+    # raw manifest, where node_git_sha and friends are unscrubbed), so a mismatch refuses before
+    # the slow report build.
+    prov = provenance_step(results_path(run_id), raw_manifest, backfill, a.allow_provenance_mismatch)
     run_tools(scratch, tool_dir)
     scrubbed = scrub_scratch(scratch)
     if archived:
