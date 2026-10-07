@@ -1067,3 +1067,7 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Rule: when a test run gates a commit, run it bare (or `set -o pipefail` in that shell) and let its exit
   status stop the chain; show its tail in a separate command. Changing a committed default also means
   checking which tests pin that value (grep the literal) before committing.
+
+## 2026-10-07 — update: the bash 3.2 `case`-inside-`$(...)` failure in benchmark-blast.sh is fixed
+- Commit a97dc4c rewrote the chaos stage heredoc with `(pattern)` case syntax; `/bin/bash -n benchmark/benchmark-blast.sh`
+  now passes. The rule above (run `/bin/bash -n` on shell that must run on macOS) stands.
