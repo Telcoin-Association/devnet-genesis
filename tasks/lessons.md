@@ -1142,3 +1142,30 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   `Reauthentication` before classifying the failure as transient — the gcloud message sits a few lines above
   the harness's ✗ line. Agents: never switch the active account or skip the log gate to get past it; record
   the state and hand back to the operator.
+
+## 2026-10-07 — a marker freshness rule turned a teardown re-run into a full fleet re-pull; dry-run the markers and df before --yes
+- The teardown's `.pulled` markers expired after 15 minutes ("the node has logged since"), so the re-run nine
+  hours after the first attempt (which had saved 9 of 11 nodes) rejected all nine markers and started pulling
+  every node's 12-hour container log (~3.3 GB gz each) plus a second unit-stdout copy "beside" the saved one:
+  70-85 GB against 57 GB free. It had to be killed by the operator; nothing was lost, but the fleet billed for
+  another hour and the re-run only succeeded on the fourth attempt with the new `BENCH_TEARDOWN_TRUST_MARKERS=1`
+  (3606768: trust a marker whose logs are all present at their recorded sizes; refuse to pull under
+  `BENCH_TEARDOWN_MIN_FREE_GB`).
+- Rule: before a `--yes` teardown re-run, run the dry run and read two things: each marker's verdict (accepted /
+  not accepted and why) and `df` against the projected pull (nodes to pull × their log sizes, doubled when the
+  marker does not vouch for the unit-stdout file). If the verdict says "not accepted" for nodes whose logs are
+  already here, set `BENCH_TEARDOWN_TRUST_MARKERS=1` rather than letting the rule re-pull them. A freshness rule
+  on a growing log is the wrong test for "is the saved copy good": size-and-presence against the marker is.
+
+## 2026-10-07 — a heavy debug filter multiplies the teardown, not just the disk
+- At ~1 MB/round/node (`network=debug`, `multistream_select=debug`, `libp2p_swarm::connection::pool=debug`,
+  `peer-manager=debug` on top of the primary targets) the r20261007-0316 teardown pulled 61 GB in two hours,
+  outlived the gcloud reauth window, re-pulled 3.3-4.3 GB per file on the re-run, spent ~35 min on cert-rate over
+  the logs, ~15 min and 3.5 GB per cert-fail snapshot (three of them), and then an hour-plus in the informational
+  `bench_local_analysis` pass over ~100 GB after the fleet was already deleted. Every one of those steps scales
+  with the filter, and a failing validator adds a snapshot the size of its container log.
+- Rule: size the teardown from the filter before the run: bytes per round × rounds × 2 copies × nodes is the pull,
+  plus one container log per validator expected to fail certification; if that is more than ~30 GB, drop the
+  network-level targets to opt-in (`BENCH_NODE_LOG_FILTER`) or plan the teardown as a multi-hour operator step
+  with a fresh gcloud session, `df` headroom of twice the pull, and the analysis step run afterwards on the
+  unit-stdout files only.
