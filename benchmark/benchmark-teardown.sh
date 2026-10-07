@@ -23,8 +23,18 @@
 # one non-empty log of it landed; the pull then leaves a marker naming the instance's id. A node
 # not saved stops the teardown with nothing deleted; BENCH_TEARDOWN_SKIP_LOGS=1 names those
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
-# instance that holds its name NOW and every log that marker lists is still here; a marker or a
-# log an earlier fleet left under the same name never counts. An instance already gone never blocks.
+# instance that holds its name NOW and every log that marker lists is still here at its listed
+# size; a marker or a log an earlier fleet left under the same name never counts. An instance
+# already gone never blocks. A marker also has to be fresh (pulled at most 15 min ago: after that
+# the node has logged more than it covers, and the node is pulled again).
+# BENCH_TEARDOWN_TRUST_MARKERS=1 lifts that age rule only, for a re-run after an interrupted
+# teardown: an older marker that is otherwise intact counts, its verdict line ends
+# "(BENCH_TEARDOWN_TRUST_MARKERS=1)", the node is not pulled again, and a manifest note lists
+# each node accepted that way with its marker's pull time.
+# The pull copies each node's whole log as it is now, and a fleet left up after the run keeps
+# logging, so it can far exceed the run's own log size: check df before a teardown. Before the pull
+# starts, the filesystem under results/<run>/logs/ must have BENCH_TEARDOWN_MIN_FREE_GB (default 20;
+# 0 = no check) GB free; otherwise it stops with nothing pulled or deleted.
 # Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
 # runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
 # window gets a cert-fail log snapshot saved on the node and pulled, listed in
@@ -80,6 +90,15 @@ SKIP_LOGS="${BENCH_TEARDOWN_SKIP_LOGS:-0}"
 case "${SKIP_LOGS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOGS must be 0 or 1 (got '${SKIP_LOGS}')" >&2; exit 1 ;; esac
 SKIP_GATE="${BENCH_TEARDOWN_SKIP_LOCAL_GATE:-0}"
 case "${SKIP_GATE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOCAL_GATE must be 0 or 1 (got '${SKIP_GATE}')" >&2; exit 1 ;; esac
+# Read by bench-lib.sh's _bench_marker_verdict; only "1" changes anything there.
+TRUST_MARKERS="${BENCH_TEARDOWN_TRUST_MARKERS:-0}"
+case "${TRUST_MARKERS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_TRUST_MARKERS must be 0 or 1 (got '${TRUST_MARKERS}')" >&2; exit 1 ;; esac
+# A whole number of GB, no leading zero (bash reads 08 as octal), at most 6 digits; 0 = no check.
+MIN_FREE_GB="${BENCH_TEARDOWN_MIN_FREE_GB:-20}"
+case "${MIN_FREE_GB}" in
+    0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) echo "❌ BENCH_TEARDOWN_MIN_FREE_GB must be a whole number of GB, 0 to 999999 (got '${MIN_FREE_GB}')" >&2; exit 1 ;;
+esac
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
 
 # --reindex: INDEX.md + CHECKSUMS.sha256 over results/<run>/ as it is now, then exit. Local only:
@@ -432,10 +451,12 @@ fi
 # naming the id of the instance that holds the name now (from ALL_INST), whose logs are all still
 # here (bench_node_markers_report). A marker of an earlier fleet's instance, or of the older
 # format, never counts: that node is pulled again and its new logs land beside the old ones.
+# A marker older than BENCH_MARKER_MAX_AGE_SECS counts only with BENCH_TEARDOWN_TRUST_MARKERS=1;
+# TRUSTED collects "<inst>@<pull time>" for each marker accepted that way, for the manifest note.
 LOG_DIR="${BENCH_RESULTS_DIR}/logs"
-PULL_NAMES=(); PULL_ZONES=(); PULL_IDS=(); MISSING=()
+PULL_NAMES=(); PULL_ZONES=(); PULL_IDS=(); MISSING=(); TRUSTED=""
 echo ""
-echo ">>> node logs -> ${LOG_DIR} (nothing is deleted until these are saved)$([ "${SKIP_LOGS}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOGS=1')"
+echo ">>> node logs -> ${LOG_DIR} (nothing is deleted until these are saved)$([ "${SKIP_LOGS}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOGS=1')$([ "${TRUST_MARKERS}" = "1" ] && echo ' — BENCH_TEARDOWN_TRUST_MARKERS=1')"
 for i in "${!INSTANCE_NAMES[@]}"; do
     inst="${INSTANCE_NAMES[$i]}"
     if [ "$(printf '%s' "${ALL_INST}" | jq --arg n "${inst}" '[.[] | select(.name == $n)] | length')" = "0" ]; then
@@ -446,12 +467,43 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     GATE_IDS="${GATE_IDS}${ZONES[$i]} ${inst} ${id}"$'\n'
     if report="$(bench_node_markers_report "${LOG_DIR}" "${inst}" "${id}")"; then
         echo "    ✓ ${inst}: already saved — not pulled again ($(bench_node_saved_sources "${LOG_DIR}" "${inst}" "${id}"))"
+        for t in $(printf '%s\n' "${report}" | sed -n 's/.*: accepted .*, pulled \([^;]*\);.*(BENCH_TEARDOWN_TRUST_MARKERS=1)$/\1/p'); do
+            TRUSTED="${TRUSTED} ${inst}@${t}"
+        done
     else
         echo "    + ${inst}: to pull (instance ${id:-with no id in ${ZONES[$i]}})"
         PULL_NAMES+=("${inst}"); PULL_ZONES+=("${ZONES[$i]}"); PULL_IDS+=("${id}")
     fi
     printf '%s\n' "${report}"
 done
+# Free-space floor, before the pull starts. The pull copies each node's whole log as it is NOW: a
+# fleet left up after the run keeps logging, so the pull can far exceed the run's own log size.
+# Below BENCH_TEARDOWN_MIN_FREE_GB under <dest> (or unreadable) it does not start: nothing pulled,
+# nothing deleted. 0 skips the check.
+if [ "${#PULL_NAMES[@]}" -gt 0 ] && [ "${MIN_FREE_GB}" -gt 0 ]; then
+    df_dir="${LOG_DIR}"; [ -d "${df_dir}" ] || df_dir="${BENCH_RESULTS_DIR}"
+    free_kb="$(df -Pk "${df_dir}" 2>/dev/null | awk 'NR == 2 { print $4 }')" || free_kb=""
+    case "${free_kb}" in ''|*[!0-9]*) free_kb="" ;; esac
+    if [ -n "${free_kb}" ]; then
+        free_what="$(awk -v k="${free_kb}" 'BEGIN { printf "%.1f GB free", k / 1048576 }')"
+    else
+        free_what="free space unknown (df -Pk printed no number)"
+    fi
+    if [ -n "${free_kb}" ] && [ "${free_kb}" -ge $((MIN_FREE_GB * 1048576)) ]; then
+        echo "    ✓ ${free_what} under ${df_dir} (BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB}) for ${#PULL_NAMES[@]} node(s)"
+    elif [ "${BENCH_APPLY}" = "1" ]; then
+        echo "" >&2
+        echo "❌ ${free_what} under ${df_dir}, below BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB} — the pull of ${#PULL_NAMES[@]} node(s) did not start; NOTHING was deleted." >&2
+        echo "   Each node's whole log is pulled as it is now. A fleet left up after the run keeps logging, so the" >&2
+        echo "   pull can far exceed the run's own log size. Check df -h ${df_dir}, make room, and re-run." >&2
+        echo "   Logs a marker already vouches for are not pulled again; a marker older than" >&2
+        echo "   $((BENCH_MARKER_MAX_AGE_SECS / 60)) min counts only with BENCH_TEARDOWN_TRUST_MARKERS=1 (see the marker lines above)." >&2
+        echo "   Or set the floor: BENCH_TEARDOWN_MIN_FREE_GB=<GB> (0 = no check)." >&2
+        exit 1
+    else
+        echo "    ✗ ${free_what} under ${df_dir}, below BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB}: with --yes the teardown stops here, before the pull"
+    fi
+fi
 pull_rc=0
 if [ "${#PULL_NAMES[@]}" -gt 0 ]; then
     ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs "${LOG_DIR}" ) || pull_rc=$?
@@ -481,6 +533,11 @@ if [ "${pull_rc}" -ne 0 ] || [ "${#MISSING[@]}" -gt 0 ]; then
         echo "   Or delete without them: BENCH_TEARDOWN_SKIP_LOGS=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
         exit 1
     fi
+fi
+# The logs of a node saved by an older marker end at that marker's pull time: say so, once the gate
+# has passed (a gate that stops here records nothing; its re-run does).
+if [ -n "${TRUSTED}" ] && [ "${BENCH_APPLY}" = "1" ]; then
+    bench_manifest_note "teardown: saved logs accepted from markers older than the freshness window (BENCH_TEARDOWN_TRUST_MARKERS=1):${TRUSTED}"
 fi
 
 # Preserve sampler history and the service journal before any deletion, even when a

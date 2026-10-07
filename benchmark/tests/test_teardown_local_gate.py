@@ -67,6 +67,35 @@ LIB_SCRIPT = "set -euo pipefail\n" + "".join(shell_function(LIB, n) for n in (
     "_bench_write_checksums", "bench_local_index", "bench_local_gate_check", "bench_bucket_names"))
 
 
+def shell_assignment(source, name):
+    """The column-0 line that sets <name> in <source>."""
+    m = re.search(r"^%s=.*\n" % re.escape(name), source, re.M)
+    if not m:
+        raise AssertionError("assignment %s not found" % name)
+    return m.group()
+
+
+# The pull-marker verdict and its report, with the constants they read, as bench-lib.sh has them.
+MARKER_SCRIPT = "set -euo pipefail\n" + "".join(shell_assignment(LIB, n) for n in (
+    "BENCH_MARKER_MAX_AGE_SECS", "BENCH_PULL_MARKER_V")) + "".join(shell_function(LIB, n) for n in (
+    "bench_now_unix", "bench_iso_from_unix", "_bench_log_name_ok", "_bench_marker_verdict",
+    "bench_node_markers_report"))
+TRUSTED_NOTE = ("teardown: saved logs accepted from markers older than the freshness window "
+                "(BENCH_TEARDOWN_TRUST_MARKERS=1): ")
+
+
+def utc_ago(secs):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - secs))
+
+
+def marker_text(inst, node_id, pulled, files, end=True):
+    """A tn-bench-pulled/v2 marker vouching for <files> (Paths) at their sizes now."""
+    lines = ["tn-bench-pulled/v2", "instance " + inst, "id " + node_id, "created 2099-12-31T00:00:00.000-08:00",
+             "run " + RUN, "pulled " + pulled, "sources current-container log, unit stdout"]
+    lines += ["file %d %s" % (f.stat().st_size, f.name) for f in files]
+    return "\n".join(lines + (["end"] if end else [])) + "\n"
+
+
 def gz(text):
     return gzip.compress(text.encode())
 
@@ -302,6 +331,90 @@ class LocalHelperTests(unittest.TestCase):
         self.assertEqual(sorted(p.stdout.split()), sorted(["acme-labelled", RUN_BUCKET]))
 
 
+class MarkerVerdictTests(unittest.TestCase):
+    """The pull-marker verdict (bench_node_markers_report over _bench_marker_verdict): a marker
+    older than the freshness window is rejected unless BENCH_TEARDOWN_TRUST_MARKERS=1, which lifts
+    the age rule and nothing else."""
+
+    OLD = 9 * 3600   # a teardown re-run 9 h after the interrupted one
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="marker-verdict-")
+        self.logs = Path(self._tmp.name) / "logs"
+        self.logs.mkdir()
+        self.files = [self.logs / (INST + "-telcoin.log.gz"), self.logs / (INST + "-unit-stdout.log.gz")]
+        self.files[0].write_bytes(gz("node log line\n" * 100))
+        self.files[1].write_bytes(gz("unit stdout line\n" * 100))
+        self.pulled = None
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def mark(self, age, node_id=INST_ID, end=True, head=None):
+        self.pulled = utc_ago(age)
+        text = marker_text(INST, node_id, self.pulled, self.files, end)
+        if head is not None:
+            text = head + "\n" + text.split("\n", 1)[1]
+        (self.logs / (INST + ".pulled")).write_text(text)
+
+    def report(self, trust=None):
+        env = {"PATH": os.environ["PATH"]}
+        if trust is not None:
+            env["BENCH_TEARDOWN_TRUST_MARKERS"] = trust
+        return subprocess.run(["bash", "-c", MARKER_SCRIPT + 'bench_node_markers_report "$@"\n', "t",
+                               str(self.logs), INST, INST_ID], env=env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+
+    def rejected(self, p, why):
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, "        marker %s.pulled: not accepted — %s\n" % (INST, why))
+
+    def test_an_old_marker_is_rejected_by_default_and_accepted_with_trust(self):
+        self.mark(self.OLD)
+        for trust in (None, "0", "yes", "true"):
+            with self.subTest(trust=trust):
+                self.rejected(self.report(trust), "pulled %s, more than 15 min ago; the node has logged since" % self.pulled)
+        p = self.report("1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, "        marker %s.pulled: accepted — instance %s (created 2099-12-31T00:00:00.000-08:00), "
+                         "run %s, pulled %s; its 2 log(s) are here at their recorded sizes "
+                         "(BENCH_TEARDOWN_TRUST_MARKERS=1)\n" % (INST, INST_ID, RUN, self.pulled))
+
+    def test_a_fresh_marker_is_accepted_either_way_without_the_suffix(self):
+        self.mark(2)
+        for trust in (None, "1"):
+            with self.subTest(trust=trust):
+                p = self.report(trust)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertTrue(p.stdout.endswith("its 2 log(s) are here at their recorded sizes\n"), p.stdout)
+
+    def test_trust_rejects_a_missing_vouched_file(self):
+        self.mark(self.OLD)
+        self.files[1].unlink()
+        self.rejected(self.report("1"), "%s is gone" % self.files[1].name)
+
+    def test_trust_rejects_a_vouched_file_of_another_size(self):
+        size = self.files[0].stat().st_size
+        for label, data in (("grown", self.files[0].read_bytes() + b"x"),
+                            ("cut short", self.files[0].read_bytes()[:-1])):
+            with self.subTest(label):
+                self.files[0].write_bytes(gz("node log line\n" * 100))
+                self.mark(self.OLD)
+                self.files[0].write_bytes(data)
+                self.rejected(self.report("1"), "%s is %d bytes, the marker says %d" % (self.files[0].name, len(data), size))
+
+    def test_trust_keeps_every_other_check(self):
+        for label, kwargs, age, why in (
+                ("another instance", {"node_id": "999"}, self.OLD,
+                 "it is for instance 999 (created 2099-12-31T00:00:00.000-08:00); %s now is instance %s" % (INST, INST_ID)),
+                ("no end line", {"end": False}, self.OLD, "incomplete (no end line)"),
+                ("older format", {"head": "tn-bench-pulled/v1"}, self.OLD, "older format, names no instance id"),
+                ("future pull time", {}, -3600, None)):
+            with self.subTest(label):
+                self.mark(age, **kwargs)
+                self.rejected(self.report("1"), why or "pulled %s, which is in the future" % self.pulled)
+
+
 class TeardownSourceOrderTests(unittest.TestCase):
     """Where the gate sits in benchmark-teardown.sh, read from the source."""
 
@@ -416,6 +529,24 @@ class TeardownLocalGateTests(unittest.TestCase):
 
     def manifest(self):
         return json.loads((self.results / "manifest.json").read_text())
+
+    def age_marker(self, secs=9 * 3600):
+        """The live node's marker, as if pulled <secs> ago (an interrupted teardown's). Its pull time."""
+        m = self.results / "logs" / (INST + ".pulled")
+        pulled = utc_ago(secs)
+        m.write_text(re.sub(r"(?m)^pulled .*$", "pulled " + pulled, m.read_text()))
+        return pulled
+
+    def stub_df(self, row):
+        """A df whose -Pk output is the header and <row>."""
+        df = self.cloud.bin / "df"
+        df.write_text("#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\necho '%s'\n" % row)
+        df.chmod(0o755)
+
+    def log_pulls(self):
+        """The ssh sessions of a node-log pull (the recovery evidence's `sudo bash -s` is not one)."""
+        return [c for c in self.cloud.calls() if is_call(c, ("compute", "ssh"))
+                and any("docker logs" in a or "/var/log/telcoin" in a or "tar -cf" in a for a in c["argv"])]
 
     def instance_names(self):
         return [i["name"] for i in json.loads((self.cloud.state / "instances.json").read_text())]
@@ -619,6 +750,108 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertFalse((self.results / "INDEX.md").exists())
         self.assertFalse((self.results / "CHECKSUMS.sha256").exists())
         self.assertFalse((self.tree / "benchmark" / "results" / "r20991231-9999").exists())
+
+    def test_an_old_marker_is_pulled_again_by_default(self):
+        self.give_every_node_its_logs()
+        pulled = self.age_marker()
+        self.stub_df("/dev/fake 999999999 1 104857600 1% /")   # 100.0 GB free
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("marker %s.pulled: not accepted — pulled %s, more than 15 min ago; the node has logged since"
+                      % (INST, pulled), p.stdout)
+        self.assertIn("+ %s: to pull" % INST, p.stdout)
+        self.assertIn("✓ 100.0 GB free under %s (BENCH_TEARDOWN_MIN_FREE_GB=20) for 1 node(s)"
+                      % (self.results / "logs"), p.stdout)
+        self.assertTrue(self.log_pulls(), "the node is pulled again")   # the fake gcloud refuses: the pull fails
+        self.assertIn("node logs not saved — NOTHING was deleted", p.stderr)
+        self.assert_nothing_deleted(p)
+        self.assertFalse([n for n in self.manifest()["notes"] if "TRUST_MARKERS" in n])
+
+    def test_trust_markers_accepts_an_old_intact_marker_and_pulls_nothing(self):
+        self.give_every_node_its_logs()
+        pulled = self.age_marker()
+        logs_before = sorted(os.listdir(str(self.results / "logs")))
+        # Nothing to pull, so the free-space floor is never consulted, however high.
+        p = self.teardown("--yes", BENCH_TEARDOWN_TRUST_MARKERS="1", BENCH_TEARDOWN_MIN_FREE_GB="999999")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("(nothing is deleted until these are saved) — BENCH_TEARDOWN_TRUST_MARKERS=1", p.stdout)
+        self.assertIn("✓ %s: already saved — not pulled again (current-container log)" % INST, p.stdout)
+        self.assertIn("marker %s.pulled: accepted — instance %s (created 2099-12-31T00:00:00.000-08:00), run %s, "
+                      "pulled %s; its 1 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)\n"
+                      % (INST, INST_ID, RUN, pulled), p.stdout)
+        self.assertNotIn("GB free", p.stdout + p.stderr)
+        self.assertEqual(self.log_pulls(), [])
+        # No copy beside the saved logs: only the recovery evidence and the analysis inputs are new.
+        new = sorted(set(os.listdir(str(self.results / "logs"))) - set(logs_before))
+        self.assertTrue(all(re.match(r"^%s-recovery-%s\.\w+\.tgz$" % (INST, INST_ID), n) for n in new), new)
+        notes = [n for n in self.manifest()["notes"] if "TRUST_MARKERS" in n]
+        self.assertEqual(notes, [TRUSTED_NOTE + "%s@%s" % (INST, pulled)])
+        self.assertNotIn(INST, self.instance_names())
+
+    def test_trust_markers_still_pulls_a_node_whose_log_changed(self):
+        self.give_every_node_its_logs()
+        self.age_marker()
+        log = self.results / "logs" / (INST + "-telcoin.log.gz")
+        size = log.stat().st_size
+        with log.open("ab") as fh:
+            fh.write(b"x")
+        p = self.teardown("--yes", BENCH_TEARDOWN_TRUST_MARKERS="1", BENCH_TEARDOWN_MIN_FREE_GB="0")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("marker %s.pulled: not accepted — %s is %d bytes, the marker says %d"
+                      % (INST, log.name, size + 1, size), p.stdout)
+        self.assertIn("+ %s: to pull" % INST, p.stdout)
+        self.assertTrue(self.log_pulls())
+        self.assert_nothing_deleted(p)
+        self.assertFalse([n for n in self.manifest()["notes"] if "TRUST_MARKERS" in n])
+
+    def test_free_space_floor_stops_before_the_pull(self):
+        self.give_every_node_its_logs()
+        self.age_marker()   # the node needs a pull
+        for row, what in (("/dev/fake 2097152 1048576 1048576 50% /", "1.0 GB free"),
+                          ("df: cannot read", "free space unknown (df -Pk printed no number)")):
+            with self.subTest(what):
+                self.stub_df(row)
+                before = tree_files(self.results)
+                p = self.teardown("--yes")
+                self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+                self.assertIn("❌ %s under %s, below BENCH_TEARDOWN_MIN_FREE_GB=20 — the pull of 1 node(s) did not "
+                              "start; NOTHING was deleted." % (what, self.results / "logs"), p.stderr)
+                self.assertIn("BENCH_TEARDOWN_TRUST_MARKERS=1", p.stderr)
+                self.assertEqual(self.log_pulls(), [])
+                self.assertEqual(tree_files(self.results), before, "results/<run>/ untouched")
+                self.assert_nothing_deleted(p)
+        # A dry run says where --yes would stop, and goes on.
+        p = self.teardown()
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✗ free space unknown (df -Pk printed no number) under %s, below BENCH_TEARDOWN_MIN_FREE_GB=20: "
+                      "with --yes the teardown stops here, before the pull" % (self.results / "logs"), p.stdout)
+
+    def test_free_space_floor_reads_the_real_df(self):
+        self.give_every_node_its_logs()
+        self.age_marker()
+        before = tree_files(self.results)
+        p = self.teardown("--yes", BENCH_TEARDOWN_MIN_FREE_GB="999999")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertRegex(p.stderr, r"❌ \d+\.\d GB free under \S+/logs, below BENCH_TEARDOWN_MIN_FREE_GB=999999 — "
+                                   r"the pull of 1 node\(s\) did not start; NOTHING was deleted\.")
+        self.assertEqual(self.log_pulls(), [])
+        self.assertEqual(tree_files(self.results), before)
+        self.assert_nothing_deleted(p)
+
+    def test_trust_and_floor_knobs_are_validated(self):
+        for knob, value, needle in (
+                ("BENCH_TEARDOWN_TRUST_MARKERS", "yes", "BENCH_TEARDOWN_TRUST_MARKERS must be 0 or 1 (got 'yes')"),
+                ("BENCH_TEARDOWN_MIN_FREE_GB", "08", "got '08'"),
+                ("BENCH_TEARDOWN_MIN_FREE_GB", "-1", "got '-1'"),
+                ("BENCH_TEARDOWN_MIN_FREE_GB", "1.5", "got '1.5'"),
+                ("BENCH_TEARDOWN_MIN_FREE_GB", "1000000", "got '1000000'")):
+            with self.subTest(knob=knob, value=value):
+                p = self.teardown("--yes", **{knob: value})
+                self.assertEqual(p.returncode, 1)
+                self.assertIn(needle, p.stderr)
+                if knob.endswith("MIN_FREE_GB"):
+                    self.assertIn("BENCH_TEARDOWN_MIN_FREE_GB must be a whole number of GB, 0 to 999999", p.stderr)
+        self.assertEqual(self.cloud.calls(), [])
 
 
 if __name__ == "__main__":

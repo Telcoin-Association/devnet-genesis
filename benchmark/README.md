@@ -607,6 +607,11 @@ pre-run snapshot. It also prints the file count and size of `results/<run>/`, wh
 Nothing is deleted until four gates pass, in this order:
 
 1. **Logs.** Every live node's logs are pulled to `results/<run>/logs/` (`BENCH_TEARDOWN_SKIP_LOGS=1` overrides).
+   A node whose pull marker still holds is not pulled again (see "Pull markers and re-runs" below).
+   Before the pull starts, the filesystem under `results/<run>/logs/` must have
+   `BENCH_TEARDOWN_MIN_FREE_GB` GB free (default 20, `0` skips the check). Below that, or when
+   `df` cannot be read, the teardown prints the free space, says `NOTHING was deleted` and exits 1
+   with nothing pulled.
 2. **Recovery evidence.** Each node's service journal and sampler files are pulled.
 3. **Certification.** `tools/cert-rate.py` runs over the pulled logs and records every validator's
    per-window certification in `manifest.certification`; a validator that certified fewer than
@@ -657,6 +662,39 @@ It finds each node's start line in the saved logs, compares the build with
 `manifest.node_git_sha` and writes the result to `manifest.node_startup_check`. A mismatch adds
 a warning and a `manifest.notes` entry, and finding no start lines is a warning. With
 `BENCH_TEARDOWN_SKIP_LOGS=1` it reads whatever logs were saved. It never blocks the teardown.
+
+### Pull markers and re-runs
+
+Each node that passes the log pull gets `logs/<node>.pulled`. The marker names the instance id
+and the pull time and lists every log file it vouches for with its byte size. A re-run skips a
+node only when one of its markers is in the current format and complete, names the node and
+the id of the instance that holds the name now, lists files that are all still in `logs/` at
+exactly the recorded sizes, and is fresh: pulled at most 15 minutes ago. An older marker is
+rejected ("pulled …, more than 15 min ago; the node has logged since"). The node is pulled
+again, and its new copies land beside the old ones under stamped names.
+
+The pull copies each node's whole container log as it is at that moment. A fleet left up after
+the run keeps logging, so a later pull can be far larger than the run's own logs. The
+certification step (gate 3) pulls one more whole-log snapshot of each failing validator, on every
+run of the teardown, after the free-space check. Check `df -h benchmark/results` before a
+teardown, and before every re-run.
+
+`BENCH_TEARDOWN_TRUST_MARKERS=1` (default `0`) lifts the age rule and nothing else. Use it to
+re-run a teardown that was interrupted after some nodes were saved, for example by an expired
+gcloud session, when those logs are the ones you want and the lines the nodes logged since
+(an idling fleet) are not. Every other check still applies; a vouched file that is missing or
+has a different size means the marker is not accepted, and the verdict names the file. A node
+accepted this way is not pulled again at all, and its verdict line ends
+`(BENCH_TEARDOWN_TRUST_MARKERS=1)`. Once the log gate passes, the manifest gets one note naming
+each such node and its marker's pull time:
+`teardown: saved logs accepted from markers older than the freshness window (BENCH_TEARDOWN_TRUST_MARKERS=1): bench-validator-01@2026-10-07T03:12:40Z …`.
+Nodes without an intact marker are pulled as usual.
+
+```bash
+df -h benchmark/results
+BENCH_TEARDOWN_TRUST_MARKERS=1 benchmark/benchmark-teardown.sh --run <run>         # dry run: read the marker lines
+BENCH_TEARDOWN_TRUST_MARKERS=1 benchmark/benchmark-teardown.sh --run <run> --yes
+```
 
 ## Publishing
 

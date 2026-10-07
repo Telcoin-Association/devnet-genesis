@@ -30,7 +30,9 @@ BENCH_APPLY="${BENCH_APPLY:-0}"
 BENCH_PROTECTED_RE='^(devnet-|default-|obs-|wg-|allow-)'
 # A pull marker counts for this long after its pull (see "pull markers"). A node keeps logging, so
 # an older marker no longer covers what is on the node and the node is pulled again. Fixed here,
-# not a knob: set unconditionally so the environment cannot stretch it.
+# not a knob: set unconditionally so the environment cannot stretch it. The one way past it is
+# BENCH_TEARDOWN_TRUST_MARKERS=1 (exactly "1"), which accepts an older marker that is otherwise
+# intact (see _bench_marker_verdict).
 BENCH_MARKER_MAX_AGE_SECS=900
 export BENCH_TXGEN_BENCH_DIR="${BENCH_TXGEN_REPO}/bench"
 
@@ -509,12 +511,18 @@ _bench_instance_ident() {
 # copy cut short; a checksum would add a read of every log for no case the tooling can produce.
 # Anything else (the older one-line format, another id, a file gone or resized, a partial or
 # unreadable marker, a stale or future pull time) counts as no marker: the node is pulled again.
+# BENCH_TEARDOWN_TRUST_MARKERS=1 lifts the age rule only: a marker older than the window counts
+# when everything else above holds, and its verdict says so. It is for a teardown re-run after an
+# interrupted one, when the logs the marker vouches for are the ones wanted and the lines the node
+# logged since (an idling fleet) are not worth pulling again.
 BENCH_PULL_MARKER_V="tn-bench-pulled/v2"
 
 # _bench_marker_verdict <marker> <dest> <inst> <id> — one line: "accepted — ..." or "not accepted
-# — <why>", for the instance <id> that holds <inst> now. rc 0 = accepted. Reads only.
+# — <why>", for the instance <id> that holds <inst> now. rc 0 = accepted. A marker older than
+# BENCH_MARKER_MAX_AGE_SECS is accepted only with BENCH_TEARDOWN_TRUST_MARKERS=1, and its line then
+# ends "(BENCH_TEARDOWN_TRUST_MARKERS=1)". Reads only.
 _bench_marker_verdict() {
-    local m="$1" d="$2" inst="$3" want="$4" head="" k a b ln=0 end=0 mi="" mid="" mc="" mr="" mp="" files="" bad="" s nf=0
+    local m="$1" d="$2" inst="$3" want="$4" head="" k a b ln=0 end=0 mi="" mid="" mc="" mr="" mp="" files="" bad="" s nf=0 trusted=""
     if [ ! -f "${m}" ] || [ ! -r "${m}" ]; then echo "not accepted — not a readable file"; return 1; fi
     IFS= read -r head < "${m}" || true
     if [ "${head}" != "${BENCH_PULL_MARKER_V}" ]; then echo "not accepted — older format, names no instance id"; return 1; fi
@@ -543,8 +551,8 @@ _bench_marker_verdict() {
         echo "not accepted — it is for instance ${mid} (created ${mc:-?}); ${inst} now is instance ${want}"
         return 1
     fi
-    # Fresh only: pulled within BENCH_MARKER_MAX_AGE_SECS, and not in the future. The fixed-width
-    # UTC form compares as a 14-digit number.
+    # Fresh only: pulled within BENCH_MARKER_MAX_AGE_SECS (unless BENCH_TEARDOWN_TRUST_MARKERS=1),
+    # and never in the future. The fixed-width UTC form compares as a 14-digit number.
     local now since
     case "${mp}" in
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
@@ -555,8 +563,11 @@ _bench_marker_verdict() {
         echo "not accepted — the current time could not be read"; return 1
     fi
     if [ "${mp//[!0-9]/}" -lt "${since//[!0-9]/}" ]; then
-        echo "not accepted — pulled ${mp}, more than $((BENCH_MARKER_MAX_AGE_SECS / 60)) min ago; the node has logged since"
-        return 1
+        if [ "${BENCH_TEARDOWN_TRUST_MARKERS:-0}" != "1" ]; then
+            echo "not accepted — pulled ${mp}, more than $((BENCH_MARKER_MAX_AGE_SECS / 60)) min ago; the node has logged since"
+            return 1
+        fi
+        trusted=" (BENCH_TEARDOWN_TRUST_MARKERS=1)"
     fi
     if [ "${mp//[!0-9]/}" -gt "${now//[!0-9]/}" ]; then echo "not accepted — pulled ${mp}, which is in the future"; return 1; fi
     while IFS=' ' read -r a b; do
@@ -570,7 +581,7 @@ _bench_marker_verdict() {
         nf=$((nf + 1))
     done <<< "${files}"
     if [ "${nf}" -eq 0 ]; then echo "not accepted — it lists no log"; return 1; fi
-    echo "accepted — instance ${mid} (created ${mc:-?}), run ${mr:-?}, pulled ${mp:-?}; its ${nf} log(s) are here at their recorded sizes"
+    echo "accepted — instance ${mid} (created ${mc:-?}), run ${mr:-?}, pulled ${mp:-?}; its ${nf} log(s) are here at their recorded sizes${trusted}"
 }
 
 # bench_node_markers_report <dest> <inst> <id> — one line per marker of <inst> in <dest> saying
