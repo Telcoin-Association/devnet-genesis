@@ -1,0 +1,67 @@
+{
+ "tool": "latency-probe.sh",
+ "status": "complete",
+ "stamp": "20261007T000000Z",
+ "started_at": "2026-10-07T00:00:00Z",
+ "finished_at": "2026-10-07T00:05:00Z",
+ "argv": [
+  "latency-probe.sh",
+  "--project",
+  "example-proj",
+  "--addresses",
+  "both"
+ ],
+ "project": "example-proj",
+ "network": "default",
+ "subnet": null,
+ "machine_type": "e2-small",
+ "addresses": "both",
+ "network_tier": "PREMIUM",
+ "params": {
+  "pings": 4,
+  "udp_count": 4,
+  "udp_size": 1200,
+  "tcp_count": 3
+ },
+ "kept_resources": false,
+ "zones": [
+  "us-west2-a",
+  "europe-west2-b",
+  "asia-northeast1-b",
+  "australia-southeast1-c"
+ ],
+ "skipped": [],
+ "failed": [],
+ "vms": {
+  "us-west2-a": {
+   "name": "lat-us-west2-a",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.20",
+   "external_ip": "198.51.100.20"
+  },
+  "europe-west2-b": {
+   "name": "lat-europe-west2-b",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.21",
+   "external_ip": "198.51.100.21"
+  },
+  "asia-northeast1-b": {
+   "name": "lat-asia-northeast1-b",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.22",
+   "external_ip": "198.51.100.22"
+  },
+  "australia-southeast1-c": {
+   "name": "lat-australia-southeast1-c",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.23",
+   "external_ip": "198.51.100.23"
+  }
+ },
+ "measured": [
+  "us-west2-a",
+  "europe-west2-b",
+  "asia-northeast1-b",
+  "australia-southeast1-c"
+ ]
+}

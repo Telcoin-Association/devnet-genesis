@@ -5,6 +5,17 @@ The fixture run (fixtures/latency/run) has four zones (A..D) and one skipped zon
   A-C  UDP 51.00 vs TCP 40.00: +27.5 %, flagged
   A-D  D has no entry for A (one direction only, `*`); A->D lost 1 of 10 UDP echoes, flagged
   C-D  C->D lost every UDP echo and ping (one direction only), flagged with 100 % loss
+
+The both-address fixture (fixtures/latency/run-both, --addresses both) has four real zone names,
+L(us-west2-a) E(europe-west2-b) T(asia-northeast1-b) S(australia-southeast1-c). Internal UDP is
+symmetric: L-E 130, L-T 100, L-S 140, E-T 150, E-S 300, T-S 110. External UDP per direction:
+  L<->x  internal + 1 ms both ways (never flagged)
+  E->T 232 (+82 ms, and equal to via-L 131 + 101): flagged, and flagged as matching the via-L sum
+  T->E 160 (+10 ms, +6.7 %): not flagged, the opposite flow of the same pair
+  E->S 335 (+35 ms but only +11.7 %): flagged by the ms rule; via-L 272 is not close
+  S->E 305 (+5 ms): not flagged
+  T->S 140 (+30 ms, not above 30, but +27.3 %): flagged by the percent rule
+  S->T 137.5 (+25 % exactly, +27.5 ms): not flagged (both rules are strictly above); lost 1 of 4
 """
 import contextlib
 import csv
@@ -20,6 +31,7 @@ import unittest
 BENCH = Path(__file__).resolve().parents[1]
 TOOLS = BENCH / "tools"
 RUN = Path(__file__).resolve().parent / "fixtures" / "latency" / "run"
+RUN_BOTH = RUN.parent / "run-both"
 SPEC = importlib.util.spec_from_file_location("latency_matrix", str(TOOLS / "latency-matrix.py"))
 lm = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(lm)
@@ -138,6 +150,126 @@ class MatrixRun(unittest.TestCase):
                       (self.out / "matrix-udp.md").read_text(encoding="utf-8"))
 
 
+L, EU, T, S = "us-west2-a", "europe-west2-b", "asia-northeast1-b", "australia-southeast1-c"
+
+
+class ExternalRun(unittest.TestCase):
+    """The CLI on the both-address fixture: internal tables as before, external tables beside them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="latency-matrix-")
+        cls.out = Path(cls.tmp) / "out"
+        assert run_cli(str(RUN_BOTH), "--out", str(cls.out)) == 0
+        with open(str(cls.out / "summary.json"), encoding="utf-8") as fh:
+            cls.summary = json.load(fh)
+        cls.cmp = {(c["src"], c["dst"]): c for c in cls.summary["external"]["vs_internal"]}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_writes_internal_and_external_tables(self):
+        names = sorted(p.name for p in self.out.iterdir())
+        internal = ["matrix-%s.%s" % (m, x) for m in ("udp", "tcp", "icmp") for x in ("csv", "md")]
+        external = ["matrix-%s-external.%s" % (m, x) for m in ("udp", "tcp", "icmp") for x in ("csv", "md")]
+        self.assertEqual(names, sorted(internal + external + [
+            "tcp-vs-udp.md", "kth-nearest.md", "kth-nearest-external.md", "external-vs-internal.md",
+            "summary.json"]))
+        self.assertEqual(self.summary["addresses"], ["internal", "external"])
+        self.assertEqual(self.summary["run"]["addresses"], "both")
+
+    def test_internal_matrix_reads_only_internal_records(self):
+        cells, header = read_csv(self.out / "matrix-udp.csv")
+        self.assertEqual(header, [L, EU, T, S])
+        self.assertEqual(cells[EU], {L: "130.00", EU: DASH, T: "150.00", S: "300.00"})
+        self.assertEqual(self.summary["matrices"]["udp"][EU][T]["ms"], 150.0)
+
+    def test_external_matrices_average_the_two_flows(self):
+        cells, header = read_csv(self.out / "matrix-udp-external.csv")
+        self.assertEqual(header, [L, EU, T, S])
+        self.assertEqual(cells[EU], {L: "131.00", EU: DASH, T: "196.00", S: "320.00"})
+        self.assertEqual(cells[S][T], "138.75")
+        tcp, _ = read_csv(self.out / "matrix-tcp-external.csv")
+        icmp, _ = read_csv(self.out / "matrix-icmp-external.csv")
+        self.assertEqual((tcp[EU][T], icmp[EU][T]), ("196.00", "195.00"))
+        self.assertEqual(self.summary["external"]["matrices"]["udp"][EU][T], {"ms": 196.0, "one_way": False})
+        self.assertIn("UDP echo RTT (median, ms) \u2014 external IPs",
+                      (self.out / "matrix-udp-external.md").read_text(encoding="utf-8"))
+
+    def test_kth_nearest_external(self):
+        kn = self.summary["external"]["kth_nearest"]
+        self.assertEqual(kn[EU]["sorted"], [[L, 131.0, ""], [T, 196.0, ""], [S, 320.0, ""]])
+        self.assertEqual([z for z, _, _ in self.summary["kth_nearest"][EU]["sorted"]], [L, T, S])
+        text = (self.out / "kth-nearest-external.md").read_text(encoding="utf-8")
+        self.assertIn("Nearest zones by UDP RTT \u2014 external IPs", text)
+
+    def test_flagged_pair_matches_via_hub(self):
+        c = self.cmp[(EU, T)]
+        self.assertEqual((c["internal_udp_ms"], c["external_udp_ms"], c["delta_ms"], c["ratio"]),
+                         (150.0, 232.0, 82.0, 1.547))
+        self.assertEqual((c["via_zone"], c["via_ms"], c["external_minus_via_ms"]), (L, 232.0, 0.0))
+        self.assertEqual(c["flags"], [lm.FLAG_EXT_SLOWER, lm.FLAG_VIA % L])
+
+    def test_flag_rules_are_ms_or_percent_strictly_above(self):
+        self.assertEqual(self.cmp[(T, EU)]["flags"], [])                       # +10 ms, +6.7 %
+        self.assertEqual(self.cmp[(EU, S)]["flags"], [lm.FLAG_EXT_SLOWER])     # +35 ms, +11.7 %
+        self.assertEqual(self.cmp[(EU, S)]["via_ms"], 272.0)                   # 131 + 141, not close
+        self.assertEqual(self.cmp[(T, S)]["flags"], [lm.FLAG_EXT_SLOWER])      # +30 ms, +27.3 %
+        st = self.cmp[(S, T)]                                                  # +27.5 ms, +25 % exactly
+        self.assertEqual((st["delta_ms"], st["ratio"], st["flags"]), (27.5, 1.25, [lm.FLAG_LOSS]))
+        self.assertEqual((st["internal_loss_pct"], st["external_loss_pct"]), (0.0, 25.0))
+        flagged = sorted(k for k, c in self.cmp.items() if lm.FLAG_EXT_SLOWER in c["flags"])
+        self.assertEqual(flagged, sorted([(EU, T), (EU, S), (T, S)]))
+        self.assertEqual(len(self.cmp), 12)
+
+    def test_via_column_is_blank_for_pairs_with_the_hub(self):
+        for (a, b), c in self.cmp.items():
+            if L in (a, b):
+                self.assertIsNone(c["via_ms"])
+                self.assertEqual(c["flags"], [])
+        text = (self.out / "external-vs-internal.md").read_text(encoding="utf-8")
+        self.assertIn("| %s \u2192 %s | 130.00 | 131.00 | +1.00 | 1.01 | %s | %s | 0 / 0 |  |" % (L, EU, DASH, DASH),
+                      text)
+        self.assertIn("| %s \u2192 %s | 150.00 | 232.00 | +82.00 | 1.55 | 232.00 | +0.00 | 0 / 0 | %s, %s |"
+                      % (EU, T, lm.FLAG_EXT_SLOWER, lm.FLAG_VIA % L), text)
+        self.assertIn("| via %s ms |" % L, text)
+        self.assertIn("3 of 12 ordered pairs flagged", text)
+        self.assertIn("1 of them within 10 % of the via-us-west2-a sum", text)
+
+    def test_via_zone_option(self):
+        tmp = tempfile.mkdtemp(prefix="latency-matrix-")
+        try:
+            self.assertEqual(run_cli(str(RUN_BOTH), "--out", tmp, "--via", T), 0)
+            with open(str(Path(tmp) / "summary.json"), encoding="utf-8") as fh:
+                cmp = {(c["src"], c["dst"]): c for c in json.load(fh)["external"]["vs_internal"]}
+            es = cmp[(EU, S)]   # via Tokyo: 196 + 138.75 = 334.75, within 10 % of 335
+            self.assertEqual((es["via_zone"], es["via_ms"]), (T, 334.75))
+            self.assertEqual(es["flags"], [lm.FLAG_EXT_SLOWER, lm.FLAG_VIA % T])
+            self.assertIsNone(cmp[(EU, T)]["via_ms"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_external_only_run_skips_internal_tables(self):
+        data = lm.Data.from_dir(str(RUN_BOTH))
+        for doc in data.src.values():
+            doc["peers"] = {}
+        files, summary = lm.build(data, data.zones(), [])
+        self.assertEqual(sorted(files), sorted(
+            ["matrix-%s-external.%s" % (m, x) for m in ("udp", "tcp", "icmp") for x in ("csv", "md")]
+            + ["kth-nearest-external.md"]))
+        self.assertEqual(summary["addresses"], ["external"])
+        self.assertNotIn("matrices", summary)
+        self.assertNotIn("vs_internal", summary["external"])
+
+    def test_internal_only_run_has_no_external_block(self):
+        data = lm.Data.from_dir(str(RUN))
+        files, summary = lm.build(data, data.zones(), [])
+        self.assertEqual(summary["addresses"], ["internal"])
+        self.assertNotIn("external", summary)
+        self.assertFalse([n for n in files if "external" in n])
+
+
 class ZoneSubsetTests(unittest.TestCase):
     def test_zones_subset_recuts_tables_and_marks_unknown_zone(self):
         tmp = tempfile.mkdtemp(prefix="latency-matrix-")
@@ -246,6 +378,42 @@ class ProbeDryRunTests(unittest.TestCase):
         self.assertIn("LAT_PEERS=europe-west2-b=", p.stdout)   # the measure script is shown
         for ln in lines:   # never a list-flag value that starts with ^ (gcloud's delimiter syntax)
             self.assertNotIn("=^", ln)
+        self.assertNotIn("latency-probe-allow-ext", p.stdout)    # internal is the default
+        self.assertNotIn("--network-tier", p.stdout)
+        self.assertIn("LAT_ADDRESSES=internal", p.stdout)
+
+    def test_dry_run_both_addresses(self):
+        zones = ["us-west2-a", "europe-west2-b", "asia-south1-c"]
+        for flags in (["--addresses", "both"], ["--external"]):
+            p = self.run_probe("--project", "example-proj", "--zones", ",".join(zones), "--dry-run", *flags)
+            self.assertEqual(p.returncode, 0, p.stdout)
+            lines = p.stdout.splitlines()
+            creates = [ln for ln in lines if "gcloud compute instances create" in ln]
+            self.assertEqual(len(creates), 3)
+            for ln in creates:   # an ephemeral external IP on the bench nodes' tier
+                self.assertIn("--network-tier=PREMIUM", ln)
+                self.assertNotIn("--no-address", ln)
+            fw = [ln for ln in lines if "firewall-rules create" in ln]
+            self.assertEqual(len(fw), 3)
+            ext = [ln for ln in fw if "latency-probe-allow-ext" in ln]
+            self.assertEqual(len(ext), 1)
+            self.assertIn("--source-ranges=" + "\\,".join("EXT_IP_OF_lat-%s/32" % z for z in zones), ext[0])
+            self.assertIn("--target-tags=latency-probe", ext[0])
+            self.assertIn("udp:7778", ext[0])
+            # the external rule is created after the address listing, before any ssh
+            listing = next(i for i, ln in enumerate(lines) if "instances list" in ln and "--format=json" in ln)
+            self.assertLess(listing, lines.index(ext[0]))
+            self.assertLess(lines.index(ext[0]), next(i for i, ln in enumerate(lines) if "compute ssh" in ln))
+            self.assertEqual(sum("firewall-rules delete latency-probe-allow-ext" in ln for ln in lines), 1)
+            self.assertIn("LAT_ADDRESSES=both", p.stdout)
+            self.assertIn("LAT_PEERS_EXT=europe-west2-b=EXT_IP_OF_lat-europe-west2-b", p.stdout)
+            self.assertIn("LAT_PEERS=europe-west2-b=IP_OF_lat-europe-west2-b", p.stdout)
+
+    def test_dry_run_external_only_has_no_internal_targets(self):
+        p = self.run_probe("--project", "example-proj", "--zones", "us-west2-a,europe-west2-b", "--dry-run",
+                           "--addresses=external")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("LAT_PEERS=\'\' LAT_PEERS_EXT=europe-west2-b=EXT_IP_OF_lat-europe-west2-b", p.stdout)
 
     def test_needs_project_and_two_zones(self):
         self.assertEqual(self.run_probe("--zones", "us-west2-a,europe-west2-b", "--dry-run").returncode, 2)
@@ -253,6 +421,10 @@ class ProbeDryRunTests(unittest.TestCase):
         self.assertEqual(p.returncode, 2)
         p = self.run_probe("--project", "example-proj", "--zones", "us-west2-a,not_a_zone", "--dry-run")
         self.assertEqual(p.returncode, 2)
+        p = self.run_probe("--project", "example-proj", "--zones", "us-west2-a,europe-west2-b", "--dry-run",
+                           "--addresses", "public")
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("must be internal, external or both", p.stdout)
 
 
 if __name__ == "__main__":

@@ -11,10 +11,22 @@ Reads <raw dir>/<zone>.json (one per probing VM) and <raw dir>/run.json, and wri
   kth-nearest-<n>.md    the same for a validator layout given with --layout <n>=zone,zone,...
   summary.json          all of the above, machine-readable
 
+A run made with --addresses external or both (the probe VMs' external IPs) adds:
+
+  matrix-{udp,tcp,icmp}-external.csv/.md   the three matrices over external IPs
+  kth-nearest-external.md                  nearest zones by external UDP RTT
+  external-vs-internal.md                  per ordered pair: internal and external UDP medians, delta,
+                                           ratio, flags, and the external RTT via one hub zone
+                                           (--via, default us-west2-a)
+  summary.json "external"                  the same, machine-readable
+
+The tables without a suffix are internal-address tables; they are left out of an external-only run.
+
 A cell averages the two directions (a->b and b->a) when both were measured; `*` marks a cell
 measured in one direction only; an em dash marks no data (not measured, or every probe lost).
 
 Usage: latency-matrix.py <raw dir> [--out DIR] [--zones a,b,...|@file] [--layout name=z1,z2,...]...
+                         [--via ZONE]
 Python 3.9+, standard library only.
 """
 import argparse
@@ -37,6 +49,15 @@ FLAG_LOSS = "UDP loss"
 FLAG_NO_UDP = "no UDP data"
 TITLES = {"udp": "UDP echo RTT (median, ms)", "tcp": "TCP connect RTT (median, ms)",
           "icmp": "ICMP ping RTT (avg, ms)"}
+# Where each address kind's records sit in a probe result.
+PEER_KEYS = {"internal": "peers", "external": "peers_external"}
+EXT_TAG = " — external IPs"
+VIA_DEFAULT = "us-west2-a"
+EXT_OVER_INT_PCT = 25.0
+EXT_OVER_INT_MS = 30.0
+VIA_MATCH_PCT = 10.0
+FLAG_EXT_SLOWER = "external > internal"
+FLAG_VIA = "external ≈ via %s"
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -93,9 +114,23 @@ class Data:
         out = [z for z in self.run.get("zones") or [] if z not in skipped]
         seen = set(self.src)
         for doc in self.src.values():
-            seen.update(doc["peers"])
+            for key in PEER_KEYS.values():
+                seen.update(doc.get(key) or {})
         out += sorted(z for z in seen if z not in out)
         return out
+
+    def has(self, address):
+        """True when any probe result holds records for this address kind."""
+        return any(doc.get(PEER_KEYS[address]) for doc in self.src.values())
+
+    def view(self, address):
+        """The run seen through one address kind: each result's `peers` holds that kind's records."""
+        key = PEER_KEYS[address]
+        return Data({z: dict(doc, peers=doc.get(key) or {}) for z, doc in self.src.items()}, self.run)
+
+    def udp_loss_directed(self, a, b):
+        udp = (self.peer(a, b) or {}).get("udp") or {}
+        return None if udp.get("loss_pct") is None else float(udp["loss_pct"])
 
     def peer(self, a, b):
         return (self.src.get(a) or {}).get("peers", {}).get(b)
@@ -270,6 +305,8 @@ def run_line(data, zones):
     bits = ["run %s" % run["stamp"]] if run.get("stamp") else []
     if run.get("machine_type"):
         bits.append("probe VMs %s" % run["machine_type"])
+    if run.get("addresses") and run["addresses"] != "internal":
+        bits.append("addresses %s (%s tier)" % (run["addresses"], run.get("network_tier") or "default"))
     bits.append("%d zones" % len(zones))
     return " · ".join(bits)
 
@@ -316,28 +353,138 @@ def write(path, text):
         fh.write(text if text.endswith("\n") else text + "\n")
 
 
-def build(data, zones, layouts):
+def matrix_files(data, zones, head, files, suffix="", tag=""):
+    """matrix-<metric><suffix>.csv/.md for every metric into files; returns summary's matrices block."""
+    out = {}
+    for metric in METRICS:
+        mx = matrix(data, metric, zones)
+        out[metric] = {
+            a: {b: (None if mx[a][b][0] is None else {"ms": rnd(mx[a][b][0]), "one_way": mx[a][b][1]})
+                for b in mx[a]} for a in zones}
+        rows = matrix_rows(mx, zones)
+        csv_lines = [",".join(["zone"] + zones)] + [",".join(r) for r in rows]
+        files["matrix-%s%s.csv" % (metric, suffix)] = "\n".join(csv_lines)
+        files["matrix-%s%s.md" % (metric, suffix)] = "# %s%s\n\n%s\n\n%s\n\n%s" % (
+            TITLES[metric], tag, head, LEGEND, md_table(["zone"] + zones, rows, range(1, len(zones) + 1)))
+    return out
+
+
+def kth_file(data, zones, head, tag=""):
+    """(kth-nearest markdown, summary block) for one address kind."""
+    kn = kth_nearest(data, zones)
+    rows = [[a, cell(v["k"][5]), cell(v["k"][6])] for a, v in kn.items()]
+    detail = "\n".join("- **%s**: %s" % (a, chain(v["sorted"], v["unreachable"])) for a, v in kn.items())
+    text = (
+        "# Nearest zones by UDP RTT%s\n\n%s\n\nFor each zone, the other zones in this table ordered by UDP "
+        "echo RTT (ms). The 5th and 6th nearest set the vote-quorum window for a 10-validator committee "
+        "with one validator per zone. %s\n\n%s\n\n## Every zone, ascending\n\n%s" % (
+            tag, head, LEGEND, md_table(["zone", "5th nearest", "6th nearest"], rows), detail))
+    return text, {a: kth_json(v) for a, v in kn.items()}
+
+
+def compare(internal, external, zones, via):
+    """Per ordered pair a -> b: the internal and external UDP medians of that one flow, side by side.
+
+    via_ms = external RTT(a, via) + external RTT(via, b), each the direction-averaged cell of the
+    external UDP matrix: what a -> b would measure if its external path ran through the via zone.
+    """
+    out = []
+    for a in zones:
+        for b in zones:
+            if a == b:
+                continue
+            i_ms, e_ms = internal.directed("udp", a, b), external.directed("udp", a, b)
+            via_ms = None
+            if via not in (a, b):
+                legs = (external.pair("udp", a, via)[0], external.pair("udp", via, b)[0])
+                if None not in legs:
+                    via_ms = legs[0] + legs[1]
+            delta = ratio = None
+            flags = []
+            if i_ms is not None and e_ms is not None:
+                delta = e_ms - i_ms
+                ratio = e_ms / i_ms if i_ms > 0 else None
+                if delta > EXT_OVER_INT_MS or delta > EXT_OVER_INT_PCT / 100.0 * i_ms:
+                    flags.append(FLAG_EXT_SLOWER)
+                    if via_ms is not None and abs(e_ms - via_ms) <= VIA_MATCH_PCT / 100.0 * via_ms:
+                        flags.append(FLAG_VIA % via)
+            else:
+                flags.append(FLAG_NO_UDP)
+            losses = (internal.udp_loss_directed(a, b), external.udp_loss_directed(a, b))
+            if any(v for v in losses if v is not None):
+                flags.append(FLAG_LOSS)
+            out.append({"src": a, "dst": b, "internal_udp_ms": rnd(i_ms), "external_udp_ms": rnd(e_ms),
+                        "delta_ms": rnd(delta), "ratio": None if ratio is None else round(ratio, 3),
+                        "via_zone": via, "via_ms": rnd(via_ms),
+                        "external_minus_via_ms": None if via_ms is None or e_ms is None else rnd(e_ms - via_ms),
+                        "internal_loss_pct": losses[0], "external_loss_pct": losses[1], "flags": flags})
+    return out
+
+
+def compare_text(cmp, head, via):
+    def num(v, sign=False):
+        return DASH if v is None else ("%+.2f" if sign else "%.2f") % v
+
+    def loss(v):
+        return DASH if v is None else "%g" % v
+
+    rows = [["%s → %s" % (c["src"], c["dst"]), num(c["internal_udp_ms"]), num(c["external_udp_ms"]),
+             num(c["delta_ms"], True), DASH if c["ratio"] is None else "%.2f" % c["ratio"], num(c["via_ms"]),
+             num(c["external_minus_via_ms"], True),
+             "%s / %s" % (loss(c["internal_loss_pct"]), loss(c["external_loss_pct"])), ", ".join(c["flags"])]
+            for c in cmp]
+    slower = [c for c in cmp if FLAG_EXT_SLOWER in c["flags"]]
+    near_via = [c for c in slower if FLAG_VIA % via in c["flags"]]
+    lines = ["%d of %d ordered pairs flagged: external median more than %g %% or more than %g ms above "
+             "internal; %d of them within %g %% of the via-%s sum."
+             % (len(slower), len(cmp), EXT_OVER_INT_PCT, EXT_OVER_INT_MS, len(near_via), VIA_MATCH_PCT, via)]
+    for c in sorted(slower, key=lambda c: -(c["delta_ms"] or 0.0)):
+        lines.append("- %s → %s: internal %.2f, external %.2f (%+.2f ms, x%.2f), via %s %s" % (
+            c["src"], c["dst"], c["internal_udp_ms"], c["external_udp_ms"], c["delta_ms"], c["ratio"] or 0.0,
+            via, num(c["via_ms"])))
+    return (
+        "# External vs internal UDP RTT per ordered pair\n\n%s\n\nOne row per direction a → b: the median of "
+        "that flow's UDP echoes to the peer's internal IP and to its external IP. Both targets were probed "
+        "from the same VM in the same seconds, so the two columns differ only by path. Delta = external - "
+        "internal; ratio = external / internal. `via %s` = external RTT(a, %s) + external RTT(%s, b), each "
+        "the direction-averaged cell of `matrix-udp-external.csv`: what a → b would measure if its "
+        "external path went through %s (`%s` for pairs that include it). UDP loss is a → b only, "
+        "internal / external. `%s` = no data.\n\n%s\n\n%s" % (
+            head, via, via, via, via, DASH, DASH, "\n".join(lines),
+            md_table(["pair", "internal ms", "external ms", "delta ms", "ratio", "via %s ms" % via,
+                      "ext - via ms", "UDP loss % int / ext", "flags"], rows, (1, 2, 3, 4, 5, 6, 7))))
+
+
+def build(data, zones, layouts, via=VIA_DEFAULT):
     """Everything summary.json holds, plus the markdown and CSV texts: {filename: text}."""
     files, summary = {}, {"zones": zones, "skipped": scrubbed(data.skipped), "failed": scrubbed(data.failed)}
     run = data.run
-    summary["run"] = {k: run.get(k) for k in ("stamp", "started_at", "finished_at", "machine_type", "params")
-                      if k in run}
+    summary["run"] = {k: run.get(k) for k in ("stamp", "started_at", "finished_at", "machine_type", "params",
+                                              "addresses", "network_tier") if k in run}
     summary["run"]["vm_machine_types"] = {z: v.get("machine_type") for z, v in (run.get("vms") or {}).items()}
     head = run_line(data, zones)
     if data.skipped:
         head += "\n\nSkipped (no VM): " + ", ".join(
             "%s (%s)" % (s["zone"], reason(s["error"])) for s in summary["skipped"])
-    summary["matrices"] = {}
-    for metric in METRICS:
-        mx = matrix(data, metric, zones)
-        summary["matrices"][metric] = {
-            a: {b: (None if mx[a][b][0] is None else {"ms": rnd(mx[a][b][0]), "one_way": mx[a][b][1]})
-                for b in mx[a]} for a in zones}
-        rows = matrix_rows(mx, zones)
-        csv_lines = [",".join(["zone"] + zones)] + [",".join(r) for r in rows]
-        files["matrix-%s.csv" % metric] = "\n".join(csv_lines)
-        files["matrix-%s.md" % metric] = "# %s\n\n%s\n\n%s\n\n%s" % (
-            TITLES[metric], head, LEGEND, md_table(["zone"] + zones, rows, range(1, len(zones) + 1)))
+    has_ext = data.has("external")
+    has_int = data.has("internal") or not has_ext
+    summary["addresses"] = [a for a, present in (("internal", has_int), ("external", has_ext)) if present]
+    if has_ext:
+        ext = data.view("external")
+        files_ext = {}
+        summary["external"] = {"matrices": matrix_files(ext, zones, head, files_ext, "-external", EXT_TAG)}
+        files_ext["kth-nearest-external.md"], summary["external"]["kth_nearest"] = kth_file(ext, zones, head, EXT_TAG)
+        if has_int:
+            cmp = compare(data.view("internal"), ext, zones, via)
+            summary["external"]["via_zone"] = via
+            summary["external"]["vs_internal"] = cmp
+            summary["external"]["flags"] = [c for c in cmp if c["flags"]]
+            files_ext["external-vs-internal.md"] = compare_text(cmp, head, via)
+    if not has_int:
+        files.update(files_ext)
+        return files, summary
+    data = data.view("internal")
+    summary["matrices"] = matrix_files(data, zones, head, files)
 
     prs = pairs(data, zones)
     summary["pairs"] = prs
@@ -373,15 +520,7 @@ def build(data, zones, layouts):
             md_table(["pair", "UDP ms", "UDP a→b / b→a", "TCP ms", "TCP min–max", "delta ms", "delta %",
                       "UDP loss %", "flags"], rows, (1, 2, 3, 4, 5, 6, 7))))
 
-    kn = kth_nearest(data, zones)
-    summary["kth_nearest"] = {a: kth_json(v) for a, v in kn.items()}
-    rows = [[a, cell(v["k"][5]), cell(v["k"][6])] for a, v in kn.items()]
-    detail = "\n".join("- **%s**: %s" % (a, chain(v["sorted"], v["unreachable"])) for a, v in kn.items())
-    files["kth-nearest.md"] = (
-        "# Nearest zones by UDP RTT\n\n%s\n\nFor each zone, the other zones in this table ordered by UDP "
-        "echo RTT (ms). The 5th and 6th nearest set the vote-quorum window for a 10-validator committee "
-        "with one validator per zone. %s\n\n%s\n\n## Every zone, ascending\n\n%s" % (
-            head, LEGEND, md_table(["zone", "5th nearest", "6th nearest"], rows), detail))
+    files["kth-nearest.md"], summary["kth_nearest"] = kth_file(data, zones, head)
 
     summary["layouts"] = {}
     for name, validators in layouts:
@@ -419,6 +558,8 @@ def build(data, zones, layouts):
                 name, run_line(data, lk), len(validators), ", ".join(validators), quorum_note(len(validators)),
                 " ".join(notes), md_table(["zone", "validators", "5th nearest", "6th nearest"], rows, (1,)),
                 detail) + ("\n\n" + fleet_line if fleet_line else ""))
+    if has_ext:
+        files.update(files_ext)
     return files, summary
 
 
@@ -445,6 +586,8 @@ def main(argv=None):
     ap.add_argument("--zones", help="restrict the tables to these zones: a,b,... or @file")
     ap.add_argument("--layout", action="append", default=[], type=parse_layout, metavar="NAME=Z1,Z2,...",
                     help="validator layout (zones may repeat); writes kth-nearest-NAME.md (repeatable)")
+    ap.add_argument("--via", default=VIA_DEFAULT, metavar="ZONE",
+                    help="hub zone for the via column of external-vs-internal.md (default: %(default)s)")
     args = ap.parse_args(argv)
 
     if not os.path.isdir(args.raw_dir):
@@ -466,7 +609,7 @@ def main(argv=None):
 
     out = args.out or args.raw_dir
     os.makedirs(out, exist_ok=True)
-    files, summary = build(data, zones, args.layout)
+    files, summary = build(data, zones, args.layout, args.via)
     for name, text in files.items():
         write(os.path.join(out, name), text)
     with open(os.path.join(out, "summary.json"), "w", encoding="utf-8") as fh:
@@ -474,11 +617,16 @@ def main(argv=None):
         fh.write("\n")
 
     print("wrote %d files to %s" % (len(files) + 1, out))
-    if summary["widest_pairs"]:
+    if summary.get("widest_pairs"):
         w = summary["widest_pairs"][0]
         print("  widest UDP pair: %s <-> %s %.2f ms" % (w["a"], w["b"], w["udp_ms"]))
-    print("  flagged pairs: %d of %d" % (len(summary["flags"]), len(summary["pairs"])))
-    for name, lay in summary["layouts"].items():
+    if "pairs" in summary:
+        print("  flagged pairs: %d of %d" % (len(summary["flags"]), len(summary["pairs"])))
+    if "vs_internal" in summary.get("external", {}):
+        cmp = summary["external"]["vs_internal"]
+        print("  external > internal: %d of %d ordered pairs (see external-vs-internal.md)" % (
+            sum(FLAG_EXT_SLOWER in c["flags"] for c in cmp), len(cmp)))
+    for name, lay in summary.get("layouts", {}).items():
         if lay["fleet"]:
             print("  layout %s: slowest 6th-nearest %.2f ms (%s)" % (
                 name, lay["fleet"]["max_k6_ms"], lay["fleet"]["max_k6_zone"]))
