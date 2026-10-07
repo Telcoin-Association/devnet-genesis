@@ -40,16 +40,16 @@ Source plan: the approved "latency-adjustments" plan (see transcript). Branch
 - [x] USER DECISION 2026-10-07: external IPs stay (production realism; no VPC addressing). Path: external probe → V1Lazy + classification fix in a new image → A3 re-check → stage 2. Subagents keep the main context clean.
 
 ## W9 — external-address latency probe (opus; checkpoint tasks/checkpoint-probe-external.md)
-- [ ] latency-probe.sh `--external`: each VM measures every peer on internal AND external IP in one run; firewall sources = probe VMs' external /32s; latency-matrix.py `external-vs-internal.md` + external matrices; tests
-- [ ] live run on the ten fleet zones (incl. asia-south1-c, unprobed before) → benchmark/latency/2026-10-07/; verdict: external ≈ internal (detour is in the node) or external ≈ via-LA sum (network path)
+- [x] latency-probe.sh `--addresses internal|external|both` (9bfa8ae); live run 20261007T025234Z on the ten zones (d3fde76): EXTERNAL = INTERNAL on all 90 pairs (median +0.6 ms) → the via-LA fit is node-side; Mumbai zone c ≈ zone a
 
 ## W10 — telcoin-network: lazy protocol negotiation + error classification (tn-rust-engineer; checkpoint tasks/checkpoint-v1lazy.md)
-- [ ] branch fix/libp2p-lazy-protocol-negotiation off devnet-bench-10-5-2026 @ ba43a1f0e: `with_substream_upgrade_protocol_override(Version::V1Lazy)` in network-libp2p consensus.rs swarm config
-- [ ] classification helper: `Io(Other)` wrapping multistream-select NegotiationError treated as unsupported protocol in the peer-penalty, peer-exchange fallback and sync-capability arms; unit test
-- [ ] cargo fmt/check/clippy/test on the crate; merge --no-ff into devnet-bench-10-5-2026; push
-- [ ] image `adiri:mmap-subsecond-v1lazy-10-7-2026` via `make docker-devnet` (amd64), pushed; `benchmark-deploy.sh --probe-node-image` passes with EXPECT sha/forks; digest recorded
+- [x] branch fix/libp2p-lazy-protocol-negotiation (b0838dd38) off devnet-bench-10-5-2026 @ ba43a1f0e: `with_substream_upgrade_protocol_override(Version::V1Lazy)` in network-libp2p consensus.rs swarm config
+- [x] classification: error.rs `is_unsupported_protocol` / `normalize_outbound_failure` / `is_negotiation_failure` (typed downcast to NegotiationError::Failed) applied at the top of both OutboundFailure arms; sync-stream upgrade does a zero-length read so a lazy open to a wrong-role peer fails at open (classified UpgradeFailed, penalty-exempt); 2 unit tests + extended classify test; permanent sync-stream regression test = separate agent (checkpoint tasks/checkpoint-v1lazy-test.md)
+- [x] fmt/clippy clean; nextest tn-network-libp2p 343 passed 1 skipped; tn-kad-client 12/12; merged --no-ff = f8ff81bf4, both branches pushed
+- [x] image `adiri:mmap-subsecond-v1lazy-10-7-2026` = sha256:71c5b03bf050762a845fbe87ce201460e675a851b74c138a5a22d4fdfdf3d7cb (make docker-devnet, 930 s, amd64+arm64 manifest); probe passed (git sha f8ff81bf4…, subsecond-from-genesis, contract ok)
 
-## W11 — A3 re-check on the new image (fable live orchestrator, one fleet shared with W12)
+## W11 — A3 re-check on the new image (fable live orchestrator, one fleet shared with W12; LAUNCHED 2026-10-07, checkpoint tasks/checkpoint-bench-stage2.md)
+- [x] consensus-parameters.yaml → max 1000 ms committed (3f9fe3b); 11 tests that hardcoded 500 ms being fixed by a separate agent (checkpoint tasks/checkpoint-test-500.md)
 - [ ] consensus-parameters.yaml → max 1000 / min 250 / batch 250 (A3) committed; deploy 0..12 with the new image + EXPECT values, debug filter default (vote handler + negotiation), BENCH_CHAOS=0
 - [ ] ~10 min idle + 480 s blast (index 0) + collect; propose-latency/cert-rate per window WITHOUT teardown (unit-stdout pull or wait) — decide: every validator ≥ 90 % idle → stage 2 at 250/1000; else min_header_delay = slowest C p95 + ~50 ms (params-apply --arm stage2) and record why
 - [ ] negotiation check from the logs: `Dialer: Proposed protocol` → `Received confirmation` gap on London→Tokyo ≈ 0 extra RTT; per-link vote ≈ 1× effective RTT
