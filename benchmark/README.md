@@ -154,7 +154,7 @@ or 9 runs. The fork-schedule check uses the smallest `max_header_delay` of any n
 
 ### Node log filter
 
-`BENCH_NODE_LOG_FILTER` (default `info,primary::certifier=debug,primary::proposer=debug`) goes
+`BENCH_NODE_LOG_FILTER` (default `info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug`; the certifier and proposer lines give per-peer vote timing and parent choice, `primary=debug` with the three `=info` overrides gives the voter side (`Processing vote request from peer`, `Created vote`) without the per-certificate dumps, the handler target the rare missing-parent lines, and the three libp2p/peer-manager targets the per-substream protocol negotiation and connection lifecycle that stage 1 found to cost a round trip per vote; about 45-50 KB per node per round, ~200 MB per node over 40 min) goes
 onto each node's command line at step 9 as `--log.stdout.filter` and `--log.file.filter`, with
 `--log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}` (default 20). `primary::certifier` logs each
 vote request and response per peer; `primary::proposer` logs the parents and delays of each

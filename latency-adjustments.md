@@ -315,8 +315,24 @@ form are never committed. Under load London and the Netherlands reach 59-85 %, M
   voters answer London and the Netherlands in 472-724 ms (Tokyo 472, Seoul 523, Sydney 554, Hong Kong
   559, Singapore 594, Mumbai 724) and answer LA in 204-450 ms. Nothing on the proposer side explains the
   doubling (no missing-parent re-requests, no vote errors except `Canceled`); the vote-request handler was
-  not in the debug filter, so the voter side is unseen. The mechanism (connection or stream negotiation,
-  a missing-parents round trip, or a handler wait) is being traced in the node source; §9.4.
+  not in the debug filter. Two causes, both outside the timer parameters, were then found in the node
+  source and confirmed against the run's own per-link vote timings:
+  1. **Every vote request pays one extra round trip for protocol negotiation.** Each request opens a new
+     libp2p substream and negotiates its protocol in strict multistream-select `V1` mode: the requester
+     waits for the voter's protocol confirmation before sending the request bytes (the swarm builder in
+     `network-libp2p/src/consensus.rs:691-716` sets no substream upgrade override; libp2p-swarm 0.48
+     defaults to `V1`; request-response 0.30 opens one substream per request). Certificates travel on
+     gossipsub's long-lived substreams and arrive in half a round trip, which is why parents beat votes.
+     From LA all nine links measure 2.01-2.08× the probed UDP RTT.
+  2. **Europe↔Asia traffic between the nodes goes through the US.** The nodes dial each other on their
+     external addresses (the committee advertises `/ip4/34.x…/udp/49590/quic-v1`, ephemeral Premium-tier
+     IPs); the latency probe measured internal addresses. For every Europe→Asia link the vote time equals
+     2 × (RTT to LA + RTT from LA to the peer) within 7 ms (London→Tokyo 472 vs 474, Seoul 523 vs 527,
+     Sydney 554 vs 549, Hong Kong 559 vs 560, Singapore 594 vs 601, Mumbai 724 vs 706; the Netherlands
+     likewise), while Europe↔Americas and Europe↔Europe links are 2× their direct RTT. London's effective
+     RTT to Mumbai is ~350 ms instead of the probed 149.
+  London's sixth vote (Sydney) therefore returns at 2 × (137 + 138) ≈ 550 ms; with direct routing and
+  one-RTT votes it would return at about 200 ms.
 - **`max_header_delay` matters only for churn.** At 500 ms the max timer fires every round (92
   re-proposals per minute per node); at 1000 ms about 5. It does not change the round.
 - **Under load every arm is execution-bound**, as §5 said: 1.22-1.41 rounds/s, 14.4-15.8 blocks/s,
@@ -346,8 +362,8 @@ form are never committed. Under load London and the Netherlands reach 59-85 %, M
 
 ### 9.4 Revised recommendation and the decision for stage 2
 
-No arm meets the §6 contract, and the failing criterion is the same in all five: the London and
-Netherlands vote path. Timers cannot fix it; the two parameters that matter are settled:
+No arm meets the §6 contract, and the failing criterion is the same in all five: the vote path, not a
+timer. The two parameters that matter are settled:
 
 - **`max_header_delay` 1000 ms, `min_header_delay` 250 ms, `max_batch_delay` 250 ms (arm A3)** is the
   fleet config to carry forward: fastest under load, least churn, no idle cost against A0.
@@ -358,11 +374,24 @@ Netherlands vote path. Timers cannot fix it; the two parameters that matter are 
 - **The only parameter that lets London and the Netherlands certify** is a `min_header_delay` that binds
   above their quorum time, ≥ 600 ms (round ≈ 600-620 ms, about 12 % slower). It was not an arm.
 
-Stage 2 (the 40-minute chaos run) should not start until one of these is chosen: fix the vote path
-upstream and re-run stage 1's A3 as a short check; accept London and the Netherlands at 1-50 % and run
-stage 2 on A3 as a record of today's behaviour; or run stage 2 at min 600 ms. Whatever is chosen, the
-node debug filter must include the vote-request handler so the voter side of the 2× RTT is logged.
-Mumbai (74-90 % under load, 11-21 % not committed in A2-A4) needs the same look.
+The levers, in order of value:
+
+1. **Consensus traffic over internal addresses** (same VPC, Google's backbone): a harness change
+   (committee addresses, firewall sources, the node's advertised address) that removes the US detour for
+   Europe↔Asia. No new node image.
+2. **One-RTT votes upstream**: `with_substream_upgrade_protocol_override(Version::V1Lazy)` on the swarm
+   (one line in `network-libp2p/src/consensus.rs`). Caveat for mixed-version fleets: a peer without the
+   protocol then surfaces as an I/O error instead of `UnsupportedProtocols`, so the peer-penalty and
+   sync-capability paths must classify it. Halves every node's C.
+3. With both, the model's assumption (C ≈ RTT to the sixth-nearest voter + ~70 ms) holds and the fleet
+   round would be roughly 300-350 ms with all ten certifying. With neither, `min_header_delay` ≥ 600 ms
+   is the only way London and the Netherlands certify.
+
+Stage 2 (the 40-minute chaos run) waits on one choice: (a) do 1 and 2, re-run A3 as a short check,
+then stage 2; (b) do 1 only and run; (c) run A3 as-is, recording London and the Netherlands at 1-50 %;
+(d) run at min 600 ms. The node debug filter default now includes the vote-handler, negotiation and
+connection targets, so whichever runs will show the voter side. Mumbai (74-90 % under load, 11-21 % not
+committed in A2-A4) gets the same look.
 
 Harness outcomes from the run, all first live uses: per-node `parameters.yaml` rewrite and log-filter
 injection at deploy step 9; `params-apply.sh` stage test and five fleet-wide arms; blaster machine-type
