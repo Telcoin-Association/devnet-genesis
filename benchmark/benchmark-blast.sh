@@ -14,8 +14,10 @@
 #            BENCH_BLAST_DONE, copies gs://<bucket>/<run>/index-<RUN_INDEX>/blasters/ into
 #            results/<run>/blasters/, deletes the blasters (unless --keep). BENCH_CHAOS=0 skips
 #            the chaos schedule. Each chaos action is staged: one IAP session opened
-#            BENCH_CHAOS_STAGE_SECS early saves the container log, waits on the node's clock and
-#            runs the action on time; a poll due within BENCH_CHAOS_GUARD_SECS of it waits for it.
+#            BENCH_CHAOS_STAGE_SECS early starts saving the container log in the background, waits
+#            on the node's clock and runs the action on time whether or not the save has finished
+#            (then waits up to BENCH_CHAOS_SAVE_WAIT_SECS for it); a poll due within
+#            BENCH_CHAOS_GUARD_SECS of it waits for it.
 #            BENCH_LAG_INJECT=1 `docker pause`s bench-validator-03 (BENCH_LAG_IDX) at
 #            mixed+BENCH_LAG_AT_SECS for BENCH_LAG_PAUSE_SECS, then unpauses it and reports its
 #            node mode every poll while it catches up; the unpause is owed on any exit.
@@ -29,7 +31,7 @@
 #   status   list the load VMs and the latest serial markers (read-only).
 #   chaos-stage-test --instance <node>
 #            one staged chaos session against that live node with the harmless action `true`
-#            (its container log is saved first): prints the node's BEGIN/END and the lateness.
+#            (its container log is saved alongside): prints the node's BEGIN/END and the lateness.
 #            Run it once against a live fleet before a blast relies on the staged path.
 #
 # Abort watchers (each sets manifest.abort and stops the blasters): any bench node's root
@@ -102,6 +104,13 @@ case "${BENCH_STALL_NOTE_MAX_ROUNDS}" in ''|*[!0-9]*) bench_die "BENCH_STALL_NOT
 # A poll the guard lets through must end before the next action's session opens.
 [ "${BENCH_CHAOS_STAGE_SECS}" -lt "${BENCH_CHAOS_GUARD_SECS}" ] \
     || bench_die "BENCH_CHAOS_STAGE_SECS=${BENCH_CHAOS_STAGE_SECS} must be below BENCH_CHAOS_GUARD_SECS=${BENCH_CHAOS_GUARD_SECS}"
+# The kill's session may run BENCH_CHAOS_SAVE_WAIT_SECS past the kill (the log save); it must end
+# before the restart's session opens BENCH_CHAOS_STAGE_SECS ahead of the restart.
+case "${BENCH_CHAOS_SAVE_WAIT_SECS}" in ''|*[!0-9]*) bench_die "BENCH_CHAOS_SAVE_WAIT_SECS='${BENCH_CHAOS_SAVE_WAIT_SECS}' must be a whole number" ;; esac
+CHAOS_OUTAGE_SECS="${BENCH_CHAOS_DOWNTIME_SECS}"
+[ "${BENCH_CHAOS_TIMING}" != mixed ] || CHAOS_OUTAGE_SECS=$(( BENCH_CHAOS_BACK_AT_SECS - BENCH_CHAOS_KILL_AT_SECS ))
+[ $(( BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS )) -lt "${CHAOS_OUTAGE_SECS}" ] \
+    || bench_die "BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS (${BENCH_CHAOS_STAGE_SECS}+${BENCH_CHAOS_SAVE_WAIT_SECS}) must be below the ${CHAOS_OUTAGE_SECS}s outage"
 
 blaster_name() { printf 'bench-blaster-%02d' "$(( $1 + 1 ))"; }
 
@@ -593,18 +602,29 @@ chaos_direct_cmd() {
 # CHAOS_STAGE_SCRIPT — a staged chaos action, sent on stdin to `sudo bash -s` after the CHAOS_*
 # assignment lines chaos_stage_send writes; nothing is quoted into a --command string
 # (tasks/lessons.md). The body is one function called on the last line, so a script cut short in
-# transit is a syntax error and runs nothing. It saves the container log first (as
-# bench_save_node_log does, same file name, so the pulls collect it), waits on the node's clock
-# for CHAOS_DUE, then prints BENCH_CHAOS_BEGIN, runs the action and prints BENCH_CHAOS_END in the
-# direct path's format. The BEGIN line is written before the action and checked: once the
-# operator's session is gone that write fails, so a run interrupted during the wait cannot kill the
-# node after its EXIT trap restarted it. A due time more than CHAOS_MAX_WAIT ahead on the node's
-# clock (skew) is refused before BEGIN.
+# transit is a syntax error and runs nothing. It starts the container-log save as a background job
+# (as bench_save_node_log does, same file name, so the pulls collect it) and prints
+# BENCH_CHAOS_SAVE_STARTED, waits on the node's clock for CHAOS_DUE, then prints BENCH_CHAOS_BEGIN,
+# runs the action and prints BENCH_CHAOS_END in the direct path's format. The save never holds the
+# action back (r20261007-0316: a 70 s save before the wait put the kill 41.8 s late); late is the
+# 0.2 s poll of the wait. After END the session waits up to CHAOS_SAVE_WAIT seconds for the save
+# and prints one of: BENCH_CHAOS_SAVED <file> at_action=finished|running (the save had finished
+# when the action began, or finished after it), BENCH_CHAOS_SAVE_FAILED <name> at_action=... <error>,
+# BENCH_CHAOS_SAVE_RUNNING <file> at_action=running (still writing: it completes on the node by
+# itself and the file appears under its name only when complete). A save that outlives a kill is
+# not cut short: `docker logs` reads the log to the size it had when the save began, and Docker
+# removes the --rm container without waiting for it (Docker 29.8 json-file: a 542 MB read started
+# 0.5 s before a SIGKILL completed in full, rc 0, and the name was free 0.2 s after the kill).
+# The BEGIN line is written before the action and checked: once the operator's session is gone
+# that write fails, so a run interrupted during the wait cannot kill the node after its EXIT trap
+# restarted it. A due time more than CHAOS_MAX_WAIT ahead on the node's clock (skew) is refused
+# before the save starts. Case patterns carry their opening parenthesis: macOS /bin/bash 3.2
+# misparses a bare `pattern)` inside this $(...) (tasks/lessons.md).
 CHAOS_STAGE_SCRIPT=$(cat <<'EOS'
 chaos_stage() {
     set -u -o pipefail
-    local name ahead rc
-    now_ms() { local t; t=$(date -u +%s.%N); case $t in *.[0-9][0-9][0-9]*) printf '%s' "${t%"${t#*.???}"}" ;; *) printf '%s.000' "${t%%.*}" ;; esac; }
+    local name="" sd="" at="" ahead rc
+    now_ms() { local t; t=$(date -u +%s.%N); case $t in (*.[0-9][0-9][0-9]*) printf '%s' "${t%"${t#*.???}"}" ;; (*) printf '%s.000' "${t%%.*}" ;; esac; }
     save_log() { # <dir> <name>
         local d=$1 f=$1/$2 p
         docker container inspect telcoin >/dev/null || return 1
@@ -615,26 +635,42 @@ chaos_stage() {
         [ "$(gzip -cd "$p" | head -c 1 | wc -c)" -eq 1 ] || { echo "the telcoin container log is empty" >&2; return 1; }
         mv -n "$p" "$f" && [ ! -e "$p" ] && [ -s "$f" ]
     }
-    case $CHAOS_ACTION in kill|start|restart|true) ;; *) echo "BENCH_CHAOS_STAGE_FAIL action $CHAOS_ACTION"; return 2 ;; esac
-    if [ -n "$CHAOS_SAVE" ]; then
-        name="telcoin-$CHAOS_SAVE-$(date -u +%Y%m%dT%H%M%SZ).log.gz"
-        if save_log "$CHAOS_LOG_DIR" "$name"; then echo "BENCH_CHAOS_SAVED $CHAOS_LOG_DIR/$name"
-        else echo "BENCH_CHAOS_SAVE_FAILED $name"; fi
-    fi
+    save_report() { # <secs> — wait up to <secs> for the background save, then print its outcome
+        local until=$(( $(date +%s) + $1 ))
+        while [ ! -s "$sd/rc" ] && [ "$(date +%s)" -lt "$until" ]; do sleep 0.5; done
+        if [ ! -s "$sd/rc" ]; then
+            echo "BENCH_CHAOS_SAVE_RUNNING $CHAOS_LOG_DIR/$name at_action=$at"
+        elif [ "$(cat "$sd/rc")" = 0 ]; then
+            echo "BENCH_CHAOS_SAVED $CHAOS_LOG_DIR/$name at_action=$at"; rm -rf "$sd"
+        else
+            echo "BENCH_CHAOS_SAVE_FAILED $name at_action=$at $(tr '\n' ' ' < "$sd/err" | cut -c1-300)"; rm -rf "$sd"
+        fi
+    }
+    case $CHAOS_ACTION in (kill|start|restart|true) ;; (*) echo "BENCH_CHAOS_STAGE_FAIL action $CHAOS_ACTION"; return 2 ;; esac
     ahead=$(( CHAOS_DUE - $(date +%s) ))
     if [ "$ahead" -gt "$CHAOS_MAX_WAIT" ]; then
         echo "BENCH_CHAOS_STAGE_FAIL due in ${ahead}s on this clock, more than ${CHAOS_MAX_WAIT}s"; return 2
     fi
+    # The save's fds are not the session's: a save still running at the end does not hold it open.
+    if [ -n "$CHAOS_SAVE" ] && sd=$(mktemp -d); then
+        name="telcoin-$CHAOS_SAVE-$(date -u +%Y%m%dT%H%M%SZ).log.gz"
+        { save_log "$CHAOS_LOG_DIR" "$name" 2>"$sd/err"; echo "$?" > "$sd/rc"; } </dev/null >/dev/null 2>&1 &
+        echo "BENCH_CHAOS_SAVE_STARTED $CHAOS_LOG_DIR/$name"
+    else
+        sd=""
+    fi
     while [ "$(date +%s)" -lt "$CHAOS_DUE" ]; do sleep 0.2; done
+    if [ -n "$sd" ]; then if [ -s "$sd/rc" ]; then at=finished; else at=running; fi; fi
     printf 'BENCH_CHAOS_BEGIN node=%s %s\n' "$CHAOS_NODE" "$(now_ms)" || return 2
     case $CHAOS_ACTION in
-        kill) docker kill -s KILL telcoin && systemctl stop telcoin && { systemctl is-active telcoin || true; } ;;
-        start) systemctl start telcoin && systemctl is-active telcoin ;;
-        restart) systemctl restart telcoin && systemctl is-active telcoin ;;
-        true) true ;;
+        (kill) docker kill -s KILL telcoin && systemctl stop telcoin && { systemctl is-active telcoin || true; } ;;
+        (start) systemctl start telcoin && systemctl is-active telcoin ;;
+        (restart) systemctl restart telcoin && systemctl is-active telcoin ;;
+        (true) true ;;
     esac
     rc=$?
     printf 'BENCH_CHAOS_END node=%s rc=%s %s\n' "$CHAOS_NODE" "$rc" "$(now_ms)"
+    [ -z "$sd" ] || save_report "$CHAOS_SAVE_WAIT"
     return "$rc"
 }
 chaos_stage
@@ -651,18 +687,30 @@ chaos_stage_send() {
     case "$3" in ''|*[!0-9]*) echo "❌ chaos_stage_send: due time '$3'" >&2; return 2 ;; esac
     case "$4" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) echo "❌ chaos_stage_send: log label '$4'" >&2; return 2 ;; esac
     case "${BENCH_NODE_LOG_DIR}" in ''|*[!A-Za-z0-9/._-]*) echo "❌ chaos_stage_send: log dir '${BENCH_NODE_LOG_DIR}'" >&2; return 2 ;; esac
-    printf 'CHAOS_NODE=%s\nCHAOS_ACTION=%s\nCHAOS_DUE=%s\nCHAOS_SAVE=%s\nCHAOS_LOG_DIR=%s\nCHAOS_MAX_WAIT=%s\n%s\n' \
-        "${inst}" "$2" "$3" "$4" "${BENCH_NODE_LOG_DIR}" "$(( BENCH_CHAOS_STAGE_SECS + 60 ))" "${CHAOS_STAGE_SCRIPT}" \
-        | tn_iap_ssh_stdin "${inst}" "${zone}"
+    printf 'CHAOS_NODE=%s\nCHAOS_ACTION=%s\nCHAOS_DUE=%s\nCHAOS_SAVE=%s\nCHAOS_LOG_DIR=%s\nCHAOS_MAX_WAIT=%s\nCHAOS_SAVE_WAIT=%s\n%s\n' \
+        "${inst}" "$2" "$3" "$4" "${BENCH_NODE_LOG_DIR}" "$(( BENCH_CHAOS_STAGE_SECS + 60 ))" "$(( BENCH_CHAOS_SAVE_WAIT_SECS ))" \
+        "${CHAOS_STAGE_SCRIPT}" | tn_iap_ssh_stdin "${inst}" "${zone}"
 }
 
 # chaos_save_report <idx> <log-label|""> <remote-output> — the staged log save's outcome, reported
-# as save_log_first reports its own.
+# as save_log_first reports its own. A save the session left running (SAVE_RUNNING, or STARTED
+# with no outcome when the session ended early) completes on the node by itself.
 chaos_save_report() {
     [ -n "$2" ] || return 0
-    local saved; saved="$(printf '%s\n' "$3" | tr -d '\r' | sed -n 's/^BENCH_CHAOS_SAVED \([^ ]*\).*/\1/p' | tail -1)"
-    if [ -n "${saved}" ]; then echo "      ✓ ${INSTANCE_NAMES[$1]}: container log saved on the node as ${saved}"; return 0; fi
-    bench_warn "${INSTANCE_NAMES[$1]}: container log not saved ($2) — the ${2#pre-} goes ahead on schedule without it"
+    local out saved at
+    out="$(printf '%s\n' "$3" | tr -d '\r')"
+    saved="$(printf '%s\n' "${out}" | sed -n 's/^BENCH_CHAOS_SAVED \([^ ]*\).*/\1/p' | tail -1)"
+    at="$(printf '%s\n' "${out}" | sed -n 's/^BENCH_CHAOS_SAVED [^ ]* at_action=\([a-z]*\).*/\1/p' | tail -1)"
+    if [ -n "${saved}" ]; then
+        echo "      ✓ ${INSTANCE_NAMES[$1]}: container log saved on the node as ${saved} (${at:-?} when the ${2#pre-} began)"; return 0
+    fi
+    saved="$(printf '%s\n' "${out}" | sed -n -e 's/^BENCH_CHAOS_SAVE_RUNNING \([^ ]*\).*/\1/p' -e 's/^BENCH_CHAOS_SAVE_STARTED \([^ ]*\).*/\1/p' | tail -1)"
+    if [ -n "${saved}" ] && ! printf '%s\n' "${out}" | grep -q '^BENCH_CHAOS_SAVE_FAILED '; then
+        bench_warn "${INSTANCE_NAMES[$1]}: container log still being saved on the node when the session ended (${saved}); it completes there and the teardown pulls it"
+        bench_manifest_note "log-save-unconfirmed: ${INSTANCE_NAMES[$1]} $2 at $(bench_now_iso); ${saved} was still being written when the session ended" || true
+        return 0
+    fi
+    bench_warn "${INSTANCE_NAMES[$1]}: container log not saved ($2) — the ${2#pre-} goes ahead on schedule without it (the unit-stdout file has its output)"
     bench_manifest_note "log-save-failed: ${INSTANCE_NAMES[$1]} $2 at $(bench_now_iso); the ${2#pre-} went ahead without a saved log" || true
 }
 
@@ -670,7 +718,9 @@ chaos_save_report() {
 # — the action at <due> on the node's clock, from a session the loop opens BENCH_CHAOS_STAGE_SECS
 # early (r20261006-0053: a poll, the log save and the IAP setup ran before the kill, 17 s late).
 # A session that fails before BENCH_CHAOS_BEGIN falls back to the direct path at <due>
-# (staged=false); one that fails after it is recorded as it ran. CHAOS_RC, CHAOS_BEGIN as record_chaos.
+# (staged=false), without a log save of its own: a save before the action would delay it
+# (r20261007-0316), and the unit's append file (<node>-unit-stdout.log.gz) has the container's
+# output. One that fails after BEGIN is recorded as it ran. CHAOS_RC, CHAOS_BEGIN as record_chaos.
 chaos_staged() {
     local idx="$1" act="$2" due="$3" save="$4" inst="${INSTANCE_NAMES[$1]}" rc=0 out
     bench_log "CHAOS ${inst}: $5 staged for $(bench_iso_from_unix "${due}") on the node's clock"
@@ -682,10 +732,7 @@ chaos_staged() {
         return 0
     fi
     bench_warn "${inst}: the staged $5 failed before it began (rc=${rc}) — the direct path runs it at $(bench_iso_from_unix "${due}")"
-    case "${out}" in
-        *BENCH_CHAOS_SAVED\ *) ;;
-        *) [ -z "${save}" ] || save_log_first "${idx}" "${save}" ;;
-    esac
+    chaos_save_report "${idx}" "${save}" "${out}" || true
     sleep_until "${due}" 0
     chaos_do "${idx}" "$(chaos_direct_cmd "${act}")" "$5" "$6" "${due}" "${7:-}"
 }
@@ -1496,16 +1543,16 @@ do_status() {
 # ================================ chaos-stage-test ===================================
 # do_chaos_stage_test — one staged session (chaos_stage_send) against --instance with the action
 # `true`, due BENCH_CHAOS_STAGE_SECS after it opens, as a blast stages its chaos; the node's
-# container log is saved first as telcoin-stage-test-<UTC>.log.gz (the teardown pulls it with the
-# other saved logs). Prints BEGIN/END and the lateness; non-zero when the session, a marker or the
-# action fails. A remote path tested only through stubs has never been parsed by a remote shell
+# container log is saved alongside as telcoin-stage-test-<UTC>.log.gz (the teardown pulls it with
+# the other saved logs). Prints BEGIN/END, the lateness and the save's state; non-zero when the
+# session, a marker or the action fails. A remote path tested only through stubs has never been parsed by a remote shell
 # (tasks/lessons.md): run this once against a live node before a blast depends on it.
 do_chaos_stage_test() {
     local idx due rc=0 out begin end late
     [ -n "${STAGE_INSTANCE}" ] || bench_die "chaos-stage-test needs --instance <node> (one of: ${INSTANCE_NAMES[*]})"
     idx="$(bench_index_of "${STAGE_INSTANCE}")" || bench_die "${STAGE_INSTANCE} is not a node of this fleet (${INSTANCE_NAMES[*]})"
-    echo ">>> chaos-stage-test ${STAGE_INSTANCE} (${ZONES[$idx]}): save its container log, wait for the due time on its clock, run 'true'"
-    printf 'CHAOS_NODE=x\nCHAOS_ACTION=true\nCHAOS_DUE=0\nCHAOS_SAVE=\nCHAOS_LOG_DIR=/x\nCHAOS_MAX_WAIT=0\n%s\n' "${CHAOS_STAGE_SCRIPT}" \
+    echo ">>> chaos-stage-test ${STAGE_INSTANCE} (${ZONES[$idx]}): save its container log in the background, wait for the due time on its clock, run 'true'"
+    printf 'CHAOS_NODE=x\nCHAOS_ACTION=true\nCHAOS_DUE=0\nCHAOS_SAVE=\nCHAOS_LOG_DIR=/x\nCHAOS_MAX_WAIT=0\nCHAOS_SAVE_WAIT=0\n%s\n' "${CHAOS_STAGE_SCRIPT}" \
         | bash -n || bench_die "the staged chaos script does not parse (bash -n)"
     echo "    ✓ the staged script parses (bash -n)"
     if [ "${BENCH_APPLY}" != "1" ]; then
@@ -1520,7 +1567,11 @@ do_chaos_stage_test() {
     { [ -n "${begin}" ] && [ -n "${end}" ]; } \
         || bench_die "${STAGE_INSTANCE}: no BENCH_CHAOS_BEGIN/END (ssh rc=${rc}) — the staged path does not work there; a blast would fall back to the direct path"
     [ "${rc}" -eq 0 ] || bench_die "${STAGE_INSTANCE}: the staged session ended rc=${rc}"
-    case "${out}" in *BENCH_CHAOS_SAVED\ *) ;; *) bench_warn "${STAGE_INSTANCE}: container log not saved (no telcoin container?)" ;; esac
+    case "${out}" in
+        *BENCH_CHAOS_SAVED\ *) ;;
+        *BENCH_CHAOS_SAVE_RUNNING\ *) bench_warn "${STAGE_INSTANCE}: container log still being saved ${BENCH_CHAOS_SAVE_WAIT_SECS}s after the action (it completes on the node)" ;;
+        *) bench_warn "${STAGE_INSTANCE}: container log not saved (no telcoin container?)" ;;
+    esac
     late="$(awk -v b="${begin}" -v d="${due}" 'BEGIN { printf "%.3f", b - d }')"
     echo "    due $(bench_iso_from_unix "${due}") (${due}); BEGIN ${begin}, END ${end} (node clock): late ${late}s"
     if awk -v l="${late}" 'BEGIN { exit !(l >= 0 && l < 1) }'; then echo "    ✓ the action began within 1 s of its due time"

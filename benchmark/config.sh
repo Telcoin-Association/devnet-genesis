@@ -261,10 +261,14 @@ export BENCH_CHAOS_BACK_AT_SECS="${BENCH_CHAOS_BACK_AT_SECS:-1200}"
 export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
 # Chaos timing (benchmark-blast.sh): each action's IAP session opens BENCH_CHAOS_STAGE_SECS before
 # it is due and waits on the node's clock; no poll starts within BENCH_CHAOS_GUARD_SECS of a due
-# action (a poll takes ~40 s; STAGE must stay below GUARD). BENCH_STALL_NOTE_SECS: the fleet's
+# action (a poll takes ~40 s; STAGE must stay below GUARD). The session starts the pre-action
+# container-log save in the background, runs the action on time whatever the save's state, then
+# waits up to BENCH_CHAOS_SAVE_WAIT_SECS for the save (a longer one completes on the node by
+# itself); STAGE + SAVE_WAIT must stay below the outage. BENCH_STALL_NOTE_SECS: the fleet's
 # highest block flat this long in the mixed phase is noted (.commit_stalls), never an abort.
 export BENCH_CHAOS_STAGE_SECS="${BENCH_CHAOS_STAGE_SECS:-30}"
 export BENCH_CHAOS_GUARD_SECS="${BENCH_CHAOS_GUARD_SECS:-90}"
+export BENCH_CHAOS_SAVE_WAIT_SECS="${BENCH_CHAOS_SAVE_WAIT_SECS:-60}"
 export BENCH_STALL_NOTE_SECS="${BENCH_STALL_NOTE_SECS:-60}"
 export BENCH_STALL_NOTE_MAX_ROUNDS="${BENCH_STALL_NOTE_MAX_ROUNDS:-4}"   # rounds may rise by this much and still count as flat
 # Lag injection (BENCH_LAG_INJECT=1): pause one validator's container at BENCH_LAG_AT_SECS after

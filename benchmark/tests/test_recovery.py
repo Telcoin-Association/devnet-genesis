@@ -146,7 +146,7 @@ bench_manifest_note() { bench_manifest_jq --arg n "$1" '.notes += [$n]'; }
 record_abort() { printf '%s\n' "$1" >> "$ABORT_LOG"; }
 INSTANCE_NAMES=(bench-validator-05 bench-observer-11); ZONES=(zone-a zone-b)
 BENCH_RESULTS_DIR="$WORK"; BENCH_NODE_LOG_DIR="$WORK/node-logs"
-BENCH_CHAOS_STAGE_SECS=30; BENCH_CHAOS_GUARD_SECS=90; BENCH_STALL_NOTE_SECS=60
+BENCH_CHAOS_STAGE_SECS=30; BENCH_CHAOS_GUARD_SECS=90; BENCH_CHAOS_SAVE_WAIT_SECS=60; BENCH_STALL_NOTE_SECS=60
 """
 
 # The node's tools, as the staged script and the direct path call them (root via `sudo bash -s`).
@@ -194,14 +194,14 @@ class ChaosTimingTests(unittest.TestCase):
         "chaos_mark", "record_chaos", "chaos_do", "chaos_direct_cmd", "chaos_stage_send",
         "chaos_save_report", "chaos_staged", "sleep_until")
 
-    def test_staged_script_saves_the_log_then_begins_on_the_node_clock(self):
-        run = run_chaos_shell(self.STAGED + r'''
+    def test_staged_script_saves_the_log_alongside_and_begins_on_the_node_clock(self):
+        run = run_chaos_shell(self.STAGED + r"""
 tn_iap_ssh_stdin() { tee "$WORK/script.sh" | sudo bash -s; }
 DUE=$(( $(date +%s) + 2 ))
 echo "DUE $DUE"
 chaos_stage_send 0 kill "$DUE" pre-kill
 echo "RC $?"
-''')
+""")
         out = run["out"]
         due = int(re.search(r"^DUE (\d+)$", out, re.M).group(1))
         begin = marker_time(out, "BEGIN")
@@ -209,9 +209,13 @@ echo "RC $?"
         self.assertLess(begin, due + 1)
         self.assertIn("BENCH_CHAOS_END node=bench-validator-05 rc=0 ", out)
         self.assertIn("RC 0", out)
-        # The log is saved, under bench_save_node_log's name, before BEGIN and before the kill.
-        saved = re.search(r"^BENCH_CHAOS_SAVED (\S+)$", out, re.M)
-        self.assertLess(saved.start(), out.index("BENCH_CHAOS_BEGIN "))
+        # The save starts before BEGIN, under bench_save_node_log's name; its outcome follows END
+        # and says it had finished when the kill began.
+        started = re.search(r"^BENCH_CHAOS_SAVE_STARTED (\S+)$", out, re.M)
+        saved = re.search(r"^BENCH_CHAOS_SAVED (\S+) at_action=finished$", out, re.M)
+        self.assertLess(started.start(), out.index("BENCH_CHAOS_BEGIN "))
+        self.assertGreater(saved.start(), out.index("BENCH_CHAOS_END "))
+        self.assertEqual(started.group(1), saved.group(1))
         (name, content), = run["saved"].items()
         self.assertRegex(name, r"^telcoin-pre-kill-\d{8}T\d{6}Z\.log\.gz$")
         self.assertTrue(saved.group(1).endswith("/node-logs/" + name))
@@ -219,14 +223,74 @@ echo "RC $?"
         calls = run["calls"].splitlines()
         self.assertLess(calls.index("docker logs telcoin"), calls.index("docker kill -s KILL telcoin"))
         self.assertIn("systemctl stop telcoin", calls)
-        # What went over stdin: assignment lines, then the script; it parses as is.
+        # What went over stdin: assignment lines, then the script; it parses as is, under macOS
+        # /bin/bash 3.2 too (a bare `pattern)` inside $(...) does not).
         self.assertTrue(run["script"].startswith(
             "CHAOS_NODE=bench-validator-05\nCHAOS_ACTION=kill\nCHAOS_DUE=%d\nCHAOS_SAVE=pre-kill\n" % due))
-        self.assertIn("\nCHAOS_MAX_WAIT=90\n", run["script"])
+        self.assertIn("\nCHAOS_MAX_WAIT=90\nCHAOS_SAVE_WAIT=60\n", run["script"])
         subprocess.run(["bash", "-n", "-c", run["script"]], check=True)
+        if Path("/bin/bash").exists():
+            subprocess.run(["/bin/bash", "-n", "-c", run["script"]], check=True)
+
+    # `docker logs` that takes SLOW seconds, longer than the time to the due time (r20261007-0316:
+    # a 70 s save put the kill 41.8 s late).
+    SLOW = 4
+    SLOW_STUBS = dict(NODE_STUBS, docker='echo "docker $*" >> "$CALLS"\ncase "$1" in '
+                      'logs) sleep %d; printf "container line 1\\ncontainer line 2\\n"; echo "docker logs done" >> "$CALLS" ;; '
+                      'kill) echo telcoin ;; esac\nexit 0' % SLOW)
+
+    def test_a_slow_save_does_not_delay_the_kill(self):
+        run = run_chaos_shell(self.STAGED + r"""
+tn_iap_ssh_stdin() { sudo bash -s; }
+DUE=$(( $(date +%s) + 2 ))
+echo "DUE $DUE"
+chaos_staged 0 kill "$DUE" pre-kill "docker kill -s KILL telcoin" "kill note"
+echo "RC $CHAOS_RC"
+""", stubs=self.SLOW_STUBS)
+        out = run["out"]
+        due = int(re.search(r"^DUE (\d+)$", out, re.M).group(1))
+        # On time: the wait polls every 0.2 s (live: late <= 0.2 s); 0.5 s allows a busy test host.
+        entry, = run["manifest"]["chaos"]
+        self.assertEqual((entry["staged"], entry["rc"], entry["planned_unix"]), (True, 0, due))
+        self.assertGreaterEqual(entry["begin_unix"], due)
+        self.assertLess(entry["late_secs"], 0.5)
+        # The kill ran while the save was still reading; the save then finished, complete, and
+        # its marker says it was running when the kill began.
+        calls = run["calls"].splitlines()
+        self.assertLess(calls.index("docker kill -s KILL telcoin"), calls.index("docker logs done"))
+        self.assertRegex(out, r"(?m)^ *BENCH_CHAOS_SAVED \S+/node-logs/telcoin-pre-kill-\S+ at_action=running$")
+        self.assertIn("(running when the kill began)", out)
+        self.assertEqual(list(run["saved"].values()), ["container line 1\ncontainer line 2\n"])
+        self.assertIn("RC 0", out)
+        self.assertEqual(run["manifest"]["notes"], [])
+
+    def test_a_save_longer_than_the_wait_is_left_to_finish_on_the_node(self):
+        run = run_chaos_shell(self.STAGED + r"""
+tn_iap_ssh_stdin() { sudo bash -s; }
+BENCH_CHAOS_SAVE_WAIT_SECS=0
+DUE=$(( $(date +%s) + 1 ))
+chaos_staged 0 kill "$DUE" pre-kill "docker kill -s KILL telcoin" "kill note"
+echo "RETURNED $(date +%s) RC $CHAOS_RC"
+for _ in $(seq 1 100); do
+    ls "$WORK/node-logs"/telcoin-pre-kill-* >/dev/null 2>&1 && { echo "COMPLETED LATER $(date +%s)"; break; }
+    sleep 0.1
+done
+""", stubs=self.SLOW_STUBS)
+        out = run["out"]
+        self.assertIn("RC 0", out)
+        self.assertRegex(out, r"(?m)^ *BENCH_CHAOS_SAVE_RUNNING \S+/node-logs/telcoin-pre-kill-\S+ at_action=running$")
+        self.assertNotIn("BENCH_CHAOS_SAVED ", out)
+        self.assertIn("still being saved on the node when the session ended", out)
+        note, = run["manifest"]["notes"]
+        self.assertTrue(note.startswith("log-save-unconfirmed: bench-validator-05 pre-kill at "))
+        # The session ended before the save did; the save then completed on its own.
+        returned = int(re.search(r"^RETURNED (\d+)", out, re.M).group(1))
+        later = int(re.search(r"^COMPLETED LATER (\d+)$", out, re.M).group(1))
+        self.assertGreaterEqual(later, returned)
+        self.assertEqual(list(run["saved"].values()), ["container line 1\ncontainer line 2\n"])
 
     def test_session_failing_before_begin_falls_back_to_the_direct_path(self):
-        run = run_chaos_shell(self.STAGED + r'''
+        run = run_chaos_shell(self.STAGED + r"""
 tn_iap_ssh_stdin() { cat > /dev/null; return 255; }      # IAP refused the session
 tn_iap_ssh() { bash -c "$3"; }                           # the direct --command, run here
 save_log_first() { echo "save_log_first $*" >> "$CALLS"; }
@@ -235,34 +299,40 @@ echo "DUE $DUE"
 chaos_staged 0 kill "$DUE" pre-kill "docker kill -s KILL telcoin" "kill note"
 echo "RC $CHAOS_RC"
 chaos_stage_send 0 "rm -rf" "$DUE" "" || echo "bad action rc $?"
-''')
+""")
         due = int(re.search(r"^DUE (\d+)$", run["out"], re.M).group(1))
         self.assertIn("failed before it began (rc=255)", run["out"])
         self.assertIn("RC 0", run["out"])
         self.assertIn("bad action rc 2", run["out"])
+        # No save of its own: it would delay the action. The note says the log was not saved.
         calls = run["calls"].splitlines()
-        self.assertEqual(calls[0], "save_log_first 0 pre-kill")
-        self.assertIn("docker kill -s KILL telcoin", calls)
+        self.assertNotIn("save_log_first 0 pre-kill", calls)
+        self.assertEqual(calls[0], "docker kill -s KILL telcoin")
+        self.assertIn("container log not saved (pre-kill)", run["out"])
+        note, = run["manifest"]["notes"]
+        self.assertTrue(note.startswith("log-save-failed: bench-validator-05 pre-kill at "))
         entry, = run["manifest"]["chaos"]
         self.assertEqual((entry["staged"], entry["rc"], entry["planned_unix"], entry["note"]),
                          (False, 0, due, "kill note"))
         self.assertGreaterEqual(entry["begin_unix"], due)
         self.assertGreaterEqual(entry["late_secs"], 0)
 
-    def test_due_time_beyond_the_wait_limit_is_refused_and_not_saved_twice(self):
-        run = run_chaos_shell(self.STAGED + r'''
+    def test_due_time_beyond_the_wait_limit_is_refused_before_saving(self):
+        run = run_chaos_shell(self.STAGED + r"""
 tn_iap_ssh_stdin() { sudo bash -s; }
 tn_iap_ssh() { bash -c "$3"; }
 save_log_first() { echo "save_log_first $*" >> "$CALLS"; }
 sleep() { echo "sleep $*" >> "$CALLS"; }                 # the fallback waits for the due time
 chaos_staged 1 restart "$(( $(date +%s) + 200 ))" pre-restart "systemctl restart telcoin" "observer restart"
-''')
+""")
         self.assertIn("BENCH_CHAOS_STAGE_FAIL due in", run["out"])
+        self.assertNotIn("BENCH_CHAOS_SAVE_STARTED", run["out"])
         calls = run["calls"]
-        self.assertNotIn("save_log_first", calls)                  # the staged session saved it
+        self.assertNotIn("save_log_first", calls)
+        self.assertNotIn("docker logs", calls)
         self.assertRegex(calls, r"(?m)^sleep (19\d|200)$")
         self.assertIn("systemctl restart telcoin", calls)
-        self.assertEqual(len(run["saved"]), 1)
+        self.assertEqual(run["saved"], {})
         self.assertFalse(run["manifest"]["chaos"][0]["staged"])
 
     def test_poll_deferred_when_a_chaos_action_is_due_within_the_guard(self):

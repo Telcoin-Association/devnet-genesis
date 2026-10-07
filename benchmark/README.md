@@ -332,21 +332,48 @@ the downtime must exceed the offset. The drill keeps its existing owed-restart c
 
 Each action is staged so it lands on time. `BENCH_CHAOS_STAGE_SECS=30` seconds before it is
 due, the run opens one IAP session and sends a short script on stdin (`sudo bash -s`). The
-script saves the container log, waits on the node's own clock for the due time, prints
-`BENCH_CHAOS_BEGIN`, runs the action and prints `BENCH_CHAOS_END`. In epoch mode the restart is
-due `BENCH_CHAOS_DOWNTIME_SECS` after the kill's node-side begin, and the observer restart
-`BENCH_CHAOS_OBS_AFTER_BACK_SECS` after the restart's. No poll starts within
-`BENCH_CHAOS_GUARD_SECS=90` seconds of a due action; it runs right after the action instead.
-If the session fails before `BEGIN`, the action falls back to a direct `--command` at its due
-time and is recorded with `staged: false`. Before staging, r20261006-0053 killed 17 s late
-(a long poll, the log save and the IAP setup all ran first), and both restarts inherited it.
+script starts saving the container log in the background (`BENCH_CHAOS_SAVE_STARTED <file>`),
+waits on the node's own clock for the due time, prints `BENCH_CHAOS_BEGIN`, runs the action and
+prints `BENCH_CHAOS_END`. The action never waits for the save: the script checks the clock every
+0.2 s, so the action begins at most about 0.2 s after its due time however long the save takes.
+After `END` the session waits up to `BENCH_CHAOS_SAVE_WAIT_SECS=60` seconds for the save and
+prints its outcome:
+
+- `BENCH_CHAOS_SAVED <file> at_action=finished|running`: the copy is on the node. `finished`
+  means it was complete when the action began, `running` that it completed afterwards. Either
+  way it holds the container's output up to about the moment the save began: `docker logs`
+  reads the log up to the size it had then, and Docker does not cut that read short when it
+  removes the killed `--rm` container (checked on Docker 29.8 with the json-file driver: a
+  542 MB read started 0.5 s before a SIGKILL completed in full).
+- `BENCH_CHAOS_SAVE_RUNNING <file> at_action=running`: still writing when the wait ran out. It
+  completes on the node by itself, and the file appears under its name only once complete. The
+  run adds a `log-save-unconfirmed` note to the manifest.
+- `BENCH_CHAOS_SAVE_FAILED <name> at_action=… <error>`: no copy. The run adds a
+  `log-save-failed` note.
+
+The saved copy is a convenience. The unit's append file (`<node>-unit-stdout.log.gz` at
+teardown) holds every container's output across restarts, including the seconds between the
+save and the action. r20261007-0316 saved before waiting: the 17 GB save took about 70 s and
+the kill began 41.8 s late, 18 s before the epoch boundary instead of 59 s.
+`BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS` must stay below the outage
+(`BENCH_CHAOS_DOWNTIME_SECS`, or `BENCH_CHAOS_BACK_AT_SECS - BENCH_CHAOS_KILL_AT_SECS` in mixed
+mode), so the kill's session ends before the restart's opens; `benchmark-blast.sh` refuses to
+start otherwise.
+
+In epoch mode the restart is due `BENCH_CHAOS_DOWNTIME_SECS` after the kill's node-side begin,
+and the observer restart `BENCH_CHAOS_OBS_AFTER_BACK_SECS` after the restart's. No poll starts
+within `BENCH_CHAOS_GUARD_SECS=90` seconds of a due action; it runs right after the action
+instead. If the session fails before `BEGIN`, the action falls back to a direct `--command` at
+its due time and is recorded with `staged: false`. The fallback does not save the log first,
+since that would delay the action. Before staging, r20261006-0053 killed 17 s late (a long poll,
+the log save and the IAP setup all ran first), and both restarts inherited it.
 
 Run `benchmark/benchmark-blast.sh chaos-stage-test --instance <node> --yes` once against a
 live fleet before a blast. It sends the same script with the harmless action `true`, due
-`BENCH_CHAOS_STAGE_SECS` ahead, saves that node's container log as
-`telcoin-stage-test-<UTC>.log.gz`, and prints `BEGIN`, `END` and how late the action began.
-It fails when the markers do not come back. Without `--yes` it only checks that the script
-parses.
+`BENCH_CHAOS_STAGE_SECS` ahead, saves that node's container log alongside as
+`telcoin-stage-test-<UTC>.log.gz`, and prints `BEGIN`, `END`, how late the action began and the
+save's outcome. It fails when the markers do not come back. Without `--yes` it only checks that
+the script parses.
 
 `manifest.chaos_schedule` records the measured epoch, anchor block/hash and planned times; the
 kill's `chaos[]` entry repeats them as `planned` (`closing_epoch`, `boundary_unix`,
