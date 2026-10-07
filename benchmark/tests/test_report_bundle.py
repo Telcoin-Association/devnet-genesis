@@ -518,6 +518,34 @@ class BackfillTests(unittest.TestCase):
         with self.assertRaisesRegex(mb.BundleError, "backfill"):
             mb.load_backfill(os.path.join(self.tmp, "missing.json"))
 
+    def test_placeholders_refused_naming_the_field(self):
+        """A draft marker anywhere in a value stops the build; the message names the field, nested or indexed."""
+        cases = [
+            ({"summary": "fell 21%. <<RESULT>> one sentence on the tail."}, r"backfill: unfilled <<\.\.\.>> placeholder in summary$"),
+            ({"upstream": {"sha": "a" * 40, "branch": "<<RESULT>> branch name"}}, r"placeholder in upstream\.branch$"),
+            ({"caveats": ["fine", "<<RESULT>> decide the wording"]}, r"placeholder in caveats\[1\]$"),
+            ({"upstream": {"evidence_detail": ["ok", "<<RESULT>>\nconfirm"]}}, r"upstream\.evidence_detail\[1\]$"),
+            ({"title": "<<RESULT>> a", "methodology": ["<<x>>"]}, r"placeholder in title, methodology\[0\]$"),
+        ]
+        for doc, msg in cases:
+            with self.assertRaisesRegex(mb.BundleError, msg):
+                self.load(doc)
+        # A comment key is dropped before publishing, so a marker there is not a leak; single angle
+        # brackets and an unpaired "<<" are ordinary text.
+        self.assertEqual(self.load({"_comment": "Every <<RESULT>> needs a human", "title": "T"}), {"title": "T"})
+        self.assertEqual(self.load({"fleet": {"_todo": "<<RESULT>>", "label": "L"}}), {"fleet": {"label": "L"}})
+        self.assertEqual(self.load({"title": "a <b> c", "summary": "x << y"})["summary"], "x << y")
+        self.assertEqual(mb.find_placeholders({"a": [{"b": "<<R>>"}], "c": 1, "d": None}), ["a[0].b"])
+
+    def test_run_json_with_a_placeholder_is_never_installed(self):
+        """The assembled run.json is checked too, before the staging dir or anything under out/ exists."""
+        out = os.path.join(self.tmp, "runs", "r20260101-0000")
+        doc = {"id": "r20260101-0000", "title": "T", "caveats": ["ok", "<<RESULT>> wording"], "kpis": []}
+        with self.assertRaisesRegex(mb.BundleError, r"^run\.json: unfilled <<\.\.\.>> placeholder in caveats\[1\]$"):
+            mb.install_bundle(out, doc, os.path.join(self.tmp, "no-report.html"), None, {}, None, self.tmp)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "runs")))
+        mb.refuse_placeholders({"summary": "clean", "kpis": [{"label": "<b>"}]}, "run.json")  # no error
+
     def test_published_kpis(self):
         kpi = {"id": "k", "label": "K", "short_label": "K", "value": 1.5, "unit": "tx/s", "source": "s"}
         self.assertEqual(mb.published_kpis([dict(kpi, _note="x")]),

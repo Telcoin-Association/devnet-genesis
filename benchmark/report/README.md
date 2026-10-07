@@ -272,7 +272,8 @@ GitHub Action builds and deploys the pages.
 
 A backfill is a single JSON object written by hand. It fills in what a run did not record.
 Every key is optional unless marked. Keys starting with `_` are comments and are ignored. Any
-other unknown key is an error.
+other unknown key is an error. A draft marker such as `<<RESULT>>` anywhere in a value, or in the
+assembled `run.json`, refuses the build with a message naming the field.
 
 | Key | Contents | Where the backfill wins |
 |---|---|---|

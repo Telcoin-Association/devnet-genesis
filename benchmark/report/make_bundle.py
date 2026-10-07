@@ -63,7 +63,8 @@ rest of the pipeline still runs). --no-results skips steps 1-7 altogether: run.j
 from the backfill alone and the archived report is required.
 
 Backfill JSON (a single object; every key optional unless marked; keys starting with "_" are
-comments and ignored; any other unknown key is an error). Backfill values only win where this
+comments and ignored; any other unknown key is an error; a value still holding a <<...>>
+placeholder refuses the build, naming the field). Backfill values only win where this
 list says so; elsewhere they fill a value the run did not record.
 
     title, summary       text (default: a generated title/summary; required with --no-results)
@@ -287,6 +288,32 @@ def _run_tool(argv, cwd, step):
 
 # ------------------------------------------------------------------------- backfill
 
+PLACEHOLDER_RE = re.compile(r"<<.*?>>", re.S)
+
+
+def find_placeholders(obj, where=""):
+    """Dotted paths (a.b[2].c) of every string in a JSON document that still holds a <<...>> placeholder."""
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if str(k).startswith("_"):
+                continue  # a comment key, dropped before publishing
+            hits.extend(find_placeholders(v, "%s.%s" % (where, k) if where else str(k)))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(find_placeholders(v, "%s[%d]" % (where, i)))
+    elif isinstance(obj, str) and PLACEHOLDER_RE.search(obj):
+        hits.append(where or "<root>")
+    return hits
+
+
+def refuse_placeholders(obj, what):
+    """Refuse a document (the backfill, or the assembled run.json) that still carries <<...>> placeholders."""
+    hits = find_placeholders(obj)
+    if hits:
+        raise BundleError("%s: unfilled <<...>> placeholder in %s" % (what, ", ".join(hits)))
+
+
 def load_backfill(path):
     """Read and lightly validate a backfill file (format in the module docstring)."""
     if not path:
@@ -298,6 +325,7 @@ def load_backfill(path):
     if not isinstance(doc, dict):
         raise BundleError("backfill must be a JSON object")
     doc = _strip_comments(doc)
+    refuse_placeholders(doc, "backfill")
     for key in list(doc):
         if key not in BACKFILL_KEYS:
             raise BundleError("backfill: unknown key %r" % key)
@@ -1475,6 +1503,7 @@ def install_bundle(out, run_doc, report_src, series_doc, raw_manifest, site_chec
     runs/.<id>.tmp-<pid>/<id>), run both leak gates on it, then swap it into place and run the site
     check once more on the installed dir. A failed gate, move or final check leaves <out> as it was
     before the run: the previous bundle, or nothing. The staging dir is always removed."""
+    refuse_placeholders(run_doc, "run.json")
     prepare_out(out)
     parent, name = os.path.split(os.path.abspath(out))
     os.makedirs(parent, exist_ok=True)
