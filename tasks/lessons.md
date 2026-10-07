@@ -1071,3 +1071,74 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 ## 2026-10-07 — update: the bash 3.2 `case`-inside-`$(...)` failure in benchmark-blast.sh is fixed
 - Commit a97dc4c rewrote the chaos stage heredoc with `(pattern)` case syntax; `/bin/bash -n benchmark/benchmark-blast.sh`
   now passes. The rule above (run `/bin/bash -n` on shell that must run on macOS) stands.
+
+
+## 2026-10-07 — measure a debug filter's log rate on one node under load before running it fleet-wide
+- The stage-2 filter (`network=debug`, `primary=debug`, `multistream_select=debug`, …) was sized from the
+  stage-1 filter (~60 KB/round). Measured: ~3 GB/h raw per validator idle (~1 MB/round) and ~21-23 GB/h raw
+  under load, written twice (docker json-file + the unit's stdout append file), so a validator's root disk
+  grew 46 GB/h during the mixed phase (sampler `root_used_pct` 12 → 18 % in 450 s). The 40-min run put
+  every validator at ~50 % of a 96 GB disk and the teardown pull at ~100 GB gzipped locally.
+- Rule: before a fleet run with a new filter, read `root_used_pct` from one node's sampler across a short
+  loaded window (or `du` the two log copies) and project to the run length plus the pull; the 85 % abort
+  rule and the local disk both need the number. Prefer the voter-side targets only (`primary=debug`,
+  `tn_primary::network::handler=debug`) and drop `network=debug` once the request-arrival timestamp is no
+  longer the question — it is the bulk of the volume.
+
+## 2026-10-07 — a staged chaos action that saves the container log first inherits the log's size
+- `BENCH_CHAOS_STAGE_SECS=30` stages the kill 30 s early; the staged script gzips the container log before
+  waiting for the due time. With the debug filter that gzip took ~68 s and the kill landed 41.8 s late —
+  after the epoch boundary it was meant to precede by 59 s (the planned boundary itself was ~30 s later than
+  the chain's actual close). The restart and the observer restart, which save nothing, were 0.1 s late.
+- Rule: a chaos action's pre-save must not sit between staging and the due time: save before staging (or
+  size `BENCH_CHAOS_STAGE_SECS` from the log's byte count), and read the boundary from the chain's own
+  epoch-close block rather than `epoch_start + duration` when the drill's meaning depends on which side of
+  the boundary the kill lands. Check `manifest.chaos[].late_secs` against the boundary before describing a
+  drill as boundary-crossing.
+
+## 2026-10-07 — a zero-restart arm is recorded now; keep the `--arm` call even when the values are in place
+- `params-apply.sh … --arm a3check` with the fleet's own values printed "0 node(s) restarted, 11 already at
+  these values" and still recorded the arm (`no_restart: true`), so `--close-arm` closed it and the
+  per-arm windows came from the manifest. The stage-1 workaround (hand-injected arm) is no longer needed.
+- Rule: open every arm, including the baseline, with the same `--arm` call; read `param_arms[]` afterwards.
+
+## 2026-10-07 — an ad-hoc fleet tool cannot source benchmark/config.sh; copy the fleet and say so
+- `benchmark/config.sh` refuses any caller that is not `benchmark-*.sh`, so the mid-run log pull (an operator
+  tool in the scratchpad) hard-codes the 11 names/zones and `PROJECT_ID`. A fleet change would silently
+  desynchronise it.
+- Rule: a one-off tool that copies the fleet list states the copy and its source in its header, is kept in
+  the scratchpad (never in the harness tree), and is re-derived from `nodes.txt` in `results/<run>/` when
+  one exists (params-apply writes it) instead of a hand copy.
+
+## 2026-10-07 — pull the unit-stdout file mid-run when the decision needs the numbers before teardown
+- The A3-check decision (restart or not, which `min_header_delay`) needed every validator's certification
+  before the stage-2 arm. A pull of each node's `/var/log/telcoin/telcoin.log` (gzip -1 on the node, ≤ 5 in
+  parallel over IAP, perl alarm 900 s, retries on IAP 4003/4033/4047) took 14 min for 11 nodes (0.7-0.8 GB
+  gz each) with no restart and no effect on the chain; extracting the ~20 event kinds once per node let
+  `cert-rate.py`/`propose-latency.py` run in seconds.
+- Rule: when a live decision depends on per-node log numbers, pull the unit-stdout file (it spans
+  restarts) rather than waiting for the teardown; never run two pulls at once (IAP throttles), and extract
+  before analysing.
+
+## 2026-10-07 — a run.json key added in the harness is a change to the site's schema; build a bundle before the run needs it
+- `make_bundle.py` has emitted `consensus.param_arms` since params-apply landed (b08f7c0), but the site's
+  `RUN_SCHEMA` (tn-benchmarks/scrub.py) never learned the key. The first bundle built from a run with arms
+  (r20261007-0316) passed steps 0-10 after an 8-minute build and failed the site gate; nothing was installed
+  and the KPIs had to be computed by calling `windows_step` + `kpis_step` on the scratch dir.
+- Rule: any change to the run.json shape (make_bundle `assemble`) ships together with the site schema change
+  and a `make_bundle.py --run <last archived run> --out <scratch>/<run>` build in the same PR; the gate is the
+  site's, so the harness tests alone cannot catch it.
+
+## 2026-10-07 — a long teardown can outlive the gcloud reauth session; re-auth right before it and read the gcloud error, not the harness line
+- The r20261007-0316 teardown pulled logs for two hours (06:33-08:32Z). Around 08:2xZ the Workspace reauth
+  session for the active gcloud account expired; `gcloud compute ssh` then failed with "There was a problem
+  refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive
+  execution", which the harness reported as "`/var/log/telcoin/telcoin-error.log`: ssh or gzip on the node
+  failed" and the local gate turned into "node logs not pulled from: bench-validator-10". It read like an
+  IAP transient; the re-run died at its first `gcloud compute instances list` in 0 s.
+- Rule: before launching anything that will run > 1 h against GCP (teardown with a log pull, a long deploy),
+  run `gcloud auth print-access-token > /dev/null` (or `gcloud auth login` when the session is old) so the
+  reauth window starts fresh; a non-interactive agent cannot re-auth. When a pull step fails, grep the log for
+  `Reauthentication` before classifying the failure as transient — the gcloud message sits a few lines above
+  the harness's ✗ line. Agents: never switch the active account or skip the log gate to get past it; record
+  the state and hand back to the operator.

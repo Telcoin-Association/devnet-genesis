@@ -1,4 +1,4 @@
-# Benchmark consensus timing (committed): max/min header delay 1000ms/250ms, max batch delay 250ms.
+# Benchmark consensus timing (committed): max/min header delay 1000ms/350ms, max batch delay 250ms.
 # Stage-1 sweep r20261006-2058 (latency-adjustments.md §9): the idle round is set by certificate
 # arrival (~530 ms), not by min_header_delay; max 500 ms re-fired every round (92/min/node), max
 # 1000 ms about 5/min, with the fastest loaded cadence. Arm A3 carried forward for stage 2.
@@ -8,8 +8,10 @@
 ---
 header_num_of_batches_threshold: 5
 max_header_num_of_batches: 10
+# Stage 2 (r20261007-0316): min 350 ms = slowest idle C p95 (Netherlands 299 ms) + 50, rounded up;
+# at 250 ms Netherlands certified 83.4 % idle on the lazy-negotiation image; idle round 353 ms (min binds).
 max_header_delay: 1000ms
-min_header_delay: 250ms
+min_header_delay: 350ms
 gc_depth: 50
 sync_retry_delay: 5s
 sync_retry_nodes: 3
