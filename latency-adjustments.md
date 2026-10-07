@@ -1,6 +1,8 @@
 # Latency adjustments: the fastest block cadence a ten-region fleet supports
 
-Status: for review before any benchmark runs. Written 2026-10-06 from the measured inter-zone
+Status: reviewed 2026-10-06; stage 1 ran as run r20261006-2058 the same night and **§9 holds the measured
+results, which overturn the §1 cadence prediction** (idle round 530-550 ms, London and the Netherlands do not
+certify in any arm). Sections 1-8 are kept as written for the record. Originally written 2026-10-06 from the measured inter-zone
 latency matrix (`benchmark/latency/2026-10-06/`), the node code at telcoin-network `ba43a1f0e`
 (branch `devnet-bench-10-5-2026`), the logs of runs r20261006-0053 and r20261006-0458, and a small
 timing model (`benchmark/tools/cadence-model.py`) calibrated on those logs.
@@ -268,3 +270,105 @@ the KPI table against 0458 and 0053, and `cert_failures` with preserved log path
 - To repeat on another network: probe its zones, run `cadence-model.py` with its layout, pull a
   quiet hour of logs and run `propose-latency.py` to re-fit the three constants, then apply arms
   with `params-apply.sh` and read them back with `cert-rate.py --windows`.
+
+## 9. Stage 1 results (run r20261006-2058, 2026-10-06 20:59 UTC to 2026-10-07 01:40 UTC)
+
+Fleet and image as §6 specified: ten `c3-highcpu-8` validators, one per region, plus the observer in
+LA; image `adiri:mmap-subsecond-certfix-10-6-2026` (digest `sha256:caeb6be2…`, node sha `ba43a1f0e`);
+txgen `blast-v2-9f61303`; node log filter `info,primary::certifier=debug,primary::proposer=debug`;
+chaos off. The five arms ran in order, each applied fleet-wide with `tools/params-apply.sh` (11 serial
+restarts, every node back in consensus in 10-20 s), then ~8 min idle and a 480 s blast. Teardown passed
+the local gate; `benchmark/results/r20261006-2058/` is the only copy (748 files, 1.58 GB). Full tables:
+`benchmark/results/r20261006-2058/analysis/stage1-summary.md` and `analysis/per-arm/`.
+
+### 9.1 Measured, per arm
+
+| arm | min / max (ms) | idle round p50 / p95 (ms) | loaded round p50 (ms) | loaded rounds/s | blocks/s | tx/s | commit p50 / p95 (s) | re-proposals per min per node, idle / load | lowest own-header certification idle (node) | §6 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A0 | 250 / 500 | 550 / 756 | 670 | 1.36 | 14.95 | 4806 | 1.65 / 2.42 | 92 / 79 | 21.0 % (Netherlands) | fail |
+| A1 | 50 / 250 | 538 / 570 | 755 | 1.22 | 14.36 | 4238 | 1.68 / 2.42 | 194 / 177 | 0.7 % (Netherlands) | fail |
+| A2 | 400 / 800 | 527 / 555 | 676 | 1.33 | 15.80 | 4839 | 1.74 / 2.42 | 5.7 / 23 | 4.5 % (Netherlands) | fail |
+| A3 | 250 / 1000 | 530 / 558 | 630 | 1.41 | 15.84 | 5005 | 1.72 / 2.42 | 4.9 / 9.4 | 6.7 % (Netherlands) | fail |
+| A4 | 500 / 1000 | 527 / 555 | 655 | 1.24 | 14.45 | 4271 | 1.75 / 2.42 | 5.1 / 13.8 | 6.4 % (Netherlands) | fail |
+
+Time from a node's own proposal to its own quorum (C, p50, ms), the same in every arm: Seoul 264,
+Tokyo 272, LA 297, Hong Kong 297, Singapore 344, Montréal 406, Sydney 427, Mumbai 449-467,
+**London 556-564, Netherlands 580-585**. Eight validators certify 91.5-100 % of their own headers idle
+(Sydney 92.5 % in A0, 99.7-99.9 % in the others). London certifies 7-50 % and the Netherlands 0.7-21 %
+in every arm, hold 0-2 % of leader slots against a fair 10 %, and 75-100 % of the certificates they do
+form are never committed. Under load London and the Netherlands reach 59-85 %, Mumbai 74-90 %.
+
+### 9.2 What the measurements say
+
+- **The central claim of §1 holds: `min_header_delay` does not pace the idle round.** 50 ms gave 538 ms,
+  250 ms gave 530-550 ms, 400 and 500 ms gave 527 ms. The min timer never bound; the round is set by the
+  arrival of the seventh certificate, about 525 ms after a proposal.
+- **The predicted cadence does not hold.** The model said ~400 ms with every validator certifying; the
+  fleet runs at 530-550 ms because the seventh-fastest certificate is Mumbai's (~455 ms) once London and
+  the Netherlands drop out of the quorum pool, and because every node's C is 20-170 ms slower than
+  modelled.
+- **Why London and the Netherlands fail.** Their sixth vote arrives 555-580 ms after they propose; the
+  next round's seven parents arrive at ~530 ms; so they propose the next round and cancel their own
+  header (`new proposal received - aborting proposal`, then `Canceled`). The cut-off is sharp: own headers
+  alive under 540 ms certified 0 %, over 575 ms 90-100 %. The cause is in the vote path itself: the
+  vote round trip on every link is fixed, symmetric and about **twice the measured UDP RTT**. The Asian
+  voters answer London and the Netherlands in 472-724 ms (Tokyo 472, Seoul 523, Sydney 554, Hong Kong
+  559, Singapore 594, Mumbai 724) and answer LA in 204-450 ms. Nothing on the proposer side explains the
+  doubling (no missing-parent re-requests, no vote errors except `Canceled`); the vote-request handler was
+  not in the debug filter, so the voter side is unseen. The mechanism (connection or stream negotiation,
+  a missing-parents round trip, or a handler wait) is being traced in the node source; §9.4.
+- **`max_header_delay` matters only for churn.** At 500 ms the max timer fires every round (92
+  re-proposals per minute per node); at 1000 ms about 5. It does not change the round.
+- **Under load every arm is execution-bound**, as §5 said: 1.22-1.41 rounds/s, 14.4-15.8 blocks/s,
+  4.2-5.0 k tx/s, commit latency p50 1.65-1.75 s regardless of the timers. A3 is the fastest loaded arm
+  and the only one whose loaded C p95 for Sydney stays under the round.
+- **Side effects now explained.** The blasters pinned to London, the Netherlands and Mumbai submitted
+  20-160 k transactions per arm against 280-740 k elsewhere and landed 51-95 %: their batches sit in
+  headers that get cancelled, so the generator keeps re-sending the head of its queue. London's commit p95
+  of 4.04 s in A4 was a late epoch-10 close (114 vote requests rejected with `Invalid epoch`), not a timer
+  effect. No commit stall in any arm.
+
+### 9.3 Predictions against measurements
+
+| item | §5 / §6 predicted | measured |
+|---|---|---|
+| idle round A0 / A1 / A3 | ~400 ms | 550 / 538 / 530 ms |
+| idle round A2 / A4 | ~460 / ~560 ms | 527 / 527 ms |
+| every validator ≥ 99 % certified idle | yes | 8 of 10; London 7-50 %, Netherlands 0.7-21 % |
+| Sydney C p50 | 366-370 ms | 423-427 ms, certifies 92.5-99.9 % |
+| London / Netherlands C p50 | 335 / 332 ms | 556-564 / 580-585 ms |
+| Mumbai C p50 | 287 ms | 449-467 ms (zone c, unprobed) |
+| Montréal fastest | 358 ms | 406 ms; Seoul 264 and Tokyo 272 are fastest |
+| A0 max 500 above the round | yes | no; fires every round |
+| A2 Sydney referenced too late ~5 % | 95 % | 99.9 % |
+| A4 leader shortcut costs four nodes ~5 % | 95 % | no loss seen |
+| loaded regime execution-bound | yes | yes |
+
+### 9.4 Revised recommendation and the decision for stage 2
+
+No arm meets the §6 contract, and the failing criterion is the same in all five: the London and
+Netherlands vote path. Timers cannot fix it; the two parameters that matter are settled:
+
+- **`max_header_delay` 1000 ms, `min_header_delay` 250 ms, `max_batch_delay` 250 ms (arm A3)** is the
+  fleet config to carry forward: fastest under load, least churn, no idle cost against A0.
+- **Fastest cadence this geography supports today**: ~530 ms idle (1.9 rounds/s) with eight of ten
+  validators certifying; ~1.4 rounds/s and ~15.8 blocks/s under load. With the vote path at one RTT, as
+  the model assumed, the seventh certificate would be Singapore's at ~344 ms and the round ~450 ms with
+  all ten certifying.
+- **The only parameter that lets London and the Netherlands certify** is a `min_header_delay` that binds
+  above their quorum time, ≥ 600 ms (round ≈ 600-620 ms, about 12 % slower). It was not an arm.
+
+Stage 2 (the 40-minute chaos run) should not start until one of these is chosen: fix the vote path
+upstream and re-run stage 1's A3 as a short check; accept London and the Netherlands at 1-50 % and run
+stage 2 on A3 as a record of today's behaviour; or run stage 2 at min 600 ms. Whatever is chosen, the
+node debug filter must include the vote-request handler so the voter side of the 2× RTT is logged.
+Mumbai (74-90 % under load, 11-21 % not committed in A2-A4) needs the same look.
+
+Harness outcomes from the run, all first live uses: per-node `parameters.yaml` rewrite and log-filter
+injection at deploy step 9; `params-apply.sh` stage test and five fleet-wide arms; blaster machine-type
+fallback (Sydney's blaster was out of `e2-standard-2` on every blast); certification recorded as an
+outcome with log snapshots for the four validators under 90 %; the local teardown gate. Gaps found:
+`params-apply.sh` recorded nothing for an arm whose values were already in place (A0 was recorded by hand),
+`propose-latency.py` read only the last container's log, and files written after teardown were missing
+from the index. Fixes are in `benchmark/private/followups.md` and on the branch.
+
