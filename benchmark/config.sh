@@ -188,7 +188,7 @@ export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote
 # parents and delays (primary::proposer) are logged. Debug on these two targets is tens of lines per round,
 # a few GB uncompressed over a 4-hour run (the file log rotates at 200 MB x max-files; the hyperdisk has
 # room). BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
-export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug}"
+export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info}"
 export BENCH_NODE_LOG_MAX_FILES="${BENCH_NODE_LOG_MAX_FILES:-20}"
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"

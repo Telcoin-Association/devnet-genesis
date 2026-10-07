@@ -1047,3 +1047,15 @@ blocker.
 per-validator certification BEFORE running the other four: a validator at 20 % in the baseline arm means
 the remaining arms measure the wrong thing. Report an arm that fails a criterion as failed even when the
 "healthy" subset would pass; the recommendation then carries the condition explicitly.
+
+
+## 2026-10-07 — a timing model that fits is not a mechanism; measure the path before naming the cause
+- Stage-1 vote round trips on every Europe→Asia link equalled 2 × (RTT to LA + RTT LA→peer) within 7 ms.
+  I wrote "Europe↔Asia traffic goes through the US" into latency-adjustments.md §9 as a confirmed cause.
+  A 4-minute probe on the same zones (internal and external addresses in one run) then showed external
+  = internal on all 90 pairs. The fit was real; the mechanism was wrong, and it sits inside the node.
+- Rule: a formula that fits application-level timings identifies a STRUCTURE, not a cause. Before naming
+  a network cause, measure the network directly (the probe tool exists and costs cents). Write
+  "consistent with" until the direct measurement is in; keep the fitted numbers, which stay useful.
+- Rule: when the proposer side is exhausted, get the voter side before theorising (arrival, each wait,
+  response). The stage-1 filter lacked it; the re-check filter has it (`network=debug`, `primary=debug`).

@@ -324,15 +324,22 @@ form are never committed. Under load London and the Netherlands reach 59-85 %, M
      defaults to `V1`; request-response 0.30 opens one substream per request). Certificates travel on
      gossipsub's long-lived substreams and arrive in half a round trip, which is why parents beat votes.
      From LA all nine links measure 2.01-2.08× the probed UDP RTT.
-  2. **Europe↔Asia traffic between the nodes goes through the US.** The nodes dial each other on their
-     external addresses (the committee advertises `/ip4/34.x…/udp/49590/quic-v1`, ephemeral Premium-tier
-     IPs); the latency probe measured internal addresses. For every Europe→Asia link the vote time equals
-     2 × (RTT to LA + RTT from LA to the peer) within 7 ms (London→Tokyo 472 vs 474, Seoul 523 vs 527,
-     Sydney 554 vs 549, Hong Kong 559 vs 560, Singapore 594 vs 601, Mumbai 724 vs 706; the Netherlands
-     likewise), while Europe↔Americas and Europe↔Europe links are 2× their direct RTT. London's effective
-     RTT to Mumbai is ~350 ms instead of the probed 149.
-  London's sixth vote (Sydney) therefore returns at 2 × (137 + 138) ≈ 550 ms; with direct routing and
-  one-RTT votes it would return at about 200 ms.
+  2. **A second, node-side wait on the Europe→Asia links, mechanism not yet identified.** For every
+     Europe→Asia link the vote time equals 2 × (RTT to LA + RTT from LA to the peer) within 7 ms
+     (London→Tokyo 472 vs 474, Seoul 523 vs 527, Sydney 554 vs 549, Hong Kong 559 vs 560, Singapore 594 vs
+     601, Mumbai 724 vs 706; the Netherlands likewise), while Europe↔Americas and Europe↔Europe links are 2×
+     their direct RTT. The first reading of that pattern, a network detour through the US on the nodes'
+     external addresses, was **refuted on 2026-10-07** by a probe that measured every pair on internal and
+     external addresses in one run (`benchmark/latency/2026-10-07/external-vs-internal.md`): external
+     equals internal on all 90 ordered pairs (median +0.6 ms, no pair more than 15 ms slower). So the wait
+     is inside the node. Seen from the voter: Hong Kong, Singapore and Mumbai answer LA's requests as soon
+     as they arrive but answer London's 155, 256 and 416 ms after arrival (2× direct RTT would be 404, 338
+     and 308 ms against the measured 559, 594 and 724); Tokyo, Seoul and Sydney answer at once, and for
+     them the via-LA sum happens to equal the direct RTT, so they cannot tell the two apart. The
+     vote-request handler was not in the stage-1 debug filter; the A3 re-check logs request arrival,
+     the post-execution-wait point and vote creation on the voter, which decomposes the wait.
+  With one-RTT votes and no voter-side wait, London's sixth vote (Sydney) would return at ~280 ms instead
+  of 554; what remains after the lazy-negotiation image is the voter-side wait, and the re-check measures it.
 - **`max_header_delay` matters only for churn.** At 500 ms the max timer fires every round (92
   re-proposals per minute per node); at 1000 ms about 5. It does not change the round.
 - **Under load every arm is execution-bound**, as §5 said: 1.22-1.41 rounds/s, 14.4-15.8 blocks/s,
@@ -376,21 +383,21 @@ timer. The two parameters that matter are settled:
 
 The levers, in order of value:
 
-1. **Consensus traffic over internal addresses** (same VPC, Google's backbone): a harness change
-   (committee addresses, firewall sources, the node's advertised address) that removes the US detour for
-   Europe↔Asia. No new node image.
+1. ~~Consensus traffic over internal addresses~~ — withdrawn: the external path is as fast as the internal
+   one (probe of 2026-10-07), and production validators use public addresses anyway.
 2. **One-RTT votes upstream**: `with_substream_upgrade_protocol_override(Version::V1Lazy)` on the swarm
    (one line in `network-libp2p/src/consensus.rs`). Caveat for mixed-version fleets: a peer without the
    protocol then surfaces as an I/O error instead of `UnsupportedProtocols`, so the peer-penalty and
    sync-capability paths must classify it. Halves every node's C.
-3. With both, the model's assumption (C ≈ RTT to the sixth-nearest voter + ~70 ms) holds and the fleet
-   round would be roughly 300-350 ms with all ten certifying. With neither, `min_header_delay` ≥ 600 ms
-   is the only way London and the Netherlands certify.
+3. **The voter-side wait**, once the re-check's voter logs name it. With one-RTT votes and that wait
+   removed, the model's assumption (C ≈ RTT to the sixth-nearest voter + ~70 ms) holds and the fleet round
+   would be roughly 300-350 ms with all ten certifying. With neither fixed, `min_header_delay` ≥ 600 ms is
+   the only way London and the Netherlands certify.
 
-Stage 2 (the 40-minute chaos run) waits on one choice: (a) do 1 and 2, re-run A3 as a short check,
-then stage 2; (b) do 1 only and run; (c) run A3 as-is, recording London and the Netherlands at 1-50 %;
-(d) run at min 600 ms. The node debug filter default now includes the vote-handler, negotiation and
-connection targets, so whichever runs will show the voter side. Mumbai (74-90 % under load, 11-21 % not
+Decision taken 2026-10-07: external addresses stay (production realism); build the lazy-negotiation
+image (2), re-run A3 as a short check with the voter side logged, then stage 2 on the same fleet with
+the configuration the check supports. The node debug filter default now includes the vote-handler,
+negotiation, connection and request-arrival targets. Mumbai (74-90 % under load, 11-21 % not
 committed in A2-A4) gets the same look.
 
 Harness outcomes from the run, all first live uses: per-node `parameters.yaml` rewrite and log-filter
