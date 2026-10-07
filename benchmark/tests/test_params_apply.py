@@ -24,9 +24,26 @@ TESTS = Path(__file__).resolve().parent
 BENCH = TESTS.parent
 TOOL = BENCH / "tools" / "params-apply.sh"
 FIX = TESTS / "fixtures" / "params-apply"
-YAML = (BENCH / "consensus-parameters.yaml").read_text()
+COMMITTED = BENCH / "consensus-parameters.yaml"
 PROJECT = "example-proj"
 ZONE = "us-west2-a"
+
+
+def pin_params(text, **values):
+    """<text> with each key's `key: value` line set to the given value. A key that is not exactly
+    one such line (absent, or a secs/nanos block the tool refuses) fails loudly here."""
+    for key, value in values.items():
+        text, n = re.subn(r"^%s: .*$" % re.escape(key), "%s: %s" % (key, value), text, flags=re.M)
+        if n != 1:
+            raise AssertionError("%s: want one '%s: <value>' line, found %d" % (COMMITTED, key, n))
+    return text
+
+
+# Every fake node's parameters.yaml: the committed fleet file (each key, comment and line the tool
+# must carry through a rewrite) with its timing values pinned, so the expectations below are the
+# test's own and do not move when the committed values do.
+YAML = pin_params(COMMITTED.read_text(), max_header_delay="500ms", min_header_delay="250ms",
+                  max_batch_delay="250ms")
 
 
 def _install(src, dest):
