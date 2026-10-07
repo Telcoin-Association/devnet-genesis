@@ -17,6 +17,9 @@
 #     PARAMS_OK <node> max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|->
 #   The first node that does not come back stops the run: non-zero exit, and the gcloud command to
 #   inspect it. Only nodes whose values change are restarted; observers go first.
+# Nothing to change (every node already has the values): nothing restarts, and the arm is still
+#   recorded (begin = now, no_restart: true) once every node of the arm passes the readback check
+#   on the file phase A read and its telcoin container runs.
 #
 # Usage: params-apply.sh (--nodes <file> | --from-config) --set <all|node>:<key>=<value>[,...] ... --arm <name>
 #        params-apply.sh (--nodes <file> | --from-config) --stage-test <node> [--set ...]
@@ -73,7 +76,9 @@ What to change:
                         max_concurrent_requests; boolean: allow_private_forward_targets.
                         gc_depth and basefee_address are fleet-wide (refused here).
   --arm <name>          the arm's name, [a-z0-9-], unique in the record; it names the saved log
-                        telcoin-pre-arm-<name>-<UTC>.log.gz on each restarted node
+                        telcoin-pre-arm-<name>-<UTC>.log.gz on each restarted node. When every
+                        node already has the values, nothing restarts and the arm is still
+                        recorded (begin = now, no_restart: true)
   --stage-test <node>   read, save the log, rewrite with the CURRENT values, restart and wait on
                         that one node: proves the remote path without changing anything. Run it
                         before the first arm of a fleet. No arm is recorded.
@@ -803,11 +808,6 @@ for i in ${ORDER[@]+"${ORDER[@]}"} ${UNCHANGED[@]+"${UNCHANGED[@]}"}; do
         printf '  %-24s %-9s %s\n' "${n}" "${N_ROLE[$i]}" "no change; not restarted"
     fi
 done
-if [ "${#ORDER[@]}" -eq 0 ]; then
-    log "every node already runs these values: nothing restarted, no arm recorded"
-    exit 0
-fi
-
 # --- phase B: one node at a time -------------------------------------------------------------
 LABEL="pre-arm-${ARM}"
 [ "${MODE}" != stage ] || LABEL="stage-test"
@@ -843,6 +843,54 @@ okline_matches() {
         [ "${got}" = "${want:--}" ] || { echo "${f%%:*}=${got} (expected ${want:--})"; return 1; }
     done
 }
+
+# current_line <node> — the values of the file phase A read, in the PARAMS_OK format.
+current_line() {
+    local n="$1" f k got v out=""
+    for f in "max:max_header_delay:ms" "min:min_header_delay:ms" "batch:max_batch_delay:ms" \
+             "thr:header_num_of_batches_threshold:raw" "vote:vote_timeout:ms"; do
+        k="$(echo "${f}" | cut -d: -f2)" v=-
+        got="$(yaml_get "${WORK}/${n}.yaml" "${k}")"
+        if [ "${got%%"${TAB}"*}" = scalar ]; then
+            v="${got#*"${TAB}"}"
+            if [ "${f##*:}" = ms ]; then v="$(to_ms "${v}")"; v="${v:-?}"; fi
+        fi
+        out="${out} ${f%%:*}=${v}"
+    done
+    echo "PARAMS_CURRENT ${n}${out}"
+}
+
+# Nothing to change: no restart, but the arm is recorded like any other (it opens with begin =
+# now, by this machine's clock, and closes the arm open before it), marked no_restart. Every node
+# of the arm first passes the readback check on the file phase A read, and must run its container:
+# a stopped node does not run these values.
+if [ "${#ORDER[@]}" -eq 0 ]; then
+    if [ "${DRY}" = 1 ]; then
+        log "dry run: nothing to restart; would record arm ${ARM} (no_restart) in ${REC_FILE}"
+        exit 0
+    fi
+    ARM_NODES=() problems=""
+    for i in ${UNCHANGED[@]+"${UNCHANGED[@]}"}; do
+        n="${N_NAME[$i]}"
+        [ -n "$(node_sets "${n}")" ] || continue
+        okline="$(current_line "${n}")"
+        echo "${okline}"
+        if ! why="$(okline_matches "${n}" "${okline}")"; then
+            problems="${problems}${n}: $(a_field "${n}" PARAMS) reads ${why}"$'\n'
+        fi
+        [ "$(a_field "${n}" RUNNING)" = 1 ] \
+            || problems="${problems}${n}: the telcoin container is NOT running, so the node does not run these values"$'\n'
+        ARM_NODES+=("${n}")
+    done
+    problems="$(printf '%s' "${problems}" | grep -v '^$' || true)"
+    [ -z "${problems}" ] || fatal "arm ${ARM} NOT recorded (nothing was restarted or changed):"$'\n'"$(printf '%s\n' "${problems}" | sed 's/^/  /')"
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    for n in ${ARM_NODES[@]+"${ARM_NODES[@]}"}; do record_node "${n}" "${now}"; done
+    rec_jq --arg a "${ARM}" --arg b "${BEGIN}" '.param_arms |= map(if .name == $a and .begin == $b then .no_restart = true else . end)'
+    log "arm ${ARM} recorded: 0 node(s) restarted, ${#ARM_NODES[@]} already at these values; begin ${BEGIN} (this machine's clock); recorded in ${REC_FILE}"
+    jq -c --arg a "${ARM}" --arg b "${BEGIN}" '.param_arms[] | select(.name == $a and .begin == $b)' "${REC_FILE}"
+    exit 0
+fi
 
 step=0
 for i in "${ORDER[@]}"; do

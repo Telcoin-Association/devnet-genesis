@@ -282,13 +282,54 @@ class ApplyTests(ParamsApplyCase):
         self.assertEqual(doc["param_arms"][0]["nodes"], {"bench-validator-01": {"max_batch_delay": "200ms"}})
         self.assertEqual(self.ok_lines(p), ["PARAMS_OK bench-validator-01 max=500 min=250 batch=200 thr=5 vote=-"])
 
-    def test_nothing_to_change_restarts_nothing(self):
+    def test_nothing_to_change_restarts_nothing_and_still_records_the_arm(self):
         self.node("bench-validator-01")
-        nf = self.nodes_file(self.line("bench-validator-01"))
-        p = self.run_tool("--nodes", str(nf), "--set", "all:max_header_delay=500ms,min_header_delay=250ms",
-                          "--arm", "same")
+        self.node("bench-observer-11", role="observer")
+        nf = self.nodes_file(self.line("bench-validator-01"), self.line("bench-observer-11", "observer"))
+        prev = {"name": "a0", "begin": "2026-10-06T20:00:00Z", "end": None,
+                "nodes": {"bench-validator-01": {"max_header_delay": "500ms"}}}
+        mpath = self.manifest({"param_arms": [prev]})
+        p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results),
+                          "--set", "all:max_header_delay=500ms,min_header_delay=250ms", "--arm", "base")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("nothing restarted, no arm recorded", p.stdout)
+        self.assertIn("arm base recorded: 0 node(s) restarted, 2 already at these values", p.stdout)
+        # Every node's current values, from the file phase A read; no PARAMS_OK (nothing restarted).
+        self.assertEqual(sorted(l for l in p.stdout.splitlines() if l.startswith("PARAMS_CURRENT ")), [
+            "PARAMS_CURRENT bench-observer-11 max=500 min=250 batch=250 thr=5 vote=-",
+            "PARAMS_CURRENT bench-validator-01 max=500 min=250 batch=250 thr=5 vote=-"])
+        self.assertEqual(self.ok_lines(p), [])
+        # Phase A read both nodes; nothing else was sent, and no node saw a restart or a rewrite.
+        self.assertEqual(sorted(c["node"] for c in self.phase_calls("A")), ["bench-observer-11", "bench-validator-01"])
+        self.assertEqual(self.phase_calls("B"), [])
+        self.assertEqual(len(self.calls()), 2)
+        for n in ("bench-validator-01", "bench-observer-11"):
+            self.assertNotIn("systemctl restart telcoin", self.node_calls(n), n)
+            self.assertEqual(self.yaml_of(n), YAML, n)
+            self.assertEqual(list((self.nodes / n / "var/lib/bench-logs").iterdir()), [], n)
+        # The record: the shape of a restarted arm, plus no_restart; it closes the arm open before it.
+        arms = json.loads(mpath.read_text())["param_arms"]
+        self.assertEqual([a["name"] for a in arms], ["a0", "base"])
+        arm = arms[1]
+        self.assertRegex(arm["begin"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(arms[0]["end"], arm["begin"])
+        self.assertEqual(arm, {"name": "base", "begin": arm["begin"], "end": None, "no_restart": True, "nodes": {
+            "bench-validator-01": {"max_header_delay": "500ms", "min_header_delay": "250ms"},
+            "bench-observer-11": {"max_header_delay": "500ms", "min_header_delay": "250ms"}}})
+        # --close-arm on it sets end and contacts nothing.
+        p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results), "--close-arm", "base")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        arms = json.loads(mpath.read_text())["param_arms"]
+        self.assertRegex(arms[1]["end"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertGreaterEqual(arms[1]["end"], arms[1]["begin"])
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_nothing_to_change_on_a_stopped_node_records_nothing(self):
+        self.node("bench-validator-01", mode="nocontainer")
+        nf = self.nodes_file(self.line("bench-validator-01"))
+        p = self.run_tool("--nodes", str(nf), "--set", "all:max_header_delay=500ms", "--arm", "same")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("arm same NOT recorded", p.stderr)
+        self.assertIn("bench-validator-01: the telcoin container is NOT running", p.stderr)
         self.assertEqual(self.phase_calls("B"), [])
         self.assertFalse((self.tmp / "param-arms.json").exists())
 

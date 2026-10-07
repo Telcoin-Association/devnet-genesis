@@ -276,6 +276,10 @@ With `<results-dir>/manifest.json` present (`--results-dir`, or `results/<run>` 
   `--close-arm <name>` sets it to now.
 - `nodes` holds every node the arm's values reach, with values as written. A node that already had
   them is included even though it was not restarted.
+- When every node already has the arm's values (a sweep's baseline arm), nothing restarts and the arm
+  is still recorded, with `begin` = now by the operator's clock and `"no_restart": true`. The tool
+  first prints each node's `PARAMS_CURRENT` line from the file phase A read, and refuses (nothing
+  recorded) when one of them disagrees or a node's container is not running.
 - `failed: <node>` appears when the run stopped at that node.
 
 An arm name is `[a-z0-9-]` and unique in the record. `report/provenance.py` accepts a logged value
