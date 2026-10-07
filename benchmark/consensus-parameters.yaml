@@ -1,11 +1,14 @@
-# Benchmark consensus timing (committed): max/min header delay 500ms/250ms, max batch delay 250ms.
+# Benchmark consensus timing (committed): max/min header delay 1000ms/250ms, max batch delay 250ms.
+# Stage-1 sweep r20261006-2058 (latency-adjustments.md §9): the idle round is set by certificate
+# arrival (~530 ms), not by min_header_delay; max 500 ms re-fired every round (92/min/node), max
+# 1000 ms about 5/min, with the fastest loaded cadence. Arm A3 carried forward for stage 2.
 # Every other key is identical to common/parameters.yaml; devnet-finalize.sh stages this file
 # as parameters.yaml in each node datadir. Not named parameters.yaml here: `telcoin genesis`
 # writes benchmark/parameters.yaml at deploy step 6 and would overwrite it.
 ---
 header_num_of_batches_threshold: 5
 max_header_num_of_batches: 10
-max_header_delay: 500ms
+max_header_delay: 1000ms
 min_header_delay: 250ms
 gc_depth: 50
 sync_retry_delay: 5s
