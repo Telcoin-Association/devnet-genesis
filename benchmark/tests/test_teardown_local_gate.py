@@ -569,6 +569,57 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertEqual(tree_files(self.results), before)
         self.assertNotIn("archive", self.manifest())
 
+    def test_reindex_indexes_files_written_after_the_teardown_and_calls_nothing(self):
+        # As a teardown leaves it: the archive record, an index; then analysis written by hand.
+        archive = {"kind": "local", "path": str(self.results.resolve()), "verified_at": "2099-12-31T08:00:00Z",
+                   "files": 7, "bytes": 1234, "final_index_at": "2099-12-31T08:05:00Z"}
+        write_tree(self.results, {"manifest.json": manifest_bytes(archive=archive),
+                                  "analysis/cert-rate.md": b"# Certification rate\n",
+                                  "INDEX.md": b"stale index\n", "CHECKSUMS.sha256": b"stale\n"})
+        added = {"analysis/stage1-summary.md": b"# Stage 1\n", "analysis/per-arm/block-rate-a1.md": b"a1\n",
+                 "analysis/per-arm/vote-path/v01-a1.json": b"{}\n"}
+        write_tree(self.results, added)
+        bucket_before = self.cloud.objects(RUN_BUCKET)
+        p = self.teardown("--reindex")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertEqual(self.cloud.calls(), [])                 # no gcloud call at all
+        self.assertIn(">>> reindex: ", p.stdout)
+        self.assertNotIn(">>> local gate", p.stdout)
+        self.assertIn(INST, self.instance_names())
+        self.assertEqual(self.cloud.objects(RUN_BUCKET), bucket_before)
+        files = tree_files(self.results)
+        sums = read_checksums(self.results)
+        self.assertEqual(set(sums), set(files) - {"CHECKSUMS.sha256"})
+        for rel, data in added.items():
+            self.assertEqual(sums[rel], hashlib.sha256(data).hexdigest(), rel)
+        rows = {r[1]: r for r in index_rows(self.results)}
+        self.assertEqual(rows["analysis/stage1-summary.md"][0], 1)
+        self.assertEqual(rows["analysis/per-arm/*"][0], 2)
+        self.assertEqual(rows["analysis/per-arm/*"][3], "not the harness")
+        self.assertEqual(rows["analysis/cert-rate.md"][0], 1)
+        self.assertEqual(sum(r[0] for r in rows.values()), len(files))
+        # The totals it prints are the archive record's, which now describe the tree.
+        a = self.manifest()["archive"]
+        self.assertEqual((a["files"], a["bytes"]), (len(sums), sum(len(files[rel]) for rel in sums)))
+        self.assertIn("INDEX.md and CHECKSUMS.sha256: %d file(s), %d bytes" % (a["files"], a["bytes"]), p.stdout)
+        self.assertRegex(a["reindexed_at"], ISO_RE)
+        self.assertEqual((a["verified_at"], a["final_index_at"]), ("2099-12-31T08:00:00Z", "2099-12-31T08:05:00Z"))
+
+    def test_reindex_needs_run_and_runs_alone(self):
+        script = str(self.tree / "benchmark" / "benchmark-teardown.sh")
+        for args, needle in ((["--reindex"], "--reindex needs --run <id>"),
+                             (["--reindex", "--run", RUN, "--yes"], "--reindex runs on its own"),
+                             (["--purge", "--reindex", "--run", RUN], "--reindex runs on its own"),
+                             (["--reindex", "--run", "r20991231-9999"], "does not exist")):
+            p = subprocess.run(["bash", script] + args, env=self.env(BENCH_RUN_ID=RUN), stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            self.assertEqual(p.returncode, 1, args)
+            self.assertIn(needle, p.stderr, args)
+        self.assertEqual(self.cloud.calls(), [])
+        self.assertFalse((self.results / "INDEX.md").exists())
+        self.assertFalse((self.results / "CHECKSUMS.sha256").exists())
+        self.assertFalse((self.tree / "benchmark" / "results" / "r20991231-9999").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

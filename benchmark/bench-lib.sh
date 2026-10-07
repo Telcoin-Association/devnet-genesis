@@ -1410,7 +1410,10 @@ _bench_index_kind() {
         analysis/cert-rate.md) echo "04|analysis/cert-rate.md|per-validator certification rate per window (tools/cert-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
         analysis/block-rate.md) echo "05|analysis/block-rate.md|rounds/s, blocks/s, tx/s and commit latency per window (tools/block-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
         analysis/certification.json) echo "04|analysis/certification.json|tools/cert-rate.py --format json: the certification outcome behind manifest.certification and .cert_failures|bench_certification_record (collect, teardown before the local gate)" ;;
-        analysis/*) echo "06|analysis/*|other analysis output|bench_local_analysis" ;;
+        # Analysis the harness does not write (a sweep's summaries, per-arm tables, often added after
+        # the teardown; --reindex indexes them): a row per top-level file, one per directory.
+        analysis/*/*) echo "06|${1%"${1#analysis/*/}"}*|other analysis output, one directory|not the harness" ;;
+        analysis/*) echo "06|$1|other analysis output|not the harness" ;;
         metrics.json) echo "07|metrics.json|Cloud Monitoring + Prometheus series over the run window|deploy step 15 (tn-transaction-generator collect-gcp-metrics.py)" ;;
         pre-instances.json|pre-firewall.json) echo "08|pre-instances.json, pre-firewall.json|project snapshot before the run (the teardown compares the devnet rule to it)|benchmark-deploy.sh preflight" ;;
         deployments-bench.json) echo "09|deployments-bench.json|app contract addresses on the bench chain|deploy step 11" ;;

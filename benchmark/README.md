@@ -481,13 +481,14 @@ repo once the teardown has finished.
 
 `analysis/`, `INDEX.md` and `CHECKSUMS.sha256` are written after `collect` and at deploy step 15
 (non-fatal, so an interrupted run still has them), by the teardown's local gate, and once more
-after the teardown's deletes.
+after the teardown's deletes. `benchmark-teardown.sh --run <run> --reindex` writes the last two
+again, locally, after files are added (see Teardown guarantees).
 
 `manifest.archive` records the local gate: `kind` (`local`), `path` (the absolute results
 directory), `verified_at`, `files` and `bytes` (what `CHECKSUMS.sha256` covers, the manifest
-at its final size included) and `final_index_at`. Under the override it holds
-`skipped_gate: true` instead of `verified_at`. Runs before the gate carry the retired archive's
-`uri` and `status` here instead. The publishing scrub drops `manifest.archive`, together with
+at its final size included), `final_index_at` and, after a `--reindex`, `reindexed_at`. Under
+the override it holds `skipped_gate: true` instead of `verified_at`. Runs before the gate carry
+the retired archive's `uri` and `status` here instead. The publishing scrub drops `manifest.archive`, together with
 `project` and `notes`.
 
 The provenance fields record which bytes the run measured:
@@ -578,6 +579,19 @@ the teardown writes `analysis/` (the node logs are on disk by then), then `INDEX
 `CHECKSUMS.sha256` again over the final tree, which now holds the run bucket's copy and
 `genesis/`, and records `manifest.archive.final_index_at`. That last step only warns when it
 fails.
+
+Analysis written into `results/<run>/` after the teardown (a sweep's summary, per-arm tables) is
+in neither file until the tree is indexed again:
+
+```bash
+benchmark/benchmark-teardown.sh --run <run> --reindex
+```
+
+It rewrites `INDEX.md` and `CHECKSUMS.sha256` over the tree as it is, updates
+`manifest.archive.files` and `.bytes` (and sets `.reindexed_at`) when the manifest holds a local
+archive record, prints the file count and bytes, and exits. It makes no gcloud call, runs no
+gate, deletes nothing and refuses without `--run`. In `INDEX.md`, a top-level analysis file the
+harness does not write gets its own row, and each subdirectory of `analysis/` gets one row.
 
 Before the final index, once teardown has saved the node logs and finished the deletes, it runs
 an informational provenance check:

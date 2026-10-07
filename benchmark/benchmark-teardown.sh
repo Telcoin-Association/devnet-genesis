@@ -52,20 +52,27 @@
 # no bench instance, or labels that are missing or disagree, stops it and asks for --run.
 #
 # Usage: benchmark/benchmark-teardown.sh [--yes] [--run ID] [--purge]
+#        benchmark/benchmark-teardown.sh --run ID --reindex
 # Without --yes it lists the candidates + denylist, prints the delete argv and changes nothing.
+# --reindex is local only, for files written into results/<run>/ after the teardown (analysis/
+# summaries, per-arm tables): it rewrites INDEX.md and CHECKSUMS.sha256 over the tree as it is now
+# (and, when the manifest has a local archive record, its files/bytes totals and
+# archive.reindexed_at), prints the file count and bytes, and exits. No gcloud call, no gate, no
+# delete; it needs --run and takes no other option.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-CONFIRM=0; PURGE=0
+CONFIRM=0; PURGE=0; REINDEX=0; RUN_ARG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
         --purge) PURGE=1 ;;
-        --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
-        --run=*) BENCH_RUN_ID="${1#*=}" ;;
+        --reindex) REINDEX=1 ;;
+        --run) BENCH_RUN_ID="${2:?--run needs an id}"; RUN_ARG="${BENCH_RUN_ID}"; shift ;;
+        --run=*) BENCH_RUN_ID="${1#*=}"; RUN_ARG="${BENCH_RUN_ID}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --run ID, --purge)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --run ID, --purge, --reindex)" >&2; exit 1 ;;
     esac
     shift
 done
@@ -74,6 +81,34 @@ case "${SKIP_LOGS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOGS must be 0 o
 SKIP_GATE="${BENCH_TEARDOWN_SKIP_LOCAL_GATE:-0}"
 case "${SKIP_GATE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOCAL_GATE must be 0 or 1 (got '${SKIP_GATE}')" >&2; exit 1 ;; esac
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
+
+# --reindex: INDEX.md + CHECKSUMS.sha256 over results/<run>/ as it is now, then exit. Local only:
+# bench-lib.sh is sourced for bench_local_index (sourcing calls no gcloud); nothing below runs.
+if [ "${REINDEX}" -eq 1 ]; then
+    if [ -z "${RUN_ARG}" ]; then
+        echo "❌ --reindex needs --run <id> — nothing was done (results/ holds: $(results_ids))" >&2
+        exit 1
+    fi
+    if [ "${CONFIRM}" -eq 1 ] || [ "${PURGE}" -eq 1 ]; then
+        echo "❌ --reindex runs on its own (no --yes or --purge) — nothing was done" >&2
+        exit 1
+    fi
+    export BENCH_RUN_ID
+    BENCH_APPLY=1
+    # shellcheck source=bench-lib.sh
+    source "${DIR}/bench-lib.sh"
+    if [ ! -d "${BENCH_RESULTS_DIR}" ]; then
+        echo "❌ ${BENCH_RESULTS_DIR} does not exist — nothing was done (results/ holds: $(results_ids))" >&2
+        exit 1
+    fi
+    echo ">>> reindex: ${BENCH_RESULTS_DIR} (local only: no gcloud call, no gate, nothing deleted)"
+    if jq -e '.archive.kind == "local"' "$(bench_manifest)" >/dev/null 2>&1; then
+        bench_local_index --arg t "$(bench_now_iso)" '.archive.reindexed_at = $t'
+    else
+        bench_local_index
+    fi
+    exit 0
+fi
 # fleet_runs — "<name> <bench-run label, or (none)>" per bench instance that exists (labelled
 # benchmark=1 or named in INSTANCE_NAMES, as the candidate list below). Call it with a
 # placeholder BENCH_RUN_ID: its subshell sources the profile only to list them; nothing is written.
