@@ -1059,3 +1059,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   "consistent with" until the direct measurement is in; keep the fitted numbers, which stay useful.
 - Rule: when the proposer side is exhausted, get the voter side before theorising (arrival, each wait,
   response). The stage-1 filter lacked it; the re-check filter has it (`network=debug`, `primary=debug`).
+
+## 2026-10-07 — a piped test run in an `&&` chain cannot gate a commit
+- `python3 -m unittest … | tail -2 && git commit …` committed max_header_delay 1000 ms with 11 tests
+  failing: the pipe's status is `tail`'s, so the chain never saw the failure. Caught only by reading the
+  background output afterwards.
+- Rule: when a test run gates a commit, run it bare (or `set -o pipefail` in that shell) and let its exit
+  status stop the chain; show its tail in a separate command. Changing a committed default also means
+  checking which tests pin that value (grep the literal) before committing.
