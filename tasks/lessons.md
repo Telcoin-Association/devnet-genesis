@@ -1005,3 +1005,45 @@ the `case` out of the substitution. Before committing shell that must run on mac
 - When a fork is already running near budget: let it checkpoint and hand back (its prompt tells it
   to at ~200k), then respawn fresh from `tasks/checkpoint-*.md`; do not stop it mid-step, its
   background harness processes may be the only copy of the run's progress.
+
+## A restart-per-arm sweep: the unit-stdout file is the only single-container-spanning log (2026-10-07)
+
+**Symptom:** the stage-1 sweep restarted every node at each arm, so the container log the teardown pulls
+(`<node>-telcoin.log.gz`) covered only the last arm, and `propose-latency.py` (default glob
+`*-telcoin.log.gz`, time-of-day bounds) silently returned a4's numbers for every window and nothing for
+windows after midnight. The earlier arms were in the `pre-arm-a<k>` container logs that params-apply saves
+and, in one piece, in `<node>-unit-stdout.log.gz`.
+
+**Rule:** before any per-window number from a multi-restart run, count the events per (node, window) across
+all of that node's files and refuse to report a window that no file covers. Prefer the unit-stdout file
+(one file per node, whole run, same logfmt lines) as the analysis source; compare full ISO timestamps,
+never time of day, when a run crosses midnight. Extract the event lines once into a scratch file per node
+(~280k lines here) and run the tools on the extracts: the full debug logs are 60 MB gzipped per node.
+
+## The idle window ends when the blaster funds, and a 250/500 arm is not "parameters already in place" (2026-10-07)
+
+- The blast's `fund` step puts 6000 funding transactions on the chain within a second of launch; the idle
+  window is `last PARAMS_OK → blast launch`, never "→ warm-up start". Name the boundary in the plan.
+- `params-apply.sh` with the fleet's own values restarts nothing and records NO arm (`NO ARM RECORDED`);
+  the baseline arm had to be hand-injected into `manifest.param_arms`. Open the baseline arm explicitly
+  (a `--record-only` or the arm record on zero changes) before the sweep relies on `--close-arm`.
+- Serial restarts took 16-20 s per node (PARAMS_OK 10-15 s after), so an 11-node apply is ~3 min, not the
+  11-22 min a 1-2 min/node estimate gives; the whole arm (apply + 8 min idle + 10 min blast + collect) is
+  ~40 min. Budget arms at 40 min and five arms at 3.5 h after the deploy.
+- One `&&` chain per arm (`params-apply … && blast … && collect`) with a background log worked for all five
+  arms and let the orchestrator check in every few minutes; the orchestrator still ran out of context
+  twice (handoffs at ~200k): keep the per-arm checks to one grep each.
+
+## Pass criteria need the voter side in the log filter, and a "healthy minus two" answer is a fail (2026-10-07)
+
+**Symptom:** the stage-1 filter had `primary::certifier=debug,primary::proposer=debug`; it showed the
+proposer's per-peer vote latency (London/Netherlands get Asian votes at ~2× RTT) but not why, because the
+vote-request handler (`primary/src/network/handler.rs`) logs under its own module path. Two of ten
+validators failed every arm and the sweep's question ("which timer values") turned out not to be the
+blocker.
+
+**Rule:** when the question is certification, include the vote handler's target in the debug filter
+(module path of `network/handler.rs`) alongside certifier and proposer, and check the first arm's
+per-validator certification BEFORE running the other four: a validator at 20 % in the baseline arm means
+the remaining arms measure the wrong thing. Report an arm that fails a criterion as failed even when the
+"healthy" subset would pass; the recommendation then carries the condition explicitly.

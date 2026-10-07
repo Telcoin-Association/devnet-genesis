@@ -30,7 +30,10 @@ Source plan: the approved "latency-adjustments" plan (see transcript). Branch
 
 ## W7 stage 1 sweep → W8 stage 2 full run
 - [x] deploy gained `--to N` (stop after a step) so the sweep deploys 0..12, then blasts per arm with `--from 13 --to 15` under a new BENCH_RUN_INDEX; plan text shows chaos off when BENCH_CHAOS=0
-- [ ] W7 stage-1 sweep launched 2026-10-06 (fable orchestrator subagent; checkpoint `tasks/checkpoint-bench-stage1.md`; run id chosen at launch)
-  - deploy 0..12 (certfix image digest caeb6be2…, txgen blast-v2-9f61303, log filter on, BENCH_CHAOS=0) → params-apply `--stage-test bench-observer-11` → A0 → A1 → A2 → A3 → A4, each: open arm, ~8 min idle, 480 s blast (warm 60 / cool 60), collect, per-arm analysis
-  - teardown with the local gate; stage-1 section in benchmark/private/followups.md; lessons; chosen config reported
+- [x] W7 stage-1 sweep r20261006-2058 (2026-10-06 20:59Z → 2026-10-07 01:50Z; three orchestrator handoffs; checkpoint `tasks/checkpoint-bench-stage1.md`)
+  - [x] deploy 0..12 (certfix image digest caeb6be2…, txgen blast-v2-9f61303, log filter on, BENCH_CHAOS=0) → params-apply `--stage-test bench-observer-11` → A0 → A1 → A2 → A3 → A4, each: open arm, ~8 min idle, 480 s blast (warm 60 / cool 60), collect, per-arm analysis
+  - [x] teardown with the local gate (passed; 4 cert-fail snapshots pulled); stage-1 section in benchmark/private/followups.md; lessons
+  - [x] analysis: `results/r20261006-2058/analysis/stage1-summary.md`. NO ARM PASSES §6: bench-validator-02 (London) 7-50 % and -06 (Netherlands) 0.7-21 % own-header certification idle in every arm (Asian voters answer them at ~2× RTT; their 6th vote lands after the 7th other certificate, so they advance and cancel their own header). Idle round 527-550 ms in every arm (min 50..500 ms never binds). Best among the healthy eight: A3 = max 1000 / min 250 / batch 250 (fewest re-proposals, 1.41 rounds/s, 5005 tx/s loaded).
+  - chosen config for W8, conditional on the v02/v06 finding: `max_header_delay_ms: 1000`, `min_header_delay_ms: 250`, `max_batch_delay_ms: 250`; fallback if the vote path is not fixed: `min_header_delay_ms ≥ 600` (pre-check first, never an arm)
+- [ ] W8 prerequisites: add the vote-request handler target to the node debug filter (`primary::network::handler=debug`); decide fix-or-accept for London/Netherlands (upstream question in followups); re-check Mumbai (74-90 % under load)
 - [ ] W8 stage-2 40-min chaos run with the chosen config
