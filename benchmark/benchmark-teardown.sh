@@ -23,10 +23,33 @@
 # one non-empty log of it landed; the pull then leaves a marker naming the instance's id. A node
 # not saved stops the teardown with nothing deleted; BENCH_TEARDOWN_SKIP_LOGS=1 names those
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
-# instance that holds its name NOW and every log that marker lists is still here; a marker or a
-# log an earlier fleet left under the same name never counts. An instance already gone never blocks.
+# instance that holds its name NOW and every log that marker lists is still here at its listed
+# size; a marker or a log an earlier fleet left under the same name never counts. An instance
+# already gone never blocks. A marker also has to be fresh (pulled at most 15 min ago: after that
+# the node has logged more than it covers, and the node is pulled again).
+# BENCH_TEARDOWN_TRUST_MARKERS=1 lifts that age rule only, for a re-run after an interrupted
+# teardown: an older marker that is otherwise intact counts, its verdict line ends
+# "(BENCH_TEARDOWN_TRUST_MARKERS=1)", the node is not pulled again, and a manifest note lists
+# each node accepted that way with its marker's pull time.
+# The pull copies each node's whole log as it is now, and a fleet left up after the run keeps
+# logging, so it can far exceed the run's own log size: check df before a teardown. Before the pull
+# starts, the filesystem under results/<run>/logs/ must have BENCH_TEARDOWN_MIN_FREE_GB (default 20;
+# 0 = no check) GB free; otherwise it stops with nothing pulled or deleted.
+# Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
+# runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
+# window gets a cert-fail log snapshot saved on the node and pulled, listed in
+# manifest.cert_failures[].logs[]. Then the LOCAL GATE: results/<run>/ is the
+# only copy of the run (no bucket keeps another), so before the first delete it must hold, for every
+# node in INSTANCE_NAMES, a non-empty logs/<node>-telcoin.log.gz, logs/<node>-unit-stdout.log.gz and
+# logs/<node>-recovery-*.tgz, a manifest.json that parses, and every log manifest.cert_failures[]
+# names. It then writes INDEX.md and CHECKSUMS.sha256 there and records manifest.archive (kind
+# local, path, verified_at, files, bytes). A missing file stops the teardown with nothing deleted,
+# naming every one; BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes anyway and notes it in the manifest
+# (archive.skipped_gate). The harness never deletes a node log.
 # After the deletes, report/provenance.py checks the node build the saved logs show against the
-# manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks).
+# manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks);
+# then tools/cert-rate.py and tools/block-rate.py write analysis/, and INDEX.md + CHECKSUMS.sha256
+# are written again over the final tree (never blocks).
 #
 # Instance rule: labels.benchmark == "1" AND (name ∈ bench INSTANCE_NAMES OR name ~
 # ^bench-(blaster|funder)) AND name ∉ the devnet denylist (INSTANCE_NAMES of a clean
@@ -39,26 +62,72 @@
 # no bench instance, or labels that are missing or disagree, stops it and asks for --run.
 #
 # Usage: benchmark/benchmark-teardown.sh [--yes] [--run ID] [--purge]
+#        benchmark/benchmark-teardown.sh --run ID --reindex
 # Without --yes it lists the candidates + denylist, prints the delete argv and changes nothing.
+# --reindex is local only, for files written into results/<run>/ after the teardown (analysis/
+# summaries, per-arm tables): it rewrites INDEX.md and CHECKSUMS.sha256 over the tree as it is now
+# (and, when the manifest has a local archive record, its files/bytes totals and
+# archive.reindexed_at), prints the file count and bytes, and exits. No gcloud call, no gate, no
+# delete; it needs --run and takes no other option.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-CONFIRM=0; PURGE=0
+CONFIRM=0; PURGE=0; REINDEX=0; RUN_ARG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
         --purge) PURGE=1 ;;
-        --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
-        --run=*) BENCH_RUN_ID="${1#*=}" ;;
+        --reindex) REINDEX=1 ;;
+        --run) BENCH_RUN_ID="${2:?--run needs an id}"; RUN_ARG="${BENCH_RUN_ID}"; shift ;;
+        --run=*) BENCH_RUN_ID="${1#*=}"; RUN_ARG="${BENCH_RUN_ID}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --run ID, --purge)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --run ID, --purge, --reindex)" >&2; exit 1 ;;
     esac
     shift
 done
 SKIP_LOGS="${BENCH_TEARDOWN_SKIP_LOGS:-0}"
 case "${SKIP_LOGS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOGS must be 0 or 1 (got '${SKIP_LOGS}')" >&2; exit 1 ;; esac
+SKIP_GATE="${BENCH_TEARDOWN_SKIP_LOCAL_GATE:-0}"
+case "${SKIP_GATE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOCAL_GATE must be 0 or 1 (got '${SKIP_GATE}')" >&2; exit 1 ;; esac
+# Read by bench-lib.sh's _bench_marker_verdict; only "1" changes anything there.
+TRUST_MARKERS="${BENCH_TEARDOWN_TRUST_MARKERS:-0}"
+case "${TRUST_MARKERS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_TRUST_MARKERS must be 0 or 1 (got '${TRUST_MARKERS}')" >&2; exit 1 ;; esac
+# A whole number of GB, no leading zero (bash reads 08 as octal), at most 6 digits; 0 = no check.
+MIN_FREE_GB="${BENCH_TEARDOWN_MIN_FREE_GB:-20}"
+case "${MIN_FREE_GB}" in
+    0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) echo "❌ BENCH_TEARDOWN_MIN_FREE_GB must be a whole number of GB, 0 to 999999 (got '${MIN_FREE_GB}')" >&2; exit 1 ;;
+esac
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
+
+# --reindex: INDEX.md + CHECKSUMS.sha256 over results/<run>/ as it is now, then exit. Local only:
+# bench-lib.sh is sourced for bench_local_index (sourcing calls no gcloud); nothing below runs.
+if [ "${REINDEX}" -eq 1 ]; then
+    if [ -z "${RUN_ARG}" ]; then
+        echo "❌ --reindex needs --run <id> — nothing was done (results/ holds: $(results_ids))" >&2
+        exit 1
+    fi
+    if [ "${CONFIRM}" -eq 1 ] || [ "${PURGE}" -eq 1 ]; then
+        echo "❌ --reindex runs on its own (no --yes or --purge) — nothing was done" >&2
+        exit 1
+    fi
+    export BENCH_RUN_ID
+    BENCH_APPLY=1
+    # shellcheck source=bench-lib.sh
+    source "${DIR}/bench-lib.sh"
+    if [ ! -d "${BENCH_RESULTS_DIR}" ]; then
+        echo "❌ ${BENCH_RESULTS_DIR} does not exist — nothing was done (results/ holds: $(results_ids))" >&2
+        exit 1
+    fi
+    echo ">>> reindex: ${BENCH_RESULTS_DIR} (local only: no gcloud call, no gate, nothing deleted)"
+    if jq -e '.archive.kind == "local"' "$(bench_manifest)" >/dev/null 2>&1; then
+        bench_local_index --arg t "$(bench_now_iso)" '.archive.reindexed_at = $t'
+    else
+        bench_local_index
+    fi
+    exit 0
+fi
 # fleet_runs — "<name> <bench-run label, or (none)>" per bench instance that exists (labelled
 # benchmark=1 or named in INSTANCE_NAMES, as the candidate list below). Call it with a
 # placeholder BENCH_RUN_ID: its subshell sources the profile only to list them; nothing is written.
@@ -382,10 +451,12 @@ fi
 # naming the id of the instance that holds the name now (from ALL_INST), whose logs are all still
 # here (bench_node_markers_report). A marker of an earlier fleet's instance, or of the older
 # format, never counts: that node is pulled again and its new logs land beside the old ones.
+# A marker older than BENCH_MARKER_MAX_AGE_SECS counts only with BENCH_TEARDOWN_TRUST_MARKERS=1;
+# TRUSTED collects "<inst>@<pull time>" for each marker accepted that way, for the manifest note.
 LOG_DIR="${BENCH_RESULTS_DIR}/logs"
-PULL_NAMES=(); PULL_ZONES=(); PULL_IDS=(); MISSING=()
+PULL_NAMES=(); PULL_ZONES=(); PULL_IDS=(); MISSING=(); TRUSTED=""
 echo ""
-echo ">>> node logs -> ${LOG_DIR} (nothing is deleted until these are saved)$([ "${SKIP_LOGS}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOGS=1')"
+echo ">>> node logs -> ${LOG_DIR} (nothing is deleted until these are saved)$([ "${SKIP_LOGS}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOGS=1')$([ "${TRUST_MARKERS}" = "1" ] && echo ' — BENCH_TEARDOWN_TRUST_MARKERS=1')"
 for i in "${!INSTANCE_NAMES[@]}"; do
     inst="${INSTANCE_NAMES[$i]}"
     if [ "$(printf '%s' "${ALL_INST}" | jq --arg n "${inst}" '[.[] | select(.name == $n)] | length')" = "0" ]; then
@@ -396,12 +467,43 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     GATE_IDS="${GATE_IDS}${ZONES[$i]} ${inst} ${id}"$'\n'
     if report="$(bench_node_markers_report "${LOG_DIR}" "${inst}" "${id}")"; then
         echo "    ✓ ${inst}: already saved — not pulled again ($(bench_node_saved_sources "${LOG_DIR}" "${inst}" "${id}"))"
+        for t in $(printf '%s\n' "${report}" | sed -n 's/.*: accepted .*, pulled \([^;]*\);.*(BENCH_TEARDOWN_TRUST_MARKERS=1)$/\1/p'); do
+            TRUSTED="${TRUSTED} ${inst}@${t}"
+        done
     else
         echo "    + ${inst}: to pull (instance ${id:-with no id in ${ZONES[$i]}})"
         PULL_NAMES+=("${inst}"); PULL_ZONES+=("${ZONES[$i]}"); PULL_IDS+=("${id}")
     fi
     printf '%s\n' "${report}"
 done
+# Free-space floor, before the pull starts. The pull copies each node's whole log as it is NOW: a
+# fleet left up after the run keeps logging, so the pull can far exceed the run's own log size.
+# Below BENCH_TEARDOWN_MIN_FREE_GB under <dest> (or unreadable) it does not start: nothing pulled,
+# nothing deleted. 0 skips the check.
+if [ "${#PULL_NAMES[@]}" -gt 0 ] && [ "${MIN_FREE_GB}" -gt 0 ]; then
+    df_dir="${LOG_DIR}"; [ -d "${df_dir}" ] || df_dir="${BENCH_RESULTS_DIR}"
+    free_kb="$(df -Pk "${df_dir}" 2>/dev/null | awk 'NR == 2 { print $4 }')" || free_kb=""
+    case "${free_kb}" in ''|*[!0-9]*) free_kb="" ;; esac
+    if [ -n "${free_kb}" ]; then
+        free_what="$(awk -v k="${free_kb}" 'BEGIN { printf "%.1f GB free", k / 1048576 }')"
+    else
+        free_what="free space unknown (df -Pk printed no number)"
+    fi
+    if [ -n "${free_kb}" ] && [ "${free_kb}" -ge $((MIN_FREE_GB * 1048576)) ]; then
+        echo "    ✓ ${free_what} under ${df_dir} (BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB}) for ${#PULL_NAMES[@]} node(s)"
+    elif [ "${BENCH_APPLY}" = "1" ]; then
+        echo "" >&2
+        echo "❌ ${free_what} under ${df_dir}, below BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB} — the pull of ${#PULL_NAMES[@]} node(s) did not start; NOTHING was deleted." >&2
+        echo "   Each node's whole log is pulled as it is now. A fleet left up after the run keeps logging, so the" >&2
+        echo "   pull can far exceed the run's own log size. Check df -h ${df_dir}, make room, and re-run." >&2
+        echo "   Logs a marker already vouches for are not pulled again; a marker older than" >&2
+        echo "   $((BENCH_MARKER_MAX_AGE_SECS / 60)) min counts only with BENCH_TEARDOWN_TRUST_MARKERS=1 (see the marker lines above)." >&2
+        echo "   Or set the floor: BENCH_TEARDOWN_MIN_FREE_GB=<GB> (0 = no check)." >&2
+        exit 1
+    else
+        echo "    ✗ ${free_what} under ${df_dir}, below BENCH_TEARDOWN_MIN_FREE_GB=${MIN_FREE_GB}: with --yes the teardown stops here, before the pull"
+    fi
+fi
 pull_rc=0
 if [ "${#PULL_NAMES[@]}" -gt 0 ]; then
     ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs "${LOG_DIR}" ) || pull_rc=$?
@@ -432,6 +534,11 @@ if [ "${pull_rc}" -ne 0 ] || [ "${#MISSING[@]}" -gt 0 ]; then
         exit 1
     fi
 fi
+# The logs of a node saved by an older marker end at that marker's pull time: say so, once the gate
+# has passed (a gate that stops here records nothing; its re-run does).
+if [ -n "${TRUSTED}" ] && [ "${BENCH_APPLY}" = "1" ]; then
+    bench_manifest_note "teardown: saved logs accepted from markers older than the freshness window (BENCH_TEARDOWN_TRUST_MARKERS=1):${TRUSTED}"
+fi
 
 # Preserve sampler history and the service journal before any deletion, even when a
 # previous attempt already saved the node's container log.
@@ -449,6 +556,44 @@ for i in "${!INSTANCE_NAMES[@]}"; do
         fi
     fi
 done
+
+# ================================ certification outcome (before the local gate) ===========
+# tools/cert-rate.py over the logs just pulled: manifest.certification and .cert_failures. Each
+# failing validator still up gets a cert-fail container-log snapshot, pulled into logs/ and listed
+# in .cert_failures[].logs[], which the local gate below requires. Informational: it only warns.
+echo ""
+echo ">>> certification outcome: ${LOG_DIR} (before the local gate, which requires every log manifest.cert_failures lists)"
+bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
+bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
+
+# ================================ local gate (before any delete) ==========================
+# results/<run>/ is the only copy of the run once the fleet is gone (see the header).
+echo ""
+echo ">>> local gate: ${BENCH_RESULTS_DIR} (the only copy; nothing is deleted until it holds every node's logs)$([ "${SKIP_GATE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOCAL_GATE=1')"
+[ "${BENCH_APPLY}" = "1" ] || echo "    (dry run — the pulls above did not run; this is what results/${BENCH_RUN_ID}/ holds now)"
+RESULTS_ABS="$(cd "${BENCH_RESULTS_DIR}" && pwd -P)"
+if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then
+    bench_local_index --arg p "${RESULTS_ABS}" --arg t "$(bench_now_iso)" '.archive = {kind: "local", path: $p, verified_at: $t}' || {
+        echo "❌ ${BENCH_RESULTS_DIR}: INDEX.md, CHECKSUMS.sha256 or manifest.archive not written — NOTHING was deleted." >&2
+        exit 1
+    }
+elif [ "${SKIP_GATE}" = "1" ]; then
+    bench_warn "BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 — deleting although ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above; they are lost with the fleet"
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        bench_local_index --arg p "${RESULTS_ABS}" '.archive = {kind: "local", path: $p, skipped_gate: true}' \
+            || bench_warn "INDEX.md, CHECKSUMS.sha256 or manifest.archive not written"
+        bench_manifest_note "teardown: deleted without the local gate (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1) at $(bench_now_iso)" || true
+    fi
+elif [ "${BENCH_APPLY}" = "1" ]; then
+    echo "" >&2
+    echo "❌ ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above — NOTHING was deleted." >&2
+    echo "   It is the only copy of the run. Fix the pull (the teardown pulls what is missing from the" >&2
+    echo "   live nodes) and re-run; what is already in ${LOG_DIR} is kept." >&2
+    echo "   Or delete without them: BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
+    exit 1
+else
+    echo "    ✗ with --yes the teardown stops here, before any delete, unless the pulls above land them (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes without them)"
+fi
 
 # ================================ delete ==================================================
 echo ""
@@ -577,6 +722,22 @@ node_startup_check() {
 }
 node_startup_check || bench_warn "node startup provenance check failed — teardown continues"
 
+# ================================ final local index =======================================
+# Since the gate, the deletes copied the run bucket into results/<run>/bucket/, genesis/ moved in
+# and the manifest has grown: analysis/ is written (the node logs are here now), then INDEX.md and
+# CHECKSUMS.sha256 again over the final tree. Never blocks.
+final_local_index() {
+    echo ""
+    echo ">>> final local index: ${BENCH_RESULTS_DIR} (informational — never blocks the teardown)"
+    bench_local_analysis
+    if [ "${BENCH_APPLY}" = "1" ] && jq -e '.archive.kind == "local"' "$(bench_manifest)" >/dev/null 2>&1; then
+        bench_local_index --arg t "$(bench_now_iso)" '.archive.final_index_at = $t'
+    else
+        bench_local_index
+    fi
+}
+final_local_index || bench_warn "final local index failed — the gate's INDEX.md and CHECKSUMS.sha256 stay; re-run the teardown to rewrite them"
+
 # ================================ left-nothing checks =====================================
 echo ""
 echo ">>> left-nothing checks$([ "${BENCH_APPLY}" = "1" ] || echo ' (current state — dry run deleted nothing)')"
@@ -602,6 +763,8 @@ for s in "${SECRETS[@]}"; do
         | jq -e --arg m "serviceAccount:${SERVICE_ACCOUNT}" '[.bindings[]? | .members[]] | index($m)' >/dev/null && acc=$((acc + 1))
 done
 chk "compute-SA bindings on bench secrets" "${acc}"
+echo "    · results/${BENCH_RUN_ID}/ kept, the only copy (back it up outside the repo): $(_bench_results_totals "${BENCH_RESULTS_DIR}" | awk '{ print $1 " file(s), " $2 " bytes" }')"
+echo "    · certification: $(bench_certification_summary "$(bench_manifest)")"
 echo "    devnet instances (must all be present):"
 for d in "${DENY[@]}"; do
     st="$(printf '%s' "${now_inst}" | jq -r --arg n "${d}" '.[] | select(.name == $n) | .status')"

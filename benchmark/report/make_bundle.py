@@ -32,16 +32,19 @@ rebuilds it from the requested blast.
 Pipeline, one log line per step, numbered in execution order:
     0 setup       out dir (origin must end in Telcoin-Association/tn-benchmarks[.git]), backfill
                   and compare-scratch checks.
-    1 scratch     copy an allowlist (manifest.json, metrics.json, blasters/*.json, sampler/*.csv,
-                  node logs) into the scratch dir, plus an empty reference-chains.json. With
-                  --blast-index N the manifest, metrics and blasters come from blast-N-*/.
-    2 provenance  node logs vs the expected upstream sha (manifest node_git_sha, else the
-                  backfill's upstream.sha). A mismatch refuses here, before the slow steps,
-                  unless --allow-provenance-mismatch.
+    1 scratch     copy an allowlist (manifest.json, metrics.json, blasters/*.json, sampler/*.csv)
+                  into the scratch dir, plus an empty reference-chains.json. With --blast-index N
+                  the manifest, metrics and blasters come from blast-N-*/. The node logs are not
+                  copied (tens of GB for a debug-filter run); step 2 reads them in place.
+    2 provenance  node logs in results/<run>/logs/, read in place, vs the expected upstream sha
+                  (manifest node_git_sha, else the backfill's upstream.sha). A mismatch refuses
+                  here, before the slow steps, unless --allow-provenance-mismatch.
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
-                  (--compare ../../<R2>/scrubbed, built or reused on demand).
+                  (--compare ../../<R2>/scrubbed, built or reused on demand). After step 7, a
+                  "Certification by node" section from manifest.certification goes into the built
+                  report (never an archived one); manifest.cert_failures becomes a caveat at step 8.
     6 windows     merged / all-generators windows, 5-minute blocks and the 1-s series.
     7 kpis        kpis.compute() plus the backfill's published KPIs; recovery.
     8 assemble    run.json, every RUN_SCHEMA key, nothing else.
@@ -60,7 +63,8 @@ rest of the pipeline still runs). --no-results skips steps 1-7 altogether: run.j
 from the backfill alone and the archived report is required.
 
 Backfill JSON (a single object; every key optional unless marked; keys starting with "_" are
-comments and ignored; any other unknown key is an error). Backfill values only win where this
+comments and ignored; any other unknown key is an error; a value still holding a <<...>>
+placeholder refuses the build, naming the field). Backfill values only win where this
 list says so; elsewhere they fill a value the run did not record.
 
     title, summary       text (default: a generated title/summary; required with --no-results)
@@ -106,6 +110,7 @@ import argparse
 import datetime
 import glob
 import hashlib
+import html
 import json
 import math
 import os
@@ -283,6 +288,32 @@ def _run_tool(argv, cwd, step):
 
 # ------------------------------------------------------------------------- backfill
 
+PLACEHOLDER_RE = re.compile(r"<<.*?>>", re.S)
+
+
+def find_placeholders(obj, where=""):
+    """Dotted paths (a.b[2].c) of every string in a JSON document that still holds a <<...>> placeholder."""
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if str(k).startswith("_"):
+                continue  # a comment key, dropped before publishing
+            hits.extend(find_placeholders(v, "%s.%s" % (where, k) if where else str(k)))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hits.extend(find_placeholders(v, "%s[%d]" % (where, i)))
+    elif isinstance(obj, str) and PLACEHOLDER_RE.search(obj):
+        hits.append(where or "<root>")
+    return hits
+
+
+def refuse_placeholders(obj, what):
+    """Refuse a document (the backfill, or the assembled run.json) that still carries <<...>> placeholders."""
+    hits = find_placeholders(obj)
+    if hits:
+        raise BundleError("%s: unfilled <<...>> placeholder in %s" % (what, ", ".join(hits)))
+
+
 def load_backfill(path):
     """Read and lightly validate a backfill file (format in the module docstring)."""
     if not path:
@@ -294,6 +325,7 @@ def load_backfill(path):
     if not isinstance(doc, dict):
         raise BundleError("backfill must be a JSON object")
     doc = _strip_comments(doc)
+    refuse_placeholders(doc, "backfill")
     for key in list(doc):
         if key not in BACKFILL_KEYS:
             raise BundleError("backfill: unknown key %r" % key)
@@ -462,10 +494,16 @@ def compare_mismatch_error(r2, blast_index, reason):
                           "" if blast_index is not None else " (no --compare-blast-index)", blast_label(blast_index)))
 
 
+def results_path(run_id):
+    return os.path.join(RESULTS_ROOT, run_id)
+
+
 def prepare_scratch(run_id, blast_index, force, step=None):
-    """Allowlisted copy of results/<run_id> (or its blast-<N>-*/) into the scratch dir."""
+    """Allowlisted copy of results/<run_id> (or its blast-<N>-*/) into the scratch dir. The scratch
+    dir holds inputs the tools rewrite and their outputs only: the node logs stay in the results
+    dir, where provenance_step reads them."""
     step = step or S_SCRATCH
-    results = os.path.join(RESULTS_ROOT, run_id)
+    results = results_path(run_id)
     if not os.path.isdir(results):
         raise BundleError("results dir does not exist: %s" % results)
     scratch = scratch_path(run_id)
@@ -500,17 +538,12 @@ def prepare_scratch(run_id, blast_index, force, step=None):
         os.makedirs(os.path.join(scratch, "sampler"))
         for p in csvs:
             _copy_file(p, os.path.join(scratch, "sampler", os.path.basename(p)))
-    logs = provenance.node_log_files(results)  # node logs only, a subset of logs/*.log[.gz]
-    if logs:
-        os.makedirs(os.path.join(scratch, "logs"))
-        for p in logs:
-            _copy_file(p, os.path.join(scratch, "logs", os.path.basename(p)))
     write_empty_reference(os.path.join(scratch, REFERENCE_FILE))
     with open(os.path.join(scratch, SOURCE_MARKER), "w") as fh:
         json.dump({"run": run_id, "blast_index": blast_index, "source": os.path.relpath(src, RESULTS_ROOT),
                    "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-    log(step, "%s <- %s (%d blasters, %d sampler csv, %d node logs)"
-        % (os.path.relpath(scratch, REPO_ROOT), os.path.relpath(src, REPO_ROOT), len(blasters), len(csvs), len(logs)))
+    log(step, "%s <- %s (%d blasters, %d sampler csv)"
+        % (os.path.relpath(scratch, REPO_ROOT), os.path.relpath(src, REPO_ROOT), len(blasters), len(csvs)))
     return scratch
 
 
@@ -600,12 +633,13 @@ def ensure_compare(r2, blast_index, tool_dir, force):
 
 # ------------------------------------------------------------------------- step 2: provenance
 
-def provenance_step(scratch, manifest, backfill, allow_mismatch):
-    """Upstream block, logged version / fork schedule / parameters, and caveats."""
+def provenance_step(run_dir, manifest, backfill, allow_mismatch):
+    """Upstream block, logged version / fork schedule / parameters, and caveats, from the node logs
+    in <run_dir>/logs/ (the run's results dir: read in place, never copied)."""
     bf_up = backfill.get("upstream") or {}
     expected = manifest.get("node_git_sha") or bf_up.get("sha")
     expected = str(expected).strip().lower() if expected else None
-    scan = provenance.scan_run(scratch)
+    scan = provenance.scan_run(run_dir)
     caveats, detail = [], []
     out = {"version": None, "fork_schedule": None, "params": {}, "param_values": {}}
     sha = expected if expected and FULL_SHA_RE.fullmatch(expected) else None
@@ -799,6 +833,25 @@ def _region(zone):
     return re.sub(r"-[a-z]$", "", zone or "")
 
 
+# The city (or area) of each GCP region a bench fleet has run in or may move to, so fleet.regions
+# reads "asia-northeast1 (Tokyo)". A region missing here is published as its bare id.
+REGION_LABELS = {
+    "us-west2": "Los Angeles", "us-east1": "South Carolina", "us-central1": "Iowa",
+    "northamerica-northeast1": "Montréal", "southamerica-east1": "São Paulo",
+    "europe-west2": "London", "europe-west3": "Frankfurt", "europe-west4": "Netherlands",
+    "me-west1": "Tel Aviv", "asia-south1": "Mumbai", "asia-southeast1": "Singapore",
+    "asia-southeast2": "Jakarta", "asia-east1": "Taiwan", "asia-east2": "Hong Kong",
+    "asia-northeast1": "Tokyo", "asia-northeast2": "Osaka", "asia-northeast3": "Seoul",
+    "australia-southeast1": "Sydney", "australia-southeast2": "Melbourne",
+}
+
+
+def region_label(region):
+    """'<region> (<city>)' for a region in REGION_LABELS, else the region id as given."""
+    name = REGION_LABELS.get(region)
+    return "%s (%s)" % (region, name) if name else region
+
+
 def fleet_block(manifest, metrics, backfill, caveats):
     nodes = [i for i in manifest.get("instances") or [] if i.get("role") in ("validator", "observer")]
     validators = [i for i in nodes if i.get("role") == "validator"]
@@ -836,16 +889,115 @@ def fleet_block(manifest, metrics, backfill, caveats):
              "observers": sum(1 for i in nodes if i.get("role") == "observer"),
              "machine_type": manifest.get("machine_type"), "vcpus": shape.get("vcpus"),
              "memory_gb": _r(mem / 1024.0, 1) if mem is not None else None, "disk": disk_block,
-             "regions": sorted({_region(i.get("zone")) for i in nodes if i.get("zone")}), "load": load}
+             "regions": [region_label(r) for r in sorted({_region(i.get("zone")) for i in nodes if i.get("zone")})],
+             "load": load}
     for k, v in bf.items():
         if k not in ("disk", "load"):
             fleet[k] = v
     return fleet
 
 
+# Per-node values in the published consensus block: names and values are tool-written
+# (benchmark-deploy.sh step 9, tools/params-apply.sh); anything else in the manifest is refused.
+_NODE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+_PARAM_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_PARAM_VALUE_RE = re.compile(r"^(?:\d{1,12}(?:\.\d{1,9})?(?:ms|s|m)?|true|false)$")
+_ARM_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+_UTC_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+
+def _node_values(where, nodes):
+    """{instance: {key: value}} from the manifest, checked; sorted [(instance, key, value)]."""
+    if not isinstance(nodes, dict):
+        raise BundleError("%s is not an object" % where)
+    rows = []
+    for inst, kv in nodes.items():
+        if not _NODE_NAME_RE.match(str(inst)) or not isinstance(kv, dict):
+            raise BundleError("%s: %r is not an instance name with {key: value}" % (where, inst))
+        for k, v in kv.items():
+            if not _PARAM_KEY_RE.match(str(k)) or not isinstance(v, str) or not _PARAM_VALUE_RE.match(v):
+                raise BundleError("%s.%s: %r=%r is not a parameter key and value" % (where, inst, k, v))
+            rows.append((inst, k, v))
+    return sorted(rows)
+
+
+def override_rows(manifest):
+    """consensus_parameters.overrides as table rows [{instance, key, value}] ([] when none)."""
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    if not cp.get("overrides"):
+        return []
+    return [{"instance": i, "key": k, "value": v}
+            for i, k, v in _node_values("manifest consensus_parameters.overrides", cp["overrides"])]
+
+
+def _arm_values_text(rows):
+    """One arm's values as text: what every node of the arm got first ("all 11 nodes: k=v"), then
+    per node what differs ("bench-validator-03: k=v")."""
+    by_inst = {}
+    for inst, k, v in rows:
+        by_inst.setdefault(inst, {})[k] = v
+    insts = sorted(by_inst)
+    common = {}
+    if len(insts) > 1:
+        common = {k: v for k, v in by_inst[insts[0]].items() if all(by_inst[i].get(k) == v for i in insts)}
+    parts = []
+    if common:
+        parts.append("all %d nodes: %s" % (len(insts), ", ".join("%s=%s" % kv for kv in sorted(common.items()))))
+    for inst in insts:
+        rest = sorted((k, v) for k, v in by_inst[inst].items() if k not in common)
+        if rest:
+            parts.append("%s: %s" % (inst, ", ".join("%s=%s" % kv for kv in rest)))
+    return "; ".join(parts)
+
+
+def arm_rows(manifest):
+    """manifest.param_arms (tools/params-apply.sh) as table rows [{arm, begin_utc, end_utc, values}]
+    in begin order ([] when none); values is _arm_values_text, plus the node an arm stopped at."""
+    arms = manifest.get("param_arms")
+    if not arms:
+        return []
+    if not isinstance(arms, list):
+        raise BundleError("manifest param_arms is not a list")
+    out = []
+    for n, arm in enumerate(arms):
+        where = "manifest param_arms[%d]" % n
+        if not isinstance(arm, dict) or not _ARM_NAME_RE.match(str(arm.get("name"))):
+            raise BundleError("%s: no arm name of [a-z0-9-]" % where)
+        for k in ("begin", "end"):
+            if not (arm.get(k) is None and k == "end") and not _UTC_RE.match(str(arm.get(k))):
+                raise BundleError("%s.%s: %r is not YYYY-MM-DDTHH:MM:SSZ" % (where, k, arm.get(k)))
+        text = _arm_values_text(_node_values(where + ".nodes", arm.get("nodes")))
+        failed = arm.get("failed")
+        if failed is not None:
+            if not _NODE_NAME_RE.match(str(failed)):
+                raise BundleError("%s.failed: %r is not an instance name" % (where, failed))
+            text += " (stopped at %s, which did not come back after its restart)" % failed
+        out.append({"arm": arm["name"], "begin_utc": arm["begin"], "end_utc": arm.get("end"), "values": text})
+    return sorted(out, key=lambda r: r["begin_utc"])
+
+
+def _per_node_explains(manifest, key, values):
+    """True when every logged value of <key> (a provenance PARAM_KEYS name) is the fleet value, an
+    override or a param arm's value for some node."""
+    insts = set()
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    insts.update((cp.get("overrides") or {}) if isinstance(cp.get("overrides"), dict) else {})
+    for arm in manifest.get("param_arms") or []:
+        if isinstance(arm, dict) and isinstance(arm.get("nodes"), dict):
+            insts.update(arm["nodes"])
+    allowed = set()
+    for inst in insts:
+        allowed.update(provenance.expected_param_values(manifest, inst, key))
+    return bool(insts) and all(v in allowed for v in values)
+
+
 def consensus_block(manifest, prov, backfill, caveats):
+    """run.json "consensus": the fleet's values (manifest, node logs, backfill), plus, only when the
+    run had them, "overrides" (per-node values deploy step 9 wrote: rows instance / key / value)
+    and "param_arms" (tools/params-apply.sh's arms: rows arm / begin_utc / end_utc / values)."""
     cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else None
     logs = prov.get("params") or {}
+    overrides, arms = override_rows(manifest), arm_rows(manifest)
     bf = backfill.get("consensus") or {}
     vals, file_label, confirmed = {}, None, None
     if cp:
@@ -858,7 +1010,13 @@ def consensus_block(manifest, prov, backfill, caveats):
         vals = {k: int(logs[k]) for k in DELAY_KEYS}
         file_label, confirmed = LOGS_PARAMS_FILE, LOGS_CONFIRMED_BY
     for k, values in (prov.get("param_values") or {}).items():
-        if len(values) > 1:
+        if len(values) > 1 and (overrides or arms) and _per_node_explains(manifest, k, values):
+            caveats.append("The nodes ran more than one %s (%s) by design: the fleet value is published here, "
+                           "and the per-node values are listed under %s."
+                           % (k, ", ".join(str(v) for v in values),
+                              " and ".join(t for t, rows in (("consensus.overrides", overrides),
+                                                             ("consensus.param_arms", arms)) if rows)))
+        elif len(values) > 1:
             caveats.append("The node logs show more than one %s (%s); the last one logged is published."
                            % (k, ", ".join(str(v) for v in values)))
     if logs.get("vote_timeout_ms") is not None:
@@ -889,6 +1047,10 @@ def consensus_block(manifest, prov, backfill, caveats):
                                             " comes" if len(from_backfill) == 1 else "s come"))
     block = {k: vals[k] for k in CONSENSUS_NUM_KEYS}
     block.update(file=file_label, confirmed_by=confirmed)
+    if overrides:
+        block["overrides"] = overrides
+    if arms:
+        block["param_arms"] = arms
     return block
 
 
@@ -956,6 +1118,169 @@ def report_block(report_src, archived_path, backfill):
     return block
 
 
+# ------------------------------------------------------------------------- certification by node
+# The harness records which validators got their own headers certified (bench_certification_record:
+# manifest.certification, .certification_meta, .cert_failures). The site's run.json schema has no key
+# for it, so the table goes into the built report (a section after "Consensus health") and a failure
+# also becomes a run.json caveat. An archived report is kept byte for byte: no table, caveat only.
+
+CERT_SECTION_ID = "certification-by-node"
+CERT_DEFAULT_FAIL_PCT = 90
+CERT_DEFAULT_MIN_PROPOSED = 50
+
+
+def _cert_failures(manifest):
+    return [f for f in (manifest.get("cert_failures") or []) if isinstance(f, dict) and isinstance(f.get("inst"), str)]
+
+
+def _cert_meta(manifest):
+    meta = manifest.get("certification_meta") if isinstance(manifest.get("certification_meta"), dict) else {}
+    pct = meta.get("fail_below_pct")
+    minp = meta.get("min_proposed")
+    return (pct if isinstance(pct, (int, float)) and not isinstance(pct, bool) else CERT_DEFAULT_FAIL_PCT,
+            minp if isinstance(minp, int) and not isinstance(minp, bool) else CERT_DEFAULT_MIN_PROPOSED,
+            [w for w in (meta.get("windows") or []) if isinstance(w, str)])
+
+
+def _words(items):
+    """'a', 'a and b', 'a, b and c' ('' for none)."""
+    items = list(items)
+    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+
+
+def _pct_text(v):
+    return "–" if not isinstance(v, (int, float)) or isinstance(v, bool) else "%.1f" % v
+
+
+def _threshold_text(p):
+    return "%d" % p if float(p).is_integer() else "%.1f" % p
+
+
+def certification_table(manifest):
+    """The "Certification by node" table, or None when the run recorded no certification: {threshold_pct,
+    min_proposed, windows, fair_share_pct, validators, failing, rows}. A row per validator: inst, region
+    (from manifest.instances), cells {window: {rate_pct, proposed, certified, judged, failing}}, and the
+    own leader share and not-committed share over the "run" window (the last window when there is none)."""
+    cert = manifest.get("certification")
+    if not isinstance(cert, dict) or not cert:
+        return None
+    pct, minp, windows = _cert_meta(manifest)
+    for node in cert.values():
+        for w in (node if isinstance(node, dict) else {}):
+            if w not in windows:
+                windows.append(w)
+    whole = "run" if "run" in windows else (windows[-1] if windows else None)
+    zones = {i.get("name"): i.get("zone") for i in manifest.get("instances") or [] if isinstance(i, dict)}
+    validators = sum(1 for i in manifest.get("instances") or [] if isinstance(i, dict) and i.get("role") == "validator")
+    validators = validators or len(cert)
+    failing = {f["inst"]: set(f.get("windows") or [f.get("window")]) for f in _cert_failures(manifest)}
+    rows = []
+    for inst in sorted(cert):
+        node = cert[inst] if isinstance(cert[inst], dict) else {}
+        cells = {}
+        for w in windows:
+            c = node.get(w) if isinstance(node.get(w), dict) else {}
+            proposed = c.get("proposed") if isinstance(c.get("proposed"), int) else 0
+            cells[w] = {"rate_pct": c.get("rate_pct"), "proposed": proposed, "certified": c.get("certified"),
+                        "judged": proposed >= minp, "failing": w in failing.get(inst, ())}
+        run = node.get(whole) if isinstance(node.get(whole), dict) else {}
+        zone = zones.get(inst)
+        rows.append({"inst": inst, "region": region_label(_region(zone)) if zone else None, "cells": cells,
+                     "own_leader_share_pct": run.get("own_leader_share_pct"),
+                     "not_committed_pct": run.get("not_committed_pct"), "failing": inst in failing})
+    return {"threshold_pct": pct, "min_proposed": minp, "windows": windows, "share_window": whole,
+            "fair_share_pct": 100.0 / validators, "validators": validators,
+            "failing": sorted(failing),
+            "rows": rows}
+
+
+def certification_html(manifest):
+    """The report section for certification_table(manifest); "" when the run recorded none."""
+    t = certification_table(manifest)
+    if t is None:
+        return ""
+    esc = html.escape
+    pct = _threshold_text(t["threshold_pct"])
+    head = "".join("<th class='num'>%s</th>" % esc(w) for w in t["windows"])
+    body = []
+    for r in t["rows"]:
+        tds = []
+        for w in t["windows"]:
+            c = r["cells"][w]
+            title = "%s of %s own headers certified%s" % (
+                c["certified"] if c["certified"] is not None else "?", c["proposed"],
+                "" if c["judged"] else " (fewer than %d proposed: not judged)" % t["min_proposed"])
+            text = esc(_pct_text(c["rate_pct"]))
+            if c["failing"]:
+                text = "<strong>%s</strong>" % text
+            tds.append("<td class='num%s' title='%s'>%s</td>" % ("" if c["judged"] else " muted", esc(title, quote=True), text))
+        body.append("<tr><td>%s%s</td><td>%s</td>%s<td class='num'>%s</td><td class='num'>%s</td></tr>" % (
+            esc(r["inst"]), " <strong>below %s %%</strong>" % pct if r["failing"] else "", esc(r["region"] or "–"),
+            "".join(tds), esc(_pct_text(r["own_leader_share_pct"])), esc(_pct_text(r["not_committed_pct"]))))
+    share = esc(t["share_window"] or "run")
+    if t["failing"]:
+        verdict = "%s certified fewer than %s %% of %s own headers in a window where %s at least %d." % (
+            esc(_words(t["failing"])), pct, "its" if len(t["failing"]) == 1 else "their",
+            "it proposed" if len(t["failing"]) == 1 else "they proposed", t["min_proposed"])
+    else:
+        verdict = ("Every validator certified at least %s %% of its own headers in every window where it proposed at "
+                   "least %d." % (pct, t["min_proposed"]))
+    return ("<section id='%s'><h2>Certification by node</h2>"
+            "<p class='lede'>The share of each validator's own headers that formed a certificate, per window "
+            "(tools/cert-rate.py on the node logs). %s Own leader %% is the validator's share of the committed "
+            "leaders and not committed %% the share of its certificates no committed leader reached, both over "
+            "the %s window; the fair share is 100 / %d validators = %.1f %%. Greyed: fewer than %d headers "
+            "proposed, not judged.</p>"
+            "<div class='scroll'><table class='data' id='certification-table'><thead><tr><th>Validator</th>"
+            "<th>Region</th>%s<th class='num'>Own leader %%</th><th class='num'>Not committed %%</th></tr></thead>"
+            "<tbody>%s</tbody></table></div></section>"
+            % (CERT_SECTION_ID, verdict, share, t["validators"], t["fair_share_pct"], t["min_proposed"], head,
+               "".join(body)))
+
+
+def certification_caveat(manifest, run_id):
+    """The caveat naming the validators in manifest.cert_failures and their failing windows, or None
+    when there are none. Validators that failed different windows get theirs in parentheses."""
+    failures = _cert_failures(manifest)
+    if not failures:
+        return None
+    pct, _, order = _cert_meta(manifest)
+    groups = {}   # failing windows (in window order) -> validators; dicts keep insertion order
+    for f in sorted(failures, key=lambda f: f["inst"]):
+        seen = {w for w in (f.get("windows") or [f.get("window")]) if isinstance(w, str)}
+        key = tuple([w for w in order if w in seen] + sorted(seen - set(order))) or ("a window",)
+        if f["inst"] not in groups.setdefault(key, []):
+            groups[key].append(f["inst"])
+    one = sum(len(v) for v in groups.values()) == 1
+    if len(groups) == 1:
+        (windows, names), = groups.items()
+        who, where = _words(names), " in %s" % _words(windows)
+    else:
+        who, where = _words("%s (in %s)" % (_words(n), _words(w)) for w, n in groups.items()), ""
+    return ("%s %s certified fewer than %s %% of %s own headers%s; %s logs are preserved under results/%s/logs/ "
+            "(see INDEX.md)." % ("Validator" if one else "Validators", who, _threshold_text(pct),
+                                 "its" if one else "their", where, "its" if one else "their", run_id))
+
+
+def add_certification_section(report_path, section):
+    """Put <section> into the built report at <report_path>: after its "Consensus health" section, else
+    before its footer, else before </body>, else at the end. An earlier certification section is
+    replaced, so a rebuild never holds two. Nothing to add ("") leaves the file as it is."""
+    if not section:
+        return False
+    with open(report_path, encoding="utf-8") as fh:
+        text = fh.read()
+    text = re.sub(r"<section id='%s'>.*?</section>" % re.escape(CERT_SECTION_ID), "", text, flags=re.S)
+    m = re.search(r"<section id=['\"]consensus['\"]>.*?</section>", text, re.S)
+    if m:
+        at = m.end()
+    else:
+        at = next((i for i in (text.find("<footer"), text.lower().rfind("</body>")) if i >= 0), len(text))
+    with open(report_path, "w", encoding="utf-8") as fh:
+        fh.write(text[:at] + section + text[at:])
+    return True
+
+
 def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built, tps5, kpis_list, headline,
              recovery, computed_caveats, report, compare_to, backfill, tool_dir):
     caveats = []
@@ -973,6 +1298,9 @@ def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built,
     chain = _fill({"chain_id": manifest.get("chain_id"),
                    "network": (manifest.get("prometheus") or {}).get("network_label"),
                    "epoch_secs": manifest.get("epoch_duration_secs")}, chain_bf)
+    cert_caveat = certification_caveat(manifest, run_id)
+    if cert_caveat:
+        caveats.append(cert_caveat)
     return {
         "schema": SCHEMA_ID,
         "id": run_id,
@@ -1175,6 +1503,7 @@ def install_bundle(out, run_doc, report_src, series_doc, raw_manifest, site_chec
     runs/.<id>.tmp-<pid>/<id>), run both leak gates on it, then swap it into place and run the site
     check once more on the installed dir. A failed gate, move or final check leaves <out> as it was
     before the run: the previous bundle, or nothing. The staging dir is always removed."""
+    refuse_placeholders(run_doc, "run.json")
     prepare_out(out)
     parent, name = os.path.split(os.path.abspath(out))
     os.makedirs(parent, exist_ok=True)
@@ -1297,9 +1626,10 @@ def _main(a):
 
     scratch = prepare_scratch(run_id, a.blast_index, a.force)
     raw_manifest = _load_input(os.path.join(scratch, "manifest.json"))
-    # Provenance first (it only needs scratch/logs and the raw manifest, where node_git_sha and
-    # friends are unscrubbed), so a mismatch refuses before the slow report build.
-    prov = provenance_step(scratch, raw_manifest, backfill, a.allow_provenance_mismatch)
+    # Provenance first (it only needs the node logs, read in place in results/<run>/logs/, and the
+    # raw manifest, where node_git_sha and friends are unscrubbed), so a mismatch refuses before
+    # the slow report build.
+    prov = provenance_step(results_path(run_id), raw_manifest, backfill, a.allow_provenance_mismatch)
     run_tools(scratch, tool_dir)
     scrubbed = scrub_scratch(scratch)
     if archived:
@@ -1315,6 +1645,12 @@ def _main(a):
     built, tps5, series_doc = windows_step(scratch, combined)
     blasters_docs = win.load_blasters(os.path.join(scratch, "blasters"))
     kpis_list, headline, recovery, kpi_caveats = kpis_step(scrubbed, combined, metrics, manifest, built, backfill)
+    cert_section = certification_html(manifest)
+    if archived:
+        if cert_section:
+            log(S_REPORT, "archived report kept byte for byte: no Certification by node table (caveat only)")
+    elif add_certification_section(report_src, cert_section):
+        log(S_REPORT, "Certification by node table added (%d below threshold)" % len(_cert_failures(manifest)))
     report = report_block(report_src, archived, backfill)
     run_doc = assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built, tps5, kpis_list,
                        headline, recovery, kpi_caveats, report, compare_to, backfill, tool_dir)

@@ -21,8 +21,10 @@
 #                        deployments-bench.json that the selected steps need
 #    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
-#                        CPU quota per family metric (nodes: C3_CPUS for c3, ...; blasters: CPUS) +
-#                        a hyperdisk-* disk type offered in every fleet zone; pre-snapshots
+#                        MACHINE_TYPE in every fleet zone and the first blaster type in every validator
+#                        zone + a hyperdisk-* disk type offered in every fleet zone + quota headroom per
+#                        region (vCPUs per family metric, addresses, disk); one die lists every failure;
+#                        pre-snapshots
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
@@ -60,6 +62,7 @@
 #   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9          # resume
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15         # one step
+#   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts --to 12   # stop after step N
 #   benchmark/benchmark-deploy.sh --probe-node-image [REF]   # the gate's node image probe alone (local,
 #       no run dir, no manifest; REF defaults to the configured image; with --yes a local image is
 #       refused unless its repo digest is the registry's, exactly as at the gate). Expectations:
@@ -72,13 +75,15 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
-CONFIRM=0; FROM=0; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
+CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
 PROBE_ONLY=0; PROBE_REF=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
         --from) FROM="${2:?--from needs a step number}"; shift ;;
         --from=*) FROM="${1#*=}" ;;
+        --to) TO="${2:?--to needs a step number}"; shift ;;
+        --to=*) TO="${1#*=}" ;;
         --only) ONLY="${2:?--only needs a step number}"; shift ;;
         --only=*) ONLY="${1#*=}" ;;
         --with-contracts) WITH_CONTRACTS=1 ;;
@@ -90,12 +95,14 @@ while [ $# -gt 0 ]; do
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
     esac
     shift
 done
 is_step() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 0 ] && [ "$1" -le "${LAST_STEP}" ]; }
 is_step "${FROM}" || { echo "❌ --from must be 0..${LAST_STEP}" >&2; exit 1; }
+is_step "${TO}" || { echo "❌ --to must be 0..${LAST_STEP}" >&2; exit 1; }
+[ "${FROM}" -le "${TO}" ] || { echo "❌ --from ${FROM} is after --to ${TO}" >&2; exit 1; }
 [ -z "${ONLY}" ] || is_step "${ONLY}" || { echo "❌ --only must be 0..${LAST_STEP}" >&2; exit 1; }
 [ "${PROBE_ONLY}" -eq 0 ] || [ -n "${BENCH_RUN_ID:-}" ] || BENCH_RUN_ID="r00000000-0000"   # config.sh needs one
 export BENCH_RUN_ID="${BENCH_RUN_ID:-}"
@@ -143,21 +150,31 @@ PROM_LEAK_ANY_QUERY='count(count by (node) ({network="devnet", node=~"bench.*"})
 COLLECT_METRICS_PY="${BENCH_TXGEN_BENCH_DIR}/collect-gcp-metrics.py"
 DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
 
-# run_expect <sha|forks|mhd|nhd|mbd> — what this run's nodes must report at boot: the manifest
-# (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate recorded them) first,
-# else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
+# run_expect <sha|forks|mhd|nhd|mbd|vt|thr> [<node-index>] — what this run's nodes must report at
+# boot: the manifest (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate
+# recorded them) first, else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
+# With a node index, that node's BENCH_NODE_PARAM_OVERRIDES value of the key wins (step 9 writes it,
+# from this shell's knob, which the gate records as consensus_parameters.overrides). vt (vote_timeout)
+# is only ever an override: the fleet file need not set it and older builds do not log it.
 run_expect() {
-    local m v="" q g
+    local m v="" q="" g="" key="" ov=""
     m="$(bench_manifest)"
     case "$1" in
         sha)   q='.node_git_sha';                              g="${BENCH_NODE_GIT_SHA:-}" ;;
         forks) q='.node_fork_schedule';                        g="${BENCH_NODE_FORK_SCHEDULE:-}" ;;
-        mhd)   q='.consensus_parameters.max_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" ;;
-        nhd)   q='.consensus_parameters.min_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" min_header_delay)" ;;
-        mbd)   q='.consensus_parameters.max_batch_delay_ms';   g="$(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay)" ;;
+        mhd)   q='.consensus_parameters.max_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)"; key=max_header_delay ;;
+        nhd)   q='.consensus_parameters.min_header_delay_ms';  g="$(bench_params_ms "${PARAMETERS_FILE}" min_header_delay)"; key=min_header_delay ;;
+        mbd)   q='.consensus_parameters.max_batch_delay_ms';   g="$(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay)"; key=max_batch_delay ;;
+        vt)    key=vote_timeout ;;
+        thr)   g="$(bench_params_raw "${PARAMETERS_FILE}" header_num_of_batches_threshold)"; key=header_num_of_batches_threshold ;;
         *) return 1 ;;
     esac
-    [ ! -f "${m}" ] || v="$(jq -r "${q} // empty" "${m}" 2>/dev/null || true)"
+    [ -z "${2:-}" ] || [ -z "${key}" ] || ov="$(bench_node_override "$2" "${key}")"
+    if [ -n "${ov}" ]; then
+        case "${key}" in header_num_of_batches_threshold) printf '%s' "${ov}" ;; *) bench_dur_ms "${ov}" | tr -d '\n' ;; esac
+        return 0
+    fi
+    [ -z "${q}" ] || [ ! -f "${m}" ] || v="$(jq -r "${q} // empty" "${m}" 2>/dev/null || true)"
     printf '%s' "${v:-${g}}"
 }
 
@@ -168,17 +185,36 @@ disk_desc() {
     printf '%s GB %s%s' "${NODE_DISK_SIZE}" "${NODE_DISK_TYPE}" "${p:+ (provisioned ${p})}"
 }
 
+# fleet_zones — the distinct zones of the whole fleet, space-separated, sorted.
+fleet_zones() {
+    local z; z="$(printf '%s\n' "${ZONES[@]}" | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# validator_zones — the distinct zones of the validators (each validator's blaster runs in its zone).
+validator_zones() {
+    local i z
+    z="$(for i in "${!ZONES[@]}"; do [ "${NODE_ROLES[$i]}" != "validator" ] || echo "${ZONES[$i]}"; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# fleet_regions — the distinct regions of the fleet, space-separated, sorted.
+fleet_regions() {
+    local z r; r="$(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${r% }"
+}
+
 # disk_type_check — a hyperdisk-* boot disk type must be offered in every zone the fleet uses;
 # dies naming the zones that lack it. The query goes through bench_run, so a dry run (the plan)
 # prints it and nothing else. Other disk types: no-op.
 disk_type_check() {
     case "${NODE_DISK_TYPE}" in hyperdisk-*) ;; *) return 0 ;; esac
     local zlist out have z lacking=""
-    zlist="$(printf '%s\n' "${ZONES[@]}" | sort -u | tr '\n' ' ')"; zlist="${zlist% }"
+    zlist="$(fleet_zones)"
     echo "    ${NODE_DISK_TYPE} must be offered in every fleet zone (${zlist})"
-    out="$(bench_run gcloud compute disk-types list --project="${PROJECT_ID}" \
-        --filter="name=${NODE_DISK_TYPE} AND zone:(${zlist})" --format='value(zone.basename())')" \
-        || bench_die "gcloud compute disk-types list failed"
+    out="$(bench_run perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disk-types list --project="${PROJECT_ID}" \
+        --filter="name=${NODE_DISK_TYPE} AND zone:(${zlist})" --format='value(zone.basename())' </dev/null)" \
+        || bench_die "gcloud compute disk-types list failed (or gave no answer within 120 s)"
     printf '%s\n' "${out}" | grep '^ ' || true    # bench_run's argv line (and its dry-run note)
     [ "${BENCH_APPLY}" = "1" ] || return 0
     have=" $(printf '%s\n' "${out}" | { grep -v '^ ' || true; } | tr '\n' ' ')"
@@ -187,6 +223,173 @@ disk_type_check() {
     done
     [ -z "${lacking}" ] || bench_die "${NODE_DISK_TYPE} is not offered in:${lacking} — pick another BENCH_NODE_DISK_TYPE"
     echo "    ✓ ${NODE_DISK_TYPE} offered in all fleet zones"
+}
+
+# machine_type_check <machine-type> <knob> "<zone...>" — the type must exist in every listed zone: a
+# zone without it fails the create part-way through the fleet (or the blast, an hour after the fleet
+# came up). One describe per zone, each under an alarm; every zone that fails is listed in a single
+# die. A dry run (the plan) prints the query and calls nothing.
+machine_type_check() {
+    local t="$1" knob="$2" zones="$3" z rc out bad="" n=0
+    echo "    ${t} must exist in every zone it is created in (${zones})"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe ${t} --zone=<each zone> --project=${PROJECT_ID} --format='value(name)'"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    for z in ${zones}; do
+        rc=0; n=$((n + 1))
+        out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "${t}" --zone="${z}" \
+            --project="${PROJECT_ID}" --format='value(name)' </dev/null 2>&1)" || rc=$?
+        [ "${rc}" -ne 0 ] || continue
+        case "${rc}:${out}" in
+            142:*) out="no answer within 60 s" ;;
+            *"was not found"*) out="not offered in this zone" ;;
+            *) out="describe failed (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200)" ;;
+        esac
+        bad="${bad}
+     ${z}: ${out}"
+    done
+    [ -z "${bad}" ] || bench_die "${t} cannot be created in every zone it needs — change ZONES (benchmark/config.sh) or ${knob}:${bad}"
+    echo "    ✓ ${t} offered in all ${n} zones"
+}
+
+# machine_vcpus <machine-type> <zone> — its vCPU count: from the name when the name carries it
+# (<family>-custom-<vcpus>-<mb>, <family>-<class>-<vcpus>), else (--yes only) from an alarmed
+# describe in <zone>; "" when unknown.
+machine_vcpus() {
+    local n
+    case "$1" in *-custom-*) n="${1#*-custom-}"; n="${n%%-*}" ;; *) n="${1##*-}" ;; esac
+    case "${n}" in ''|*[!0-9]*) n="" ;; esac
+    if [ -z "${n}" ] && [ "${BENCH_APPLY}" = "1" ]; then
+        n="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "$1" --zone="$2" \
+            --project="${PROJECT_ID}" --format='value(guestCpus)' </dev/null 2>/dev/null || true)"
+    fi
+    printf '%s' "${n}"
+}
+
+# region_needs <region> — "<quota metric> <need>" lines: what the fleet's nodes in <region> and their
+# blasters (one per validator, in its zone, on the first BENCH_BLASTER_MACHINE_TYPES type) take from
+# the region's quotas. vCPUs count against each type's family metric (bench_cpu_quota_metric), one sum
+# when nodes and blasters share it; every node and blaster holds one external address; the blasters'
+# pd-balanced boot disks count against SSD_TOTAL_GB; the node disks against HDB_TOTAL_{GB,IOPS,
+# THROUGHPUT} (hyperdisk-balanced; the IOPS/throughput only when provisioned), SSD_TOTAL_GB (pd-ssd,
+# pd-balanced) or DISKS_TOTAL_GB (pd-standard). A need is "?" when a vCPU count is unknown.
+region_needs() {
+    local region="$1" i z="" nodes=0 vals=0 bt nc bc
+    for i in "${!ZONES[@]}"; do
+        [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
+        z="${ZONES[$i]}"; nodes=$((nodes + 1))
+        [ "${NODE_ROLES[$i]}" != "validator" ] || vals=$((vals + 1))
+    done
+    bt="${BENCH_BLASTER_MACHINE_TYPES%% *}"
+    nc="$(machine_vcpus "${MACHINE_TYPE}" "${z}")"; nc="${nc:+$(( nodes * nc ))}"
+    bc="$(machine_vcpus "${bt}" "${z}")"; bc="${bc:+$(( vals * bc ))}"
+    {
+        echo "$(bench_cpu_quota_metric "${MACHINE_TYPE}") ${nc:-?}"
+        [ "${vals}" -eq 0 ] || echo "$(bench_cpu_quota_metric "${bt}") ${bc:-?}"
+        echo "IN_USE_ADDRESSES $(( nodes + vals ))"
+        case "${NODE_DISK_TYPE}" in
+            hyperdisk-balanced)
+                echo "HDB_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))"
+                [ -z "${NODE_DISK_IOPS}" ] || echo "HDB_TOTAL_IOPS $(( nodes * NODE_DISK_IOPS ))"
+                [ -z "${NODE_DISK_THROUGHPUT}" ] || echo "HDB_TOTAL_THROUGHPUT $(( nodes * NODE_DISK_THROUGHPUT ))" ;;
+            pd-ssd|pd-balanced) echo "SSD_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+            pd-standard) echo "DISKS_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+        esac
+        [ "${vals}" -eq 0 ] || echo "SSD_TOTAL_GB $(( vals * BENCH_BLASTER_BOOT_DISK_GB ))"
+    } | awk '{ if (!($1 in n)) { o[++k] = $1; n[$1] = 0 } if ($2 == "?") u[$1] = 1; else n[$1] += $2 }
+             END { for (i = 1; i <= k; i++) print o[i], ((o[i] in u) ? "?" : n[o[i]]) }'
+}
+
+# hdb_headroom <metric> <region> <quota-info json> <disks json> — a HDB_TOTAL_* quota's headroom in
+# <region>: the value in force (`gcloud beta quotas info describe` JSON: the region's own dimension,
+# else the default that applies to it) less what the region's hyperdisk-balanced disks already hold.
+# "unlimited" for -1; "" when the region has no value.
+hdb_headroom() {
+    local f limit used
+    case "$1" in
+        HDB_TOTAL_GB) f=sizeGb ;;
+        HDB_TOTAL_IOPS) f=provisionedIops ;;
+        *) f=provisionedThroughput ;;
+    esac
+    limit="$(printf '%s' "$3" | jq -r --arg r "$2" '
+        ([.dimensionsInfos[]? | select(.dimensions.region? == $r)]
+         + [.dimensionsInfos[]? | select((.dimensions.region? // null) == null and ((.applicableLocations // []) | index($r)))])
+        | .[0].details.value // empty' 2>/dev/null || true)"
+    case "${limit}" in
+        -1) echo unlimited; return 0 ;;
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    used="$(printf '%s' "$4" | jq -r --arg r "$2" --arg f "${f}" '
+        [.[]? | select((.type // "") | endswith("/hyperdisk-balanced"))
+              | select(((.zone // .region // "") | split("/") | last | sub("-[a-z]$"; "")) == $r)
+              | (.[$f] // "0" | tonumber)] | add // 0 | floor' 2>/dev/null || true)"
+    echo $(( limit - ${used:-0} ))
+}
+
+# quota_check — per region, the fleet's need (region_needs) against the headroom (limit - usage).
+# CPU family metrics, IN_USE_ADDRESSES and SSD_TOTAL_GB/DISKS_TOTAL_GB come from `gcloud compute
+# regions describe`, which lists no hyperdisk quota: the HDB_TOTAL_* limits come from the Cloud
+# Quotas API (HDB-TOTAL-{GB,IOPS,THROUGHPUT}-per-project-region) and their usage from the disks
+# list. Every shortfall is listed in one die; a quota that cannot be read is a warning. Every gcloud
+# call is under an alarm. A dry run (the plan) prints the needs and the queries and calls nothing.
+quota_check() {
+    local regions r m need have json qgb="" qiops="" qtput="" disks="[]" q qj ok short=""
+    regions="$(fleet_regions)"
+    echo "    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator:"
+    for r in ${regions}; do
+        echo "      ${r}: $(region_needs "${r}" | awk '{ printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2 }')"
+    done
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe <each region> --project=${PROJECT_ID} --format=json"
+        if [ "${NODE_DISK_TYPE}" = "hyperdisk-balanced" ]; then
+            echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe HDB-TOTAL-<GB|IOPS|THROUGHPUT>-per-project-region --service=compute.googleapis.com --project=${PROJECT_ID} --format=json"
+            echo "    + perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project=${PROJECT_ID} --format=json"
+        fi
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    if [ "${NODE_DISK_TYPE}" = "hyperdisk-balanced" ]; then
+        for q in GB IOPS THROUGHPUT; do
+            qj="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe "HDB-TOTAL-${q}-per-project-region" \
+                --service=compute.googleapis.com --project="${PROJECT_ID}" --format=json </dev/null 2>/dev/null)" || qj=""
+            case "${q}" in GB) qgb="${qj}" ;; IOPS) qiops="${qj}" ;; *) qtput="${qj}" ;; esac
+        done
+        disks="$(perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project="${PROJECT_ID}" \
+            --format=json </dev/null 2>/dev/null)" \
+            || { bench_warn "gcloud compute disks list failed — existing hyperdisk usage counted as 0"; disks="[]"; }
+    fi
+    for r in ${regions}; do
+        json="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe "${r}" --project="${PROJECT_ID}" \
+            --format=json </dev/null 2>/dev/null)" \
+            || bench_die "gcloud compute regions describe ${r} failed (or gave no answer within 60 s)"
+        ok=""
+        while read -r m need; do
+            [ -n "${m}" ] || continue
+            case "${m}" in
+                HDB_TOTAL_GB) have="$(hdb_headroom "${m}" "${r}" "${qgb}" "${disks}")" ;;
+                HDB_TOTAL_IOPS) have="$(hdb_headroom "${m}" "${r}" "${qiops}" "${disks}")" ;;
+                HDB_TOTAL_THROUGHPUT) have="$(hdb_headroom "${m}" "${r}" "${qtput}" "${disks}")" ;;
+                *) have="$(printf '%s' "${json}" | jq -r --arg q "${m}" \
+                       '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty' 2>/dev/null || true)" ;;
+            esac
+            if [ -z "${have}" ] || [ "${need}" = "?" ]; then
+                bench_warn "${r}: ${m} not checked (need ${need}, headroom ${have:-not readable})"
+            elif [ "${have}" = "unlimited" ] || [ "${have}" -ge "${need}" ]; then
+                ok="${ok}, ${m} ${need}/${have}"
+            else
+                short="${short}
+     $(printf '%-24s %-22s %10s %10s' "${r}" "${m}" "${need}" "${have}")"
+            fi
+        done <<EOF
+$(region_needs "${r}")
+EOF
+        [ -z "${ok}" ] || echo "    ✓ ${r} need/headroom: ${ok#, }"
+    done
+    [ -z "${short}" ] || bench_die "quota shortfalls — nothing was created:
+     $(printf '%-24s %-22s %10s %10s' region metric need headroom)${short}
+   Raise the quota (console: IAM & Admin > Quotas; or gcloud beta quotas preferences create), or move the zone (ZONES in benchmark/config.sh)."
 }
 
 # ================================ steps ==============================================
@@ -232,37 +435,10 @@ step_0() {
     # so a Loki disk that is already nearly full is fixed before, not during, a run.
     [ "${obs_pct}" -lt "${BENCH_OBS_DISK_MAX_PCT:-70}" ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= ${BENCH_OBS_DISK_MAX_PCT:-70}%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate"
     echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
-    # vCPU quota is per machine family: node vCPUs count against the family metric of MACHINE_TYPE
-    # (C3_CPUS for c3), each validator's blaster (2 vCPU) against its type's (CPUS for e2); one sum
-    # when both are the same metric. A metric the region does not list is warned about, not fatal.
-    local region need have rq q i node_m blast_m need_node need_blast
-    node_m="$(bench_cpu_quota_metric "${MACHINE_TYPE}")"
-    blast_m="$(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}")"
-    for region in $(for z in "${ZONES[@]}"; do tn_region_from_zone "${z}"; echo; done | sort -u); do
-        need_node=0; need_blast=0
-        for i in "${!ZONES[@]}"; do
-            [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
-            need_node=$(( need_node + $(bench_machine_shape "${MACHINE_TYPE}" "${ZONES[$i]}" | awk '{print $1}') ))
-            [ "${NODE_ROLES[$i]}" = "validator" ] && need_blast=$(( need_blast + 2 ))   # its blaster (e2-standard-2)
-        done
-        rq="$(gcloud compute regions describe "${region}" --project="${PROJECT_ID}" --format=json)" \
-            || bench_die "gcloud compute regions describe ${region} failed"
-        for q in $(printf '%s\n' "${node_m}" "${blast_m}" | awk '!seen[$0]++'); do
-            need=0
-            [ "${q}" != "${node_m}" ] || need=$(( need + need_node ))
-            [ "${q}" != "${blast_m}" ] || need=$(( need + need_blast ))
-            have="$(printf '%s' "${rq}" | jq -r --arg q "${q}" \
-                '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty')" \
-                || bench_die "${region}: cannot read the quotas from gcloud compute regions describe"
-            if [ -z "${have}" ]; then
-                bench_warn "${region}: no ${q} quota listed — ${need} vCPU not checked against it"
-                continue
-            fi
-            [ "${have}" -ge "${need}" ] || bench_die "${region}: ${q} headroom ${have} < ${need}"
-            echo "    ✓ ${region}: ${q} headroom ${have} >= ${need}"
-        done
-    done
+    machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+    machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
     disk_type_check
+    quota_check
     mkdir -p "${BENCH_RESULTS_DIR}"
     [ -f "${BENCH_RESULTS_DIR}/pre-instances.json" ] \
         || gcloud compute instances list --project="${PROJECT_ID}" --format=json > "${BENCH_RESULTS_DIR}/pre-instances.json"
@@ -404,17 +580,91 @@ step_8() {
     unset token
 }
 
+# postconfig_params <node-index> — step 9's per-node section, run before the restart: that node's
+# BENCH_NODE_PARAM_OVERRIDES into <datadir>/parameters.yaml (`setp <key> <value>` lines) and
+# BENCH_NODE_LOG_FILTER onto the telcoin command in the wrapper (the `F=` line; none when the knob is
+# empty). It also sets P, the parameters file the readback after the restart reads.
+postconfig_params() {
+    local kv
+    cat <<'EOS'
+# 2b. this node's parameters and log filter. The datadir is the --datadir argument of the wrapper's
+#     telcoin command; under docker that is the container path, so the host side of its
+#     `-v <host>:<datadir>` bind is where parameters.yaml really is.
+D="$(grep -v '^[[:space:]]*#' "$W" | sed -nE 's/.*--datadir[ =]([^[:space:]]+).*/\1/p' | head -1 || true)"
+[ -n "$D" ] || fail "no --datadir in $W"
+H="$(grep -v '^[[:space:]]*#' "$W" | sed -nE "s#.*-v[[:space:]]+([^[:space:]:]+):${D}([:[:space:]].*)?\$#\1#p" | head -1 || true)"
+P="${H:-$D}/parameters.yaml"
+[ -f "$P" ] || fail "no $P"
+# A file an earlier step 9 rewrote (it has '# bench-override' lines) is first restored from its .bak;
+# any other file becomes the .bak. Written through `cat >`, so owner, mode and inode stay.
+if grep -q '# bench-override$' "$P"; then
+    [ -f "$P.bak" ] || fail "$P has bench-override lines but no $P.bak"
+    cat "$P.bak" > "$P"
+else
+    cp -p "$P" "$P.bak"
+fi
+# setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
+setp() {
+    local t
+    t="$(mktemp)"
+    if ! awk -v k="$1" -v v="$2" '
+        index($0, k ":") == 1 { r = substr($0, length(k) + 2); sub(/^[ \t]+/, "", r); sub(/[ \t]*#.*$/, "", r)
+                                if (r == "") blk = 1
+                                if (!n++) print k ": " v "  # bench-override"
+                                next }
+        { print }
+        END { if (!n) print k ": " v "  # bench-override"; exit (blk ? 3 : 0) }' "$P" > "$t"; then
+        rm -f "$t"; fail "$1 is a block (secs/nanos) in $P; write it as <int>ms there"
+    fi
+    cat "$t" > "$P"; rm -f "$t"
+    [ "$(grep -c "^$1: $2  # bench-override\$" "$P" || true)" = 1 ] || fail "$1 not rewritten in $P"
+}
+EOS
+    bench_node_overrides "$1" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
+    [ -n "${BENCH_NODE_LOG_FILTER:-}" ] || return 0
+    printf "F='%s'; MF='%s'\n" "${BENCH_NODE_LOG_FILTER}" "${BENCH_NODE_LOG_MAX_FILES}"
+    cat <<'EOS'
+# the filter goes right after --datadir <dir>, once; copies an earlier run left are dropped first
+[ "$(grep -v '^[[:space:]]*#' "$W" | grep -c -- '--datadir' || true)" = 1 ] || fail "not exactly one --datadir line in $W"
+sed -i -E -e 's/ --log\.(stdout|file)\.filter [^[:space:]]+//g' -e 's/ --log\.file\.max-files [^[:space:]]+//g' "$W"
+sed -i -E "/^[[:space:]]*#/!s#(--datadir[ =][^[:space:]]+)#\1 --log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}#" "$W"
+grep -qF -- "--log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}" "$W" || fail "log filter not set in $W"
+EOS
+}
+
+# postconfig_readback — step 9's readback after the restart, for the POSTCFG_OK line: pv <key> reads
+# a top-level value of the node's parameters.yaml (P, from postconfig_params), ms turns it into ms
+# (- when absent); rf / rff / rmf are the running container's --log.stdout.filter, --log.file.filter
+# and --log.file.max-files ("" when not set). The two filters must be the same.
+postconfig_readback() {
+    cat <<'EOS'
+# 3b. what the node now runs with: its parameters.yaml, and the container's command line
+pv() { awk -v k="$1" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/["\047]/, "", v); print v; exit }' "$P"; }
+ms() { case "$1" in '') echo - ;; *ms) echo "${1%ms}" ;; *s) awk -v s="${1%s}" 'BEGIN { printf "%d\n", s * 1000 }' ;; *) echo "?" ;; esac; }
+CMDL="$(docker inspect -f '{{.Path}} {{join .Args " "}}' telcoin 2>/dev/null || true)"
+arg() { printf '%s\n' "$CMDL" | sed -nE "s/.* $1 ([^[:space:]]+).*/\1/p" | tail -1 || true; }
+rf="$(arg '--log\.stdout\.filter')"; rff="$(arg '--log\.file\.filter')"; rmf="$(arg '--log\.file\.max-files')"
+[ "$rff" = "$rf" ] || fail "running --log.file.filter '$rff' differs from --log.stdout.filter '$rf'"
+pthr="$(pv header_num_of_batches_threshold)"
+EOS
+}
+
 # postconfig_script <instance> — step 9's remote script for one node (piped to `sudo bash -s`).
 # Everything that can fail transiently (the RPC while the node restarts) is polled with a
 # deadline and never trips set -e/pipefail; only the final assertions can fail the session.
 # Its last line: POSTCFG_OK <inst> chain=<hex> block=<hex|?> ip=<ip> progress=<text with spaces>
 #   sha=<git sha> mhd=<ms|?> nhd=<ms|?> mbd=<ms|?> vt=<ms|?> forks=<label|?>
+#   max=<ms|-> min=<ms|-> batch=<ms|-> thr=<n|-> vote=<ms|-> filter=<filter|-> maxfiles=<n|->
 # where sha / mhd / nhd / mbd / vt / forks come from the restarted container's boot lines (the
 # `telcoin-network <ver> (<sha>) starting` line, "Max|Min header delay set to N ms", "Max batch
 # delay set to N ms", "... vote timeout set to N ms" when logged, the fork-schedule line labelled
-# by report/provenance.py's rules); step_9 compares them with the run's manifest.
+# by report/provenance.py's rules); max / min / batch / thr / vote are read back from the node's
+# parameters.yaml after the restart (- = not in the file) and filter / maxfiles from the running
+# container's command line (--log.stdout.filter, --log.file.max-files; - = not set). step_9 compares
+# them with the run's manifest and this node's overrides.
 postconfig_script() {
-    local inst="$1" b64
+    local inst="$1" b64 idx
+    idx="$(bench_index_of "${inst}")" || bench_die "postconfig_script: ${inst} is not a bench instance"
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
     cat <<EOS
 set -euo pipefail
@@ -427,6 +677,7 @@ grep -q -- '--http.addr 0.0.0.0' "\$W" || fail "http.addr not rewritten"
 # 2. alloy labels were set in step 8's session; assert they are still bench labels
 E=/etc/telcoin/alloy/telcoin-alloy.env
 grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env lacks bench labels (re-run step 8)"
+$(postconfig_params "${idx}")
 # 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is
 #    progressing. An idle TN chain stays at block 0 (the engine skips empty non-epoch-closing
 #    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
@@ -493,6 +744,7 @@ done
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the restart"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
 [ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the restart"
+$(postconfig_readback)
 # 4. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
@@ -511,39 +763,70 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
-echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?}"
+echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--}"
 EOS
 }
 
 # postcfg_field <POSTCFG_OK line> <key> — the value of its last " <key>=<value>" ("" if absent).
 postcfg_field() { printf '%s\n' "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p" | tail -1; }
 
-# step9_node_check <inst> <POSTCFG_OK line> <sha> <mhd> <nhd> <mbd> <forks> — record the node's boot
-# lines as manifest.node_startup[<inst>], then die on the first one that differs from the run's
-# expectation (the sha matches when the node's starts with the expected one: a full 40-hex
-# expectation must match in full). vt is recorded, not compared (nothing to compare it with).
+# step9_node_check <node-index> <POSTCFG_OK line> <sha> <forks> — merge the node's boot lines and
+# readback into manifest.node_startup[<inst>] (sha mhd nhd mbd vt forks from the boot lines; params
+# {max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms, header_num_of_batches_threshold,
+# vote_timeout_ms} from its parameters.yaml; log_filter / log_max_files from its command line), then
+# die on the first value that differs from what this node must run (the sha matches when the node's
+# starts with the expected one: a full 40-hex expectation must match in full). Delays and the
+# threshold are this node's (run_expect <field> <node-index>: an override, else the manifest's). vt is
+# compared only with a vote_timeout override; the log fields only when BENCH_NODE_LOG_FILTER is set.
 step9_node_check() {
-    local inst="$1" line="$2" w_sha="$3" w_mhd="$4" w_nhd="$5" w_mbd="$6" w_forks="$7" sha mhd nhd mbd vt forks
+    local idx="$1" line="$2" w_sha="$3" w_forks="$4" inst sha mhd nhd mbd vt forks pmax pmin pbatch pthr pvote lf lmf
+    local w_mhd w_nhd w_mbd w_vt w_thr src
+    inst="${INSTANCE_NAMES[$idx]}"
+    w_mhd="$(run_expect mhd "${idx}")"; w_nhd="$(run_expect nhd "${idx}")"; w_mbd="$(run_expect mbd "${idx}")"
+    w_vt="$(run_expect vt "${idx}")"; w_thr="$(run_expect thr "${idx}")"
     sha="$(postcfg_field "${line}" sha | tr 'ABCDEF' 'abcdef')"
     mhd="$(postcfg_field "${line}" mhd)"; nhd="$(postcfg_field "${line}" nhd)"; mbd="$(postcfg_field "${line}" mbd)"
     vt="$(postcfg_field "${line}" vt)"; forks="$(postcfg_field "${line}" forks)"
+    pmax="$(postcfg_field "${line}" max)"; pmin="$(postcfg_field "${line}" min)"; pbatch="$(postcfg_field "${line}" batch)"
+    pthr="$(postcfg_field "${line}" thr)"; pvote="$(postcfg_field "${line}" vote)"
+    lf="$(postcfg_field "${line}" filter)"; lmf="$(postcfg_field "${line}" maxfiles)"
     bench_manifest_jq --arg i "${inst}" --arg sha "${sha}" --arg mhd "${mhd}" --arg nhd "${nhd}" \
-        --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" '
+        --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" --arg pmax "${pmax}" --arg pmin "${pmin}" \
+        --arg pbatch "${pbatch}" --arg pthr "${pthr}" --arg pvote "${pvote}" --arg lf "${lf}" --arg lmf "${lmf}" '
         def num: if test("^[0-9]+$") then tonumber else null end;
-        def str: if . == "" or . == "?" then null else . end;
-        .node_startup[$i] = {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num), mbd: ($mbd|num),
-                             vt: ($vt|num), forks: ($forks|str)}' \
+        def str: if . == "" or . == "?" or . == "-" then null else . end;
+        .node_startup[$i] = ((.node_startup[$i] // {}) + {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num),
+                             mbd: ($mbd|num), vt: ($vt|num), forks: ($forks|str),
+                             params: {max_header_delay_ms: ($pmax|num), min_header_delay_ms: ($pmin|num),
+                                      max_batch_delay_ms: ($pbatch|num), header_num_of_batches_threshold: ($pthr|num),
+                                      vote_timeout_ms: ($pvote|num)},
+                             log_filter: ($lf|str), log_max_files: ($lmf|num)})' \
         || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
     local stop="— stopping before any other node restarts"
+    src="manifest consensus_parameters"
+    [ -z "$(bench_node_overrides "${idx}")" ] || src="${src} + BENCH_NODE_PARAM_OVERRIDES"
     case "${sha}" in
         "${w_sha}"?*|"${w_sha}") ;;
         *) bench_die "${inst}: boot sha = ${sha:-<none>}, expected ${w_sha} (manifest node_git_sha) ${stop}" ;;
     esac
-    [ "${mhd}" = "${w_mhd}" ] || bench_die "${inst}: max_header_delay = ${mhd:-<none>} ms, expected ${w_mhd} ms (manifest consensus_parameters) ${stop}"
-    [ "${nhd}" = "${w_nhd}" ] || bench_die "${inst}: min_header_delay = ${nhd:-<none>} ms, expected ${w_nhd} ms (manifest consensus_parameters) ${stop}"
-    [ "${mbd}" = "${w_mbd}" ] || bench_die "${inst}: max_batch_delay = ${mbd:-<none>} ms, expected ${w_mbd} ms (manifest consensus_parameters) ${stop}"
+    [ "${mhd}" = "${w_mhd}" ] || bench_die "${inst}: max_header_delay = ${mhd:-<none>} ms, expected ${w_mhd} ms (${src}) ${stop}"
+    [ "${nhd}" = "${w_nhd}" ] || bench_die "${inst}: min_header_delay = ${nhd:-<none>} ms, expected ${w_nhd} ms (${src}) ${stop}"
+    [ "${mbd}" = "${w_mbd}" ] || bench_die "${inst}: max_batch_delay = ${mbd:-<none>} ms, expected ${w_mbd} ms (${src}) ${stop}"
     [ "${forks}" = "${w_forks}" ] || bench_die "${inst}: fork schedule = ${forks:-<none>}, expected ${w_forks} (manifest node_fork_schedule) ${stop}"
-    echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks} — as expected"
+    # The node's parameters.yaml must say what its boot lines say.
+    [ "${pmax}" = "${w_mhd}" ] && [ "${pmin}" = "${w_nhd}" ] && [ "${pbatch}" = "${w_mbd}" ] \
+        || bench_die "${inst}: parameters.yaml has max/min header delay ${pmax:-?}/${pmin:-?} ms and max batch delay ${pbatch:-?} ms, expected ${w_mhd}/${w_nhd}/${w_mbd} ms (${src}) ${stop}"
+    [ -z "${w_thr}" ] || [ "${pthr}" = "${w_thr}" ] \
+        || bench_die "${inst}: parameters.yaml has header_num_of_batches_threshold ${pthr:-?}, expected ${w_thr} (${src}) ${stop}"
+    if [ -n "${w_vt}" ]; then
+        [ "${pvote}" = "${w_vt}" ] || bench_die "${inst}: parameters.yaml has vote_timeout ${pvote:-?} ms, expected ${w_vt} ms (BENCH_NODE_PARAM_OVERRIDES) ${stop}"
+        case "${vt}" in ''|'?') ;; *) [ "${vt}" = "${w_vt}" ] || bench_die "${inst}: vote_timeout = ${vt} ms at boot, expected ${w_vt} ms (BENCH_NODE_PARAM_OVERRIDES) ${stop}" ;; esac
+    fi
+    if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
+        [ "${lf}" = "${BENCH_NODE_LOG_FILTER}" ] && [ "${lmf}" = "${BENCH_NODE_LOG_MAX_FILES}" ] \
+            || bench_die "${inst}: the node runs --log.stdout.filter ${lf:-<none>} --log.file.max-files ${lmf:-<none>}, expected ${BENCH_NODE_LOG_FILTER} / ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER) ${stop}"
+    fi
+    echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks}, yaml threshold ${pthr}, log filter ${lf} — as expected"
 }
 
 step_9() {
@@ -555,15 +838,17 @@ step_9() {
         bench_die "step 9 cannot check the nodes' boot lines: expected sha='${w_sha}' forks='${w_forks}' delays='${w_mhd}/${w_nhd}/${w_mbd}' — $(bench_manifest) lacks node_git_sha / node_fork_schedule / consensus_parameters (the gate records them when a step of 0, 5, 6, 7 runs) and no node image probe ran in this invocation"
     fi
     echo "    every node must boot git ${w_sha}, header delay max ${w_mhd} / min ${w_nhd} ms, batch delay ${w_mbd} ms, forks ${w_forks}"
+    [ -z "${BENCH_NODE_PARAM_OVERRIDES}" ] || echo "    except where BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' sets that node's own values"
+    echo "    node log filter: ${BENCH_NODE_LOG_FILTER:-untouched (BENCH_NODE_LOG_FILTER is empty)}${BENCH_NODE_LOG_FILTER:+, --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}}"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines, sampler"
+        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ) + log filter, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines + readback, sampler"
         bench_save_node_log "${i}" pre-step9 || bench_warn "${inst}: container log not saved before the step-9 restart — restarting anyway"
         out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
         line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
         [ -n "${line}" ] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
-        step9_node_check "${inst}" "${line}" "${w_sha}" "${w_mhd}" "${w_nhd}" "${w_mbd}" "${w_forks}"
+        step9_node_check "${i}" "${line}" "${w_sha}" "${w_forks}"
     done
 }
 
@@ -703,6 +988,10 @@ step_15() {
         bench_warn "${COLLECT_METRICS_PY} not found — metrics.json not produced (re-run --only 15 once it exists)"
         bench_manifest_note "collect: ${COLLECT_METRICS_PY} missing at $(bench_now_iso)"
     fi
+    # metrics.json is new since the collect: analysis/ and the index again (non-fatal; the
+    # teardown's local gate is what guards results/<run>/, the only copy of the run).
+    bench_local_analysis
+    bench_local_index || bench_warn "INDEX.md / CHECKSUMS.sha256 not written — the teardown writes them"
 }
 
 step_16() {
@@ -732,6 +1021,39 @@ plan_probe_line() {
     fi
 }
 
+# plan_node_params — the plan's "logs" line; with BENCH_NODE_PARAM_OVERRIDES set, one line per node:
+# the parameters step 9 leaves it with (the fleet file's, overrides applied); then every node whose
+# parameters the node would refuse at startup.
+plan_node_params() {
+    local i ov vt
+    if [ -n "${BENCH_NODE_LOG_FILTER}" ]; then
+        echo "  logs     --log.stdout.filter/--log.file.filter ${BENCH_NODE_LOG_FILTER} --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER, step 9)"
+    else
+        echo "  logs     node command line untouched (BENCH_NODE_LOG_FILTER is empty)"
+    fi
+    if [ -n "${BENCH_NODE_PARAM_OVERRIDES}" ]; then
+        for i in "${!INSTANCE_NAMES[@]}"; do
+            ov="$(bench_node_overrides "${i}" | paste -sd, -)"
+            vt="$(bench_node_param_ms "${i}" vote_timeout)"
+            printf '    %-20s max_header_delay %s ms, min_header_delay %s ms, max_batch_delay %s ms, threshold %s, vote_timeout %s%s\n' \
+                "${INSTANCE_NAMES[$i]}" "$(bench_node_param_ms "${i}" max_header_delay)" "$(bench_node_param_ms "${i}" min_header_delay)" \
+                "$(bench_node_param_ms "${i}" max_batch_delay)" "$(bench_node_param_int "${i}" header_num_of_batches_threshold)" \
+                "${vt:+${vt} ms}${vt:-5000 ms (node default)}" "${ov:+  [override ${ov}]}"
+        done
+    fi
+    bench_node_params_problems | sed 's/^/    ✗ the node would refuse to start: /'
+}
+
+# plan_step9_lines — per node, the lines of its step-9 script that differ between nodes: the setp
+# (parameters.yaml) and F= (log filter) lines.
+plan_step9_lines() {
+    local i l
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        l="$(postconfig_params "${i}" | grep -E '^(setp |F=)' | paste -sd'|' - | sed 's/|/; /g')"
+        printf '                       %-20s %s\n' "${INSTANCE_NAMES[$i]}:" "${l:-(nothing: no override, BENCH_NODE_LOG_FILTER empty)}"
+    done
+}
+
 # plan_harness — this checkout's HEAD, ",dirty" when tracked files differ from it (local git only).
 plan_harness() {
     local sha st
@@ -749,15 +1071,18 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
   chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
   probe    $(plan_probe_line)
   params   ${PARAMETERS_FILE}: max_header_delay $(bench_params_ms "${PARAMETERS_FILE}" max_header_delay) ms, min_header_delay $(bench_params_ms "${PARAMETERS_FILE}" min_header_delay) ms, max_batch_delay $(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay) ms
+  per-node ${BENCH_NODE_PARAM_OVERRIDES:-none} (BENCH_NODE_PARAM_OVERRIDES; step 9 writes them into that node's parameters.yaml)
+$(plan_node_params)
   harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
   metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
-  load     ${BENCH_TXGEN_IMAGE}, ${BENCH_BLASTER_MACHINE_TYPE} COS blasters x ${BENCH_SENDERS} senders, bucket gs://${BENCH_BUCKET}
+  load     ${BENCH_TXGEN_IMAGE}, COS blasters x ${BENCH_SENDERS} senders on ${BENCH_BLASTER_MACHINE_TYPES// / -> } (next type on a zone stockout), bucket gs://${BENCH_BUCKET}
   results  ${BENCH_RESULTS_DIR}
 EOP
     for i in "${!INSTANCE_NAMES[@]}"; do
         printf '    %-20s %-10s %-26s %s %s\n' "${INSTANCE_NAMES[$i]}" "${NODE_ROLES[$i]}" "${ZONES[$i]}" "${NODE_NAMES[$i]}" "${EXECUTION_ADDRESSES[$i]}"
     done
+    echo "    ${#INSTANCE_NAMES[@]} instances in $(fleet_zones | wc -w | tr -d ' ') zones, $(fleet_regions | wc -w | tr -d ' ') regions"
     cat <<EOP
 
    -  gate           (--yes, before any step) node image probe + pin (when steps 0/5/6/7 run; see "probe" above),
@@ -765,10 +1090,15 @@ EOP
                      ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
    0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
                      bench-node tag hygiene, obs-devnet df over IAP (< 70%),
-                     CPU quota: nodes on $(bench_cpu_quota_metric "${MACHINE_TYPE}"), blasters on $(bench_cpu_quota_metric "${BENCH_BLASTER_MACHINE_TYPE}"),
+                     machine types, disk type and quota headroom (below; every failure listed in one die),
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
 EOP
-    disk_type_check | sed 's/^    /                     /'
+    {
+        machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+        machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+        disk_type_check
+        quota_check
+    } | sed 's/^    /                     /'
     cat <<EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
                      if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}
@@ -786,6 +1116,8 @@ EOP
                      bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
                      (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); boot lines (git sha, delays,
                      fork schedule) == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service
+                     before each restart (the whole script: --print-postconfig <instance>):
+$(plan_step9_lines)
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
                      cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
@@ -796,11 +1128,12 @@ EOP
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
   13  fund           benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
-  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, chaos on v05 + observer)
+  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
   15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
+                     tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
   16  teardown       $([ "${WITH_TEARDOWN}" -eq 1 ] && echo "benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" || echo "SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)")
 
-Scope: $([ -n "${ONLY}" ] && echo "ONLY step ${ONLY}" || echo "steps ${FROM}..${LAST_STEP}")
+Scope: $([ -n "${ONLY}" ] && echo "ONLY step ${ONLY}" || echo "steps ${FROM}..${TO}")
 EOP
     echo "Local checks (no GCP calls):"
     local ok=1
@@ -878,7 +1211,7 @@ fi
 
 # --- fail-fast gate for --yes runs (M1): everything a LATER step needs is checked now, so a
 # run cannot die at step 13 an hour after the fleet came up.
-in_range() { if [ -n "${ONLY}" ]; then [ "${ONLY}" -eq "$1" ]; else [ "${FROM}" -le "$1" ]; fi; }
+in_range() { if [ -n "${ONLY}" ]; then [ "${ONLY}" -eq "$1" ]; else [ "${FROM}" -le "$1" ] && [ "$1" -le "${TO}" ]; fi; }
 gate() {
     echo ">>> gate: prerequisites of the selected steps"
     local deps="${BENCH_DEPLOYMENTS_JSON:-${BENCH_RESULTS_DIR}/deployments-bench.json}" bad=0
@@ -897,6 +1230,16 @@ gate() {
             echo "    ✓ ${deps}"
         else
             echo "    ✗ missing ${deps} and step 11 will not produce it (pass --with-contracts with a range that includes 11)" >&2; bad=1
+        fi
+    fi
+    if in_range 7 || in_range 9; then
+        local probs
+        probs="$(bench_node_params_problems)"
+        if [ -n "${probs}" ]; then
+            printf '%s\n' "${probs}" | sed 's/^/    ✗ /' >&2
+            bad=1
+        else
+            echo "    ✓ every node's effective parameters pass the node's startup checks${BENCH_NODE_PARAM_OVERRIDES:+ (overrides: ${BENCH_NODE_PARAM_OVERRIDES})}"
         fi
     fi
     [ "${bad}" -eq 0 ] || bench_die "prerequisites missing — nothing was started"
@@ -933,17 +1276,37 @@ gate_node_image() {
     fork_delay_check "${forks}"
 }
 
-# run_params_mhd — the max_header_delay (ms) this invocation leaves the nodes with, and where it
-# comes from, as "<ms> <source>": PARAMETERS_FILE when step 7 (which stages it) is selected or the
-# manifest has none recorded, else manifest.consensus_parameters. "<ms>" is "" when unknown.
+# run_params_mhd — the smallest max_header_delay (ms) this invocation leaves any node with, and where
+# it comes from, as "<ms> <source>". The fleet value: PARAMETERS_FILE when step 7 (which stages it)
+# is selected or the manifest has none recorded, else manifest.consensus_parameters. A per-node
+# override below it wins: one in BENCH_NODE_PARAM_OVERRIDES, or one the manifest records as applied
+# (consensus_parameters.overrides), so a single node cannot slip past fork_delay_check. "<ms>" is ""
+# when unknown.
 run_params_mhd() {
-    local m v=""
+    local m v="" src="" i o inst
     m="$(bench_manifest)"
     if ! in_range 7 && [ -f "${m}" ]; then
         v="$(jq -r '.consensus_parameters.max_header_delay_ms // empty' "${m}" 2>/dev/null || true)"
-        if [ -n "${v}" ]; then printf '%s %s' "${v}" "manifest consensus_parameters"; return 0; fi
+        [ -z "${v}" ] || src="manifest consensus_parameters"
     fi
-    printf '%s %s' "$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)" "${PARAMETERS_FILE}"
+    if [ -z "${src}" ]; then v="$(bench_params_ms "${PARAMETERS_FILE}" max_header_delay)"; src="${PARAMETERS_FILE}"; fi
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        o="$(bench_dur_ms "$(bench_node_override "${i}" max_header_delay)")"
+        if [ -n "${o}" ] && { [ -z "${v}" ] || [ "${o}" -lt "${v}" ]; }; then
+            v="${o}"; src="BENCH_NODE_PARAM_OVERRIDES (${INSTANCE_NAMES[$i]})"
+        fi
+    done
+    if [ -f "${m}" ]; then
+        while read -r inst o; do
+            o="$(bench_dur_ms "${o}")"
+            if [ -n "${o}" ] && { [ -z "${v}" ] || [ "${o}" -lt "${v}" ]; }; then
+                v="${o}"; src="manifest consensus_parameters.overrides (${inst})"
+            fi
+        done <<EOF
+$(jq -r '.consensus_parameters.overrides // {} | to_entries[] | select(.value.max_header_delay != null) | "\(.key) \(.value.max_header_delay)"' "${m}" 2>/dev/null || true)
+EOF
+    fi
+    printf '%s %s' "${v}" "${src}"
 }
 
 # fork_delay_check <fork schedule> — die when the nodes would run sub-second header delays on a
@@ -990,6 +1353,15 @@ gate_manifest() {
     else
         echo "    · consensus_parameters not recorded yet (recorded when a range including step 7 runs)"
     fi
+    # The per-node part is applied by step 9, so it is recorded whenever step 9 runs (with step 7, above).
+    if ! in_range 7 && in_range 9; then
+        bench_node_params_manifest || bench_die "could not record the per-node parameters in ${m}"
+    fi
+    if in_range 7 || in_range 9; then
+        echo "    ✓ manifest: consensus_parameters.overrides $(jq -c '.consensus_parameters.overrides' "${m}"), node_startup[*].log_filter ${BENCH_NODE_LOG_FILTER:-null}"
+    elif [ -f "${m}" ] && [ "$(jq -c '.consensus_parameters.overrides // {}' "${m}" 2>/dev/null || true)" != "$(bench_node_overrides_json)" ]; then
+        bench_warn "BENCH_NODE_PARAM_OVERRIDES differs from what step 9 applied ($(jq -c '.consensus_parameters.overrides // {}' "${m}")); it takes effect only when step 9 runs"
+    fi
 }
 
 gate
@@ -1010,9 +1382,9 @@ if [ -n "${ONLY}" ]; then
     run_step "${ONLY}"
 else
     n="${FROM}"
-    while [ "${n}" -le "${LAST_STEP}" ]; do run_step "${n}"; n=$((n + 1)); done
+    while [ "${n}" -le "${TO}" ]; do run_step "${n}"; n=$((n + 1)); done
 fi
 echo ""
 echo "=========================================="
-echo "benchmark deploy: $([ -n "${ONLY}" ] && echo "step ${ONLY}" || echo "steps ${FROM}..${LAST_STEP}") complete — ${BENCH_RESULTS_DIR}"
+echo "benchmark deploy: $([ -n "${ONLY}" ] && echo "step ${ONLY}" || echo "steps ${FROM}..${TO}") complete — ${BENCH_RESULTS_DIR}"
 echo "=========================================="

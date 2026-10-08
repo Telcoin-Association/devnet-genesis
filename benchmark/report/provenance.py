@@ -291,13 +291,16 @@ def scan_run(run_dir: str) -> Dict[str, Any]:
      "fork_schedule": label of the chronologically last fork-schedule line, or None,
      "files": [scanned paths],
      plus detail: "instances" (every instance with a node log, sorted), "param_values"
-     ({key: sorted unique values}), "fork_schedules" (sorted unique labels),
-     "fork_schedule_line" (that line's message, or None),
+     ({key: sorted unique values}), "param_events" ([{"instance", "ts", "key", "value"}], every
+     parameter line per instance, repeats across files dropped, chronological),
+     "fork_schedules" (sorted unique labels), "fork_schedule_line" (that line's message, or None),
      "unreadable" ([{"file", "error"}] for files that could not be read to the end)}."""
     files = node_log_files(run_dir)
     starts = []  # type: List[Dict[str, Any]]
     seen = set()
     params_ev = []  # type: List[Tuple[Tuple[int, str, int], str, int]]
+    inst_ev = []  # type: List[Tuple[Tuple[int, str, int], Dict[str, Any]]]
+    seen_ev = set()
     fork_ev = []  # type: List[Tuple[Tuple[int, str, int], Optional[str], str]]
     instances = set()
     unreadable = []  # type: List[Dict[str, str]]
@@ -320,6 +323,11 @@ def scan_run(run_dir: str) -> Dict[str, Any]:
         for ts, key, value in _param_events(lines):
             seq += 1
             params_ev.append((_chrono_key(ts, seq), key, value))
+            ident = (inst, ts, key, value)
+            if ts is not None and ident in seen_ev:
+                continue
+            seen_ev.add(ident)
+            inst_ev.append((_chrono_key(ts, seq), {"instance": inst, "ts": ts, "key": key, "value": value}))
         for ts, label, msg in _fork_events(lines):
             seq += 1
             fork_ev.append((_chrono_key(ts, seq), label, msg))
@@ -341,6 +349,7 @@ def scan_run(run_dir: str) -> Dict[str, Any]:
         "files": files,
         "instances": sorted(instances),
         "param_values": {k: sorted(param_values[k]) for k in PARAM_KEYS if k in param_values},
+        "param_events": [e for _k, e in sorted(inst_ev, key=lambda e: e[0])],
         "fork_schedules": sorted(set(labels)),
         "fork_schedule_line": fork_ev[-1][2] if fork_ev else None,
         "unreadable": unreadable,
@@ -369,6 +378,97 @@ def _as_int(value: Any) -> Optional[int]:
     return int(f) if f == int(f) else None
 
 
+# --- per-node values: consensus_parameters.overrides and param_arms ------------------------
+# deploy step 9 records consensus_parameters.overrides = {<instance>: {<yaml key>: "<value as
+# written>"}} (BENCH_NODE_PARAM_OVERRIDES); tools/params-apply.sh records param_arms = [{name,
+# begin, end, nodes: {<instance>: {<yaml key>: "<value>"}}}]. Durations are written "500ms" / "2s".
+
+_DUR_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ms|s|m)?\s*$")
+_TS_RE = re.compile(r"^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:[.,](\d+))?(Z|[+-]\d\d:?\d\d)?$")
+
+
+def dur_ms(value: Any) -> Optional[int]:
+    """A duration as written in parameters.yaml ("500ms", "2s", "1.5s", "2m") or a plain number
+    (taken as ms) in whole milliseconds; None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(round(value))
+    m = _DUR_RE.match(str(value)) if value is not None else None
+    if not m:
+        return None
+    mul = {"ms": 1, None: 1, "s": 1000, "m": 60000}[m.group(2)]
+    return int(round(float(m.group(1)) * mul))
+
+
+def ts_epoch(ts: Any) -> Optional[float]:
+    """An ISO-8601 UTC timestamp (any number of fraction digits, Z or an offset, none = UTC) as
+    Unix seconds; None when it is not one."""
+    m = _TS_RE.match(str(ts).strip()) if ts else None
+    if not m:
+        return None
+    y, mo, d, h, mi, s, frac, tz = m.groups()
+    try:
+        dt = datetime.datetime(int(y), int(mo), int(d), int(h), int(mi), int(s), tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+    off = 0
+    if tz and tz != "Z":
+        sign = -1 if tz[0] == "-" else 1
+        digits = tz[1:].replace(":", "")
+        off = sign * (int(digits[:2]) * 3600 + int(digits[2:]) * 60)
+    return dt.timestamp() - off + (float("0." + frac) if frac else 0.0)
+
+
+def yaml_key(key: str) -> str:
+    """The parameters.yaml key of a PARAM_KEYS name: max_header_delay_ms -> max_header_delay."""
+    return key[:-3] if key.endswith("_ms") else key
+
+
+def per_node_values(manifest: Optional[Dict[str, Any]]) -> bool:
+    """True when the manifest records per-node values: consensus_parameters.overrides or param_arms."""
+    manifest = manifest or {}
+    cp = manifest.get("consensus_parameters")
+    ov = cp.get("overrides") if isinstance(cp, dict) else None
+    arms = manifest.get("param_arms")
+    return bool(isinstance(ov, dict) and any(isinstance(v, dict) and v for v in ov.values())) or \
+        bool(isinstance(arms, list) and arms)
+
+
+def expected_param_values(manifest: Optional[Dict[str, Any]], instance: str, key: str,
+                          ts: Optional[str] = None) -> List[int]:
+    """Every value <instance> may log for <key> (a PARAM_KEYS name) at <ts>, sorted: the fleet
+    value (consensus_parameters.<key>), the instance's consensus_parameters.overrides entry, and
+    what each param arm that began at or before <ts> set for it (every arm when <ts> is None or
+    not a timestamp). An arm's values stay after its end: params-apply rewrites the node's file
+    and the next arm starts from it, so a later restart still reads them."""
+    manifest = manifest or {}
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    yk = yaml_key(key)
+    out = set()
+    fleet = _as_int(cp.get(key))
+    if fleet is not None:
+        out.add(fleet)
+    ov = cp.get("overrides") if isinstance(cp.get("overrides"), dict) else {}
+    mine = ov.get(instance) if isinstance(ov.get(instance), dict) else {}
+    v = dur_ms(mine.get(yk)) if yk in mine else None
+    if v is not None:
+        out.add(v)
+    when = ts_epoch(ts)
+    for arm in manifest.get("param_arms") or []:
+        if not isinstance(arm, dict) or not isinstance(arm.get("nodes"), dict):
+            continue
+        begin = ts_epoch(arm.get("begin"))
+        if when is not None and begin is not None and begin > when:
+            continue
+        mine = arm["nodes"].get(instance)
+        if isinstance(mine, dict) and yk in mine:
+            v = dur_ms(mine[yk])
+            if v is not None:
+                out.add(v)
+    return sorted(out)
+
+
 def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: Optional[str] = None) -> Dict[str, Any]:
     """Check a scan_run() result against the expected build and the manifest.
 
@@ -377,7 +477,10 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
     logs carry a fork schedule and the manifest has "node_fork_schedule", every logged schedule
     equals it; (d) when the logs carry parameters and the manifest has
     "consensus_parameters", every logged value of each parameter present on both sides equals
-    the manifest's. No expected sha at all fails with "no expected sha".
+    the manifest's; when the manifest records per-node values (consensus_parameters.overrides or
+    param_arms) and the scan has "param_events", per instance and line: the fleet value, that
+    instance's override, or a value a param arm begun by then set for it
+    (expected_param_values). No expected sha at all fails with "no expected sha".
 
     Returns {"starts", "shas", "fork_schedule", "params", "expected_sha", "ok", "problems",
     "checked_at" (ISO UTC)}."""
@@ -421,7 +524,31 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
 
     # (d)
     cp = manifest.get("consensus_parameters")
-    if params and isinstance(cp, dict):
+    events = scan.get("param_events")
+    if params and isinstance(cp, dict) and events is not None and per_node_values(manifest):
+        # Per instance: the fleet value, the instance's override or a param arm's value.
+        bad = {}  # type: Dict[Tuple[str, int], Dict[str, List[int]]]
+        for ev in events:
+            key = ev.get("key")
+            if key not in _CHECKED_PARAM_KEYS or key not in cp:
+                continue
+            if _as_int(cp.get(key)) is None:
+                bad.setdefault((key, ev.get("value")), {})
+                continue
+            allowed = expected_param_values(manifest, ev.get("instance") or "", key, ev.get("ts"))
+            if ev.get("value") not in allowed:
+                bad.setdefault((key, ev.get("value")), {})[ev.get("instance") or "?"] = allowed
+        for (key, v) in sorted(bad, key=lambda kv: (kv[0], str(kv[1]))):
+            insts = bad[(key, v)]
+            if not insts:
+                problems.append("logs show %s=%s, manifest consensus_parameters.%s is %r" % (key, v, key, cp.get(key)))
+                continue
+            problems.append(
+                "logs show %s=%s on %s; expected the fleet value, its override or a param arm's (%s)"
+                % (key, v, ", ".join(sorted(insts)),
+                   "; ".join("%s: %s" % (i, ", ".join(str(a) for a in insts[i])) for i in sorted(insts)))
+            )
+    elif params and isinstance(cp, dict):
         values = scan.get("param_values") or {}
         for key in _CHECKED_PARAM_KEYS:
             if key not in params or key not in cp:

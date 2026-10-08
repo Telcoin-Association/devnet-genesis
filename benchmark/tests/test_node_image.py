@@ -44,6 +44,25 @@ TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-li
 PARAMS_YAML = "max_header_delay: 500ms\nmin_header_delay: 250ms\nmax_batch_delay: 250ms\n"
 
 
+def pin_params(text, **values):
+    """<text> with each key's `key: value` line set to the given value. A key that is not exactly
+    one such line (absent, or a secs/nanos block the tool refuses) fails loudly here."""
+    for key, value in values.items():
+        text, n = re.subn(r"^%s: .*$" % re.escape(key), "%s: %s" % (key, value), text, flags=re.M)
+        if n != 1:
+            raise AssertionError("consensus-parameters.yaml: want one '%s: <value>' line, found %d" % (key, n))
+    return text
+
+
+def staged_yaml():
+    """The parameters.yaml step 7 stages on a node (RemoteScriptTests): the committed fleet file,
+    every key, comment and line the rewrite must keep, with its timing values pinned to PARAMS_YAML's
+    (and the good boot log's), so the expectations are the test's own and do not move with the fleet
+    file. Read per test, not at import: check_mutations.py's copy of this suite has no fleet file."""
+    return pin_params((BENCH / "consensus-parameters.yaml").read_text(), max_header_delay="500ms",
+                      min_header_delay="250ms", max_batch_delay="250ms")
+
+
 def make_tree(root):
     """Copy the scripts into <root> (same layout as the repo); returns <root>/benchmark."""
     for rel in TREE:
@@ -408,6 +427,35 @@ class HelperTests(BashCase):
         self.assertEqual(self.calls(), [])
 
 
+# Step 9's gcloud for Step9Tests: like fixtures/node-image/stub-gcloud.sh, but the POSTCFG_OK line it
+# answers carries the readback fields too, taken from the script it was sent, as a node that applied
+# it would report them: the delays and threshold of its setp lines (else PARAMS_YAML's 500/250/250
+# ms and 5) and the filter of its F= line. STUB_BAD_INST answers STUB_BAD_SHA and STUB_BAD_MHD (boot
+# line) instead; STUB_MHD sets every node's boot max header delay.
+STEP9_GCLOUD = r"""#!/usr/bin/env bash
+printf 'gcloud %s\n' "$*" >> "${STUB_LOG:?}"
+case "$*" in
+    "compute ssh "*)
+        inst="$3"; cmd=""
+        for a in "$@"; do case "${a}" in --command=*) cmd="${a#--command=}" ;; esac; done
+        [ "${cmd}" = "sudo bash -s" ] || exit 0
+        f="${STUB_SPOOL:?}/${inst}.sh"; cat > "${f}"
+        val() { sed -n "s/^setp $1 \([0-9]*\)ms$/\1/p" "${f}" | tail -1; }
+        mx="$(val max_header_delay)"; mx="${mx:-500}"; mn="$(val min_header_delay)"; mn="${mn:-250}"
+        mb="$(val max_batch_delay)"; mb="${mb:-250}"
+        thr="$(sed -n 's/^setp header_num_of_batches_threshold \([0-9]*\)$/\1/p' "${f}" | tail -1)"
+        fl="$(sed -n "s/^F='\([^']*\)'; MF='[0-9]*'$/\1/p" "${f}")"; mf="$(sed -n "s/^F='[^']*'; MF='\([0-9]*\)'$/\1/p" "${f}")"
+        sha="${STUB_SHA:?}"; bmx="${STUB_MHD:-${mx}}"
+        if [ "${inst}" = "${STUB_BAD_INST:-}" ]; then sha="${STUB_BAD_SHA:-${sha}}"; bmx="${STUB_BAD_MHD:-${bmx}}"; fi
+        echo "Warning: Permanently added 'compute.0000' (ED25519) to the list of known hosts."
+        echo "POSTCFG_OK ${inst} chain=0x7e1e block=0x5 ip=192.0.2.9 progress=blocks 3->5 sha=${sha} mhd=${bmx} nhd=${mn} mbd=${mb} vt=? forks=subsecond-from-genesis max=${mx} min=${mn} batch=${mb} thr=${thr:-5} vote=- filter=${fl:--} maxfiles=${mf:--}"
+        ;;
+    *) echo "stub gcloud: unexpected: $*" >&2; exit 1 ;;
+esac
+"""
+FILTER = "info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug"
+
+
 class Step9Tests(BashCase):
     """`benchmark-deploy.sh --yes --only 9` on a mock run whose manifest names the build."""
 
@@ -415,6 +463,8 @@ class Step9Tests(BashCase):
 
     def setUp(self):
         super().setUp()
+        (self.bin / "gcloud").write_text(STEP9_GCLOUD)
+        (self.bin / "gcloud").chmod(0o755)
         self.run_dir = self.bench / "results" / self.RUN
         self.run_dir.mkdir(parents=True)
         self.manifest = self.run_dir / "manifest.json"
@@ -444,8 +494,15 @@ class Step9Tests(BashCase):
         m = json.loads(self.manifest.read_text())
         self.assertEqual(sorted(m["node_startup"]), sorted(NODES))
         for inst in NODES:
-            self.assertEqual(m["node_startup"][inst], {"sha": FULL_SHA, "mhd": 500, "nhd": 250, "mbd": 250,
-                                                       "vt": None, "forks": "subsecond-from-genesis"}, inst)
+            self.assertEqual(m["node_startup"][inst], {
+                "sha": FULL_SHA, "mhd": 500, "nhd": 250, "mbd": 250, "vt": None, "forks": "subsecond-from-genesis",
+                "params": {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250,
+                           "header_num_of_batches_threshold": 5, "vote_timeout_ms": None},
+                "log_filter": FILTER, "log_max_files": 20}, inst)
+        self.assertEqual(m["consensus_parameters"]["overrides"], {})
+        script = (self.spool / "bench-validator-01.sh").read_text()
+        self.assertIn("F='%s'; MF='20'" % FILTER, script)
+        self.assertNotIn("\nsetp ", script)
         self.assertIn("step_9_done", m["timestamps"])
         # Serially: each node's log saved, then its post-config session, in fleet order.
         self.assertEqual(self.ssh_targets(), [n for n in NODES for _ in (0, 1)])
@@ -458,7 +515,8 @@ class Step9Tests(BashCase):
         self.assertIn("bench-validator-01: boot sha = %s, expected %s" % (BAD_SHA, FULL_SHA), p.stdout)
         self.assertEqual(self.ssh_targets(), ["bench-validator-01", "bench-validator-01"])
         m = json.loads(self.manifest.read_text())
-        self.assertEqual(list(m["node_startup"]), ["bench-validator-01"])
+        # The gate recorded every node's planned log filter; only the restarted node has boot fields.
+        self.assertEqual([i for i, v in m["node_startup"].items() if "sha" in v], ["bench-validator-01"])
         self.assertEqual(m["node_startup"]["bench-validator-01"]["sha"], BAD_SHA)
         self.assertNotIn("step_9_done", m["timestamps"])
 
@@ -472,6 +530,75 @@ class Step9Tests(BashCase):
         self.assertEqual(self.ssh_targets(), ["bench-validator-01", "bench-validator-01"])
         self.assertNotIn("boot sha =", p.stdout)
 
+    OVERRIDE = "2:min_header_delay=50ms,max_header_delay=250ms"
+
+    def test_override_on_one_node_only(self):
+        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        m = json.loads(self.manifest.read_text())
+        self.assertEqual(m["consensus_parameters"]["overrides"],
+                         {"bench-validator-03": {"min_header_delay": "50ms", "max_header_delay": "250ms"}})
+        for inst in NODES:
+            got = m["node_startup"][inst]
+            want = (250, 50) if inst == "bench-validator-03" else (500, 250)
+            self.assertEqual((got["mhd"], got["nhd"]), want, inst)
+            self.assertEqual((got["params"]["max_header_delay_ms"], got["params"]["min_header_delay_ms"]), want, inst)
+        three = (self.spool / "bench-validator-03.sh").read_text()
+        self.assertIn("\nsetp min_header_delay 50ms\nsetp max_header_delay 250ms\n", three)
+        self.assertIn('cat "$P.bak" > "$P"', three)       # the yaml rewrite itself travels in the script
+        for inst in NODES:
+            if inst != "bench-validator-03":
+                self.assertNotIn("\nsetp ", (self.spool / (inst + ".sh")).read_text(), inst)
+        self.assertIn("bench-validator-03: http.addr 0.0.0.0, assert alloy labels, parameters.yaml "
+                      "(min_header_delay=50ms,max_header_delay=250ms)", p.stdout)
+
+    def test_wrong_value_on_one_node_stops_the_fleet(self):
+        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE, STUB_BAD_INST="bench-validator-03",
+                        STUB_BAD_MHD="500")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("bench-validator-03: max_header_delay = 500 ms, expected 250 ms (manifest "
+                      "consensus_parameters + BENCH_NODE_PARAM_OVERRIDES)", p.stdout)
+        self.assertEqual(self.ssh_targets(), [n for n in NODES[:3] for _ in (0, 1)])
+
+    def test_empty_log_filter_leaves_the_command_line_alone(self):
+        p = self.deploy(BENCH_NODE_LOG_FILTER="")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("\nF=", (self.spool / "bench-validator-01.sh").read_text())
+        m = json.loads(self.manifest.read_text())
+        self.assertEqual({(v["log_filter"], v["log_max_files"]) for v in m["node_startup"].values()}, {(None, None)})
+
+    def test_fleet_minimum_max_header_delay_feeds_fork_delay_check(self):
+        # A pre-subsecond build at 1 s delays passes, until one node is given 500 ms.
+        m = json.loads(self.manifest.read_text())
+        m["node_fork_schedule"] = "pre-subsecond"
+        m["consensus_parameters"].update(max_header_delay_ms=1000, min_header_delay_ms=250, max_batch_delay_ms=250)
+        self.manifest.write_text(json.dumps(m, indent=2) + "\n")
+        self.params.write_text("max_header_delay: 1s\nmin_header_delay: 250ms\nmax_batch_delay: 250ms\n")
+        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES="2:max_header_delay=500ms", STUB_MHD="1000")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("max_header_delay is 500 ms (BENCH_NODE_PARAM_OVERRIDES (bench-validator-03))", p.stdout)
+        self.assertEqual(self.ssh_targets(), [])
+
+    def test_gate_refuses_parameters_a_node_would_refuse(self):
+        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES="4:min_header_delay=600ms 6:max_header_delay=1s,vote_timeout=1s")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✗ bench-validator-05: min_header_delay 600 ms > max_header_delay 500 ms", p.stdout)
+        self.assertIn("✗ bench-validator-07: vote_timeout 1000 ms < max_header_delay 1000 ms + 250 ms", p.stdout)
+        self.assertEqual(self.ssh_targets(), [])
+
+
+# docker on the node for RemoteScriptTests: `docker logs telcoin ...` prints the boot log fixture,
+# `docker inspect` the telcoin command of the wrapper $STUB_WRAPPER as the restarted container's
+# command line (continuation lines joined); every other call succeeds silently.
+NODE_DOCKER = r"""#!/usr/bin/env bash
+printf 'docker %s\n' "$*" >> "${STUB_LOG:?}"
+case "${1:-}" in
+    logs) cat "${STUB_BOOT_LOG:?}" ;;
+    inspect) sed -n '/^telcoin node/,$p' "${STUB_WRAPPER:?}" | tr -d '\\' | tr '\n' ' '; echo ;;
+    *) exit 0 ;;
+esac
+"""
+
 
 class RemoteScriptTests(BashCase):
     """Step 9's remote script (--print-postconfig) against a stubbed node."""
@@ -481,45 +608,62 @@ class RemoteScriptTests(BashCase):
 
     def setUp(self):
         super().setUp()
+        self.node = self.root / "node-root"
+        self.script = self.script_for()
+        (self.node / "opt/telcoin").mkdir(parents=True)
+        (self.node / "etc/telcoin/alloy").mkdir(parents=True)
+        (self.node / "etc/systemd/system").mkdir(parents=True)
+        (self.node / "usr/local/bin").mkdir(parents=True)
+        # The node's wrapper as setup-node.sh writes it: the datadir bind-mounted at the container's
+        # --datadir, whose host side holds the parameters.yaml step 7 staged (staged_yaml()).
+        self.datadir = self.node / "home/telcoin/data"
+        self.datadir.mkdir(parents=True)
+        self.yaml = self.datadir / "parameters.yaml"
+        self.staged = staged_yaml()
+        self.yaml.write_text(self.staged)
+        self.wrapper = self.node / "opt/telcoin/start-telcoin.sh"
+        self.wrapper.write_text(
+            "#!/usr/bin/env bash\n# Auto-generated by setup-node.sh (--datadir in a comment is not the flag)\n"
+            "exec docker run --rm \\\n--name telcoin \\\n-v %s:/home/nonroot \\\n-v /etc/tn:/etc/telcoin:ro \\\n"
+            "img \\\ntelcoin node \\\n--datadir /home/nonroot \\\n--log.stdout.format log-fmt \\\n-vvv \\\n"
+            "--http --http.addr 127.0.0.1 --ws --ws.addr 127.0.0.1\n" % self.datadir)
+        (self.node / "etc/telcoin/alloy/telcoin-alloy.env").write_text(
+            "TN_CHAIN=%s\nTN_NODE=bench-validator-01\n" % self.label)
+        self.nodebin = self.root / "node-bin"
+        for name in ("curl", "systemctl", "date", "sleep"):
+            install(self.nodebin, name, "stub-node-%s.sh" % name)
+        (self.nodebin / "docker").write_text(NODE_DOCKER)
+        (self.nodebin / "docker").chmod(0o755)
+        if not host_sed_is_gnu():
+            install(self.nodebin, "sed", "stub-sed-gnu-inplace.sh")
+        self.state = self.root / "node-state"
+        self.state.mkdir()
+
+    def script_for(self, **env):
+        """Step 9's script for bench-validator-01 (--print-postconfig), node paths moved into the sandbox."""
         p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"),
                             "--print-postconfig", "bench-validator-01"],
-                           env=self.env(BENCH_RUN_ID="rtest-postcfg"), stdout=subprocess.PIPE,
+                           env=self.env(BENCH_RUN_ID="rtest-postcfg", **env), stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, timeout=60, universal_newlines=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(self.calls(), [])   # printing the script contacts nothing
         script = p.stdout
         self.chain_hex = re.search(r'\[ "\$cid" = "(0x[0-9a-f]+)" \]', script).group(1)
         self.label = re.search(r"grep -qx 'TN_CHAIN=([^']+)'", script).group(1)
-        self.node = self.root / "node-root"
         for rel in self.RELOCATE:
             self.assertIn(rel, script)
             script = script.replace(rel, str(self.node) + rel)
         # Every redirection now lands in the sandbox (or /dev/null).
         for target in re.findall(r"(?<![0-9&-])>\s*(/[^\s;|&)]*)", script):
             self.assertTrue(target == "/dev/null" or target.startswith(str(self.node) + "/"), target)
-        self.script = script
-        (self.node / "opt/telcoin").mkdir(parents=True)
-        (self.node / "etc/telcoin/alloy").mkdir(parents=True)
-        (self.node / "etc/systemd/system").mkdir(parents=True)
-        (self.node / "usr/local/bin").mkdir(parents=True)
-        self.wrapper = self.node / "opt/telcoin/start-telcoin.sh"
-        self.wrapper.write_text("exec docker run --name telcoin img node --http --http.addr 127.0.0.1 --ws\n")
-        (self.node / "etc/telcoin/alloy/telcoin-alloy.env").write_text(
-            "TN_CHAIN=%s\nTN_NODE=bench-validator-01\n" % self.label)
-        self.nodebin = self.root / "node-bin"
-        for name in ("docker", "curl", "systemctl", "date", "sleep"):
-            install(self.nodebin, name, "stub-node-%s.sh" % name)
-        if not host_sed_is_gnu():
-            install(self.nodebin, "sed", "stub-sed-gnu-inplace.sh")
-        self.state = self.root / "node-state"
-        self.state.mkdir()
+        return script
 
-    def run_remote(self, boot_log):
+    def run_remote(self, boot_log, script=None):
         env = {"PATH": str(self.nodebin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(self.root), "TMPDIR": str(self.tmpdir), "STUB_LOG": str(self.log),
                "STUB_BOOT_LOG": str(FIX / boot_log), "STUB_STATE": str(self.state),
-               "STUB_CHAIN_HEX": self.chain_hex, "POSTCFG_WAIT_SECS": "10"}
-        p = subprocess.run(["bash", "-s"], input=self.script, env=env, cwd=str(self.node),
+               "STUB_CHAIN_HEX": self.chain_hex, "POSTCFG_WAIT_SECS": "10", "STUB_WRAPPER": str(self.wrapper)}
+        p = subprocess.run(["bash", "-s"], input=script or self.script, env=env, cwd=str(self.node),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60,
                            universal_newlines=True, errors="replace")
         lines = [l for l in p.stdout.splitlines() if l.startswith("POSTCFG_")]
@@ -532,8 +676,14 @@ class RemoteScriptTests(BashCase):
         self.assertTrue(lines[0].startswith("POSTCFG_OK bench-validator-01 chain=%s " % self.chain_hex), lines)
         self.assertIn(" ip=192.0.2.7 ", lines[0])
         self.assertTrue(lines[0].endswith(" sha=%s mhd=500 nhd=250 mbd=250 vt=? forks=subsecond-from-genesis"
-                                          % FULL_SHA), lines[0])
+                                          " max=500 min=250 batch=250 thr=5 vote=- filter=%s maxfiles=20"
+                                          % (FULL_SHA, FILTER)), lines[0])
         self.assertIn("--http.addr 0.0.0.0", self.wrapper.read_text())
+        self.assertIn("\n--datadir /home/nonroot --log.stdout.filter %s --log.file.filter %s --log.file.max-files 20 \\\n"
+                      % (FILTER, FILTER), self.wrapper.read_text())
+        # No override: the staged file is untouched, and kept as the .bak.
+        self.assertEqual(self.yaml.read_text(), self.staged)
+        self.assertEqual((self.datadir / "parameters.yaml.bak").read_text(), self.staged)
         self.assertEqual((self.node / "usr/local/bin/bench-node-sampler.sh").read_bytes(),
                          (BENCH / "node-sampler.sh").read_bytes())
         self.assertTrue((self.node / "etc/systemd/system/bench-node-sampler.service").is_file())
@@ -544,8 +694,7 @@ class RemoteScriptTests(BashCase):
     def test_baseline_boot_reports_vote_timeout_and_pre_subsecond(self):
         p, lines = self.run_remote("node-log-boot-baseline.txt")
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertTrue(lines[-1].endswith(" sha=%s mhd=3000 nhd=1000 mbd=1000 vt=1500 forks=pre-subsecond"
-                                           % FULL_SHA), lines)
+        self.assertIn(" sha=%s mhd=3000 nhd=1000 mbd=1000 vt=1500 forks=pre-subsecond max=" % FULL_SHA, lines[-1])
 
     def test_no_starting_line_fails(self):
         p, lines = self.run_remote("node-log-boot-nostart.txt")
@@ -553,6 +702,368 @@ class RemoteScriptTests(BashCase):
         self.assertEqual(lines, ["POSTCFG_FAIL no 'telcoin-network <version> (<sha>) starting' line "
                                  "in docker logs since the restart"], p.stdout)
         self.assertFalse((self.node / "usr/local/bin/bench-node-sampler.sh").exists())
+
+    def test_overrides_rewrite_the_yaml_in_place_and_a_rerun_starts_from_the_bak(self):
+        script = self.script_for(BENCH_NODE_PARAM_OVERRIDES="0:min_header_delay=50ms,max_header_delay=250ms,vote_timeout=2s")
+        original = self.yaml.read_text()
+        for attempt in (1, 2):
+            p, lines = self.run_remote("node-log-boot-good.txt", script)
+            self.assertEqual(p.returncode, 0, p.stdout)
+            self.assertIn(" max=250 min=50 batch=250 thr=5 vote=2000 filter=%s maxfiles=20" % FILTER, lines[-1])
+            got = self.yaml.read_text().splitlines()
+            want = [l.replace("max_header_delay: 500ms", "max_header_delay: 250ms  # bench-override")
+                     .replace("min_header_delay: 250ms", "min_header_delay: 50ms  # bench-override")
+                    for l in original.splitlines()] + ["vote_timeout: 2s  # bench-override"]
+            self.assertEqual(got, want, attempt)
+            self.assertEqual((self.datadir / "parameters.yaml.bak").read_text(), original, attempt)
+            self.assertEqual(self.wrapper.read_text().count("--log.stdout.filter"), 1, attempt)
+
+    def test_block_form_key_is_refused_before_the_restart(self):
+        self.yaml.write_text(self.yaml.read_text().replace("max_header_delay: 500ms\n",
+                                                           "max_header_delay:\n  secs: 0\n  nanos: 500000000\n"))
+        before = self.yaml.read_text()
+        p, lines = self.run_remote("node-log-boot-good.txt",
+                                   self.script_for(BENCH_NODE_PARAM_OVERRIDES="0:max_header_delay=250ms"))
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(len(lines), 1, p.stdout)
+        self.assertTrue(lines[0].startswith("POSTCFG_FAIL max_header_delay is a block (secs/nanos) in "), lines)
+        self.assertEqual(self.yaml.read_text(), before)
+        self.assertNotIn("systemctl restart telcoin", self.calls())
+
+
+# --------------------------------------------------------------------------- deploy step 0 + blasters
+# The preflight checks (benchmark-deploy.sh) and the blaster create path (benchmark-blast.sh) run as
+# extracted functions under an inline fake gcloud: the fixture stub-gcloud.sh knows only the probe
+# and step 9. The stockout text is a real one (r20261006-0458, create-bench-blaster-03.log), line
+# wrap included, project renamed.
+STOCKOUT = """ERROR: (gcloud.compute.instances.create) Could not fetch resource:
+---
+code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS
+errorDetails:
+- localizedMessage:
+    locale: en-US
+    message: A e2-standard-2 VM instance is currently unavailable in the australia-southeast1-c
+      zone. Try requesting the VM in another zone. For more information, view the
+      troubleshooting documentation.
+- errorInfo:
+    domain: compute.googleapis.com
+    metadatas:
+      vmType: e2-standard-2
+      zone: australia-southeast1-c
+      zonesAvailable: ''
+    reason: stockout
+message: The zone 'projects/tn-fake/zones/australia-southeast1-c' does not have
+  enough resources available to fulfill the request.  '(resource type:compute)'.
+"""
+QUOTA_EXCEEDED = """ERROR: (gcloud.compute.instances.create) Could not fetch resource:
+ - Quota 'N2_CPUS' exceeded.  Limit: 0.0 in region australia-southeast1.
+"""
+FAKE_GCLOUD = r"""#!/usr/bin/env bash
+# Inline fake gcloud for the preflight and blaster tests; every call is logged to $STUB_LOG.
+printf 'gcloud %s\n' "$*" >> "${STUB_LOG:?}"
+zone=""; mt=""
+for a in "$@"; do
+    case "$a" in --zone=*) zone="${a#--zone=}" ;; --machine-type=*) mt="${a#--machine-type=}" ;; esac
+done
+case "$*" in
+    "compute machine-types describe "*)
+        case " ${STUB_MT_MISSING:-} " in *" ${zone} "*)
+            printf "ERROR: (gcloud.compute.machine-types.describe) Could not fetch resource:\n - The resource 'projects/tn-fake/zones/%s/machineTypes/%s' was not found\n" "${zone}" "$4" >&2
+            exit 1 ;;
+        esac
+        case " ${STUB_MT_BROKEN:-} " in *" ${zone} "*) echo "ERROR: (gcloud) There was a problem refreshing your credentials." >&2; exit 1 ;; esac
+        case "$*" in *guestCpus*) echo 2 ;; *) echo "$4" ;; esac ;;
+    "compute disk-types list "*)
+        f="${*#*zone:(}"; f="${f%%)*}"
+        for z in ${f}; do case " ${STUB_DISK_MISSING:-} " in *" ${z} "*) ;; *) echo "${z}" ;; esac; done ;;
+    "compute regions describe "*)
+        if [ -f "${STUB_DIR}/region-$4.json" ]; then cat "${STUB_DIR}/region-$4.json"; else cat "${STUB_DIR}/region-default.json"; fi ;;
+    "beta quotas info describe "*) cat "${STUB_DIR}/qi-$5.json" 2>/dev/null || exit 1 ;;
+    "compute disks list "*) cat "${STUB_DIR}/disks.json" ;;
+    "compute instances create "*)
+        case " ${STUB_STOCKOUT:-} " in *" ${zone}/${mt} "*) cat "${STUB_DIR}/stockout.txt" >&2; exit 1 ;; esac
+        case " ${STUB_CREATE_FAIL:-} " in *" ${mt} "*) cat "${STUB_DIR}/quota-exceeded.txt" >&2; exit 1 ;; esac
+        echo "Created [https://www.googleapis.com/compute/v1/projects/tn-fake/zones/${zone}/instances/$4]." ;;
+    "compute instances describe "*) echo 4242 ;;
+    *) echo "fake gcloud: unexpected: $*" >&2; exit 1 ;;
+esac
+"""
+FLEET_REGIONS = ["asia-east2", "asia-northeast1", "asia-northeast3", "asia-south1", "asia-southeast1",
+                 "australia-southeast1", "europe-west2", "europe-west4", "northamerica-northeast1", "us-west2"]
+PREFLIGHT_FNS = ("fleet_zones", "validator_zones", "fleet_regions", "disk_type_check", "machine_type_check",
+                 "machine_vcpus", "region_needs", "hdb_headroom", "quota_check")
+
+
+def shell_functions(script, *names):
+    """The named functions of <script> (a one-line function is its own line)."""
+    lines = Path(script).read_text().splitlines()
+    out = []
+    for name in names:
+        start = next(i for i, line in enumerate(lines) if line.startswith(name + "() {"))
+        end = start if lines[start].rstrip().endswith("}") else lines.index("}", start)
+        out.extend(lines[start:end + 1])
+    return "\n".join(out) + "\n"
+
+
+def region_json(**headroom):
+    """A `regions describe` answer: ample quotas, minus <metric>=<headroom> overrides."""
+    limits = {"C3_CPUS": 300, "CPUS": 1500, "N2_CPUS": 500, "IN_USE_ADDRESSES": 575, "SSD_TOTAL_GB": 40960,
+              "DISKS_TOTAL_GB": 102400}
+    quotas = [{"metric": m, "limit": float(v), "usage": 0.0} for m, v in limits.items()]
+    for q in quotas:
+        if q["metric"] in headroom:
+            q["usage"] = q["limit"] - headroom[q["metric"]]
+    return json.dumps({"name": "x", "quotas": quotas})
+
+
+def quota_info(default, **per_region):
+    """A `gcloud beta quotas info describe` answer: per-region values, else <default> for the rest."""
+    infos = [{"dimensions": {"region": r}, "details": {"value": str(v)}, "applicableLocations": [r]}
+             for r, v in per_region.items()]
+    infos.append({"details": {"value": str(default)},
+                  "applicableLocations": [r for r in FLEET_REGIONS if r not in per_region]})
+    return json.dumps({"quotaId": "x", "dimensionsInfos": infos})
+
+
+class FakeGcloudCase(BashCase):
+    def setUp(self):
+        super().setUp()
+        (self.bin / "gcloud").write_text(FAKE_GCLOUD)
+        (self.bin / "gcloud").chmod(0o755)
+        self.stub = self.root / "stub-data"
+        self.stub.mkdir()
+        (self.stub / "region-default.json").write_text(region_json())
+        (self.stub / "qi-HDB-TOTAL-GB-per-project-region.json").write_text(quota_info(40960))
+        (self.stub / "qi-HDB-TOTAL-IOPS-per-project-region.json").write_text(quota_info(-1))
+        (self.stub / "qi-HDB-TOTAL-THROUGHPUT-per-project-region.json").write_text(quota_info(-1))
+        (self.stub / "disks.json").write_text("[]")
+        (self.stub / "stockout.txt").write_text(STOCKOUT)
+        (self.stub / "quota-exceeded.txt").write_text(QUOTA_EXCEEDED)
+
+    def env(self, **extra):
+        return super().env(STUB_DIR=str(self.stub), **extra)
+
+
+PREFLIGHT = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+eval "$2"
+BENCH_APPLY="${TEST_APPLY:-1}"
+[ -z "${TEST_ZONES:-}" ] || read -r -a ZONES <<< "${TEST_ZONES}"
+eval "$3"
+'''
+
+
+class PreflightTests(FakeGcloudCase):
+    """Deploy step 0's machine type, disk type and quota checks (all zones/regions, one die)."""
+
+    def preflight(self, body, **env):
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", *PREFLIGHT_FNS)
+        return self.bash(PREFLIGHT, self.bench, fns, body, **env)
+
+    def test_fleet_spans_ten_regions_one_validator_each(self):
+        p = self.preflight('echo "Z $(fleet_zones)"; echo "V $(validator_zones)"; echo "R $(fleet_regions)"')
+        self.assertEqual(p.returncode, 0, p.stdout)
+        out = dict(line.split(" ", 1) for line in p.stdout.splitlines() if line[:2] in ("Z ", "V ", "R "))
+        self.assertEqual(out["R"].split(), FLEET_REGIONS)
+        self.assertEqual(len(out["Z"].split()), 10)
+        self.assertEqual(out["V"], out["Z"])          # the observer shares validator-01's zone
+        self.assertEqual(self.calls(), [])
+
+    def test_machine_type_check_lists_every_failing_zone_in_one_die(self):
+        zones = ("us-west2-a europe-west2-b australia-southeast1-c asia-northeast1-b northamerica-northeast1-b "
+                 "europe-west4-a asia-southeast2-a asia-east2-a asia-northeast3-a asia-south1-a us-west2-a")
+        p = self.preflight('machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"; echo PASSED',
+                           TEST_ZONES=zones, STUB_MT_MISSING="asia-southeast2-a asia-south1-a",
+                           STUB_MT_BROKEN="asia-east2-a")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("PASSED", p.stdout)
+        self.assertIn("c3-highcpu-8 cannot be created in every zone it needs — change ZONES "
+                      "(benchmark/config.sh) or BENCH_MACHINE_TYPE:", p.stdout)
+        self.assertIn("     asia-south1-a: not offered in this zone\n", p.stdout)
+        self.assertIn("     asia-southeast2-a: not offered in this zone\n", p.stdout)
+        self.assertIn("     asia-east2-a: describe failed (rc 1): ERROR: (gcloud) There was a problem", p.stdout)
+        # Every distinct zone was asked (all failures collected, not the first one only).
+        described = [c for c in self.calls() if c.startswith("gcloud compute machine-types describe c3-highcpu-8 ")]
+        self.assertEqual(len(described), 10, self.calls())
+
+    def test_machine_type_check_passes_and_dry_run_calls_nothing(self):
+        p = self.preflight('machine_type_check e2-standard-2 BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"')
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✓ e2-standard-2 offered in all 10 zones", p.stdout)
+        self.log.write_text("")
+        p = self.preflight('machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"; disk_type_check; '
+                           'quota_check', TEST_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("gcloud compute machine-types describe c3-highcpu-8 --zone=<each zone>", p.stdout)
+        self.assertIn("      us-west2: C3_CPUS 16, CPUS 2, IN_USE_ADDRESSES 3, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, "
+                      "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 20\n", p.stdout)
+        self.assertIn("      asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, ", p.stdout)
+        self.assertEqual(p.stdout.count("(dry run — not executed)"), 3)
+
+    def test_quota_check_passes_with_headroom(self):
+        p = self.preflight("quota_check")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✓ us-west2 need/headroom: C3_CPUS 16/300, CPUS 2/1500, IN_USE_ADDRESSES 3/575, "
+                      "HDB_TOTAL_GB 200/40960, HDB_TOTAL_IOPS 40000/unlimited, HDB_TOTAL_THROUGHPUT 1600/unlimited, "
+                      "SSD_TOTAL_GB 20/40960", p.stdout)
+        self.assertEqual(p.stdout.count("need/headroom:"), 10)
+        calls = self.calls()
+        self.assertEqual(sorted(c.split()[4] for c in calls if c.startswith("gcloud compute regions describe ")),
+                         FLEET_REGIONS)
+        self.assertEqual(len([c for c in calls if c.startswith("gcloud beta quotas info describe HDB-TOTAL-")]), 3)
+
+    def test_quota_check_lists_every_shortfall_in_one_table(self):
+        (self.stub / "region-asia-northeast1.json").write_text(region_json(C3_CPUS=4))
+        (self.stub / "region-us-west2.json").write_text(region_json(IN_USE_ADDRESSES=2, CPUS=1))
+        (self.stub / "qi-HDB-TOTAL-GB-per-project-region.json").write_text(quota_info(40960, **{"asia-south1": 50}))
+        (self.stub / "qi-HDB-TOTAL-IOPS-per-project-region.json").write_text(quota_info(-1, **{"europe-west2": 30000}))
+        # Disks already in europe-west4 / europe-west2 count against the hyperdisk limits; a pd-ssd does not.
+        (self.stub / "disks.json").write_text(json.dumps([
+            {"name": "other", "zone": ".../zones/europe-west4-b", "type": ".../diskTypes/hyperdisk-balanced",
+             "sizeGb": "40900", "provisionedIops": "3000", "provisionedThroughput": "140"},
+            {"name": "other2", "zone": ".../zones/europe-west2-a", "type": ".../diskTypes/hyperdisk-balanced",
+             "sizeGb": "10", "provisionedIops": "15000", "provisionedThroughput": "140"},
+            {"name": "ssd", "zone": ".../zones/asia-east2-a", "type": ".../diskTypes/pd-ssd", "sizeGb": "40960"}]))
+        p = self.preflight("quota_check; echo PASSED")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("PASSED", p.stdout)
+        rows = [line.split() for line in p.stdout.split("quota shortfalls — nothing was created:", 1)[1].splitlines()[1:]
+                if line.startswith("     ") and len(line.split()) == 4]
+        self.assertEqual(rows[0], ["region", "metric", "need", "headroom"])
+        self.assertEqual(sorted(rows[1:]), sorted([
+            ["asia-northeast1", "C3_CPUS", "8", "4"],
+            ["asia-south1", "HDB_TOTAL_GB", "100", "50"],
+            ["europe-west2", "HDB_TOTAL_IOPS", "20000", "15000"],
+            ["europe-west4", "HDB_TOTAL_GB", "100", "60"],
+            ["us-west2", "CPUS", "2", "1"],
+            ["us-west2", "IN_USE_ADDRESSES", "3", "2"]]))
+        # All ten regions were read before the die.
+        self.assertEqual(len([c for c in self.calls() if c.startswith("gcloud compute regions describe ")]), 10)
+
+    def test_region_needs_sum_a_shared_metric_and_count_pd_disks(self):
+        # The e2 baseline (fleet A): nodes and blasters both on CPUS, node disks on SSD_TOTAL_GB.
+        p = self.preflight('region_needs us-west2; region_needs asia-south1; echo "SHARED $(machine_vcpus e2-medium x)"',
+                           BENCH_MACHINE_TYPE="e2-custom-4-8192", BENCH_NODE_DISK_TYPE="pd-ssd",
+                           BENCH_BLASTER_MACHINE_TYPES="e2-medium")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        lines = [l for l in p.stdout.splitlines() if l and l[0].isupper()]
+        self.assertEqual(lines, ["CPUS 10", "IN_USE_ADDRESSES 3", "SSD_TOTAL_GB 220",
+                                 "CPUS 6", "IN_USE_ADDRESSES 2", "SSD_TOTAL_GB 120", "SHARED 2"])
+        # e2-medium's name carries no vCPU count: an alarmed describe answered it.
+        self.assertTrue(any(c.startswith("gcloud compute machine-types describe e2-medium --zone=")
+                            and "guestCpus" in c for c in self.calls()), self.calls())
+
+
+BLAST = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+eval "$2"
+BENCH_APPLY=1
+STARTUP="$3/startup.sh"; DEPLOYMENTS_FILE="$3/deployments.json"; BENCH_TXGEN_CONFIG="$3/config.toml"
+VAL_COUNT=2
+blaster_name() { printf 'bench-blaster-%02d' "$(( $1 + 1 ))"; }
+rc=0
+create_vm bench-blaster-01 "${ZONES[0]}" blast "bench-validator-01=http://192.0.2.1:8545" 600 0 1700000000 || rc=$?
+echo "RC1=${rc}"; rc=0
+create_vm bench-blaster-02 "${ZONES[1]}" blast "bench-validator-02=http://192.0.2.2:8545" 600 600 1700000000 || rc=$?
+echo "RC2=${rc}"
+[ "${TEST_MANIFEST:-1}" = "0" ] || echo "MANIFEST $(blasters_json | jq -c .)"
+'''
+
+
+class BlasterFallbackTests(FakeGcloudCase):
+    """benchmark-blast.sh create_vm: a stockout retries the same blaster on the next type."""
+
+    def blast(self, **env):
+        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm", "blasters_json")
+        files = self.root / "blast-files"
+        files.mkdir(exist_ok=True)
+        p = self.bash(BLAST, self.bench, fns, files, **env)
+        manifest = None
+        for line in p.stdout.splitlines():
+            if line.startswith("MANIFEST "):
+                manifest = json.loads(line[len("MANIFEST "):])
+        return p, manifest
+
+    def creates(self):
+        return [(c.split()[4], re.search(r"--machine-type=(\S+)", c).group(1))
+                for c in self.calls() if c.startswith("gcloud compute instances create ")]
+
+    def meta(self, name):
+        f = self.bench / "results" / "rtest-node-image" / "meta" / name / "MACHINE_TYPE"
+        return f.read_text().strip() if f.exists() else None
+
+    def test_stockout_retries_next_type_and_manifest_records_it(self):
+        p, manifest = self.blast(STUB_STOCKOUT="us-west2-a/e2-standard-2")
+        self.assertIn("RC1=0", p.stdout)
+        self.assertIn("RC2=0", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "e2-standard-2"), ("bench-blaster-01", "n2-standard-2"),
+                                          ("bench-blaster-02", "e2-standard-2")])
+        self.assertIn("bench-blaster-01: e2-standard-2 is out of stock in us-west2-a (stockout); "
+                      "trying the next blaster type", p.stdout)
+        self.assertIn("bench-blaster-01: created on n2-standard-2 in us-west2-a after a stockout of e2-standard-2",
+                      p.stdout)
+        self.assertEqual((self.meta("bench-blaster-01"), self.meta("bench-blaster-02")),
+                         ("n2-standard-2", "e2-standard-2"))
+        self.assertEqual([(b["name"], b["zone"], b["machine_type"], b["instance_id"]) for b in manifest],
+                         [("bench-blaster-01", "us-west2-a", "n2-standard-2", "4242"),
+                          ("bench-blaster-02", "europe-west2-b", "e2-standard-2", "4242")])
+        # The retry is the same create: only --machine-type differs.
+        first, second = [c for c in self.calls() if c.startswith("gcloud compute instances create bench-blaster-01 ")]
+        self.assertEqual(first.replace("--machine-type=e2-standard-2", "--machine-type=n2-standard-2"), second)
+
+    def test_other_failure_is_not_retried(self):
+        p, _ = self.blast(STUB_CREATE_FAIL="e2-standard-2", TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "e2-standard-2"), ("bench-blaster-02", "e2-standard-2")])
+        self.assertIn("Quota 'N2_CPUS' exceeded", p.stdout)
+        self.assertIsNone(self.meta("bench-blaster-01"))
+
+    def test_pinned_type_has_no_fallback(self):
+        p, _ = self.blast(BENCH_BLASTER_MACHINE_TYPE="n2d-standard-2", STUB_STOCKOUT="us-west2-a/n2d-standard-2",
+                          TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertIn("RC2=0", p.stdout)
+        self.assertEqual(self.creates(), [("bench-blaster-01", "n2d-standard-2"), ("bench-blaster-02", "n2d-standard-2")])
+        self.assertIn("bench-blaster-01: every blaster type is out of stock in us-west2-a (n2d-standard-2)", p.stdout)
+        self.assertIsNone(self.meta("bench-blaster-01"))
+        self.assertEqual(self.meta("bench-blaster-02"), "n2d-standard-2")
+
+    def test_dry_run_prints_the_first_type_and_the_fallback(self):
+        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm")
+        script = BLAST.split("BENCH_APPLY=1")[0] + ("BENCH_APPLY=0\nSTARTUP=s DEPLOYMENTS_FILE=d BENCH_TXGEN_CONFIG=c\n"
+                                                    "create_vm bench-blaster-03 australia-southeast1-c blast u 600 1200 1\n")
+        p = self.bash(script, self.bench, fns, self.root)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        argv = [l for l in p.stdout.splitlines() if l.startswith("    + perl -e")]
+        self.assertEqual(len(argv), 1, p.stdout)
+        self.assertIn(" 600 gcloud compute instances create bench-blaster-03 ", argv[0])
+        self.assertIn(" --zone=australia-southeast1-c --machine-type=e2-standard-2 ", argv[0])
+        self.assertIn(" --boot-disk-size=20GB --boot-disk-type=pd-balanced ", argv[0])
+        self.assertIn("on a zone stockout: the same create with --machine-type=n2-standard-2 n2d-standard-2 (in turn)",
+                      p.stdout)
+
+    def test_is_stockout_reads_each_marker_through_line_wraps(self):
+        fn = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout")
+        cases = [(STOCKOUT, 0), (QUOTA_EXCEEDED, 1), ("code: ZONE_RESOURCE_POOL_EXHAUSTED\n", 0),
+                 ("    reason: stockout\n", 0), ("The zone 'z' does not have\n  enough resources available\n", 0),
+                 ("The resource 'projects/p/zones/z/machineTypes/t' was not found\n", 1)]
+        for text, want in cases:
+            with self.subTest(text=text[:40]):
+                p = subprocess.run(["bash", "-c", fn + 'is_stockout "$1"', "x", text])
+                self.assertEqual(p.returncode, want)
+
+    def test_every_type_out_of_stock_fails(self):
+        p, _ = self.blast(STUB_STOCKOUT="us-west2-a/e2-standard-2 us-west2-a/n2-standard-2 us-west2-a/n2d-standard-2",
+                          TEST_MANIFEST="0")
+        self.assertIn("RC1=1", p.stdout)
+        self.assertEqual([t for n, t in self.creates() if n == "bench-blaster-01"],
+                         ["e2-standard-2", "n2-standard-2", "n2d-standard-2"])
+        self.assertIn("every blaster type is out of stock in us-west2-a "
+                      "(e2-standard-2 n2-standard-2 n2d-standard-2)", p.stdout)
 
 
 if __name__ == "__main__":

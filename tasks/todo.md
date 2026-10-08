@@ -1232,3 +1232,29 @@ over kademlia (`start_epoch.rs`, issue #804). That also confirms the endpoints s
       are keyed to node IPs.
 - [ ] Optional: `common/observability/setup-obs-firewall.sh`, `setup-obs-disk-alert.sh`,
       and the two Grafana alerts (txgen submit-rate zero; master balance < 50 TEL).
+
+## Review: r20261006-0053 stall → certifier fix → r20261006-0458 (2026-10-06)
+
+Done:
+- Root cause (tasks/stall/ROOT-CAUSE.md): Certifier::run cancelled and restarted vote collection on
+  every identical 500 ms re-proposal, so validators whose vote round trips exceed one window never
+  certified (v03/v04 in Australia: 0% in fast rounds). The committee ran on 8 certifying validators;
+  killing v05 left 7 = quorum; v10 (next leader, 250 ms window) failed at round 1787 → 6 certs < 7 → 301 s stall.
+- Fix: telcoin-network fix/certifier-keep-inflight-on-repropose (9b4bca750 + 963b59980; 3 tests; 290/290 crate
+  tests; clippy/fmt clean), merged into devnet-bench-10-5-2026 = ba43a1f0e; both pushed.
+- Image adiri:mmap-subsecond-certfix-10-6-2026 @ sha256:caeb6be2… (docker-devnet target; docker-adiri gives adiri-schedule).
+- Re-run r20261006-0458 (blast index 2, n2 blasters after an e2 stockout): NO stall through a 300 s outage 59 s
+  before the boundary; all-gen 3,889.6 tx/s (3,319.6 with the stall; 4,177 on 29 Sep); Canceled -81%; v03/v04
+  under load 24% → 60-68% certification; 1/10 generators hit the preamble limit (was 8/10).
+- Harness (bench/preserve-logs-and-harness-fixes): 14141d0 archive gate + IAP retry; 3a31603 staged chaos +
+  boundary verdict + stall note; f89823d exclude `^` fix; eef693a stall needs flat rounds. Live: chaos late ≤0.18 s,
+  archive gate verified 60 files before deletes, 319 objects in gs://tn-devnet-benchmark-archive/runs/r20261006-0458/.
+- txgen: fix/preamble-gap-repair 9f61303 (unpushed, not built).
+
+Open:
+- Far validators certify 0% in fast rounds and ~1/3 of their certificates are orphaned → 372 s inclusion gap when
+  only they carry load (upstream question; not reachable by the certifier fix).
+- v05 recovery 12.5 min when the epoch closed during the outage (execution-bound catch-up).
+- Operator: archive the OLD run's logs (`benchmark/benchmark-teardown.sh --run r20261006-0053 --yes`, fleet already
+  gone; blocked for the agent by the permission mode); publish 0458 if wanted (backfill draft has 8 placeholders).
+- Harness: automatic machine-family fallback on stockout; blaster machine type into the manifest.

@@ -928,3 +928,244 @@ txgen-devnet keeps a trickle of traffic flowing; a fresh chain with no load does
 telcoin`), and treat block height as a load indicator only. Same applies to any "quorum lost"
 watcher that runs before the load starts. Corollary for tooling: a `Monitor` pipeline that ends
 in `cut` delivers nothing — `cut` block-buffers when piped; use `grep --line-buffered` alone.
+
+## Bench node images are `make docker-devnet` builds; `docker-adiri` compiles the epoch-gated fork schedule (2026-10-06)
+
+**Symptom:** the certifier-fix image was built with `make docker-adiri TAG=…` (the obvious target
+for a repo named `adiri`) and the harness probe labelled it `adiri-schedule`, which the gate refuses
+for sub-second delays. The 5 Oct bench image had been built without the `adiri` feature (its probe
+record shows `fork schedule (adiri): 0`), i.e. with `docker-devnet`. One wasted 17-minute build.
+
+**Fix / rule:** before building a bench image, read the previous run's `manifest.node_probe.strings`
+(or run `--probe-node-image` on the baseline tag) and pick the Makefile target whose feature set
+reproduces it: `docker-devnet` (faucet, forks from genesis) for the bench and the devnet,
+`docker-adiri` only for the testnet. Record the target next to the tag in the plan.
+
+## A gcloud list flag that starts with `^` is parsed as `^DELIM^…`; a fake-gcloud test cannot see it (2026-10-06)
+
+**Symptom:** the first live archive sync (`gcloud storage rsync --exclude='^(genesis…|…)'`) crashed
+with `PatternError: unbalanced parenthesis`. gcloud's ArgList reads a value beginning with `^` as
+its custom-delimiter syntax (`^;^a;b`) and split the regex on `(genesis[`. 27 unit tests with a
+fake gcloud passed; the collect-time sync was non-fatal by design, so the run was not harmed and
+the teardown gate still had to be fixed before it could pass.
+
+**Fix / rule:** never start a gcloud list-flag value with `^` (drop it: `--exclude` is `re.match`,
+already anchored), and never put a comma in one. Any new gcloud invocation path gets ONE live,
+read-only rehearsal (`--dry-run`, `describe`, `ls`) against the real CLI before a gate depends on
+it, in addition to the stubbed tests; the stub proves the shell logic, not gcloud's parser.
+
+## GCE stockouts hit one machine family in one zone; keep a same-shape fallback family ready (2026-10-06)
+
+**Symptom:** `e2-standard-2` was out of stock in australia-southeast1-c twice in 15 minutes while
+`c3-highcpu-8` validators had been created there an hour earlier. Each failed attempt burned a
+blast index (fund + create + exit cleanup, ~8 min) and the fleet sat idle.
+
+**Fix / rule:** on a `reason: stockout`, retry at once with another family of the same shape
+(`BENCH_BLASTER_MACHINE_TYPE=n2-standard-2` worked first time) rather than waiting or re-trying the
+same family; record the substitution for the backfill (the manifest does not carry the blaster
+type). Consider making the blast step try a fallback family by itself.
+
+## A subagent that must both evaluate live and then implement on the findings is two agents (2026-10-06)
+
+**Symptom:** the W2 agent (region evaluation + ZONES + three preflights + blaster fallback + README +
+report labels + tests) finished correctly but used ~346k tokens, against a ~250k budget. Nothing was
+lost, but a rate limit mid-way would have cost the whole implementation half.
+
+**Rule:** when a workstream has a live-evaluation phase whose output decides the implementation
+(zone list, quota verdicts), split it: one agent evaluates and writes the verdict file, the
+orchestrator reads the verdict, and a fresh agent implements against it. Each half then stays
+within budget and the verdict file doubles as the checkpoint. The same applies to "measure, then
+build the arms" work.
+Addendum, same day: W4 (441k) and W3a (273k, stopped itself at the budget) overran too. The
+workstreams that stayed in budget were the ones with ONE new tool or ONE harness region. Rule of
+thumb for sizing: a new tool + its tests + its doc section is one agent; a harness change across
+deploy/lib/config + tests is one agent; a live evaluation is one agent. Never combine two of those.
+
+## bash 3.2 misparses `case` inside `$(...)`; run the bash tests once with /bin/bash first on PATH (2026-10-06)
+
+**Symptom:** a new bench-lib function with a `case` statement inside a command substitution passed
+every test under Homebrew bash 5 and failed under macOS /bin/bash 3.2, which the shebang never
+selects here but an operator's shell might. The same construct already sits in
+`benchmark-blast.sh` (CHAOS_STAGE_SCRIPT heredoc inside `$(...)`, ~line 607): `/bin/bash -n` rejects
+the file today; CI (bash 5) does not see it.
+
+**Rule:** inside `$(...)`, write case patterns as `(pattern)` with the opening parenthesis, or move
+the `case` out of the substitution. Before committing shell that must run on macOS, run
+`/bin/bash -n <script>` in addition to `bash -n`, and run the bash-driven unit tests once with
+`PATH=/bin:$PATH`.
+
+## 2026-10-06 — a fork is not a fresh agent: it starts at the parent's context size
+- Launching the stage-1 sweep orchestrator as `subagent_type: fork` gave it the whole parent
+  conversation (~140k tokens) before its first tool call; after 14 tool uses it was at 184k, with a
+  4.5-hour live run ahead and a ~250k budget. Forks suit short tasks that need the parent's exact
+  context, not long-running orchestration.
+- Rule: a long-running or live-operations orchestrator is a FRESH agent (general-purpose, model per
+  the plan) with a written brief that names the files to read, the exact environment, the procedure
+  and the checkpoint. The brief costs ~5k tokens; the inherited context costs 100k+ of its budget.
+- When a fork is already running near budget: let it checkpoint and hand back (its prompt tells it
+  to at ~200k), then respawn fresh from `tasks/checkpoint-*.md`; do not stop it mid-step, its
+  background harness processes may be the only copy of the run's progress.
+
+## A restart-per-arm sweep: the unit-stdout file is the only single-container-spanning log (2026-10-07)
+
+**Symptom:** the stage-1 sweep restarted every node at each arm, so the container log the teardown pulls
+(`<node>-telcoin.log.gz`) covered only the last arm, and `propose-latency.py` (default glob
+`*-telcoin.log.gz`, time-of-day bounds) silently returned a4's numbers for every window and nothing for
+windows after midnight. The earlier arms were in the `pre-arm-a<k>` container logs that params-apply saves
+and, in one piece, in `<node>-unit-stdout.log.gz`.
+
+**Rule:** before any per-window number from a multi-restart run, count the events per (node, window) across
+all of that node's files and refuse to report a window that no file covers. Prefer the unit-stdout file
+(one file per node, whole run, same logfmt lines) as the analysis source; compare full ISO timestamps,
+never time of day, when a run crosses midnight. Extract the event lines once into a scratch file per node
+(~280k lines here) and run the tools on the extracts: the full debug logs are 60 MB gzipped per node.
+
+## The idle window ends when the blaster funds, and a 250/500 arm is not "parameters already in place" (2026-10-07)
+
+- The blast's `fund` step puts 6000 funding transactions on the chain within a second of launch; the idle
+  window is `last PARAMS_OK → blast launch`, never "→ warm-up start". Name the boundary in the plan.
+- `params-apply.sh` with the fleet's own values restarts nothing and records NO arm (`NO ARM RECORDED`);
+  the baseline arm had to be hand-injected into `manifest.param_arms`. Open the baseline arm explicitly
+  (a `--record-only` or the arm record on zero changes) before the sweep relies on `--close-arm`.
+- Serial restarts took 16-20 s per node (PARAMS_OK 10-15 s after), so an 11-node apply is ~3 min, not the
+  11-22 min a 1-2 min/node estimate gives; the whole arm (apply + 8 min idle + 10 min blast + collect) is
+  ~40 min. Budget arms at 40 min and five arms at 3.5 h after the deploy.
+- One `&&` chain per arm (`params-apply … && blast … && collect`) with a background log worked for all five
+  arms and let the orchestrator check in every few minutes; the orchestrator still ran out of context
+  twice (handoffs at ~200k): keep the per-arm checks to one grep each.
+
+## Pass criteria need the voter side in the log filter, and a "healthy minus two" answer is a fail (2026-10-07)
+
+**Symptom:** the stage-1 filter had `primary::certifier=debug,primary::proposer=debug`; it showed the
+proposer's per-peer vote latency (London/Netherlands get Asian votes at ~2× RTT) but not why, because the
+vote-request handler (`primary/src/network/handler.rs`) logs under its own module path. Two of ten
+validators failed every arm and the sweep's question ("which timer values") turned out not to be the
+blocker.
+
+**Rule:** when the question is certification, include the vote handler's target in the debug filter
+(module path of `network/handler.rs`) alongside certifier and proposer, and check the first arm's
+per-validator certification BEFORE running the other four: a validator at 20 % in the baseline arm means
+the remaining arms measure the wrong thing. Report an arm that fails a criterion as failed even when the
+"healthy" subset would pass; the recommendation then carries the condition explicitly.
+
+
+## 2026-10-07 — a timing model that fits is not a mechanism; measure the path before naming the cause
+- Stage-1 vote round trips on every Europe→Asia link equalled 2 × (RTT to LA + RTT LA→peer) within 7 ms.
+  I wrote "Europe↔Asia traffic goes through the US" into latency-adjustments.md §9 as a confirmed cause.
+  A 4-minute probe on the same zones (internal and external addresses in one run) then showed external
+  = internal on all 90 pairs. The fit was real; the mechanism was wrong, and it sits inside the node.
+- Rule: a formula that fits application-level timings identifies a STRUCTURE, not a cause. Before naming
+  a network cause, measure the network directly (the probe tool exists and costs cents). Write
+  "consistent with" until the direct measurement is in; keep the fitted numbers, which stay useful.
+- Rule: when the proposer side is exhausted, get the voter side before theorising (arrival, each wait,
+  response). The stage-1 filter lacked it; the re-check filter has it (`network=debug`, `primary=debug`).
+
+## 2026-10-07 — a piped test run in an `&&` chain cannot gate a commit
+- `python3 -m unittest … | tail -2 && git commit …` committed max_header_delay 1000 ms with 11 tests
+  failing: the pipe's status is `tail`'s, so the chain never saw the failure. Caught only by reading the
+  background output afterwards.
+- Rule: when a test run gates a commit, run it bare (or `set -o pipefail` in that shell) and let its exit
+  status stop the chain; show its tail in a separate command. Changing a committed default also means
+  checking which tests pin that value (grep the literal) before committing.
+
+## 2026-10-07 — update: the bash 3.2 `case`-inside-`$(...)` failure in benchmark-blast.sh is fixed
+- Commit a97dc4c rewrote the chaos stage heredoc with `(pattern)` case syntax; `/bin/bash -n benchmark/benchmark-blast.sh`
+  now passes. The rule above (run `/bin/bash -n` on shell that must run on macOS) stands.
+
+
+## 2026-10-07 — measure a debug filter's log rate on one node under load before running it fleet-wide
+- The stage-2 filter (`network=debug`, `primary=debug`, `multistream_select=debug`, …) was sized from the
+  stage-1 filter (~60 KB/round). Measured: ~3 GB/h raw per validator idle (~1 MB/round) and ~21-23 GB/h raw
+  under load, written twice (docker json-file + the unit's stdout append file), so a validator's root disk
+  grew 46 GB/h during the mixed phase (sampler `root_used_pct` 12 → 18 % in 450 s). The 40-min run put
+  every validator at ~50 % of a 96 GB disk and the teardown pull at ~100 GB gzipped locally.
+- Rule: before a fleet run with a new filter, read `root_used_pct` from one node's sampler across a short
+  loaded window (or `du` the two log copies) and project to the run length plus the pull; the 85 % abort
+  rule and the local disk both need the number. Prefer the voter-side targets only (`primary=debug`,
+  `tn_primary::network::handler=debug`) and drop `network=debug` once the request-arrival timestamp is no
+  longer the question — it is the bulk of the volume.
+
+## 2026-10-07 — a staged chaos action that saves the container log first inherits the log's size
+- `BENCH_CHAOS_STAGE_SECS=30` stages the kill 30 s early; the staged script gzips the container log before
+  waiting for the due time. With the debug filter that gzip took ~68 s and the kill landed 41.8 s late —
+  after the epoch boundary it was meant to precede by 59 s (the planned boundary itself was ~30 s later than
+  the chain's actual close). The restart and the observer restart, which save nothing, were 0.1 s late.
+- Rule: a chaos action's pre-save must not sit between staging and the due time: save before staging (or
+  size `BENCH_CHAOS_STAGE_SECS` from the log's byte count), and read the boundary from the chain's own
+  epoch-close block rather than `epoch_start + duration` when the drill's meaning depends on which side of
+  the boundary the kill lands. Check `manifest.chaos[].late_secs` against the boundary before describing a
+  drill as boundary-crossing.
+
+## 2026-10-07 — a zero-restart arm is recorded now; keep the `--arm` call even when the values are in place
+- `params-apply.sh … --arm a3check` with the fleet's own values printed "0 node(s) restarted, 11 already at
+  these values" and still recorded the arm (`no_restart: true`), so `--close-arm` closed it and the
+  per-arm windows came from the manifest. The stage-1 workaround (hand-injected arm) is no longer needed.
+- Rule: open every arm, including the baseline, with the same `--arm` call; read `param_arms[]` afterwards.
+
+## 2026-10-07 — an ad-hoc fleet tool cannot source benchmark/config.sh; copy the fleet and say so
+- `benchmark/config.sh` refuses any caller that is not `benchmark-*.sh`, so the mid-run log pull (an operator
+  tool in the scratchpad) hard-codes the 11 names/zones and `PROJECT_ID`. A fleet change would silently
+  desynchronise it.
+- Rule: a one-off tool that copies the fleet list states the copy and its source in its header, is kept in
+  the scratchpad (never in the harness tree), and is re-derived from `nodes.txt` in `results/<run>/` when
+  one exists (params-apply writes it) instead of a hand copy.
+
+## 2026-10-07 — pull the unit-stdout file mid-run when the decision needs the numbers before teardown
+- The A3-check decision (restart or not, which `min_header_delay`) needed every validator's certification
+  before the stage-2 arm. A pull of each node's `/var/log/telcoin/telcoin.log` (gzip -1 on the node, ≤ 5 in
+  parallel over IAP, perl alarm 900 s, retries on IAP 4003/4033/4047) took 14 min for 11 nodes (0.7-0.8 GB
+  gz each) with no restart and no effect on the chain; extracting the ~20 event kinds once per node let
+  `cert-rate.py`/`propose-latency.py` run in seconds.
+- Rule: when a live decision depends on per-node log numbers, pull the unit-stdout file (it spans
+  restarts) rather than waiting for the teardown; never run two pulls at once (IAP throttles), and extract
+  before analysing.
+
+## 2026-10-07 — a run.json key added in the harness is a change to the site's schema; build a bundle before the run needs it
+- `make_bundle.py` has emitted `consensus.param_arms` since params-apply landed (b08f7c0), but the site's
+  `RUN_SCHEMA` (tn-benchmarks/scrub.py) never learned the key. The first bundle built from a run with arms
+  (r20261007-0316) passed steps 0-10 after an 8-minute build and failed the site gate; nothing was installed
+  and the KPIs had to be computed by calling `windows_step` + `kpis_step` on the scratch dir.
+- Rule: any change to the run.json shape (make_bundle `assemble`) ships together with the site schema change
+  and a `make_bundle.py --run <last archived run> --out <scratch>/<run>` build in the same PR; the gate is the
+  site's, so the harness tests alone cannot catch it.
+
+## 2026-10-07 — a long teardown can outlive the gcloud reauth session; re-auth right before it and read the gcloud error, not the harness line
+- The r20261007-0316 teardown pulled logs for two hours (06:33-08:32Z). Around 08:2xZ the Workspace reauth
+  session for the active gcloud account expired; `gcloud compute ssh` then failed with "There was a problem
+  refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive
+  execution", which the harness reported as "`/var/log/telcoin/telcoin-error.log`: ssh or gzip on the node
+  failed" and the local gate turned into "node logs not pulled from: bench-validator-10". It read like an
+  IAP transient; the re-run died at its first `gcloud compute instances list` in 0 s.
+- Rule: before launching anything that will run > 1 h against GCP (teardown with a log pull, a long deploy),
+  run `gcloud auth print-access-token > /dev/null` (or `gcloud auth login` when the session is old) so the
+  reauth window starts fresh; a non-interactive agent cannot re-auth. When a pull step fails, grep the log for
+  `Reauthentication` before classifying the failure as transient — the gcloud message sits a few lines above
+  the harness's ✗ line. Agents: never switch the active account or skip the log gate to get past it; record
+  the state and hand back to the operator.
+
+## 2026-10-07 — a marker freshness rule turned a teardown re-run into a full fleet re-pull; dry-run the markers and df before --yes
+- The teardown's `.pulled` markers expired after 15 minutes ("the node has logged since"), so the re-run nine
+  hours after the first attempt (which had saved 9 of 11 nodes) rejected all nine markers and started pulling
+  every node's 12-hour container log (~3.3 GB gz each) plus a second unit-stdout copy "beside" the saved one:
+  70-85 GB against 57 GB free. It had to be killed by the operator; nothing was lost, but the fleet billed for
+  another hour and the re-run only succeeded on the fourth attempt with the new `BENCH_TEARDOWN_TRUST_MARKERS=1`
+  (3606768: trust a marker whose logs are all present at their recorded sizes; refuse to pull under
+  `BENCH_TEARDOWN_MIN_FREE_GB`).
+- Rule: before a `--yes` teardown re-run, run the dry run and read two things: each marker's verdict (accepted /
+  not accepted and why) and `df` against the projected pull (nodes to pull × their log sizes, doubled when the
+  marker does not vouch for the unit-stdout file). If the verdict says "not accepted" for nodes whose logs are
+  already here, set `BENCH_TEARDOWN_TRUST_MARKERS=1` rather than letting the rule re-pull them. A freshness rule
+  on a growing log is the wrong test for "is the saved copy good": size-and-presence against the marker is.
+
+## 2026-10-07 — a heavy debug filter multiplies the teardown, not just the disk
+- At ~1 MB/round/node (`network=debug`, `multistream_select=debug`, `libp2p_swarm::connection::pool=debug`,
+  `peer-manager=debug` on top of the primary targets) the r20261007-0316 teardown pulled 61 GB in two hours,
+  outlived the gcloud reauth window, re-pulled 3.3-4.3 GB per file on the re-run, spent ~35 min on cert-rate over
+  the logs, ~15 min and 3.5 GB per cert-fail snapshot (three of them), and then an hour-plus in the informational
+  `bench_local_analysis` pass over ~100 GB after the fleet was already deleted. Every one of those steps scales
+  with the filter, and a failing validator adds a snapshot the size of its container log.
+- Rule: size the teardown from the filter before the run: bytes per round × rounds × 2 copies × nodes is the pull,
+  plus one container log per validator expected to fail certification; if that is more than ~30 GB, drop the
+  network-level targets to opt-in (`BENCH_NODE_LOG_FILTER`) or plan the teardown as a multi-hour operator step
+  with a fresh gcloud session, `df` headroom of twice the pull, and the analysis step run afterwards on the
+  unit-stdout files only.

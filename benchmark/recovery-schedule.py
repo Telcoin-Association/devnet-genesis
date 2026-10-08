@@ -43,7 +43,9 @@ def snapshot(url, epoch=None):
     head = rpc(url, "eth_getBlockByNumber", ["latest", False])
     selector = CURRENT_EPOCH if epoch is None else EPOCH_RECORD + f"{epoch:064x}"
     info = decode_epoch(rpc(url, "eth_call", [dict(to=REGISTRY, data=selector), head["number"]]))
-    if epoch is not None and info["epoch"] != epoch:
+    # The registry pre-records the next epoch with block_height 0 before it opens; only epoch 0
+    # really starts at genesis (r20261006-0053 recorded genesis as epoch 3's boundary).
+    if epoch is not None and (info["epoch"] != epoch or (epoch > 0 and info["block_height"] == 0)):
         raise ValueError(f"epoch {epoch} has not opened")
     boundary = rpc(url, "eth_getBlockByNumber", [hex(max(0, info["block_height"] - 1)), False])
     return dict(info, epoch_start_unix=int(boundary["timestamp"], 16),

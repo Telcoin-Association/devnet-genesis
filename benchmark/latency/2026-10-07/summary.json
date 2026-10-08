@@ -1,0 +1,6388 @@
+{
+ "zones": [
+  "us-west2-a",
+  "europe-west2-b",
+  "australia-southeast1-c",
+  "asia-northeast1-b",
+  "northamerica-northeast1-b",
+  "europe-west4-a",
+  "asia-southeast1-b",
+  "asia-east2-a",
+  "asia-northeast3-a",
+  "asia-south1-c"
+ ],
+ "skipped": [],
+ "failed": [],
+ "run": {
+  "stamp": "20261007T025234Z",
+  "started_at": "2026-10-07T02:52:34Z",
+  "finished_at": "2026-10-07T02:55:13Z",
+  "machine_type": "e2-small",
+  "params": {
+   "pings": 40,
+   "udp_count": 40,
+   "udp_size": 1200,
+   "tcp_count": 20
+  },
+  "addresses": "both",
+  "network_tier": "PREMIUM",
+  "vm_machine_types": {
+   "us-west2-a": "e2-small",
+   "europe-west2-b": "e2-small",
+   "australia-southeast1-c": "e2-small",
+   "asia-northeast1-b": "e2-small",
+   "northamerica-northeast1-b": "e2-small",
+   "europe-west4-a": "e2-small",
+   "asia-southeast1-b": "e2-small",
+   "asia-east2-a": "e2-small",
+   "asia-northeast3-a": "e2-small",
+   "asia-south1-c": "e2-small"
+  }
+ },
+ "addresses": [
+  "internal",
+  "external"
+ ],
+ "external": {
+  "matrices": {
+   "udp": {
+    "us-west2-a": {
+     "europe-west2-b": {
+      "ms": 137.718,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 139.019,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 101.112,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 75.214,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 149.478,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 169.319,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 144.014,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 127.933,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 218.909,
+      "one_way": false
+     }
+    },
+    "europe-west2-b": {
+     "us-west2-a": {
+      "ms": 137.718,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 276.149,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 237.623,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 78.936,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 10.723,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 168.678,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 204.694,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 265.413,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 149.308,
+      "one_way": false
+     }
+    },
+    "australia-southeast1-c": {
+     "us-west2-a": {
+      "ms": 139.019,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 276.149,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 106.873,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 213.351,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 320.562,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 151.363,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 122.332,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 128.259,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 208.647,
+      "one_way": false
+     }
+    },
+    "asia-northeast1-b": {
+     "us-west2-a": {
+      "ms": 101.112,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 237.623,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 106.873,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 175.385,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 249.834,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 75.188,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 50.319,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 33.566,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 133.572,
+      "one_way": false
+     }
+    },
+    "northamerica-northeast1-b": {
+     "us-west2-a": {
+      "ms": 75.214,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 78.936,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 213.351,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 175.385,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 86.576,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 233.254,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 198.918,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 201.517,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 224.998,
+      "one_way": false
+     }
+    },
+    "europe-west4-a": {
+     "us-west2-a": {
+      "ms": 149.478,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 10.723,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 320.562,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 249.834,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 86.576,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 166.177,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 195.832,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 228.097,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 151.469,
+      "one_way": false
+     }
+    },
+    "asia-southeast1-b": {
+     "us-west2-a": {
+      "ms": 169.319,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 168.678,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 151.363,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 75.188,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 233.254,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 166.177,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 32.981,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 69.353,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 62.091,
+      "one_way": false
+     }
+    },
+    "asia-east2-a": {
+     "us-west2-a": {
+      "ms": 144.014,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 204.694,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 122.332,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 50.319,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 198.918,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 195.832,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 32.981,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 37.017,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 87.791,
+      "one_way": false
+     }
+    },
+    "asia-northeast3-a": {
+     "us-west2-a": {
+      "ms": 127.933,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 265.413,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 128.259,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 33.566,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 201.517,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 228.097,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 69.353,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 37.017,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 122.571,
+      "one_way": false
+     }
+    },
+    "asia-south1-c": {
+     "us-west2-a": {
+      "ms": 218.909,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 149.308,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 208.647,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 133.572,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 224.998,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 151.469,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 62.091,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 87.791,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 122.571,
+      "one_way": false
+     }
+    }
+   },
+   "tcp": {
+    "us-west2-a": {
+     "europe-west2-b": {
+      "ms": 138.127,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 138.893,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 101.29,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 74.85,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 150.419,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 165.201,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 143.733,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 127.223,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 221.789,
+      "one_way": false
+     }
+    },
+    "europe-west2-b": {
+     "us-west2-a": {
+      "ms": 138.127,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 276.013,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 238.2,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 79.029,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 10.925,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 168.516,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 201.507,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 264.16,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 143.683,
+      "one_way": false
+     }
+    },
+    "australia-southeast1-c": {
+     "us-west2-a": {
+      "ms": 138.893,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 276.013,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 108.002,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 212.422,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 315.591,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 152.062,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 122.882,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 128.341,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 208.07,
+      "one_way": false
+     }
+    },
+    "asia-northeast1-b": {
+     "us-west2-a": {
+      "ms": 101.29,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 238.2,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 108.002,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 174.742,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 249.67,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 75.024,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 50.029,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 33.685,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 134.111,
+      "one_way": false
+     }
+    },
+    "northamerica-northeast1-b": {
+     "us-west2-a": {
+      "ms": 74.85,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 79.029,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 212.422,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 174.742,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 86.099,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 234.87,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 198.236,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 200.84,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 219.982,
+      "one_way": false
+     }
+    },
+    "europe-west4-a": {
+     "us-west2-a": {
+      "ms": 150.419,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 10.925,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 315.591,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 249.67,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 86.099,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 164.608,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 196.031,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 231.508,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 146.456,
+      "one_way": false
+     }
+    },
+    "asia-southeast1-b": {
+     "us-west2-a": {
+      "ms": 165.201,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 168.516,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 152.062,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 75.024,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 234.87,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 164.608,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 34.206,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 69.126,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 60.849,
+      "one_way": false
+     }
+    },
+    "asia-east2-a": {
+     "us-west2-a": {
+      "ms": 143.733,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 201.507,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 122.882,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 50.029,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 198.236,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 196.031,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 34.206,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 36.623,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 87.454,
+      "one_way": false
+     }
+    },
+    "asia-northeast3-a": {
+     "us-west2-a": {
+      "ms": 127.223,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 264.16,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 128.341,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 33.685,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 200.84,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 231.508,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 69.126,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 36.623,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 122.294,
+      "one_way": false
+     }
+    },
+    "asia-south1-c": {
+     "us-west2-a": {
+      "ms": 221.789,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 143.683,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 208.07,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 134.111,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 219.982,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 146.456,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 60.849,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 87.454,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 122.294,
+      "one_way": false
+     }
+    }
+   },
+   "icmp": {
+    "us-west2-a": {
+     "europe-west2-b": {
+      "ms": 138.726,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 139.371,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 100.803,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 73.59,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 149.691,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 205.044,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 143.507,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 127.298,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 222.845,
+      "one_way": false
+     }
+    },
+    "europe-west2-b": {
+     "us-west2-a": {
+      "ms": 138.726,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 274.953,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 239.061,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 78.785,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 10.46,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 169.303,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 200.584,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 264.326,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 153.847,
+      "one_way": false
+     }
+    },
+    "australia-southeast1-c": {
+     "us-west2-a": {
+      "ms": 139.371,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 274.953,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 110.374,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 211.312,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 313.896,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 150.311,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 123.659,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 128.204,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 208.758,
+      "one_way": false
+     }
+    },
+    "asia-northeast1-b": {
+     "us-west2-a": {
+      "ms": 100.803,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 239.061,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 110.374,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 176.018,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 249.704,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 74.174,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 50.123,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 33.033,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 144.893,
+      "one_way": false
+     }
+    },
+    "northamerica-northeast1-b": {
+     "us-west2-a": {
+      "ms": 73.59,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 78.785,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 211.312,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 176.018,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 87.298,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 234.212,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 197.341,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 200.207,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 230.021,
+      "one_way": false
+     }
+    },
+    "europe-west4-a": {
+     "us-west2-a": {
+      "ms": 149.691,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 10.46,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 313.896,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 249.704,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 87.298,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 162.78,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 193.949,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 235.406,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 145.059,
+      "one_way": false
+     }
+    },
+    "asia-southeast1-b": {
+     "us-west2-a": {
+      "ms": 205.044,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 169.303,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 150.311,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 74.174,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 234.212,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 162.78,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 37.062,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 67.959,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 56.197,
+      "one_way": false
+     }
+    },
+    "asia-east2-a": {
+     "us-west2-a": {
+      "ms": 143.507,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 200.584,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 123.659,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 50.123,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 197.341,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 193.949,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 37.062,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 36.126,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 87.539,
+      "one_way": false
+     }
+    },
+    "asia-northeast3-a": {
+     "us-west2-a": {
+      "ms": 127.298,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 264.326,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 128.204,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 33.033,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 200.207,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 235.406,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 67.959,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 36.126,
+      "one_way": false
+     },
+     "asia-south1-c": {
+      "ms": 124.201,
+      "one_way": false
+     }
+    },
+    "asia-south1-c": {
+     "us-west2-a": {
+      "ms": 222.845,
+      "one_way": false
+     },
+     "europe-west2-b": {
+      "ms": 153.847,
+      "one_way": false
+     },
+     "australia-southeast1-c": {
+      "ms": 208.758,
+      "one_way": false
+     },
+     "asia-northeast1-b": {
+      "ms": 144.893,
+      "one_way": false
+     },
+     "northamerica-northeast1-b": {
+      "ms": 230.021,
+      "one_way": false
+     },
+     "europe-west4-a": {
+      "ms": 145.059,
+      "one_way": false
+     },
+     "asia-southeast1-b": {
+      "ms": 56.197,
+      "one_way": false
+     },
+     "asia-east2-a": {
+      "ms": 87.539,
+      "one_way": false
+     },
+     "asia-northeast3-a": {
+      "ms": 124.201,
+      "one_way": false
+     }
+    }
+   }
+  },
+  "kth_nearest": {
+   "us-west2-a": {
+    "sorted": [
+     [
+      "northamerica-northeast1-b",
+      75.214,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      101.112,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      127.933,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      137.718,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      139.019,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      144.014,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      149.478,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      169.319,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      218.909,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "australia-southeast1-c",
+     139.019
+    ],
+    "k6": [
+     "asia-east2-a",
+     144.014
+    ]
+   },
+   "europe-west2-b": {
+    "sorted": [
+     [
+      "europe-west4-a",
+      10.723,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      78.936,
+      ""
+     ],
+     [
+      "us-west2-a",
+      137.718,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      149.308,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      168.678,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      204.694,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      237.623,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      265.413,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      276.149,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "asia-southeast1-b",
+     168.678
+    ],
+    "k6": [
+     "asia-east2-a",
+     204.694
+    ]
+   },
+   "australia-southeast1-c": {
+    "sorted": [
+     [
+      "asia-northeast1-b",
+      106.873,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      122.332,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      128.259,
+      ""
+     ],
+     [
+      "us-west2-a",
+      139.019,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      151.363,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      208.647,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      213.351,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      276.149,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      320.562,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "asia-southeast1-b",
+     151.363
+    ],
+    "k6": [
+     "asia-south1-c",
+     208.647
+    ]
+   },
+   "asia-northeast1-b": {
+    "sorted": [
+     [
+      "asia-northeast3-a",
+      33.566,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      50.319,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      75.188,
+      ""
+     ],
+     [
+      "us-west2-a",
+      101.112,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      106.873,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      133.572,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      175.385,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      237.623,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      249.834,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "australia-southeast1-c",
+     106.873
+    ],
+    "k6": [
+     "asia-south1-c",
+     133.572
+    ]
+   },
+   "northamerica-northeast1-b": {
+    "sorted": [
+     [
+      "us-west2-a",
+      75.214,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      78.936,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      86.576,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      175.385,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      198.918,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      201.517,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      213.351,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      224.998,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      233.254,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "asia-east2-a",
+     198.918
+    ],
+    "k6": [
+     "asia-northeast3-a",
+     201.517
+    ]
+   },
+   "europe-west4-a": {
+    "sorted": [
+     [
+      "europe-west2-b",
+      10.723,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      86.576,
+      ""
+     ],
+     [
+      "us-west2-a",
+      149.478,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      151.469,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      166.177,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      195.832,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      228.097,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      249.834,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      320.562,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "asia-southeast1-b",
+     166.177
+    ],
+    "k6": [
+     "asia-east2-a",
+     195.832
+    ]
+   },
+   "asia-southeast1-b": {
+    "sorted": [
+     [
+      "asia-east2-a",
+      32.981,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      62.091,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      69.353,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      75.188,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      151.363,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      166.177,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      168.678,
+      ""
+     ],
+     [
+      "us-west2-a",
+      169.319,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      233.254,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "australia-southeast1-c",
+     151.363
+    ],
+    "k6": [
+     "europe-west4-a",
+     166.177
+    ]
+   },
+   "asia-east2-a": {
+    "sorted": [
+     [
+      "asia-southeast1-b",
+      32.981,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      37.017,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      50.319,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      87.791,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      122.332,
+      ""
+     ],
+     [
+      "us-west2-a",
+      144.014,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      195.832,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      198.918,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      204.694,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "australia-southeast1-c",
+     122.332
+    ],
+    "k6": [
+     "us-west2-a",
+     144.014
+    ]
+   },
+   "asia-northeast3-a": {
+    "sorted": [
+     [
+      "asia-northeast1-b",
+      33.566,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      37.017,
+      ""
+     ],
+     [
+      "asia-southeast1-b",
+      69.353,
+      ""
+     ],
+     [
+      "asia-south1-c",
+      122.571,
+      ""
+     ],
+     [
+      "us-west2-a",
+      127.933,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      128.259,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      201.517,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      228.097,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      265.413,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "us-west2-a",
+     127.933
+    ],
+    "k6": [
+     "australia-southeast1-c",
+     128.259
+    ]
+   },
+   "asia-south1-c": {
+    "sorted": [
+     [
+      "asia-southeast1-b",
+      62.091,
+      ""
+     ],
+     [
+      "asia-east2-a",
+      87.791,
+      ""
+     ],
+     [
+      "asia-northeast3-a",
+      122.571,
+      ""
+     ],
+     [
+      "asia-northeast1-b",
+      133.572,
+      ""
+     ],
+     [
+      "europe-west2-b",
+      149.308,
+      ""
+     ],
+     [
+      "europe-west4-a",
+      151.469,
+      ""
+     ],
+     [
+      "australia-southeast1-c",
+      208.647,
+      ""
+     ],
+     [
+      "us-west2-a",
+      218.909,
+      ""
+     ],
+     [
+      "northamerica-northeast1-b",
+      224.998,
+      ""
+     ]
+    ],
+    "unreachable": [],
+    "k5": [
+     "europe-west2-b",
+     149.308
+    ],
+    "k6": [
+     "europe-west4-a",
+     151.469
+    ]
+   }
+  },
+  "via_zone": "us-west2-a",
+  "vs_internal": [
+   {
+    "src": "us-west2-a",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 137.042,
+    "external_udp_ms": 138.125,
+    "delta_ms": 1.083,
+    "ratio": 1.008,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 137.934,
+    "external_udp_ms": 139.062,
+    "delta_ms": 1.128,
+    "ratio": 1.008,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 100.483,
+    "external_udp_ms": 101.327,
+    "delta_ms": 0.844,
+    "ratio": 1.008,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 74.227,
+    "external_udp_ms": 73.931,
+    "delta_ms": -0.296,
+    "ratio": 0.996,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 149.071,
+    "external_udp_ms": 149.471,
+    "delta_ms": 0.4,
+    "ratio": 1.003,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 163.998,
+    "external_udp_ms": 168.841,
+    "delta_ms": 4.843,
+    "ratio": 1.03,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 142.958,
+    "external_udp_ms": 143.942,
+    "delta_ms": 0.984,
+    "ratio": 1.007,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 127.07,
+    "external_udp_ms": 128.082,
+    "delta_ms": 1.012,
+    "ratio": 1.008,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "us-west2-a",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 220.808,
+    "external_udp_ms": 218.182,
+    "delta_ms": -2.626,
+    "ratio": 0.988,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 137.478,
+    "external_udp_ms": 137.31,
+    "delta_ms": -0.168,
+    "ratio": 0.999,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 275.416,
+    "external_udp_ms": 276.024,
+    "delta_ms": 0.608,
+    "ratio": 1.002,
+    "via_zone": "us-west2-a",
+    "via_ms": 276.736,
+    "external_minus_via_ms": -0.712,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 257.021,
+    "external_udp_ms": 238.896,
+    "delta_ms": -18.125,
+    "ratio": 0.929,
+    "via_zone": "us-west2-a",
+    "via_ms": 238.829,
+    "external_minus_via_ms": 0.067,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 93.423,
+    "external_udp_ms": 79.159,
+    "delta_ms": -14.264,
+    "ratio": 0.847,
+    "via_zone": "us-west2-a",
+    "via_ms": 212.931,
+    "external_minus_via_ms": -133.772,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 12.108,
+    "external_udp_ms": 10.739,
+    "delta_ms": -1.369,
+    "ratio": 0.887,
+    "via_zone": "us-west2-a",
+    "via_ms": 287.196,
+    "external_minus_via_ms": -276.457,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 166.183,
+    "external_udp_ms": 169.167,
+    "delta_ms": 2.984,
+    "ratio": 1.018,
+    "via_zone": "us-west2-a",
+    "via_ms": 307.036,
+    "external_minus_via_ms": -137.869,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 198.872,
+    "external_udp_ms": 202.14,
+    "delta_ms": 3.268,
+    "ratio": 1.016,
+    "via_zone": "us-west2-a",
+    "via_ms": 281.732,
+    "external_minus_via_ms": -79.592,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 261.841,
+    "external_udp_ms": 265.215,
+    "delta_ms": 3.374,
+    "ratio": 1.013,
+    "via_zone": "us-west2-a",
+    "via_ms": 265.651,
+    "external_minus_via_ms": -0.436,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west2-b",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 144.62,
+    "external_udp_ms": 154.294,
+    "delta_ms": 9.674,
+    "ratio": 1.067,
+    "via_zone": "us-west2-a",
+    "via_ms": 356.627,
+    "external_minus_via_ms": -202.333,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 137.944,
+    "external_udp_ms": 138.975,
+    "delta_ms": 1.031,
+    "ratio": 1.007,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 300.333,
+    "external_udp_ms": 276.273,
+    "delta_ms": -24.06,
+    "ratio": 0.92,
+    "via_zone": "us-west2-a",
+    "via_ms": 276.736,
+    "external_minus_via_ms": -0.463,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 108.533,
+    "external_udp_ms": 105.441,
+    "delta_ms": -3.092,
+    "ratio": 0.972,
+    "via_zone": "us-west2-a",
+    "via_ms": 240.13,
+    "external_minus_via_ms": -134.689,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 220.935,
+    "external_udp_ms": 213.839,
+    "delta_ms": -7.096,
+    "ratio": 0.968,
+    "via_zone": "us-west2-a",
+    "via_ms": 214.233,
+    "external_minus_via_ms": -0.394,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 311.743,
+    "external_udp_ms": 313.113,
+    "delta_ms": 1.37,
+    "ratio": 1.004,
+    "via_zone": "us-west2-a",
+    "via_ms": 288.497,
+    "external_minus_via_ms": 24.616,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 182.403,
+    "external_udp_ms": 151.424,
+    "delta_ms": -30.979,
+    "ratio": 0.83,
+    "via_zone": "us-west2-a",
+    "via_ms": 308.337,
+    "external_minus_via_ms": -156.913,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 151.56,
+    "external_udp_ms": 122.374,
+    "delta_ms": -29.186,
+    "ratio": 0.807,
+    "via_zone": "us-west2-a",
+    "via_ms": 283.033,
+    "external_minus_via_ms": -160.659,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 127.919,
+    "external_udp_ms": 128.273,
+    "delta_ms": 0.354,
+    "ratio": 1.003,
+    "via_zone": "us-west2-a",
+    "via_ms": 266.952,
+    "external_minus_via_ms": -138.679,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "australia-southeast1-c",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 240.776,
+    "external_udp_ms": 208.454,
+    "delta_ms": -32.322,
+    "ratio": 0.866,
+    "via_zone": "us-west2-a",
+    "via_ms": 357.928,
+    "external_minus_via_ms": -149.474,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 100.679,
+    "external_udp_ms": 100.896,
+    "delta_ms": 0.217,
+    "ratio": 1.002,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 250.334,
+    "external_udp_ms": 236.351,
+    "delta_ms": -13.983,
+    "ratio": 0.944,
+    "via_zone": "us-west2-a",
+    "via_ms": 238.829,
+    "external_minus_via_ms": -2.478,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 114.344,
+    "external_udp_ms": 108.304,
+    "delta_ms": -6.04,
+    "ratio": 0.947,
+    "via_zone": "us-west2-a",
+    "via_ms": 240.13,
+    "external_minus_via_ms": -131.826,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 163.138,
+    "external_udp_ms": 175.987,
+    "delta_ms": 12.849,
+    "ratio": 1.079,
+    "via_zone": "us-west2-a",
+    "via_ms": 176.326,
+    "external_minus_via_ms": -0.339,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 260.606,
+    "external_udp_ms": 250.159,
+    "delta_ms": -10.447,
+    "ratio": 0.96,
+    "via_zone": "us-west2-a",
+    "via_ms": 250.59,
+    "external_minus_via_ms": -0.431,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 67.013,
+    "external_udp_ms": 75.4,
+    "delta_ms": 8.387,
+    "ratio": 1.125,
+    "via_zone": "us-west2-a",
+    "via_ms": 270.43,
+    "external_minus_via_ms": -195.03,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 56.701,
+    "external_udp_ms": 50.227,
+    "delta_ms": -6.474,
+    "ratio": 0.886,
+    "via_zone": "us-west2-a",
+    "via_ms": 245.126,
+    "external_minus_via_ms": -194.899,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 32.824,
+    "external_udp_ms": 33.374,
+    "delta_ms": 0.55,
+    "ratio": 1.017,
+    "via_zone": "us-west2-a",
+    "via_ms": 229.045,
+    "external_minus_via_ms": -195.671,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast1-b",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 124.664,
+    "external_udp_ms": 132.62,
+    "delta_ms": 7.956,
+    "ratio": 1.064,
+    "via_zone": "us-west2-a",
+    "via_ms": 320.021,
+    "external_minus_via_ms": -187.401,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 74.894,
+    "external_udp_ms": 76.497,
+    "delta_ms": 1.603,
+    "ratio": 1.021,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 107.202,
+    "external_udp_ms": 78.714,
+    "delta_ms": -28.488,
+    "ratio": 0.734,
+    "via_zone": "us-west2-a",
+    "via_ms": 212.931,
+    "external_minus_via_ms": -134.218,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 246.091,
+    "external_udp_ms": 212.863,
+    "delta_ms": -33.228,
+    "ratio": 0.865,
+    "via_zone": "us-west2-a",
+    "via_ms": 214.233,
+    "external_minus_via_ms": -1.37,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 170.303,
+    "external_udp_ms": 174.782,
+    "delta_ms": 4.479,
+    "ratio": 1.026,
+    "via_zone": "us-west2-a",
+    "via_ms": 176.326,
+    "external_minus_via_ms": -1.543,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 101.31,
+    "external_udp_ms": 86.567,
+    "delta_ms": -14.743,
+    "ratio": 0.854,
+    "via_zone": "us-west2-a",
+    "via_ms": 224.692,
+    "external_minus_via_ms": -138.125,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 254.036,
+    "external_udp_ms": 233.913,
+    "delta_ms": -20.123,
+    "ratio": 0.921,
+    "via_zone": "us-west2-a",
+    "via_ms": 244.532,
+    "external_minus_via_ms": -10.619,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 224.621,
+    "external_udp_ms": 198.818,
+    "delta_ms": -25.803,
+    "ratio": 0.885,
+    "via_zone": "us-west2-a",
+    "via_ms": 219.228,
+    "external_minus_via_ms": -20.41,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 200.349,
+    "external_udp_ms": 201.49,
+    "delta_ms": 1.141,
+    "ratio": 1.006,
+    "via_zone": "us-west2-a",
+    "via_ms": 203.147,
+    "external_minus_via_ms": -1.657,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "northamerica-northeast1-b",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 219.625,
+    "external_udp_ms": 229.902,
+    "delta_ms": 10.277,
+    "ratio": 1.047,
+    "via_zone": "us-west2-a",
+    "via_ms": 294.123,
+    "external_minus_via_ms": -64.221,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 149.338,
+    "external_udp_ms": 149.486,
+    "delta_ms": 0.148,
+    "ratio": 1.001,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 9.616,
+    "external_udp_ms": 10.707,
+    "delta_ms": 1.091,
+    "ratio": 1.113,
+    "via_zone": "us-west2-a",
+    "via_ms": 287.196,
+    "external_minus_via_ms": -276.489,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 313.145,
+    "external_udp_ms": 328.011,
+    "delta_ms": 14.866,
+    "ratio": 1.047,
+    "via_zone": "us-west2-a",
+    "via_ms": 288.497,
+    "external_minus_via_ms": 39.514,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 258.101,
+    "external_udp_ms": 249.51,
+    "delta_ms": -8.591,
+    "ratio": 0.967,
+    "via_zone": "us-west2-a",
+    "via_ms": 250.59,
+    "external_minus_via_ms": -1.08,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 101.334,
+    "external_udp_ms": 86.586,
+    "delta_ms": -14.748,
+    "ratio": 0.854,
+    "via_zone": "us-west2-a",
+    "via_ms": 224.692,
+    "external_minus_via_ms": -138.106,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 161.643,
+    "external_udp_ms": 167.347,
+    "delta_ms": 5.704,
+    "ratio": 1.035,
+    "via_zone": "us-west2-a",
+    "via_ms": 318.797,
+    "external_minus_via_ms": -151.45,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 199.375,
+    "external_udp_ms": 196.254,
+    "delta_ms": -3.121,
+    "ratio": 0.984,
+    "via_zone": "us-west2-a",
+    "via_ms": 293.493,
+    "external_minus_via_ms": -97.239,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 230.089,
+    "external_udp_ms": 226.997,
+    "delta_ms": -3.092,
+    "ratio": 0.987,
+    "via_zone": "us-west2-a",
+    "via_ms": 277.412,
+    "external_minus_via_ms": -50.415,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "europe-west4-a",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 148.339,
+    "external_udp_ms": 155.955,
+    "delta_ms": 7.616,
+    "ratio": 1.051,
+    "via_zone": "us-west2-a",
+    "via_ms": 368.388,
+    "external_minus_via_ms": -212.433,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 167.57,
+    "external_udp_ms": 169.796,
+    "delta_ms": 2.226,
+    "ratio": 1.013,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 168.626,
+    "external_udp_ms": 168.188,
+    "delta_ms": -0.438,
+    "ratio": 0.997,
+    "via_zone": "us-west2-a",
+    "via_ms": 307.036,
+    "external_minus_via_ms": -138.848,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 149.072,
+    "external_udp_ms": 151.301,
+    "delta_ms": 2.229,
+    "ratio": 1.015,
+    "via_zone": "us-west2-a",
+    "via_ms": 308.337,
+    "external_minus_via_ms": -157.036,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 66.466,
+    "external_udp_ms": 74.976,
+    "delta_ms": 8.51,
+    "ratio": 1.128,
+    "via_zone": "us-west2-a",
+    "via_ms": 270.43,
+    "external_minus_via_ms": -195.454,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 254.549,
+    "external_udp_ms": 232.595,
+    "delta_ms": -21.954,
+    "ratio": 0.914,
+    "via_zone": "us-west2-a",
+    "via_ms": 244.532,
+    "external_minus_via_ms": -11.938,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 164.309,
+    "external_udp_ms": 165.006,
+    "delta_ms": 0.697,
+    "ratio": 1.004,
+    "via_zone": "us-west2-a",
+    "via_ms": 318.797,
+    "external_minus_via_ms": -153.791,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 30.783,
+    "external_udp_ms": 32.078,
+    "delta_ms": 1.295,
+    "ratio": 1.042,
+    "via_zone": "us-west2-a",
+    "via_ms": 313.333,
+    "external_minus_via_ms": -281.255,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 69.828,
+    "external_udp_ms": 68.643,
+    "delta_ms": -1.185,
+    "ratio": 0.983,
+    "via_zone": "us-west2-a",
+    "via_ms": 297.252,
+    "external_minus_via_ms": -228.609,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-southeast1-b",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 57.555,
+    "external_udp_ms": 62.192,
+    "delta_ms": 4.637,
+    "ratio": 1.081,
+    "via_zone": "us-west2-a",
+    "via_ms": 388.228,
+    "external_minus_via_ms": -326.036,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 143.319,
+    "external_udp_ms": 144.087,
+    "delta_ms": 0.768,
+    "ratio": 1.005,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 201.933,
+    "external_udp_ms": 207.248,
+    "delta_ms": 5.315,
+    "ratio": 1.026,
+    "via_zone": "us-west2-a",
+    "via_ms": 281.732,
+    "external_minus_via_ms": -74.484,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 151.513,
+    "external_udp_ms": 122.291,
+    "delta_ms": -29.222,
+    "ratio": 0.807,
+    "via_zone": "us-west2-a",
+    "via_ms": 283.033,
+    "external_minus_via_ms": -160.742,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 59.062,
+    "external_udp_ms": 50.41,
+    "delta_ms": -8.652,
+    "ratio": 0.854,
+    "via_zone": "us-west2-a",
+    "via_ms": 245.126,
+    "external_minus_via_ms": -194.716,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 224.903,
+    "external_udp_ms": 199.018,
+    "delta_ms": -25.885,
+    "ratio": 0.885,
+    "via_zone": "us-west2-a",
+    "via_ms": 219.228,
+    "external_minus_via_ms": -20.21,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 196.32,
+    "external_udp_ms": 195.411,
+    "delta_ms": -0.909,
+    "ratio": 0.995,
+    "via_zone": "us-west2-a",
+    "via_ms": 293.493,
+    "external_minus_via_ms": -98.082,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 30.724,
+    "external_udp_ms": 33.885,
+    "delta_ms": 3.161,
+    "ratio": 1.103,
+    "via_zone": "us-west2-a",
+    "via_ms": 313.333,
+    "external_minus_via_ms": -279.448,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 36.305,
+    "external_udp_ms": 36.059,
+    "delta_ms": -0.246,
+    "ratio": 0.993,
+    "via_zone": "us-west2-a",
+    "via_ms": 271.948,
+    "external_minus_via_ms": -235.889,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-east2-a",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 87.782,
+    "external_udp_ms": 87.474,
+    "delta_ms": -0.308,
+    "ratio": 0.996,
+    "via_zone": "us-west2-a",
+    "via_ms": 362.924,
+    "external_minus_via_ms": -275.45,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 126.983,
+    "external_udp_ms": 127.785,
+    "delta_ms": 0.802,
+    "ratio": 1.006,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 263.383,
+    "external_udp_ms": 265.61,
+    "delta_ms": 2.227,
+    "ratio": 1.008,
+    "via_zone": "us-west2-a",
+    "via_ms": 265.651,
+    "external_minus_via_ms": -0.041,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 127.481,
+    "external_udp_ms": 128.245,
+    "delta_ms": 0.764,
+    "ratio": 1.006,
+    "via_zone": "us-west2-a",
+    "via_ms": 266.952,
+    "external_minus_via_ms": -138.707,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 33.158,
+    "external_udp_ms": 33.757,
+    "delta_ms": 0.599,
+    "ratio": 1.018,
+    "via_zone": "us-west2-a",
+    "via_ms": 229.045,
+    "external_minus_via_ms": -195.288,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 200.709,
+    "external_udp_ms": 201.544,
+    "delta_ms": 0.835,
+    "ratio": 1.004,
+    "via_zone": "us-west2-a",
+    "via_ms": 203.147,
+    "external_minus_via_ms": -1.603,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 232.664,
+    "external_udp_ms": 229.197,
+    "delta_ms": -3.467,
+    "ratio": 0.985,
+    "via_zone": "us-west2-a",
+    "via_ms": 277.412,
+    "external_minus_via_ms": -48.215,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 71.374,
+    "external_udp_ms": 70.064,
+    "delta_ms": -1.31,
+    "ratio": 0.982,
+    "via_zone": "us-west2-a",
+    "via_ms": 297.252,
+    "external_minus_via_ms": -227.188,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 37.489,
+    "external_udp_ms": 37.976,
+    "delta_ms": 0.487,
+    "ratio": 1.013,
+    "via_zone": "us-west2-a",
+    "via_ms": 271.948,
+    "external_minus_via_ms": -233.972,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-northeast3-a",
+    "dst": "asia-south1-c",
+    "internal_udp_ms": 121.021,
+    "external_udp_ms": 122.68,
+    "delta_ms": 1.659,
+    "ratio": 1.014,
+    "via_zone": "us-west2-a",
+    "via_ms": 346.843,
+    "external_minus_via_ms": -224.163,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "us-west2-a",
+    "internal_udp_ms": 222.846,
+    "external_udp_ms": 219.637,
+    "delta_ms": -3.209,
+    "ratio": 0.986,
+    "via_zone": "us-west2-a",
+    "via_ms": null,
+    "external_minus_via_ms": null,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "europe-west2-b",
+    "internal_udp_ms": 140.777,
+    "external_udp_ms": 144.322,
+    "delta_ms": 3.545,
+    "ratio": 1.025,
+    "via_zone": "us-west2-a",
+    "via_ms": 356.627,
+    "external_minus_via_ms": -212.305,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "australia-southeast1-c",
+    "internal_udp_ms": 241.478,
+    "external_udp_ms": 208.839,
+    "delta_ms": -32.639,
+    "ratio": 0.865,
+    "via_zone": "us-west2-a",
+    "via_ms": 357.928,
+    "external_minus_via_ms": -149.089,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "asia-northeast1-b",
+    "internal_udp_ms": 123.293,
+    "external_udp_ms": 134.525,
+    "delta_ms": 11.232,
+    "ratio": 1.091,
+    "via_zone": "us-west2-a",
+    "via_ms": 320.021,
+    "external_minus_via_ms": -185.496,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "northamerica-northeast1-b",
+    "internal_udp_ms": 229.608,
+    "external_udp_ms": 220.093,
+    "delta_ms": -9.515,
+    "ratio": 0.959,
+    "via_zone": "us-west2-a",
+    "via_ms": 294.123,
+    "external_minus_via_ms": -74.03,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "europe-west4-a",
+    "internal_udp_ms": 146.092,
+    "external_udp_ms": 146.983,
+    "delta_ms": 0.891,
+    "ratio": 1.006,
+    "via_zone": "us-west2-a",
+    "via_ms": 368.388,
+    "external_minus_via_ms": -221.405,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "asia-southeast1-b",
+    "internal_udp_ms": 57.585,
+    "external_udp_ms": 61.99,
+    "delta_ms": 4.405,
+    "ratio": 1.076,
+    "via_zone": "us-west2-a",
+    "via_ms": 388.228,
+    "external_minus_via_ms": -326.238,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "asia-east2-a",
+    "internal_udp_ms": 85.688,
+    "external_udp_ms": 88.108,
+    "delta_ms": 2.42,
+    "ratio": 1.028,
+    "via_zone": "us-west2-a",
+    "via_ms": 362.924,
+    "external_minus_via_ms": -274.816,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   },
+   {
+    "src": "asia-south1-c",
+    "dst": "asia-northeast3-a",
+    "internal_udp_ms": 122.954,
+    "external_udp_ms": 122.461,
+    "delta_ms": -0.493,
+    "ratio": 0.996,
+    "via_zone": "us-west2-a",
+    "via_ms": 346.843,
+    "external_minus_via_ms": -224.382,
+    "internal_loss_pct": 0.0,
+    "external_loss_pct": 0.0,
+    "flags": []
+   }
+  ],
+  "flags": []
+ },
+ "matrices": {
+  "udp": {
+   "us-west2-a": {
+    "europe-west2-b": {
+     "ms": 137.26,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 137.939,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 100.581,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 74.561,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 149.204,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 165.784,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 143.138,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 127.026,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 221.827,
+     "one_way": false
+    }
+   },
+   "europe-west2-b": {
+    "us-west2-a": {
+     "ms": 137.26,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 287.875,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 253.678,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 100.312,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 10.862,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 167.404,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 200.403,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 262.612,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 142.698,
+     "one_way": false
+    }
+   },
+   "australia-southeast1-c": {
+    "us-west2-a": {
+     "ms": 137.939,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 287.875,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 111.439,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 233.513,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 312.444,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 165.738,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 151.536,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 127.7,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 241.127,
+     "one_way": false
+    }
+   },
+   "asia-northeast1-b": {
+    "us-west2-a": {
+     "ms": 100.581,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 253.678,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 111.439,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 166.721,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 259.353,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 66.739,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 57.882,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 32.991,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 123.978,
+     "one_way": false
+    }
+   },
+   "northamerica-northeast1-b": {
+    "us-west2-a": {
+     "ms": 74.561,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 100.312,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 233.513,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 166.721,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 101.322,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 254.293,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 224.762,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 200.529,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 224.617,
+     "one_way": false
+    }
+   },
+   "europe-west4-a": {
+    "us-west2-a": {
+     "ms": 149.204,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 10.862,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 312.444,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 259.353,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 101.322,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 162.976,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 197.847,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 231.376,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 147.216,
+     "one_way": false
+    }
+   },
+   "asia-southeast1-b": {
+    "us-west2-a": {
+     "ms": 165.784,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 167.404,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 165.738,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 66.739,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 254.293,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 162.976,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 30.754,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 70.601,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 57.57,
+     "one_way": false
+    }
+   },
+   "asia-east2-a": {
+    "us-west2-a": {
+     "ms": 143.138,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 200.403,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 151.536,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 57.882,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 224.762,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 197.847,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 30.754,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 36.897,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 86.735,
+     "one_way": false
+    }
+   },
+   "asia-northeast3-a": {
+    "us-west2-a": {
+     "ms": 127.026,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 262.612,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 127.7,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 32.991,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 200.529,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 231.376,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 70.601,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 36.897,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 121.987,
+     "one_way": false
+    }
+   },
+   "asia-south1-c": {
+    "us-west2-a": {
+     "ms": 221.827,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 142.698,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 241.127,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 123.978,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 224.617,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 147.216,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 57.57,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 86.735,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 121.987,
+     "one_way": false
+    }
+   }
+  },
+  "tcp": {
+   "us-west2-a": {
+    "europe-west2-b": {
+     "ms": 137.231,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 138.01,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 100.494,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 74.438,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 149.642,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 166.037,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 143.228,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 126.547,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 221.752,
+     "one_way": false
+    }
+   },
+   "europe-west2-b": {
+    "us-west2-a": {
+     "ms": 137.231,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 287.606,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 255.334,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 100.216,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 11.571,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 167.399,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 201.701,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 263.178,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 141.917,
+     "one_way": false
+    }
+   },
+   "australia-southeast1-c": {
+    "us-west2-a": {
+     "ms": 138.01,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 287.606,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 114.035,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 220.699,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 316.307,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 165.861,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 145.495,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 127.549,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 222.282,
+     "one_way": false
+    }
+   },
+   "asia-northeast1-b": {
+    "us-west2-a": {
+     "ms": 100.494,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 255.334,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 114.035,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 164.94,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 260.02,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 66.423,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 56.76,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 32.718,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 122.737,
+     "one_way": false
+    }
+   },
+   "northamerica-northeast1-b": {
+    "us-west2-a": {
+     "ms": 74.438,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 100.216,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 220.699,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 164.94,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 97.347,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 250.88,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 224.655,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 200.498,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 228.88,
+     "one_way": false
+    }
+   },
+   "europe-west4-a": {
+    "us-west2-a": {
+     "ms": 149.642,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 11.571,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 316.307,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 260.02,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 97.347,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 161.748,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 195.825,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 230.793,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 149.934,
+     "one_way": false
+    }
+   },
+   "asia-southeast1-b": {
+    "us-west2-a": {
+     "ms": 166.037,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 167.399,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 165.861,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 66.423,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 250.88,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 161.748,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 30.709,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 70.094,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 57.519,
+     "one_way": false
+    }
+   },
+   "asia-east2-a": {
+    "us-west2-a": {
+     "ms": 143.228,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 201.701,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 145.495,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 56.76,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 224.655,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 195.825,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 30.709,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 35.867,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 86.38,
+     "one_way": false
+    }
+   },
+   "asia-northeast3-a": {
+    "us-west2-a": {
+     "ms": 126.547,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 263.178,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 127.549,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 32.718,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 200.498,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 230.793,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 70.094,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 35.867,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 121.061,
+     "one_way": false
+    }
+   },
+   "asia-south1-c": {
+    "us-west2-a": {
+     "ms": 221.752,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 141.917,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 222.282,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 122.737,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 228.88,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 149.934,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 57.519,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 86.38,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 121.061,
+     "one_way": false
+    }
+   }
+  },
+  "icmp": {
+   "us-west2-a": {
+    "europe-west2-b": {
+     "ms": 139.119,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 138.315,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 100.923,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 75.062,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 150.119,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 167.468,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 143.161,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 126.4,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 223.914,
+     "one_way": false
+    }
+   },
+   "europe-west2-b": {
+    "us-west2-a": {
+     "ms": 139.119,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 284.707,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 241.623,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 91.533,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 11.893,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 168.45,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 201.301,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 262.527,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 153.82,
+     "one_way": false
+    }
+   },
+   "australia-southeast1-c": {
+    "us-west2-a": {
+     "ms": 138.315,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 284.707,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 110.041,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 221.266,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 318.089,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 160.839,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 137.007,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 126.841,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 226.096,
+     "one_way": false
+    }
+   },
+   "asia-northeast1-b": {
+    "us-west2-a": {
+     "ms": 100.923,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 241.623,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 110.041,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 169.968,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 255.09,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 70.24,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 54.532,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 32.849,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 127.708,
+     "one_way": false
+    }
+   },
+   "northamerica-northeast1-b": {
+    "us-west2-a": {
+     "ms": 75.062,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 91.533,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 221.266,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 169.968,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 93.508,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 248.236,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 218.9,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 200.456,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 228.967,
+     "one_way": false
+    }
+   },
+   "europe-west4-a": {
+    "us-west2-a": {
+     "ms": 150.119,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 11.893,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 318.089,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 255.09,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 93.508,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 163.49,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 194.513,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 232.662,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 155.278,
+     "one_way": false
+    }
+   },
+   "asia-southeast1-b": {
+    "us-west2-a": {
+     "ms": 167.468,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 168.45,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 160.839,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 70.24,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 248.236,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 163.49,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 34.188,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 71.855,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 59.383,
+     "one_way": false
+    }
+   },
+   "asia-east2-a": {
+    "us-west2-a": {
+     "ms": 143.161,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 201.301,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 137.007,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 54.532,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 218.9,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 194.513,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 34.188,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 35.371,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 86.358,
+     "one_way": false
+    }
+   },
+   "asia-northeast3-a": {
+    "us-west2-a": {
+     "ms": 126.4,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 262.527,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 126.841,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 32.849,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 200.456,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 232.662,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 71.855,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 35.371,
+     "one_way": false
+    },
+    "asia-south1-c": {
+     "ms": 120.959,
+     "one_way": false
+    }
+   },
+   "asia-south1-c": {
+    "us-west2-a": {
+     "ms": 223.914,
+     "one_way": false
+    },
+    "europe-west2-b": {
+     "ms": 153.82,
+     "one_way": false
+    },
+    "australia-southeast1-c": {
+     "ms": 226.096,
+     "one_way": false
+    },
+    "asia-northeast1-b": {
+     "ms": 127.708,
+     "one_way": false
+    },
+    "northamerica-northeast1-b": {
+     "ms": 228.967,
+     "one_way": false
+    },
+    "europe-west4-a": {
+     "ms": 155.278,
+     "one_way": false
+    },
+    "asia-southeast1-b": {
+     "ms": 59.383,
+     "one_way": false
+    },
+    "asia-east2-a": {
+     "ms": 86.358,
+     "one_way": false
+    },
+    "asia-northeast3-a": {
+     "ms": 120.959,
+     "one_way": false
+    }
+   }
+  }
+ },
+ "pairs": [
+  {
+   "a": "us-west2-a",
+   "b": "europe-west2-b",
+   "udp_ms": 137.26,
+   "tcp_ms": 137.231,
+   "icmp_ms": 139.119,
+   "udp_ab_ms": 137.042,
+   "udp_ba_ms": 137.478,
+   "udp_p95_ms": 137.687,
+   "tcp_min_ms": 135.887,
+   "tcp_max_ms": 139.501,
+   "delta_ms": 0.029,
+   "delta_pct": 0.02,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "australia-southeast1-c",
+   "udp_ms": 137.939,
+   "tcp_ms": 138.01,
+   "icmp_ms": 138.315,
+   "udp_ab_ms": 137.934,
+   "udp_ba_ms": 137.944,
+   "udp_p95_ms": 138.227,
+   "tcp_min_ms": 137.276,
+   "tcp_max_ms": 139.726,
+   "delta_ms": -0.071,
+   "delta_pct": -0.05,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "asia-northeast1-b",
+   "udp_ms": 100.581,
+   "tcp_ms": 100.494,
+   "icmp_ms": 100.923,
+   "udp_ab_ms": 100.483,
+   "udp_ba_ms": 100.679,
+   "udp_p95_ms": 101.178,
+   "tcp_min_ms": 99.857,
+   "tcp_max_ms": 101.737,
+   "delta_ms": 0.087,
+   "delta_pct": 0.09,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "northamerica-northeast1-b",
+   "udp_ms": 74.561,
+   "tcp_ms": 74.438,
+   "icmp_ms": 75.062,
+   "udp_ab_ms": 74.227,
+   "udp_ba_ms": 74.894,
+   "udp_p95_ms": 75.123,
+   "tcp_min_ms": 73.094,
+   "tcp_max_ms": 75.725,
+   "delta_ms": 0.123,
+   "delta_pct": 0.16,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "europe-west4-a",
+   "udp_ms": 149.204,
+   "tcp_ms": 149.642,
+   "icmp_ms": 150.119,
+   "udp_ab_ms": 149.071,
+   "udp_ba_ms": 149.338,
+   "udp_p95_ms": 149.526,
+   "tcp_min_ms": 148.896,
+   "tcp_max_ms": 151.247,
+   "delta_ms": -0.438,
+   "delta_pct": -0.29,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "asia-southeast1-b",
+   "udp_ms": 165.784,
+   "tcp_ms": 166.037,
+   "icmp_ms": 167.468,
+   "udp_ab_ms": 163.998,
+   "udp_ba_ms": 167.57,
+   "udp_p95_ms": 182.051,
+   "tcp_min_ms": 163.435,
+   "tcp_max_ms": 1268.308,
+   "delta_ms": -0.254,
+   "delta_pct": -0.15,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "asia-east2-a",
+   "udp_ms": 143.138,
+   "tcp_ms": 143.228,
+   "icmp_ms": 143.161,
+   "udp_ab_ms": 142.958,
+   "udp_ba_ms": 143.319,
+   "udp_p95_ms": 143.586,
+   "tcp_min_ms": 142.804,
+   "tcp_max_ms": 144.816,
+   "delta_ms": -0.09,
+   "delta_pct": -0.06,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "asia-northeast3-a",
+   "udp_ms": 127.026,
+   "tcp_ms": 126.547,
+   "icmp_ms": 126.4,
+   "udp_ab_ms": 127.07,
+   "udp_ba_ms": 126.983,
+   "udp_p95_ms": 127.303,
+   "tcp_min_ms": 126.254,
+   "tcp_max_ms": 127.999,
+   "delta_ms": 0.479,
+   "delta_pct": 0.38,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "us-west2-a",
+   "b": "asia-south1-c",
+   "udp_ms": 221.827,
+   "tcp_ms": 221.752,
+   "icmp_ms": 223.914,
+   "udp_ab_ms": 220.808,
+   "udp_ba_ms": 222.846,
+   "udp_p95_ms": 223.089,
+   "tcp_min_ms": 214.849,
+   "tcp_max_ms": 228.755,
+   "delta_ms": 0.075,
+   "delta_pct": 0.03,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "australia-southeast1-c",
+   "udp_ms": 287.875,
+   "tcp_ms": 287.606,
+   "icmp_ms": 284.707,
+   "udp_ab_ms": 275.416,
+   "udp_ba_ms": 300.333,
+   "udp_p95_ms": 300.897,
+   "tcp_min_ms": 273.994,
+   "tcp_max_ms": 327.823,
+   "delta_ms": 0.268,
+   "delta_pct": 0.09,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-northeast1-b",
+   "udp_ms": 253.678,
+   "tcp_ms": 255.334,
+   "icmp_ms": 241.623,
+   "udp_ab_ms": 257.021,
+   "udp_ba_ms": 250.334,
+   "udp_p95_ms": 257.33,
+   "tcp_min_ms": 240.836,
+   "tcp_max_ms": 258.924,
+   "delta_ms": -1.657,
+   "delta_pct": -0.65,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "northamerica-northeast1-b",
+   "udp_ms": 100.312,
+   "tcp_ms": 100.216,
+   "icmp_ms": 91.533,
+   "udp_ab_ms": 93.423,
+   "udp_ba_ms": 107.202,
+   "udp_p95_ms": 107.431,
+   "tcp_min_ms": 93.212,
+   "tcp_max_ms": 107.605,
+   "delta_ms": 0.096,
+   "delta_pct": 0.1,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "europe-west4-a",
+   "udp_ms": 10.862,
+   "tcp_ms": 11.571,
+   "icmp_ms": 11.893,
+   "udp_ab_ms": 12.108,
+   "udp_ba_ms": 9.616,
+   "udp_p95_ms": 12.344,
+   "tcp_min_ms": 9.535,
+   "tcp_max_ms": 15.199,
+   "delta_ms": -0.709,
+   "delta_pct": -6.13,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-southeast1-b",
+   "udp_ms": 167.404,
+   "tcp_ms": 167.399,
+   "icmp_ms": 168.45,
+   "udp_ab_ms": 166.183,
+   "udp_ba_ms": 168.626,
+   "udp_p95_ms": 169.034,
+   "tcp_min_ms": 165.529,
+   "tcp_max_ms": 170.179,
+   "delta_ms": 0.006,
+   "delta_pct": 0.0,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-east2-a",
+   "udp_ms": 200.403,
+   "tcp_ms": 201.701,
+   "icmp_ms": 201.301,
+   "udp_ab_ms": 198.872,
+   "udp_ba_ms": 201.933,
+   "udp_p95_ms": 202.127,
+   "tcp_min_ms": 197.092,
+   "tcp_max_ms": 206.046,
+   "delta_ms": -1.298,
+   "delta_pct": -0.64,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-northeast3-a",
+   "udp_ms": 262.612,
+   "tcp_ms": 263.178,
+   "icmp_ms": 262.527,
+   "udp_ab_ms": 261.841,
+   "udp_ba_ms": 263.383,
+   "udp_p95_ms": 263.579,
+   "tcp_min_ms": 260.264,
+   "tcp_max_ms": 265.016,
+   "delta_ms": -0.566,
+   "delta_pct": -0.22,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-south1-c",
+   "udp_ms": 142.698,
+   "tcp_ms": 141.917,
+   "icmp_ms": 153.82,
+   "udp_ab_ms": 144.62,
+   "udp_ba_ms": 140.777,
+   "udp_p95_ms": 144.904,
+   "tcp_min_ms": 140.075,
+   "tcp_max_ms": 153.916,
+   "delta_ms": 0.781,
+   "delta_pct": 0.55,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-northeast1-b",
+   "udp_ms": 111.439,
+   "tcp_ms": 114.035,
+   "icmp_ms": 110.041,
+   "udp_ab_ms": 108.533,
+   "udp_ba_ms": 114.344,
+   "udp_p95_ms": 120.297,
+   "tcp_min_ms": 108.067,
+   "tcp_max_ms": 119.899,
+   "delta_ms": -2.597,
+   "delta_pct": -2.28,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "northamerica-northeast1-b",
+   "udp_ms": 233.513,
+   "tcp_ms": 220.699,
+   "icmp_ms": 221.266,
+   "udp_ab_ms": 220.935,
+   "udp_ba_ms": 246.091,
+   "udp_p95_ms": 246.402,
+   "tcp_min_ms": 194.694,
+   "tcp_max_ms": 246.911,
+   "delta_ms": 12.814,
+   "delta_pct": 5.81,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "europe-west4-a",
+   "udp_ms": 312.444,
+   "tcp_ms": 316.307,
+   "icmp_ms": 318.089,
+   "udp_ab_ms": 311.743,
+   "udp_ba_ms": 313.145,
+   "udp_p95_ms": 313.46,
+   "tcp_min_ms": 310.944,
+   "tcp_max_ms": 323.239,
+   "delta_ms": -3.863,
+   "delta_pct": -1.22,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-southeast1-b",
+   "udp_ms": 165.738,
+   "tcp_ms": 165.861,
+   "icmp_ms": 160.839,
+   "udp_ab_ms": 182.403,
+   "udp_ba_ms": 149.072,
+   "udp_p95_ms": 182.776,
+   "tcp_min_ms": 148.546,
+   "tcp_max_ms": 182.67,
+   "delta_ms": -0.123,
+   "delta_pct": -0.07,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-east2-a",
+   "udp_ms": 151.536,
+   "tcp_ms": 145.495,
+   "icmp_ms": 137.007,
+   "udp_ab_ms": 151.56,
+   "udp_ba_ms": 151.513,
+   "udp_p95_ms": 151.921,
+   "tcp_min_ms": 127.488,
+   "tcp_max_ms": 174.737,
+   "delta_ms": 6.042,
+   "delta_pct": 4.15,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-northeast3-a",
+   "udp_ms": 127.7,
+   "tcp_ms": 127.549,
+   "icmp_ms": 126.841,
+   "udp_ab_ms": 127.919,
+   "udp_ba_ms": 127.481,
+   "udp_p95_ms": 128.069,
+   "tcp_min_ms": 126.739,
+   "tcp_max_ms": 128.969,
+   "delta_ms": 0.15,
+   "delta_pct": 0.12,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-south1-c",
+   "udp_ms": 241.127,
+   "tcp_ms": 222.282,
+   "icmp_ms": 226.096,
+   "udp_ab_ms": 240.776,
+   "udp_ba_ms": 241.478,
+   "udp_p95_ms": 241.788,
+   "tcp_min_ms": 203.186,
+   "tcp_max_ms": 243.072,
+   "delta_ms": 18.845,
+   "delta_pct": 8.48,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "northamerica-northeast1-b",
+   "udp_ms": 166.721,
+   "tcp_ms": 164.94,
+   "icmp_ms": 169.968,
+   "udp_ab_ms": 163.138,
+   "udp_ba_ms": 170.303,
+   "udp_p95_ms": 171.9,
+   "tcp_min_ms": 162.371,
+   "tcp_max_ms": 177.367,
+   "delta_ms": 1.78,
+   "delta_pct": 1.08,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "europe-west4-a",
+   "udp_ms": 259.353,
+   "tcp_ms": 260.02,
+   "icmp_ms": 255.09,
+   "udp_ab_ms": 260.606,
+   "udp_ba_ms": 258.101,
+   "udp_p95_ms": 261.755,
+   "tcp_min_ms": 257.74,
+   "tcp_max_ms": 263.172,
+   "delta_ms": -0.667,
+   "delta_pct": -0.26,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "asia-southeast1-b",
+   "udp_ms": 66.739,
+   "tcp_ms": 66.423,
+   "icmp_ms": 70.24,
+   "udp_ab_ms": 67.013,
+   "udp_ba_ms": 66.466,
+   "udp_p95_ms": 67.512,
+   "tcp_min_ms": 65.639,
+   "tcp_max_ms": 68.14,
+   "delta_ms": 0.316,
+   "delta_pct": 0.48,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "asia-east2-a",
+   "udp_ms": 57.882,
+   "tcp_ms": 56.76,
+   "icmp_ms": 54.532,
+   "udp_ab_ms": 56.701,
+   "udp_ba_ms": 59.062,
+   "udp_p95_ms": 59.397,
+   "tcp_min_ms": 54.445,
+   "tcp_max_ms": 59.832,
+   "delta_ms": 1.121,
+   "delta_pct": 1.98,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "asia-northeast3-a",
+   "udp_ms": 32.991,
+   "tcp_ms": 32.718,
+   "icmp_ms": 32.849,
+   "udp_ab_ms": 32.824,
+   "udp_ba_ms": 33.158,
+   "udp_p95_ms": 33.571,
+   "tcp_min_ms": 32.091,
+   "tcp_max_ms": 33.977,
+   "delta_ms": 0.273,
+   "delta_pct": 0.83,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "asia-south1-c",
+   "udp_ms": 123.978,
+   "tcp_ms": 122.737,
+   "icmp_ms": 127.708,
+   "udp_ab_ms": 124.664,
+   "udp_ba_ms": 123.293,
+   "udp_p95_ms": 124.975,
+   "tcp_min_ms": 121.069,
+   "tcp_max_ms": 124.772,
+   "delta_ms": 1.242,
+   "delta_pct": 1.01,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "europe-west4-a",
+   "udp_ms": 101.322,
+   "tcp_ms": 97.347,
+   "icmp_ms": 93.508,
+   "udp_ab_ms": 101.31,
+   "udp_ba_ms": 101.334,
+   "udp_p95_ms": 101.574,
+   "tcp_min_ms": 94.152,
+   "tcp_max_ms": 102.513,
+   "delta_ms": 3.975,
+   "delta_pct": 4.08,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-southeast1-b",
+   "udp_ms": 254.293,
+   "tcp_ms": 250.88,
+   "icmp_ms": 248.236,
+   "udp_ab_ms": 254.036,
+   "udp_ba_ms": 254.549,
+   "udp_p95_ms": 254.799,
+   "tcp_min_ms": 245.468,
+   "tcp_max_ms": 256.411,
+   "delta_ms": 3.413,
+   "delta_pct": 1.36,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-east2-a",
+   "udp_ms": 224.762,
+   "tcp_ms": 224.655,
+   "icmp_ms": 218.9,
+   "udp_ab_ms": 224.621,
+   "udp_ba_ms": 224.903,
+   "udp_p95_ms": 225.036,
+   "tcp_min_ms": 224.042,
+   "tcp_max_ms": 226.152,
+   "delta_ms": 0.107,
+   "delta_pct": 0.05,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-northeast3-a",
+   "udp_ms": 200.529,
+   "tcp_ms": 200.498,
+   "icmp_ms": 200.456,
+   "udp_ab_ms": 200.349,
+   "udp_ba_ms": 200.709,
+   "udp_p95_ms": 200.931,
+   "tcp_min_ms": 199.703,
+   "tcp_max_ms": 201.289,
+   "delta_ms": 0.031,
+   "delta_pct": 0.02,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-south1-c",
+   "udp_ms": 224.617,
+   "tcp_ms": 228.88,
+   "icmp_ms": 228.967,
+   "udp_ab_ms": 219.625,
+   "udp_ba_ms": 229.608,
+   "udp_p95_ms": 229.729,
+   "tcp_min_ms": 217.77,
+   "tcp_max_ms": 230.29,
+   "delta_ms": -4.263,
+   "delta_pct": -1.86,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west4-a",
+   "b": "asia-southeast1-b",
+   "udp_ms": 162.976,
+   "tcp_ms": 161.748,
+   "icmp_ms": 163.49,
+   "udp_ab_ms": 161.643,
+   "udp_ba_ms": 164.309,
+   "udp_p95_ms": 164.423,
+   "tcp_min_ms": 161.108,
+   "tcp_max_ms": 163.961,
+   "delta_ms": 1.228,
+   "delta_pct": 0.76,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west4-a",
+   "b": "asia-east2-a",
+   "udp_ms": 197.847,
+   "tcp_ms": 195.825,
+   "icmp_ms": 194.513,
+   "udp_ab_ms": 199.375,
+   "udp_ba_ms": 196.32,
+   "udp_p95_ms": 199.505,
+   "tcp_min_ms": 193.01,
+   "tcp_max_ms": 199.567,
+   "delta_ms": 2.023,
+   "delta_pct": 1.03,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west4-a",
+   "b": "asia-northeast3-a",
+   "udp_ms": 231.376,
+   "tcp_ms": 230.793,
+   "icmp_ms": 232.662,
+   "udp_ab_ms": 230.089,
+   "udp_ba_ms": 232.664,
+   "udp_p95_ms": 232.737,
+   "tcp_min_ms": 227.077,
+   "tcp_max_ms": 235.135,
+   "delta_ms": 0.584,
+   "delta_pct": 0.25,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "europe-west4-a",
+   "b": "asia-south1-c",
+   "udp_ms": 147.216,
+   "tcp_ms": 149.934,
+   "icmp_ms": 155.278,
+   "udp_ab_ms": 148.339,
+   "udp_ba_ms": 146.092,
+   "udp_p95_ms": 148.572,
+   "tcp_min_ms": 143.943,
+   "tcp_max_ms": 156.265,
+   "delta_ms": -2.718,
+   "delta_pct": -1.81,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-southeast1-b",
+   "b": "asia-east2-a",
+   "udp_ms": 30.754,
+   "tcp_ms": 30.709,
+   "icmp_ms": 34.188,
+   "udp_ab_ms": 30.783,
+   "udp_ba_ms": 30.724,
+   "udp_p95_ms": 30.915,
+   "tcp_min_ms": 30.274,
+   "tcp_max_ms": 31.473,
+   "delta_ms": 0.045,
+   "delta_pct": 0.14,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-southeast1-b",
+   "b": "asia-northeast3-a",
+   "udp_ms": 70.601,
+   "tcp_ms": 70.094,
+   "icmp_ms": 71.855,
+   "udp_ab_ms": 69.828,
+   "udp_ba_ms": 71.374,
+   "udp_p95_ms": 71.534,
+   "tcp_min_ms": 65.535,
+   "tcp_max_ms": 72.922,
+   "delta_ms": 0.507,
+   "delta_pct": 0.72,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-southeast1-b",
+   "b": "asia-south1-c",
+   "udp_ms": 57.57,
+   "tcp_ms": 57.519,
+   "icmp_ms": 59.383,
+   "udp_ab_ms": 57.555,
+   "udp_ba_ms": 57.585,
+   "udp_p95_ms": 57.969,
+   "tcp_min_ms": 55.136,
+   "tcp_max_ms": 59.708,
+   "delta_ms": 0.051,
+   "delta_pct": 0.09,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-east2-a",
+   "b": "asia-northeast3-a",
+   "udp_ms": 36.897,
+   "tcp_ms": 35.867,
+   "icmp_ms": 35.371,
+   "udp_ab_ms": 36.305,
+   "udp_ba_ms": 37.489,
+   "udp_p95_ms": 37.586,
+   "tcp_min_ms": 34.758,
+   "tcp_max_ms": 38.312,
+   "delta_ms": 1.03,
+   "delta_pct": 2.87,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-east2-a",
+   "b": "asia-south1-c",
+   "udp_ms": 86.735,
+   "tcp_ms": 86.38,
+   "icmp_ms": 86.358,
+   "udp_ab_ms": 87.782,
+   "udp_ba_ms": 85.688,
+   "udp_p95_ms": 87.995,
+   "tcp_min_ms": 85.327,
+   "tcp_max_ms": 89.785,
+   "delta_ms": 0.355,
+   "delta_pct": 0.41,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  },
+  {
+   "a": "asia-northeast3-a",
+   "b": "asia-south1-c",
+   "udp_ms": 121.987,
+   "tcp_ms": 121.061,
+   "icmp_ms": 120.959,
+   "udp_ab_ms": 121.021,
+   "udp_ba_ms": 122.954,
+   "udp_p95_ms": 123.128,
+   "tcp_min_ms": 120.549,
+   "tcp_max_ms": 122.199,
+   "delta_ms": 0.926,
+   "delta_pct": 0.76,
+   "udp_loss_pct": 0.0,
+   "one_way": {
+    "udp": false,
+    "tcp": false,
+    "icmp": false
+   },
+   "flags": []
+  }
+ ],
+ "flags": [],
+ "widest_pairs": [
+  {
+   "a": "australia-southeast1-c",
+   "b": "europe-west4-a",
+   "udp_ms": 312.444
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "australia-southeast1-c",
+   "udp_ms": 287.875
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-northeast3-a",
+   "udp_ms": 262.612
+  },
+  {
+   "a": "asia-northeast1-b",
+   "b": "europe-west4-a",
+   "udp_ms": 259.353
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-southeast1-b",
+   "udp_ms": 254.293
+  },
+  {
+   "a": "europe-west2-b",
+   "b": "asia-northeast1-b",
+   "udp_ms": 253.678
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "asia-south1-c",
+   "udp_ms": 241.127
+  },
+  {
+   "a": "australia-southeast1-c",
+   "b": "northamerica-northeast1-b",
+   "udp_ms": 233.513
+  },
+  {
+   "a": "europe-west4-a",
+   "b": "asia-northeast3-a",
+   "udp_ms": 231.376
+  },
+  {
+   "a": "northamerica-northeast1-b",
+   "b": "asia-east2-a",
+   "udp_ms": 224.762
+  }
+ ],
+ "kth_nearest": {
+  "us-west2-a": {
+   "sorted": [
+    [
+     "northamerica-northeast1-b",
+     74.561,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     100.581,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     127.026,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     137.26,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     137.939,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     143.138,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     149.204,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     165.784,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     221.827,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "australia-southeast1-c",
+    137.939
+   ],
+   "k6": [
+    "asia-east2-a",
+    143.138
+   ]
+  },
+  "europe-west2-b": {
+   "sorted": [
+    [
+     "europe-west4-a",
+     10.862,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     100.312,
+     ""
+    ],
+    [
+     "us-west2-a",
+     137.26,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     142.698,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     167.404,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     200.403,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     253.678,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     262.612,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     287.875,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "asia-southeast1-b",
+    167.404
+   ],
+   "k6": [
+    "asia-east2-a",
+    200.403
+   ]
+  },
+  "australia-southeast1-c": {
+   "sorted": [
+    [
+     "asia-northeast1-b",
+     111.439,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     127.7,
+     ""
+    ],
+    [
+     "us-west2-a",
+     137.939,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     151.536,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     165.738,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     233.513,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     241.127,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     287.875,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     312.444,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "asia-southeast1-b",
+    165.738
+   ],
+   "k6": [
+    "northamerica-northeast1-b",
+    233.513
+   ]
+  },
+  "asia-northeast1-b": {
+   "sorted": [
+    [
+     "asia-northeast3-a",
+     32.991,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     57.882,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     66.739,
+     ""
+    ],
+    [
+     "us-west2-a",
+     100.581,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     111.439,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     123.978,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     166.721,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     253.678,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     259.353,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "australia-southeast1-c",
+    111.439
+   ],
+   "k6": [
+    "asia-south1-c",
+    123.978
+   ]
+  },
+  "northamerica-northeast1-b": {
+   "sorted": [
+    [
+     "us-west2-a",
+     74.561,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     100.312,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     101.322,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     166.721,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     200.529,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     224.617,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     224.762,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     233.513,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     254.293,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "asia-northeast3-a",
+    200.529
+   ],
+   "k6": [
+    "asia-south1-c",
+    224.617
+   ]
+  },
+  "europe-west4-a": {
+   "sorted": [
+    [
+     "europe-west2-b",
+     10.862,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     101.322,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     147.216,
+     ""
+    ],
+    [
+     "us-west2-a",
+     149.204,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     162.976,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     197.847,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     231.376,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     259.353,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     312.444,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "asia-southeast1-b",
+    162.976
+   ],
+   "k6": [
+    "asia-east2-a",
+    197.847
+   ]
+  },
+  "asia-southeast1-b": {
+   "sorted": [
+    [
+     "asia-east2-a",
+     30.754,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     57.57,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     66.739,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     70.601,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     162.976,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     165.738,
+     ""
+    ],
+    [
+     "us-west2-a",
+     165.784,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     167.404,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     254.293,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "europe-west4-a",
+    162.976
+   ],
+   "k6": [
+    "australia-southeast1-c",
+    165.738
+   ]
+  },
+  "asia-east2-a": {
+   "sorted": [
+    [
+     "asia-southeast1-b",
+     30.754,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     36.897,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     57.882,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     86.735,
+     ""
+    ],
+    [
+     "us-west2-a",
+     143.138,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     151.536,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     197.847,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     200.403,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     224.762,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "us-west2-a",
+    143.138
+   ],
+   "k6": [
+    "australia-southeast1-c",
+    151.536
+   ]
+  },
+  "asia-northeast3-a": {
+   "sorted": [
+    [
+     "asia-northeast1-b",
+     32.991,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     36.897,
+     ""
+    ],
+    [
+     "asia-southeast1-b",
+     70.601,
+     ""
+    ],
+    [
+     "asia-south1-c",
+     121.987,
+     ""
+    ],
+    [
+     "us-west2-a",
+     127.026,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     127.7,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     200.529,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     231.376,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     262.612,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "us-west2-a",
+    127.026
+   ],
+   "k6": [
+    "australia-southeast1-c",
+    127.7
+   ]
+  },
+  "asia-south1-c": {
+   "sorted": [
+    [
+     "asia-southeast1-b",
+     57.57,
+     ""
+    ],
+    [
+     "asia-east2-a",
+     86.735,
+     ""
+    ],
+    [
+     "asia-northeast3-a",
+     121.987,
+     ""
+    ],
+    [
+     "asia-northeast1-b",
+     123.978,
+     ""
+    ],
+    [
+     "europe-west2-b",
+     142.698,
+     ""
+    ],
+    [
+     "europe-west4-a",
+     147.216,
+     ""
+    ],
+    [
+     "us-west2-a",
+     221.827,
+     ""
+    ],
+    [
+     "northamerica-northeast1-b",
+     224.617,
+     ""
+    ],
+    [
+     "australia-southeast1-c",
+     241.127,
+     ""
+    ]
+   ],
+   "unreachable": [],
+   "k5": [
+    "europe-west2-b",
+    142.698
+   ],
+   "k6": [
+    "europe-west4-a",
+    147.216
+   ]
+  }
+ },
+ "layouts": {
+  "final": {
+   "validators": [
+    "us-west2-a",
+    "europe-west2-b",
+    "australia-southeast1-c",
+    "asia-northeast1-b",
+    "northamerica-northeast1-b",
+    "europe-west4-a",
+    "asia-southeast1-b",
+    "asia-east2-a",
+    "asia-northeast3-a",
+    "asia-south1-c"
+   ],
+   "assumed_intra_ms": null,
+   "zones_without_data": [],
+   "fleet": {
+    "max_k6_ms": 233.513,
+    "max_k6_zone": "australia-southeast1-c",
+    "median_k6_ms": 158.637,
+    "max_k5_ms": 200.529
+   },
+   "per_zone": {
+    "us-west2-a": {
+     "sorted": [
+      [
+       "northamerica-northeast1-b",
+       74.561,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       100.581,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       127.026,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       137.26,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       137.939,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       143.138,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       149.204,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       165.784,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       221.827,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "australia-southeast1-c",
+      137.939
+     ],
+     "k6": [
+      "asia-east2-a",
+      143.138
+     ],
+     "validators": 1
+    },
+    "europe-west2-b": {
+     "sorted": [
+      [
+       "europe-west4-a",
+       10.862,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       100.312,
+       ""
+      ],
+      [
+       "us-west2-a",
+       137.26,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       142.698,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       167.404,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       200.403,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       253.678,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       262.612,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       287.875,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "asia-southeast1-b",
+      167.404
+     ],
+     "k6": [
+      "asia-east2-a",
+      200.403
+     ],
+     "validators": 1
+    },
+    "australia-southeast1-c": {
+     "sorted": [
+      [
+       "asia-northeast1-b",
+       111.439,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       127.7,
+       ""
+      ],
+      [
+       "us-west2-a",
+       137.939,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       151.536,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       165.738,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       233.513,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       241.127,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       287.875,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       312.444,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "asia-southeast1-b",
+      165.738
+     ],
+     "k6": [
+      "northamerica-northeast1-b",
+      233.513
+     ],
+     "validators": 1
+    },
+    "asia-northeast1-b": {
+     "sorted": [
+      [
+       "asia-northeast3-a",
+       32.991,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       57.882,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       66.739,
+       ""
+      ],
+      [
+       "us-west2-a",
+       100.581,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       111.439,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       123.978,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       166.721,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       253.678,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       259.353,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "australia-southeast1-c",
+      111.439
+     ],
+     "k6": [
+      "asia-south1-c",
+      123.978
+     ],
+     "validators": 1
+    },
+    "northamerica-northeast1-b": {
+     "sorted": [
+      [
+       "us-west2-a",
+       74.561,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       100.312,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       101.322,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       166.721,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       200.529,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       224.617,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       224.762,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       233.513,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       254.293,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "asia-northeast3-a",
+      200.529
+     ],
+     "k6": [
+      "asia-south1-c",
+      224.617
+     ],
+     "validators": 1
+    },
+    "europe-west4-a": {
+     "sorted": [
+      [
+       "europe-west2-b",
+       10.862,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       101.322,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       147.216,
+       ""
+      ],
+      [
+       "us-west2-a",
+       149.204,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       162.976,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       197.847,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       231.376,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       259.353,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       312.444,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "asia-southeast1-b",
+      162.976
+     ],
+     "k6": [
+      "asia-east2-a",
+      197.847
+     ],
+     "validators": 1
+    },
+    "asia-southeast1-b": {
+     "sorted": [
+      [
+       "asia-east2-a",
+       30.754,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       57.57,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       66.739,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       70.601,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       162.976,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       165.738,
+       ""
+      ],
+      [
+       "us-west2-a",
+       165.784,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       167.404,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       254.293,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "europe-west4-a",
+      162.976
+     ],
+     "k6": [
+      "australia-southeast1-c",
+      165.738
+     ],
+     "validators": 1
+    },
+    "asia-east2-a": {
+     "sorted": [
+      [
+       "asia-southeast1-b",
+       30.754,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       36.897,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       57.882,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       86.735,
+       ""
+      ],
+      [
+       "us-west2-a",
+       143.138,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       151.536,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       197.847,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       200.403,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       224.762,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "us-west2-a",
+      143.138
+     ],
+     "k6": [
+      "australia-southeast1-c",
+      151.536
+     ],
+     "validators": 1
+    },
+    "asia-northeast3-a": {
+     "sorted": [
+      [
+       "asia-northeast1-b",
+       32.991,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       36.897,
+       ""
+      ],
+      [
+       "asia-southeast1-b",
+       70.601,
+       ""
+      ],
+      [
+       "asia-south1-c",
+       121.987,
+       ""
+      ],
+      [
+       "us-west2-a",
+       127.026,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       127.7,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       200.529,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       231.376,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       262.612,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "us-west2-a",
+      127.026
+     ],
+     "k6": [
+      "australia-southeast1-c",
+      127.7
+     ],
+     "validators": 1
+    },
+    "asia-south1-c": {
+     "sorted": [
+      [
+       "asia-southeast1-b",
+       57.57,
+       ""
+      ],
+      [
+       "asia-east2-a",
+       86.735,
+       ""
+      ],
+      [
+       "asia-northeast3-a",
+       121.987,
+       ""
+      ],
+      [
+       "asia-northeast1-b",
+       123.978,
+       ""
+      ],
+      [
+       "europe-west2-b",
+       142.698,
+       ""
+      ],
+      [
+       "europe-west4-a",
+       147.216,
+       ""
+      ],
+      [
+       "us-west2-a",
+       221.827,
+       ""
+      ],
+      [
+       "northamerica-northeast1-b",
+       224.617,
+       ""
+      ],
+      [
+       "australia-southeast1-c",
+       241.127,
+       ""
+      ]
+     ],
+     "unreachable": [],
+     "k5": [
+      "europe-west2-b",
+      142.698
+     ],
+     "k6": [
+      "europe-west4-a",
+      147.216
+     ],
+     "validators": 1
+    }
+   }
+  }
+ }
+}

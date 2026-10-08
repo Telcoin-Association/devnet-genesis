@@ -320,14 +320,26 @@ class ScratchTests(TmpMixin, unittest.TestCase):
     def test_allowlist_copy(self):
         scratch = self.prepare()
         self.assertEqual(scratch, os.path.join(self.work_root, self.RUN))
+        # The node logs are not copied: provenance_step reads them in place in results/<run>/logs/.
         self.assertEqual(tree(scratch), sorted([
-            MARKER, "blasters/load-a.json", "logs/val-1-telcoin.log",
-            "logs/val-2-telcoin-kill-20260101T000500Z.log.gz", "logs/val-2-unit-stdout.log",
-            "manifest.json", "metrics.json", "reference-chains.json", "sampler/val-1.csv"]))
+            MARKER, "blasters/load-a.json", "manifest.json", "metrics.json", "reference-chains.json",
+            "sampler/val-1.csv"]))
+        self.assertEqual(len(os.listdir(os.path.join(self.results, "logs"))), 5)
         self.assertEqual(load_json(os.path.join(scratch, "manifest.json")), {"which": "top"})
         marker = load_json(os.path.join(scratch, MARKER))
         self.assertEqual({k: marker[k] for k in ("run", "blast_index", "source")},
                          {"run": self.RUN, "blast_index": None, "source": self.RUN})
+
+    def test_provenance_reads_the_logs_in_place(self):
+        """The same provenance as from a copy of the logs (the old scratch/logs), without the copy."""
+        self.prepare()
+        in_place = quiet(mb.provenance_step, mb.results_path(self.RUN), {"node_git_sha": SHA}, {}, False)[0]
+        copy_dir = os.path.join(self.tmp, "copied")
+        shutil.copytree(os.path.join(self.results, "logs"), os.path.join(copy_dir, "logs"))
+        copied = quiet(mb.provenance_step, copy_dir, {"node_git_sha": SHA}, {}, False)[0]
+        self.assertEqual(in_place, copied)
+        self.assertEqual(in_place["upstream"]["evidence"], "verified")
+        self.assertIn("2 node starts across 2 instances", in_place["upstream"]["evidence_detail"][0])
 
     def test_blast_index_picks_its_dir(self):
         scratch = self.prepare(blast_index=0)
@@ -506,6 +518,34 @@ class BackfillTests(unittest.TestCase):
         with self.assertRaisesRegex(mb.BundleError, "backfill"):
             mb.load_backfill(os.path.join(self.tmp, "missing.json"))
 
+    def test_placeholders_refused_naming_the_field(self):
+        """A draft marker anywhere in a value stops the build; the message names the field, nested or indexed."""
+        cases = [
+            ({"summary": "fell 21%. <<RESULT>> one sentence on the tail."}, r"backfill: unfilled <<\.\.\.>> placeholder in summary$"),
+            ({"upstream": {"sha": "a" * 40, "branch": "<<RESULT>> branch name"}}, r"placeholder in upstream\.branch$"),
+            ({"caveats": ["fine", "<<RESULT>> decide the wording"]}, r"placeholder in caveats\[1\]$"),
+            ({"upstream": {"evidence_detail": ["ok", "<<RESULT>>\nconfirm"]}}, r"upstream\.evidence_detail\[1\]$"),
+            ({"title": "<<RESULT>> a", "methodology": ["<<x>>"]}, r"placeholder in title, methodology\[0\]$"),
+        ]
+        for doc, msg in cases:
+            with self.assertRaisesRegex(mb.BundleError, msg):
+                self.load(doc)
+        # A comment key is dropped before publishing, so a marker there is not a leak; single angle
+        # brackets and an unpaired "<<" are ordinary text.
+        self.assertEqual(self.load({"_comment": "Every <<RESULT>> needs a human", "title": "T"}), {"title": "T"})
+        self.assertEqual(self.load({"fleet": {"_todo": "<<RESULT>>", "label": "L"}}), {"fleet": {"label": "L"}})
+        self.assertEqual(self.load({"title": "a <b> c", "summary": "x << y"})["summary"], "x << y")
+        self.assertEqual(mb.find_placeholders({"a": [{"b": "<<R>>"}], "c": 1, "d": None}), ["a[0].b"])
+
+    def test_run_json_with_a_placeholder_is_never_installed(self):
+        """The assembled run.json is checked too, before the staging dir or anything under out/ exists."""
+        out = os.path.join(self.tmp, "runs", "r20260101-0000")
+        doc = {"id": "r20260101-0000", "title": "T", "caveats": ["ok", "<<RESULT>> wording"], "kpis": []}
+        with self.assertRaisesRegex(mb.BundleError, r"^run\.json: unfilled <<\.\.\.>> placeholder in caveats\[1\]$"):
+            mb.install_bundle(out, doc, os.path.join(self.tmp, "no-report.html"), None, {}, None, self.tmp)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "runs")))
+        mb.refuse_placeholders({"summary": "clean", "kpis": [{"label": "<b>"}]}, "run.json")  # no error
+
     def test_published_kpis(self):
         kpi = {"id": "k", "label": "K", "short_label": "K", "value": 1.5, "unit": "tx/s", "source": "s"}
         self.assertEqual(mb.published_kpis([dict(kpi, _note="x")]),
@@ -612,7 +652,7 @@ class AssembleHelperTests(unittest.TestCase):
             "label": "three validators", "validators": 3, "observers": 1, "machine_type": "n2-standard-8",
             "vcpus": 8, "memory_gb": 32.0,
             "disk": {"type": "hyperdisk-balanced", "size_gb": 200, "iops": 6000, "throughput_mibps": 400},
-            "regions": ["europe-west4", "us-east1", "us-west2"],
+            "regions": ["europe-west4 (Netherlands)", "us-east1 (South Carolina)", "us-west2 (Los Angeles)"],
             "load": {"blasters": 2, "machine_type": "not recorded", "senders_each": 200,
                      "placement": mb.DEFAULT_PLACEMENT}})
         self.assertEqual(len(caveats), 2)
@@ -636,6 +676,19 @@ class AssembleHelperTests(unittest.TestCase):
         self.assertEqual(mb._region("us-west2-a"), "us-west2")
         self.assertEqual(mb._region("europe-west4"), "europe-west4")
         self.assertEqual(mb._region(None), "")
+
+    def test_region_labels_cover_the_fleet_and_its_alternates(self):
+        fleet = {"us-west2": "Los Angeles", "europe-west2": "London", "australia-southeast1": "Sydney",
+                 "asia-northeast1": "Tokyo", "northamerica-northeast1": "Montréal", "europe-west4": "Netherlands",
+                 "asia-southeast1": "Singapore", "asia-east2": "Hong Kong", "asia-northeast3": "Seoul",
+                 "asia-south1": "Mumbai"}
+        alternates = {"asia-southeast2": "Jakarta", "asia-east1": "Taiwan", "asia-northeast2": "Osaka",
+                      "australia-southeast2": "Melbourne", "europe-west3": "Frankfurt",
+                      "southamerica-east1": "São Paulo", "me-west1": "Tel Aviv"}
+        for region, city in list(fleet.items()) + list(alternates.items()):
+            self.assertEqual(mb.region_label(region), "%s (%s)" % (region, city))
+        self.assertEqual(mb.region_label("xx-nowhere9"), "xx-nowhere9")
+        self.assertEqual(mb.region_label(mb._region("asia-south1-c")), "asia-south1 (Mumbai)")
 
     def test_chaos_block(self):
         m = {"chaos": [
@@ -762,6 +815,98 @@ class AssembleHelperTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- step 5: series
+
+
+class ConsensusPerNodeTests(unittest.TestCase):
+    """consensus_block with per-node values: consensus_parameters.overrides (deploy step 9) and
+    param_arms (tools/params-apply.sh) become tables, and explain a spread of logged values."""
+
+    FLEET = {"file": "consensus-parameters.yaml", "max_header_delay_ms": 500, "min_header_delay_ms": 250,
+             "max_batch_delay_ms": 250}
+    LOGS = {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250, "vote_timeout_ms": 5000}
+    ARMS = [
+        {"name": "a2", "begin": "2026-10-06T14:00:00Z", "end": None, "failed": "bench-validator-02",
+         "nodes": {"bench-validator-01": {"max_header_delay": "700ms"},
+                   "bench-validator-02": {"max_header_delay": "700ms"}}},
+        {"name": "a1", "begin": "2026-10-06T13:00:00Z", "end": "2026-10-06T14:00:00Z",
+         "nodes": {"bench-validator-01": {"max_header_delay": "600ms", "min_header_delay": "300ms"},
+                   "bench-validator-02": {"max_header_delay": "600ms", "min_header_delay": "250ms"},
+                   "bench-observer-11": {"max_header_delay": "600ms", "min_header_delay": "300ms"}}}]
+
+    def manifest(self, overrides=None, arms=None):
+        cp = dict(self.FLEET)
+        if overrides is not None:
+            cp["overrides"] = overrides
+        m = {"consensus_parameters": cp}
+        if arms is not None:
+            m["param_arms"] = arms
+        return m
+
+    def consensus(self, manifest, param_values):
+        caveats = []
+        block = mb.consensus_block(manifest, {"params": dict(self.LOGS), "param_values": param_values}, {}, caveats)
+        return block, caveats
+
+    def test_overrides_and_arms_are_tables_and_explain_the_spread(self):
+        m = self.manifest({"bench-validator-03": {"min_header_delay": "50ms", "max_header_delay": "250ms"}},
+                          copy.deepcopy(self.ARMS))
+        block, caveats = self.consensus(m, {"max_header_delay_ms": [250, 500, 600, 700],
+                                            "min_header_delay_ms": [50, 250, 300]})
+        self.assertEqual({k: block[k] for k in mb.CONSENSUS_NUM_KEYS},
+                         {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250,
+                          "vote_timeout_ms": 5000})
+        self.assertEqual(block["overrides"], [
+            {"instance": "bench-validator-03", "key": "max_header_delay", "value": "250ms"},
+            {"instance": "bench-validator-03", "key": "min_header_delay", "value": "50ms"}])
+        self.assertEqual(block["param_arms"], [
+            {"arm": "a1", "begin_utc": "2026-10-06T13:00:00Z", "end_utc": "2026-10-06T14:00:00Z",
+             "values": "all 3 nodes: max_header_delay=600ms; bench-observer-11: min_header_delay=300ms; "
+                       "bench-validator-01: min_header_delay=300ms; bench-validator-02: min_header_delay=250ms"},
+            {"arm": "a2", "begin_utc": "2026-10-06T14:00:00Z", "end_utc": None,
+             "values": "all 2 nodes: max_header_delay=700ms (stopped at bench-validator-02, which did not come "
+                       "back after its restart)"}])
+        self.assertEqual(caveats, [
+            "The nodes ran more than one max_header_delay_ms (250, 500, 600, 700) by design: the fleet value is "
+            "published here, and the per-node values are listed under consensus.overrides and consensus.param_arms.",
+            "The nodes ran more than one min_header_delay_ms (50, 250, 300) by design: the fleet value is "
+            "published here, and the per-node values are listed under consensus.overrides and consensus.param_arms."])
+        self.assertFalse(any("more than one max_header_delay_ms (250, 500, 600, 700);" in c for c in caveats))
+        json.dumps(block)   # serialisable as is
+
+    def test_a_value_no_node_was_given_keeps_the_old_caveat(self):
+        m = self.manifest({"bench-validator-03": {"max_header_delay": "250ms"}})
+        block, caveats = self.consensus(m, {"max_header_delay_ms": [250, 500, 900]})
+        self.assertEqual(caveats, ["The node logs show more than one max_header_delay_ms (250, 500, 900); "
+                                   "the last one logged is published."])
+        self.assertEqual(block["overrides"], [{"instance": "bench-validator-03", "key": "max_header_delay",
+                                               "value": "250ms"}])
+        self.assertNotIn("param_arms", block)
+
+    def test_without_per_node_values_the_block_is_unchanged(self):
+        for m in (self.manifest(), self.manifest({}, [])):
+            block, caveats = self.consensus(m, {"max_header_delay_ms": [500, 600]})
+            self.assertEqual(sorted(block), sorted(mb.CONSENSUS_NUM_KEYS + ("file", "confirmed_by")))
+            self.assertEqual(len(caveats), 1)
+            self.assertIn("more than one max_header_delay_ms (500, 600); the last one logged is published", caveats[0])
+
+    def test_rows_that_are_not_tool_written_are_refused(self):
+        bad_overrides = [
+            {"bench-validator-03": {"max_header_delay": "/" + "tmp/x"}},
+            {"bench-validator-03": {"max_header_delay": "192.0.2.7"}},
+            {"bench-validator-03": {"max_header_delay": 250}},
+            {"Bench Validator": {"max_header_delay": "250ms"}},
+            {"bench-validator-03": {"Max-Header": "250ms"}},
+        ]
+        for ov in bad_overrides:
+            with self.assertRaises(mb.BundleError, msg=ov):
+                self.consensus(self.manifest(ov), {})
+        arm = self.ARMS[1]
+        for bad in ({"name": "Arm_1"}, {"begin": "13:00"}, {"end": "tomorrow"}, {"failed": "x y"},
+                    {"nodes": ["bench-validator-01"]}):
+            with self.assertRaises(mb.BundleError, msg=bad):
+                self.consensus(self.manifest(None, [dict(arm, **bad)]), {})
+        with self.assertRaisesRegex(mb.BundleError, "param_arms is not a list"):
+            self.consensus(self.manifest(None, {"a1": arm}), {})
 
 
 class SeriesTests(unittest.TestCase):
@@ -929,7 +1074,7 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
         self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
         self.assertEqual(doc["kpis"][-1]["id"], "x_published")
-        self.assertEqual(doc["fleet"]["regions"], ["us-east1", "us-west2"])
+        self.assertEqual(doc["fleet"]["regions"], ["us-east1 (South Carolina)", "us-west2 (Los Angeles)"])
         self.assertEqual(doc["chain"], {"chain_id": 2017, "network": "bench", "epoch_secs": 86400})
         self.assertEqual(doc["windows"]["merged_mixed"]["secs"], 700)
         self.assertEqual(doc["series"]["tps_1s"], "series/tps-1s.json")
@@ -956,6 +1101,228 @@ class OfflineAssemblyTests(unittest.TestCase):
         _, doc, out, _ = self.build({"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}})
         self.assertEqual(site.validate_run(load_json(os.path.join(out, "run.json"))), [])
         self.assertEqual([f.format() for f in site.check_bundle(out)], [])
+
+
+def certification_manifest(failing=True):
+    """enriched_synthetic_manifest plus the certification outcome the harness records for its three
+    validators; with <failing>, val-3 certified none of its headers in the mixed phase."""
+    def cell(proposed, certified, leader, not_committed):
+        return {"proposed": proposed, "certified": certified, "rate_pct": round(100.0 * certified / proposed, 1),
+                "own_cert_share_pct": leader, "own_leader_share_pct": leader, "not_committed_pct": not_committed}
+    m = enriched_synthetic_manifest()
+    v3_mixed = 0 if failing else 594
+    m["certification"] = {
+        "val-1": {"phase warmup": cell(120, 120, 34.0, 0.0), "phase mixed": cell(600, 600, 45.0, 0.0),
+                  "run": cell(720, 720, 43.0, 0.0)},
+        "val-2": {"phase warmup": cell(120, 119, 33.0, 0.8), "phase mixed": cell(600, 597, 50.0, 0.5),
+                  "run": cell(720, 716, 47.0, 0.6)},
+        "val-3": {"phase warmup": cell(30, 30, 33.0, 0.0), "phase mixed": cell(600, v3_mixed, 5.0, 2.5),
+                  "run": cell(630, 30 + v3_mixed, 10.0, 2.4)}}
+    m["certification_meta"] = {"fail_below_pct": 90, "min_proposed": 50, "source": "analysis/certification.json",
+                               "windows": ["phase warmup", "phase mixed", "run"], "recorded_at": "2026-01-01T00:30:00Z"}
+    m["cert_failures"] = [{"inst": "val-3", "window": "phase mixed", "rate_pct": 0.0, "proposed": 600, "certified": 0,
+                           "windows": ["phase mixed", "run"],
+                           "logs": ["logs/val-3-telcoin-cert-fail-20260101T003000Z.log.gz", "logs/val-3-telcoin.log.gz"]}] \
+        if failing else []
+    return m
+
+
+class CertificationBundleTests(unittest.TestCase):
+    """The "Certification by node" table (built report) and the caveat (run.json) from manifest.certification."""
+    RUN = "r20260101-synth"
+    CAVEAT = ("Validator val-3 certified fewer than 90 % of its own headers in phase mixed and run; its logs are "
+              "preserved under results/r20260101-synth/logs/ (see INDEX.md).")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="tb2-cert-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def build(self, manifest):
+        """Steps 6-9 as _main runs them: the section goes into the report before its digest is taken."""
+        metrics, combined = load_json(SYNTH / "metrics.json"), load_json(SYNTH / "combined.json")
+        a = mb.parse_args(["--run", self.RUN, "--analysis-sha", "abcdef0"])
+        backfill = {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}}
+        report_src = os.path.join(self.tmp, "report.html")
+        shutil.copyfile(str(PAGE_REPORT), report_src)
+
+        def run():
+            mb.add_certification_section(report_src, mb.certification_html(manifest))
+            prov = mb.provenance_step(self.tmp, manifest, backfill, False)
+            built, tps5, series = mb.windows_step(str(SYNTH), combined)
+            kp, head, rec, kc = mb.kpis_step(str(SYNTH), combined, metrics, manifest, built, backfill)
+            report = mb.report_block(report_src, None, backfill)
+            docs = mb.win.load_blasters(str(SYNTH / "blasters"))
+            doc = mb.assemble(self.RUN, a, manifest, metrics, combined, docs, prov, built, tps5, kp, head,
+                              rec, kc, report, None, backfill, None)
+            out = os.path.join(self.tmp, "out", self.RUN)
+            mb.write_bundle(out, doc, report_src, series)
+            return doc, out
+        (doc, out), _, _ = quiet(run)
+        with open(os.path.join(out, "report.html"), encoding="utf-8") as fh:
+            return doc, out, fh.read()
+
+    def test_table_rows_and_caveat_for_a_failing_validator(self):
+        m = certification_manifest()
+        doc, out, page = self.build(m)
+        self.assertEqual(page.count("<h2>Certification by node</h2>"), 1)
+        rows = [r for r in page.split("<tr>") if r.startswith("<td>val-")]
+        self.assertEqual([r[4:9] for r in rows], ["val-1", "val-2", "val-3"])
+        for r in rows:
+            self.assertEqual(r.count("<td"), 2 + 3 + 2, r)   # validator, region, three windows, two shares
+        self.assertIn("<td>us-west2 (Los Angeles)</td>", rows[0])
+        self.assertIn("<td>us-east1 (South Carolina)</td>", rows[1])
+        self.assertIn("val-3 <strong>below 90 %</strong>", rows[2])
+        self.assertIn("<strong>0.0</strong>", rows[2])
+        self.assertIn("<td class='num muted' title='30 of 30 own headers certified (fewer than 50 proposed: not judged)'>"
+                      "100.0</td>", rows[2])
+        self.assertIn("<td class='num'>10.0</td><td class='num'>2.4</td></tr>", rows[2], "run-window shares")
+        self.assertNotIn("<strong>", rows[0] + rows[1])
+        self.assertIn("val-3 certified fewer than 90 % of its own headers in a window where it proposed at least 50.", page)
+        self.assertIn("the fair share is 100 / 3 validators = 33.3 %", page)
+        self.assertIn(self.CAVEAT, doc["caveats"])
+        self.assertEqual(mb.certification_caveat(m, self.RUN), self.CAVEAT)
+        # The report's digest is taken after the section went in; the bundle passes the leak scan.
+        self.assertEqual(doc["report"]["sha256"], sha256(os.path.join(out, "report.html")))
+        self.assertEqual(mb.hscrub.scan_dir(out, m), [])
+
+    def test_every_validator_at_or_above_the_threshold(self):
+        m = certification_manifest(failing=False)
+        doc, _, page = self.build(m)
+        self.assertIn("Every validator certified at least 90 % of its own headers in every window where it proposed "
+                      "at least 50.", page)
+        self.assertNotIn("below 90 %", page)
+        self.assertNotIn("<strong>", page.split("<section id='certification-by-node'>")[1])
+        self.assertIsNone(mb.certification_caveat(m, self.RUN))
+        self.assertFalse([c for c in doc["caveats"] if "certified fewer than" in c])
+
+    def test_caveat_names_every_failing_validator(self):
+        m = certification_manifest()
+        m["cert_failures"].append({"node": "hand-written entry", "logs": []})
+        m["cert_failures"].insert(0, {"inst": "val-2", "window": "run", "rate_pct": 80.0,
+                                      "windows": ["run", "phase mixed"], "logs": []})
+        self.assertEqual(mb.certification_caveat(m, self.RUN),
+                         "Validators val-2 and val-3 certified fewer than 90 % of their own headers in phase mixed "
+                         "and run; their logs are preserved under results/r20260101-synth/logs/ (see INDEX.md).")
+        # Different windows: each validator's own, in window order.
+        m["certification_meta"]["fail_below_pct"] = 92.5
+        m["cert_failures"].insert(0, {"inst": "val-1", "window": "phase warmup", "rate_pct": 80.0,
+                                      "windows": ["phase warmup"], "logs": []})
+        self.assertEqual(mb.certification_caveat(m, self.RUN),
+                         "Validators val-1 (in phase warmup) and val-2 and val-3 (in phase mixed and run) certified "
+                         "fewer than 92.5 % of their own headers; their logs are preserved under "
+                         "results/r20260101-synth/logs/ (see INDEX.md).")
+
+    def test_no_certification_recorded(self):
+        m = enriched_synthetic_manifest()
+        self.assertEqual(mb.certification_html(m), "")
+        self.assertIsNone(mb.certification_caveat(m, self.RUN))
+        doc, _, page = self.build(m)
+        with open(str(PAGE_REPORT), encoding="utf-8") as fh:
+            self.assertEqual(page, fh.read(), "nothing added")
+        self.assertFalse([c for c in doc["caveats"] if "certified fewer than" in c])
+
+    def test_section_placement_and_rebuild(self):
+        section = mb.certification_html(certification_manifest())
+        cases = (
+            ("<body><section id='consensus'><h2>Consensus health</h2></section><section id='sampler'></section>"
+             "<footer>f</footer></body>", "<section id='consensus'><h2>Consensus health</h2></section>" + section
+             + "<section id='sampler'>"),
+            ("<body><main>x</main><footer>f</footer></body>", "<main>x</main>" + section + "<footer>"),
+            ("<html><body><p>x</p></BODY></html>", "<p>x</p>" + section + "</BODY>"),
+            ("<p>no body</p>", "<p>no body</p>" + section))
+        for text, expect in cases:
+            with self.subTest(text=text):
+                path = os.path.join(self.tmp, "r.html")
+                write_text(path, text)
+                self.assertTrue(mb.add_certification_section(path, section))
+                self.assertTrue(mb.add_certification_section(path, section), "a rebuild replaces the section")
+                with open(path, encoding="utf-8") as fh:
+                    got = fh.read()
+                self.assertIn(expect, got)
+                self.assertEqual(got.count("id='certification-by-node'"), 1)
+        self.assertFalse(mb.add_certification_section(path, ""))
+
+    def test_values_are_escaped(self):
+        m = certification_manifest()
+        m["certification"]["val-<b>"] = m["certification"].pop("val-2")
+        m["certification_meta"]["windows"][0] = "arm a<b"
+        for node in m["certification"].values():
+            node["arm a<b"] = node.pop("phase warmup")
+        page = mb.certification_html(m)
+        self.assertIn("val-&lt;b&gt;", page)
+        self.assertIn("<th class='num'>arm a&lt;b</th>", page)
+        self.assertNotIn("<b>", page)
+
+    def test_main_adds_the_table_before_the_digest(self):
+        src = MAKE_BUNDLE_PY.read_text()
+        main = src[src.index("def _main(a):"):]
+        self.assertLess(main.index("add_certification_section(report_src, cert_section)"),
+                        main.index("report = report_block(report_src, archived, backfill)"))
+        self.assertLess(main.index("if archived:"), main.index("add_certification_section(report_src, cert_section)"))
+
+    @unittest.skipUnless(SITE_SCRUB.is_file(), "no tn-benchmarks checkout next to this repo")
+    def test_site_accepts_the_bundle(self):
+        site = load_site_scrub()
+        _, out, _ = self.build(certification_manifest())
+        self.assertEqual(site.validate_run(load_json(os.path.join(out, "run.json"))), [])
+        self.assertEqual([f.format() for f in site.check_bundle(out)], [])
+
+
+# --------------------------------------------------------------------------- synthetic run end to end
+
+
+@unittest.skipUnless((TXGEN_BENCH / "aggregate.py").is_file() and SITE_SCRUB.is_file(),
+                     "needs tn-transaction-generator and tn-benchmarks checkouts next to this repo")
+class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
+    """The synthetic run built by main() with the real tools and the site's scrub.py as the gate: the
+    node logs are read in place and nothing under the work dir is a log."""
+    RUN = "r20260101-synth"
+
+    def setUp(self):
+        super(SyntheticEndToEndTests, self).setUp()
+        results = os.path.join(self.results_root, self.RUN)
+        shutil.copytree(str(SYNTH), results)
+        write_json(os.path.join(results, "manifest.json"), enriched_synthetic_manifest())
+        self.logs = os.path.join(results, "logs")
+        write_text(os.path.join(self.logs, "val-1-telcoin.log"), node_log(SHA, vote_timeout=5000))
+        with gzip.open(os.path.join(self.logs, "val-2-telcoin.log.gz"), "wt") as fh:
+            fh.write(node_log(SHA, vote_timeout=5000))
+        self.site = os.path.join(self.tmp, "site")
+        os.makedirs(self.site)
+        shutil.copyfile(str(SITE_SCRUB), os.path.join(self.site, "scrub.py"))
+        self.out = os.path.join(self.tmp, "out", self.RUN)
+        self.backfill = os.path.join(self.tmp, "bf.json")
+        write_json(self.backfill, {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}})
+
+    def test_bundle_without_copying_the_logs(self):
+        before = {n: sha256(os.path.join(self.logs, n)) for n in os.listdir(self.logs)}
+        rc, out, err = self.main("--run", self.RUN, "--backfill", self.backfill, "--out", self.out,
+                                 "--txgen-bench", TXGEN_BENCH, "--analysis-sha", "abcdef0", BENCH_SITE_REPO=self.site)
+        self.assertEqual(rc, 0, err[-3000:])
+        self.assertIn("2 provenance: 2 log files, 2 starts", out)
+        self.assertIn("gates: site scrub.py: scrub: 0 error(s)", out)
+        scratch = os.path.join(self.work_root, self.RUN)
+        self.assertFalse(os.path.lexists(os.path.join(scratch, "logs")))
+        self.assertEqual([p for p in tree(self.work_root) if ".log" in os.path.basename(p)], [])
+        self.assertEqual({n: sha256(os.path.join(self.logs, n)) for n in os.listdir(self.logs)}, before)
+        with open(os.path.join(self.out, "run.json"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotIn(self.tmp, text)
+        doc = json.loads(text)
+        self.assertEqual(doc["upstream"], {
+            "repo": mb.UPSTREAM_REPO, "sha": SHA, "short": SHA[:9], "branch": None, "evidence": "verified",
+            "evidence_detail": ["2 node starts across 2 instances logged telcoin-network 0.1.0 (%s)" % SHA]})
+        self.assertEqual(doc["consensus"], {
+            "max_header_delay_ms": 3000, "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000,
+            "vote_timeout_ms": 5000, "file": mb.LOGS_PARAMS_FILE, "confirmed_by": mb.LOGS_CONFIRMED_BY})
+        # The KPIs from the fixture's metrics and sampler (aggregate.py computes the others).
+        kpis = dict((k["id"], k.get("value", k.get("range"))) for k in doc["kpis"])
+        self.assertEqual({k: kpis.get(k) for k in (
+            "commit_latency_p95_s", "execution_time_per_output_s", "disk_write_p95_mibps_busiest",
+            "disk_write_iops_p95_busiest", "cpu_p95_pct_busiest", "rss_p95_gib_busiest", "psi_io_max_pct")}, {
+            "commit_latency_p95_s": [2.0, 2.5], "execution_time_per_output_s": [0.11, 0.22],
+            "disk_write_p95_mibps_busiest": 24.0, "disk_write_iops_p95_busiest": 1200, "cpu_p95_pct_busiest": 60.0,
+            "rss_p95_gib_busiest": 3.0, "psi_io_max_pct": [7.3, 12.5]})
 
 
 # --------------------------------------------------------------------------- page-only end to end
@@ -1144,6 +1511,7 @@ class Run20260929IntegrationTests(unittest.TestCase):
         self.assertEqual(rc, 0, err[-3000:])
         self.assertEqual(os.path.lexists(real_scratch), existed, "the real work/report dir must not be touched")
         self.assertTrue(os.path.isfile(os.path.join(work, self.RUN, "scrubbed", "report.html")))
+        self.assertFalse(os.path.lexists(os.path.join(work, self.RUN, "logs")), "node logs are read in place")
         self.assertIn("gates: harness scan_dir: clean", stdout)
         self.assertIn("gates: site scrub.py: scrub: 0 error(s)", stdout)
         self.assertEqual(tree(out), ["report.html", "run.json", "series/tps-1s.json"])

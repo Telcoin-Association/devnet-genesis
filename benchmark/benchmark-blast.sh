@@ -13,7 +13,11 @@
 #            workload offsets remain available with BENCH_CHAOS_TIMING=mixed. It waits for every
 #            BENCH_BLAST_DONE, copies gs://<bucket>/<run>/index-<RUN_INDEX>/blasters/ into
 #            results/<run>/blasters/, deletes the blasters (unless --keep). BENCH_CHAOS=0 skips
-#            the chaos schedule.
+#            the chaos schedule. Each chaos action is staged: one IAP session opened
+#            BENCH_CHAOS_STAGE_SECS early starts saving the container log in the background, waits
+#            on the node's clock and runs the action on time whether or not the save has finished
+#            (then waits up to BENCH_CHAOS_SAVE_WAIT_SECS for it); a poll due within
+#            BENCH_CHAOS_GUARD_SECS of it waits for it.
 #            BENCH_LAG_INJECT=1 `docker pause`s bench-validator-03 (BENCH_LAG_IDX) at
 #            mixed+BENCH_LAG_AT_SECS for BENCH_LAG_PAUSE_SECS, then unpauses it and reports its
 #            node mode every poll while it catches up; the unpause is owed on any exit.
@@ -21,8 +25,14 @@
 #   collect  sampler CSVs from every bench node (IAP scp) into results/<run>/sampler/, and the
 #            bucket prefixes of the blast and the funder output in results/<run>/ (manifest
 #            .blast/.fund.bucket_prefix; without one, the old gs://<bucket>/<run>/blasters|funder/).
+#            Then analysis/ (tools/block-rate.py; tools/cert-rate.py once node logs are pulled)
+#            and results/<run>/INDEX.md + CHECKSUMS.sha256, both non-fatal.
 #   delete   delete every bench-blaster-* / bench-funder VM of the benchmark (label-guarded).
 #   status   list the load VMs and the latest serial markers (read-only).
+#   chaos-stage-test --instance <node>
+#            one staged chaos session against that live node with the harmless action `true`
+#            (its container log is saved alongside): prints the node's BEGIN/END and the lateness.
+#            Run it once against a live fleet before a blast relies on the staged path.
 #
 # Abort watchers (each sets manifest.abort and stops the blasters): any bench node's root
 # disk > BENCH_ABORT_DISK_PCT, obs-devnet memory > BENCH_ABORT_OBS_MEM_PCT, a FatalDBFailure
@@ -31,7 +41,8 @@
 # the nodes' BENCH_STATUS serial lines (node-sampler.sh) and Cloud Monitoring — no IAP
 # polling — every BENCH_POLL_SECS (>= 240 s, tasks/lessons.md IAP-throttling lesson).
 #
-# Usage: benchmark/benchmark-blast.sh {fund|run|collect|delete|status} [--yes] [--keep] [--run ID]
+# Usage: benchmark/benchmark-blast.sh {fund|run|collect|delete|status|chaos-stage-test} [--yes] [--keep]
+#        [--run ID] [--instance NODE]
 # Without --yes nothing is created, deleted or copied: the gcloud argv is printed instead.
 # With --yes, a copy of everything printed goes to results/<run>/logs/blast-<action>-<UTC>.log.
 #
@@ -48,20 +59,22 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-ACTION=""; CONFIRM=0; KEEP=0
+ACTION=""; CONFIRM=0; KEEP=0; STAGE_INSTANCE=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        fund|run|collect|delete|status) ACTION="$1" ;;
+        fund|run|collect|delete|status|chaos-stage-test) ACTION="$1" ;;
         --yes) CONFIRM=1 ;;
         --keep) KEEP=1 ;;
         --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
-        -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
+        --instance) STAGE_INSTANCE="${2:?--instance needs a node name}"; shift ;;
+        --instance=*) STAGE_INSTANCE="${1#*=}" ;;
+        -h|--help) sed -n '2,53p' "$0"; exit 0 ;;
         *) echo "❌ unknown argument '$1'" >&2; exit 1 ;;
     esac
     shift
 done
-[ -n "${ACTION}" ] || { echo "❌ missing action: fund | run | collect | delete | status" >&2; exit 1; }
+[ -n "${ACTION}" ] || { echo "❌ missing action: fund | run | collect | delete | status | chaos-stage-test" >&2; exit 1; }
 if [ -z "${BENCH_RUN_ID:-}" ]; then
     _latest="$(ls -1d "${DIR}"/results/r* 2>/dev/null | tail -1 || true)"
     BENCH_RUN_ID="${_latest:+$(basename "${_latest}")}"
@@ -85,6 +98,19 @@ OBSERVER_IDX=""
 for i in "${!NODE_ROLES[@]}"; do [ "${NODE_ROLES[$i]}" = "observer" ] && OBSERVER_IDX="$i"; done
 CHAOS_KILL_IDX=4          # bench-validator-05
 [ "${BENCH_POLL_SECS}" -ge 240 ] || bench_die "BENCH_POLL_SECS=${BENCH_POLL_SECS} < 240 (IAP/serial polling lesson)"
+# Commit-stall note (commit_flat_check): rounds allowed over a stall's last BENCH_STALL_NOTE_SECS.
+BENCH_STALL_NOTE_MAX_ROUNDS="${BENCH_STALL_NOTE_MAX_ROUNDS:-4}"
+case "${BENCH_STALL_NOTE_MAX_ROUNDS}" in ''|*[!0-9]*) bench_die "BENCH_STALL_NOTE_MAX_ROUNDS='${BENCH_STALL_NOTE_MAX_ROUNDS}' must be a whole number" ;; esac
+# A poll the guard lets through must end before the next action's session opens.
+[ "${BENCH_CHAOS_STAGE_SECS}" -lt "${BENCH_CHAOS_GUARD_SECS}" ] \
+    || bench_die "BENCH_CHAOS_STAGE_SECS=${BENCH_CHAOS_STAGE_SECS} must be below BENCH_CHAOS_GUARD_SECS=${BENCH_CHAOS_GUARD_SECS}"
+# The kill's session may run BENCH_CHAOS_SAVE_WAIT_SECS past the kill (the log save); it must end
+# before the restart's session opens BENCH_CHAOS_STAGE_SECS ahead of the restart.
+case "${BENCH_CHAOS_SAVE_WAIT_SECS}" in ''|*[!0-9]*) bench_die "BENCH_CHAOS_SAVE_WAIT_SECS='${BENCH_CHAOS_SAVE_WAIT_SECS}' must be a whole number" ;; esac
+CHAOS_OUTAGE_SECS="${BENCH_CHAOS_DOWNTIME_SECS}"
+[ "${BENCH_CHAOS_TIMING}" != mixed ] || CHAOS_OUTAGE_SECS=$(( BENCH_CHAOS_BACK_AT_SECS - BENCH_CHAOS_KILL_AT_SECS ))
+[ $(( BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS )) -lt "${CHAOS_OUTAGE_SECS}" ] \
+    || bench_die "BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS (${BENCH_CHAOS_STAGE_SECS}+${BENCH_CHAOS_SAVE_WAIT_SECS}) must be below the ${CHAOS_OUTAGE_SECS}s outage"
 
 blaster_name() { printf 'bench-blaster-%02d' "$(( $1 + 1 ))"; }
 
@@ -129,7 +155,21 @@ node_url() {
     printf '%s=http://%s:8545' "${INSTANCE_NAMES[$1]}" "${ip}"
 }
 
-# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> — one COS load VM.
+# is_stockout <gcloud output> — 0 when a create failed because the zone has run out of the machine
+# type (code ZONE_RESOURCE_POOL_EXHAUSTED[_WITH_DETAILS], reason: stockout). gcloud wraps its YAML
+# error ("does not have\n  enough resources"), so whitespace is folded before matching.
+is_stockout() {
+    case "$(printf '%s' "$1" | tr -s ' \t\n' '   ')" in
+        *ZONE_RESOURCE_POOL_EXHAUSTED*|*stockout*|*"does not have enough resources"*) return 0 ;;
+    esac
+    return 1
+}
+
+# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> — one COS load VM on
+# the first BENCH_BLASTER_MACHINE_TYPES type the zone has in stock: a create that fails on a stockout
+# is retried at once with the next type, and the substitution is logged. The type used is written
+# to meta/<name>/MACHINE_TYPE (manifest blasters[].machine_type). Any other failure returns the
+# create's status (142: no answer within 600 s).
 create_vm() {
     local name="$1" zone="$2" mode="$3" urls="$4" senders="$5" start="$6" at="$7" mdir
     bench_assert_bench_name "instance" "${name}"
@@ -146,15 +186,54 @@ create_vm() {
     meta="${meta}##BENCH_BUCKET=${BENCH_BUCKET}##RUN_ID=${BENCH_RUN_ID}##RUN_INDEX=${BENCH_RUN_INDEX}##LABEL=${name}"
     meta="${meta}##MASTER_SECRET=${BENCH_TXGEN_MASTER_SECRET}##SEED_SECRET=${BENCH_TXGEN_SEED_SECRET}"
     meta="${meta}##WARMUP_SECS=${BENCH_WARMUP_SECS}##DURATION_SECS=${BENCH_DURATION_SECS}##COOLDOWN_SECS=${BENCH_COOLDOWN_SECS}"
-    bench_run gcloud compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}" \
-        --machine-type="${BENCH_BLASTER_MACHINE_TYPE}" \
-        --image-family=cos-stable --image-project=cos-cloud \
-        --boot-disk-size=20GB --boot-disk-type=pd-balanced \
-        --service-account="${SERVICE_ACCOUNT}" --scopes=cloud-platform \
-        --tags=bench-blaster \
-        --labels="${BENCH_LABELS},tn-role=blaster" \
-        --metadata-from-file="${files}" \
-        --metadata="${meta}"
+    local pre=(compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}")
+    local post=(--image-family=cos-stable --image-project=cos-cloud
+        --boot-disk-size="${BENCH_BLASTER_BOOT_DISK_GB}GB" --boot-disk-type=pd-balanced
+        --service-account="${SERVICE_ACCOUNT}" --scopes=cloud-platform
+        --tags=bench-blaster
+        --labels="${BENCH_LABELS},tn-role=blaster"
+        --metadata-from-file="${files}"
+        --metadata="${meta}")
+    local t out rc=0 tried="" first="${BENCH_BLASTER_MACHINE_TYPES%% *}"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${first}" "${post[@]}"
+        [ "${BENCH_BLASTER_MACHINE_TYPES}" = "${first}" ] \
+            || echo "      on a zone stockout: the same create with --machine-type=${BENCH_BLASTER_MACHINE_TYPES#* } (in turn)"
+        return 0
+    fi
+    for t in ${BENCH_BLASTER_MACHINE_TYPES}; do
+        rc=0
+        out="$(bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${t}" "${post[@]}" </dev/null 2>&1)" || rc=$?
+        printf '%s\n' "${out}"
+        if [ "${rc}" -eq 0 ]; then
+            printf '%s\n' "${t}" > "${mdir}/MACHINE_TYPE"
+            [ -z "${tried}" ] || bench_warn "${name}: created on ${t} in ${zone} after a stockout of${tried}"
+            return 0
+        fi
+        is_stockout "${out}" || return "${rc}"
+        tried="${tried} ${t}"
+        bench_warn "${name}: ${t} is out of stock in ${zone} (stockout); trying the next blaster type"
+    done
+    bench_warn "${name}: every blaster type is out of stock in ${zone} (${BENCH_BLASTER_MACHINE_TYPES})"
+    return "${rc}"
+}
+
+# blasters_json — manifest .blasters: one entry per blaster; machine_type is the type its create used
+# (meta/<name>/MACHINE_TYPE from create_vm; null when that file is missing).
+blasters_json() {
+    local bl="[]" k name id mt
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        name="$(blaster_name "$k")"
+        id="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" \
+            --project="${PROJECT_ID}" --format='value(id)' </dev/null 2>/dev/null || true)"
+        mt="$(cat "${BENCH_RESULTS_DIR}/meta/${name}/MACHINE_TYPE" 2>/dev/null || true)"
+        bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
+            --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" --arg mt "${mt}" \
+            --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
+            '. + [{name:$n, zone:$z, machine_type:(if $mt == "" then null else $mt end), instance_id:$id, target:$t, node_url:$u,
+                   sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
+    done
+    printf '%s' "${bl}"
 }
 
 # assert_load_vm <name> <zone> — created VM carries tag bench-blaster + label benchmark=1.
@@ -450,11 +529,18 @@ ABORTED=""
 RUN_CREATED=0; RUN_FINISHED=0; RUN_STOPPED=0; RUN_START_AT=0
 RUN_DID_KILL=0; RUN_DID_BACK=0; RUN_DID_OBS=0
 RUN_DID_PAUSE=0; RUN_DID_UNPAUSE=0; LAG_UNPAUSE_TS=0   # lag injection; an unpause is owed while PAUSE=1 UNPAUSE=0
-CHAOS_RC=0        # rc of the last chaos_do
+CHAOS_RC=0        # rc of the last chaos action (its BENCH_CHAOS_END rc, else the ssh rc)
+CHAOS_BEGIN=""    # node-side begin (unix.ms) of the last chaos action; the local time when it reported none
+KILL_ENTRY=""; KILL_BEGIN=""; BACK_BEGIN=""   # the kill's index in .chaos[]; kill and restart begin times
+BOUNDARY_DONE=0   # 1 once the boundary verdict (chaos_boundary_check) is recorded
 DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
 PREV_ROUNDS=""    # {"<node>": max tn_primary_round} from the previous poll (Prometheus)
 STALL_POLLS=0; LAST_ADVANCE_TS=0
 NODE_STALL_COUNTS="{}"
+STATUS_SEEN=()    # per node index: ts of the newest BENCH_STATUS sample already read
+POLL_SAMPLES=""   # "<ts> <block>" of every node's BENCH_STATUS samples since the last poll
+FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_UNTIL=0; FLAT_STATE=""; FLAT_ROUND=""; FLAT_ROUNDS_UP=""   # commit_flat_check
+STALL_WIN_START=0; STALL_MIXED_END=0   # planned mixed start and end
 
 record_abort() { # <reason> <node> <detail>
     [ -n "${ABORTED}" ] && return 0
@@ -464,30 +550,205 @@ record_abort() { # <reason> <node> <detail>
         '.abort = {ts: $ts, reason: $r, node: $n, detail: $d}' || true
 }
 
-record_chaos() { # <node> <action> <note> <rc>
-    bench_manifest_jq --arg ts "$(bench_now_iso)" --arg n "$1" --arg a "$2" --arg note "$3" --arg rc "$4" \
-        '.chaos += [{ts: $ts, node: $n, action: $a, note: $note, rc: ($rc|tonumber)}]' || true
+# chaos_mark <BEGIN|END> <remote-output> — the node-side unix time (ms) on the action's
+# BENCH_CHAOS_<mark> line; nothing when there is none.
+chaos_mark() {
+    printf '%s\n' "$2" | tr -d '\r' | awk -v m="BENCH_CHAOS_$1" '$1 == m && $NF ~ /^[0-9]+(\.[0-9]+)?$/ { t = $NF }
+        END { if (t != "") { n = split(t, p, "."); printf "%s.%s\n", p[1], substr((n > 1 ? p[2] : "") "000", 1, 3) } }'
 }
 
-# chaos_do <idx> <remote-cmd> <action-label> <note> — the ssh rc goes to the manifest and CHAOS_RC.
+# record_chaos <node> <action> <note> <ssh-rc> [<remote-output> [<planned-unix> [<staged> [<extra-json>]]]]
+# — one .chaos[] entry. The action's BENCH_CHAOS_BEGIN/END lines in <remote-output> carry the
+# node's clock: ts is the begin (the local time when the node reported none), plus begin_unix,
+# end_unix and late_secs = begin - planned. rc is END's rc, else the ssh rc: a session that drops
+# after END does not undo an action that landed. Sets CHAOS_RC and CHAOS_BEGIN.
+record_chaos() {
+    local out="${5:-}" extra="${8:-}" begin end rc
+    begin="$(chaos_mark BEGIN "${out}")"; end="$(chaos_mark END "${out}")"
+    rc="$(printf '%s\n' "${out}" | tr -d '\r' | sed -n 's/^BENCH_CHAOS_END node=[^ ]* rc=\([0-9][0-9]*\) .*/\1/p' | tail -1)"
+    CHAOS_RC="${rc:-$4}"
+    CHAOS_BEGIN="${begin:-$(bench_now_unix)}"
+    [ -n "${extra}" ] || extra='{}'
+    bench_manifest_jq --arg ts "$(bench_iso_from_unix "${CHAOS_BEGIN%.*}")" --arg n "$1" --arg a "$2" --arg note "$3" \
+        --arg rc "${CHAOS_RC}" --arg p "${6:-}" --arg b "${begin}" --arg e "${end}" --arg s "${7:-false}" --argjson x "${extra}" '
+        def num: if . == "" then null else tonumber end;
+        .chaos += [{ts: $ts, node: $n, action: $a, note: $note, rc: ($rc|tonumber),
+                    planned_unix: ($p|num), begin_unix: ($b|num), end_unix: ($e|num),
+                    late_secs: (if $b == "" or $p == "" then null else (($b|tonumber) - ($p|tonumber)) * 1000 | round / 1000 end),
+                    staged: ($s == "true")} + $x]' || true
+}
+
+# chaos_do <idx> <remote-cmd> <action-label> <note> [<planned-unix> [<extra-json>]] — the direct
+# path: one --command at once, recorded by record_chaos (staged=false); CHAOS_RC as there.
 chaos_do() {
-    local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" rc=0
+    local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" rc=0 out
     bench_log "CHAOS ${inst}: $3"
     local remote_cmd="printf 'BENCH_CHAOS_BEGIN node=${inst} '; date -u +%s.%N; { $2; }; action_rc=\$?; printf 'BENCH_CHAOS_END node=${inst} rc=%s ' \"\$action_rc\"; date -u +%s.%N; exit \"\$action_rc\""
-    tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" \
-        | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log" || rc=$?
-    CHAOS_RC="${rc}"
-    record_chaos "${inst}" "$3" "$4" "${rc}"
+    out="$(tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log")" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/      /'
+    record_chaos "${inst}" "$3" "$4" "${rc}" "${out}" "${5:-}" false "${6:-}"
 }
 
-# chaos_restart_v05 <note> — the restart owed after the kill: on schedule, after an abort, at the
-# end of the watch and from the EXIT trap. Until systemd confirms the unit active it stays owed
+# chaos_direct_cmd <kill|start|restart> — the direct path's command for a staged action.
+chaos_direct_cmd() {
+    case "$1" in
+        kill) printf '%s' "sudo docker kill -s KILL telcoin && sudo systemctl stop telcoin && { systemctl is-active telcoin || true; }" ;;
+        start) printf '%s' "sudo systemctl start telcoin && systemctl is-active telcoin" ;;
+        restart) printf '%s' "sudo systemctl restart telcoin && systemctl is-active telcoin" ;;
+        *) printf 'true' ;;
+    esac
+}
+
+# CHAOS_STAGE_SCRIPT — a staged chaos action, sent on stdin to `sudo bash -s` after the CHAOS_*
+# assignment lines chaos_stage_send writes; nothing is quoted into a --command string
+# (tasks/lessons.md). The body is one function called on the last line, so a script cut short in
+# transit is a syntax error and runs nothing. It starts the container-log save as a background job
+# (as bench_save_node_log does, same file name, so the pulls collect it) and prints
+# BENCH_CHAOS_SAVE_STARTED, waits on the node's clock for CHAOS_DUE, then prints BENCH_CHAOS_BEGIN,
+# runs the action and prints BENCH_CHAOS_END in the direct path's format. The save never holds the
+# action back (r20261007-0316: a 70 s save before the wait put the kill 41.8 s late); late is the
+# 0.2 s poll of the wait. After END the session waits up to CHAOS_SAVE_WAIT seconds for the save
+# and prints one of: BENCH_CHAOS_SAVED <file> at_action=finished|running (the save had finished
+# when the action began, or finished after it), BENCH_CHAOS_SAVE_FAILED <name> at_action=... <error>,
+# BENCH_CHAOS_SAVE_RUNNING <file> at_action=running (still writing: it completes on the node by
+# itself and the file appears under its name only when complete). A save that outlives a kill is
+# not cut short: `docker logs` reads the log to the size it had when the save began, and Docker
+# removes the --rm container without waiting for it (Docker 29.8 json-file: a 542 MB read started
+# 0.5 s before a SIGKILL completed in full, rc 0, and the name was free 0.2 s after the kill).
+# The BEGIN line is written before the action and checked: once the operator's session is gone
+# that write fails, so a run interrupted during the wait cannot kill the node after its EXIT trap
+# restarted it. A due time more than CHAOS_MAX_WAIT ahead on the node's clock (skew) is refused
+# before the save starts. Case patterns carry their opening parenthesis: macOS /bin/bash 3.2
+# misparses a bare `pattern)` inside this $(...) (tasks/lessons.md).
+CHAOS_STAGE_SCRIPT=$(cat <<'EOS'
+chaos_stage() {
+    set -u -o pipefail
+    local name="" sd="" at="" ahead rc
+    now_ms() { local t; t=$(date -u +%s.%N); case $t in (*.[0-9][0-9][0-9]*) printf '%s' "${t%"${t#*.???}"}" ;; (*) printf '%s.000' "${t%%.*}" ;; esac; }
+    save_log() { # <dir> <name>
+        local d=$1 f=$1/$2 p
+        docker container inspect telcoin >/dev/null || return 1
+        mkdir -p "$d" || return 1
+        if [ -e "$f" ]; then echo "$f exists already" >&2; return 1; fi
+        p=$(mktemp "$d/.$2.XXXXXX") || return 1
+        docker logs telcoin 2>&1 | gzip -1 > "$p" || return 1
+        [ "$(gzip -cd "$p" | head -c 1 | wc -c)" -eq 1 ] || { echo "the telcoin container log is empty" >&2; return 1; }
+        mv -n "$p" "$f" && [ ! -e "$p" ] && [ -s "$f" ]
+    }
+    save_report() { # <secs> — wait up to <secs> for the background save, then print its outcome
+        local until=$(( $(date +%s) + $1 ))
+        while [ ! -s "$sd/rc" ] && [ "$(date +%s)" -lt "$until" ]; do sleep 0.5; done
+        if [ ! -s "$sd/rc" ]; then
+            echo "BENCH_CHAOS_SAVE_RUNNING $CHAOS_LOG_DIR/$name at_action=$at"
+        elif [ "$(cat "$sd/rc")" = 0 ]; then
+            echo "BENCH_CHAOS_SAVED $CHAOS_LOG_DIR/$name at_action=$at"; rm -rf "$sd"
+        else
+            echo "BENCH_CHAOS_SAVE_FAILED $name at_action=$at $(tr '\n' ' ' < "$sd/err" | cut -c1-300)"; rm -rf "$sd"
+        fi
+    }
+    case $CHAOS_ACTION in (kill|start|restart|true) ;; (*) echo "BENCH_CHAOS_STAGE_FAIL action $CHAOS_ACTION"; return 2 ;; esac
+    ahead=$(( CHAOS_DUE - $(date +%s) ))
+    if [ "$ahead" -gt "$CHAOS_MAX_WAIT" ]; then
+        echo "BENCH_CHAOS_STAGE_FAIL due in ${ahead}s on this clock, more than ${CHAOS_MAX_WAIT}s"; return 2
+    fi
+    # The save's fds are not the session's: a save still running at the end does not hold it open.
+    if [ -n "$CHAOS_SAVE" ] && sd=$(mktemp -d); then
+        name="telcoin-$CHAOS_SAVE-$(date -u +%Y%m%dT%H%M%SZ).log.gz"
+        { save_log "$CHAOS_LOG_DIR" "$name" 2>"$sd/err"; echo "$?" > "$sd/rc"; } </dev/null >/dev/null 2>&1 &
+        echo "BENCH_CHAOS_SAVE_STARTED $CHAOS_LOG_DIR/$name"
+    else
+        sd=""
+    fi
+    while [ "$(date +%s)" -lt "$CHAOS_DUE" ]; do sleep 0.2; done
+    if [ -n "$sd" ]; then if [ -s "$sd/rc" ]; then at=finished; else at=running; fi; fi
+    printf 'BENCH_CHAOS_BEGIN node=%s %s\n' "$CHAOS_NODE" "$(now_ms)" || return 2
+    case $CHAOS_ACTION in
+        (kill) docker kill -s KILL telcoin && systemctl stop telcoin && { systemctl is-active telcoin || true; } ;;
+        (start) systemctl start telcoin && systemctl is-active telcoin ;;
+        (restart) systemctl restart telcoin && systemctl is-active telcoin ;;
+        (true) true ;;
+    esac
+    rc=$?
+    printf 'BENCH_CHAOS_END node=%s rc=%s %s\n' "$CHAOS_NODE" "$rc" "$(now_ms)"
+    [ -z "$sd" ] || save_report "$CHAOS_SAVE_WAIT"
+    return "$rc"
+}
+chaos_stage
+EOS
+)
+
+# chaos_stage_send <idx> <kill|start|restart|true> <due-unix> <log-label|""> — CHAOS_STAGE_SCRIPT on
+# the node; its output on stdout, the ssh rc. Each value is checked here, so every CHAOS_* line
+# the node reads is a plain assignment.
+chaos_stage_send() {
+    local inst="${INSTANCE_NAMES[$1]:-}" zone="${ZONES[$1]:-}"
+    case "${inst}" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) echo "❌ chaos_stage_send: no node at index '$1'" >&2; return 2 ;; esac
+    case "$2" in kill|start|restart|true) ;; *) echo "❌ chaos_stage_send: action '$2'" >&2; return 2 ;; esac
+    case "$3" in ''|*[!0-9]*) echo "❌ chaos_stage_send: due time '$3'" >&2; return 2 ;; esac
+    case "$4" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) echo "❌ chaos_stage_send: log label '$4'" >&2; return 2 ;; esac
+    case "${BENCH_NODE_LOG_DIR}" in ''|*[!A-Za-z0-9/._-]*) echo "❌ chaos_stage_send: log dir '${BENCH_NODE_LOG_DIR}'" >&2; return 2 ;; esac
+    printf 'CHAOS_NODE=%s\nCHAOS_ACTION=%s\nCHAOS_DUE=%s\nCHAOS_SAVE=%s\nCHAOS_LOG_DIR=%s\nCHAOS_MAX_WAIT=%s\nCHAOS_SAVE_WAIT=%s\n%s\n' \
+        "${inst}" "$2" "$3" "$4" "${BENCH_NODE_LOG_DIR}" "$(( BENCH_CHAOS_STAGE_SECS + 60 ))" "$(( BENCH_CHAOS_SAVE_WAIT_SECS ))" \
+        "${CHAOS_STAGE_SCRIPT}" | tn_iap_ssh_stdin "${inst}" "${zone}"
+}
+
+# chaos_save_report <idx> <log-label|""> <remote-output> — the staged log save's outcome, reported
+# as save_log_first reports its own. A save the session left running (SAVE_RUNNING, or STARTED
+# with no outcome when the session ended early) completes on the node by itself.
+chaos_save_report() {
+    [ -n "$2" ] || return 0
+    local out saved at
+    out="$(printf '%s\n' "$3" | tr -d '\r')"
+    saved="$(printf '%s\n' "${out}" | sed -n 's/^BENCH_CHAOS_SAVED \([^ ]*\).*/\1/p' | tail -1)"
+    at="$(printf '%s\n' "${out}" | sed -n 's/^BENCH_CHAOS_SAVED [^ ]* at_action=\([a-z]*\).*/\1/p' | tail -1)"
+    if [ -n "${saved}" ]; then
+        echo "      ✓ ${INSTANCE_NAMES[$1]}: container log saved on the node as ${saved} (${at:-?} when the ${2#pre-} began)"; return 0
+    fi
+    saved="$(printf '%s\n' "${out}" | sed -n -e 's/^BENCH_CHAOS_SAVE_RUNNING \([^ ]*\).*/\1/p' -e 's/^BENCH_CHAOS_SAVE_STARTED \([^ ]*\).*/\1/p' | tail -1)"
+    if [ -n "${saved}" ] && ! printf '%s\n' "${out}" | grep -q '^BENCH_CHAOS_SAVE_FAILED '; then
+        bench_warn "${INSTANCE_NAMES[$1]}: container log still being saved on the node when the session ended (${saved}); it completes there and the teardown pulls it"
+        bench_manifest_note "log-save-unconfirmed: ${INSTANCE_NAMES[$1]} $2 at $(bench_now_iso); ${saved} was still being written when the session ended" || true
+        return 0
+    fi
+    bench_warn "${INSTANCE_NAMES[$1]}: container log not saved ($2) — the ${2#pre-} goes ahead on schedule without it (the unit-stdout file has its output)"
+    bench_manifest_note "log-save-failed: ${INSTANCE_NAMES[$1]} $2 at $(bench_now_iso); the ${2#pre-} went ahead without a saved log" || true
+}
+
+# chaos_staged <idx> <kill|start|restart> <due-unix> <log-label|""> <action-label> <note> [<extra-json>]
+# — the action at <due> on the node's clock, from a session the loop opens BENCH_CHAOS_STAGE_SECS
+# early (r20261006-0053: a poll, the log save and the IAP setup ran before the kill, 17 s late).
+# A session that fails before BENCH_CHAOS_BEGIN falls back to the direct path at <due>
+# (staged=false), without a log save of its own: a save before the action would delay it
+# (r20261007-0316), and the unit's append file (<node>-unit-stdout.log.gz) has the container's
+# output. One that fails after BEGIN is recorded as it ran. CHAOS_RC, CHAOS_BEGIN as record_chaos.
+chaos_staged() {
+    local idx="$1" act="$2" due="$3" save="$4" inst="${INSTANCE_NAMES[$1]}" rc=0 out
+    bench_log "CHAOS ${inst}: $5 staged for $(bench_iso_from_unix "${due}") on the node's clock"
+    out="$(chaos_stage_send "${idx}" "${act}" "${due}" "${save}" | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log")" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/      /'
+    if [ -n "$(chaos_mark BEGIN "${out}")" ]; then
+        chaos_save_report "${idx}" "${save}" "${out}" || true
+        record_chaos "${inst}" "$5" "$6" "${rc}" "${out}" "${due}" true "${7:-}"
+        return 0
+    fi
+    bench_warn "${inst}: the staged $5 failed before it began (rc=${rc}) — the direct path runs it at $(bench_iso_from_unix "${due}")"
+    chaos_save_report "${idx}" "${save}" "${out}" || true
+    sleep_until "${due}" 0
+    chaos_do "${idx}" "$(chaos_direct_cmd "${act}")" "$5" "$6" "${due}" "${7:-}"
+}
+
+# chaos_restart_v05 <note> [<due-unix>] — the restart owed after the kill: staged for <due> when
+# one is given (the scheduled restart), else at once over the direct path (after an abort, at the
+# end of the watch, from the EXIT trap). Until systemd confirms the unit active it stays owed
 # (the watch loop tries again at each later poll), and the command to run by hand is printed.
 chaos_restart_v05() {
     local inst="${INSTANCE_NAMES[$CHAOS_KILL_IDX]}" zone="${ZONES[$CHAOS_KILL_IDX]}"
-    chaos_do "${CHAOS_KILL_IDX}" "sudo systemctl start telcoin && systemctl is-active telcoin" \
-        "systemctl start telcoin" "$1"
-    if [ "${CHAOS_RC}" -eq 0 ]; then RUN_DID_BACK=1; return 0; fi
+    if [ -n "${2:-}" ]; then
+        chaos_staged "${CHAOS_KILL_IDX}" start "$2" "" "systemctl start telcoin" "$1"
+    else
+        chaos_do "${CHAOS_KILL_IDX}" "$(chaos_direct_cmd start)" "systemctl start telcoin" "$1"
+    fi
+    if [ "${CHAOS_RC}" -eq 0 ]; then RUN_DID_BACK=1; BACK_BEGIN="${CHAOS_BEGIN}"; return 0; fi
     echo "❌ ${inst} may still be DOWN: restart not confirmed (rc=${CHAOS_RC}). Start it by hand:" >&2
     echo "    gcloud compute ssh ${inst} --zone=${zone} --project=${PROJECT_ID} --tunnel-through-iap --command='sudo systemctl start telcoin'" >&2
     bench_manifest_note "restart-not-confirmed: ${inst} at $(bench_now_iso) (rc=${CHAOS_RC}, $1); still owed" || true
@@ -609,6 +870,170 @@ round_stall_check() {
     if [ "${STALL_POLLS}" -ge 2 ] && [ $(( now - LAST_ADVANCE_TS )) -gt "${BENCH_ABORT_STALL_SECS}" ] && [ "${done_all}" -eq 0 ]; then
         record_abort "quorum-lost" "fleet" "no node's tn_primary_round advanced in ${STALL_POLLS} consecutive polls ($(( now - LAST_ADVANCE_TS ))s)"
     fi
+}
+
+# next_action_due — "<due-unix> <action>" of the earliest chaos action still owed, or nothing. It
+# reads do_run's chaos_on and t_kill/t_back/t_obs.
+next_action_due() {
+    [ "${chaos_on}" = "1" ] || return 0
+    {
+        [ -n "${ABORTED}" ] || [ "${RUN_DID_KILL}" -eq 1 ] || echo "${t_kill} kill"
+        [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || echo "${t_back} restart"
+        [ -n "${ABORTED}" ] || [ "${RUN_DID_OBS}" -eq 1 ] || echo "${t_obs} observer-restart"
+    } | sort -n | head -1
+}
+
+# poll_deferred <now> — 0, with next_poll moved to that action's due time, when a chaos action is
+# due within BENCH_CHAOS_GUARD_SECS: a poll (serial reads and queries, ~40 s) must not run into the
+# action's staged session (r20261006-0053: one that overran made the kill late). The poll then runs
+# right after the action. Lag pause/unpause do not defer it: an unpause retried every minute would
+# starve the abort watchers.
+poll_deferred() {
+    local due="" name=""
+    read -r due name <<< "$(next_action_due)" || true
+    [ -n "${due}" ] && [ "${due}" -gt "$1" ] && [ $(( due - $1 )) -le "${BENCH_CHAOS_GUARD_SECS}" ] || return 1
+    echo "    poll deferred: ${name} due in $(( due - $1 ))s"
+    next_poll="${due}"
+}
+
+# sleep_until <unix> [<floor-secs>] — sleep until <unix>, at least <floor> s (default 1). An overdue
+# target is retried after 1 s; the old 5 s floor made a late kill later still.
+sleep_until() {
+    local s=$(( $1 - $(bench_now_unix) )) floor="${2:-1}"
+    [ "${s}" -ge "${floor}" ] || s="${floor}"
+    [ "${s}" -le 0 ] || sleep "${s}"
+}
+
+# status_samples <seen-ts> — "<ts> <block>" of each BENCH_STATUS line on stdin newer than <seen-ts>.
+status_samples() {
+    tr -d '\r' | awk -v seen="$1" '{ ts = ""; b = ""
+        for (i = 1; i <= NF; i++) { if ($i ~ /^ts=/) ts = substr($i, 4); else if ($i ~ /^block=/) b = substr($i, 7) }
+        if (ts ~ /^[0-9]+$/ && ts + 0 > seen + 0) print ts, b }'
+}
+
+# status_collect <idx> <BENCH_STATUS lines> — the node's samples since the last poll onto POLL_SAMPLES.
+status_collect() {
+    local new; new="$(printf '%s\n' "$2" | status_samples "${STATUS_SEEN[$1]:-0}")"
+    [ -n "${new}" ] || return 0
+    POLL_SAMPLES="${POLL_SAMPLES}${new}"$'\n'
+    STATUS_SEEN[$1]="$(printf '%s\n' "${new}" | sort -n | tail -1 | cut -d' ' -f1)"
+}
+
+# fleet_round_at <unix> — the fleet's highest consensus round at that time (epoch*1e8+round, as
+# bench_prom_rounds encodes it), from Prometheus with `offset`; nothing when unknown. The watcher's
+# own reads are a poll (240 s) apart, too coarse to judge a stall. round_text <value> spells it out.
+fleet_round_at() {
+    local off=$(( $(bench_now_unix) - $1 )) l="${BENCH_PROM_NETWORK_LABEL}" o=""
+    [ "${off}" -le 0 ] || o=" offset ${off}s"
+    bench_prom_query "max(max by (node) (tn_epoch_current{network=\"${l}\"}${o}) * 100000000 + max by (node) (tn_primary_round{network=\"${l}\"}${o}))" 2>/dev/null \
+        | jq -r 'select(.status == "success") | .data.result[0].value[1] // empty | tonumber | floor' 2>/dev/null || true
+}
+round_text() {
+    case "$1" in ''|*[!0-9]*) printf '?' ;; *) printf '%s (epoch %s)' "$(( $1 % 100000000 ))" "$(( $1 / 100000000 ))" ;; esac
+}
+
+# commit_flat_check <samples> — a note, never an abort. <samples> are "<ts> <block>" lines, oldest
+# first, from every node's BENCH_STATUS lines since the last poll. A commit stall is the fleet's
+# highest block AND its highest consensus round standing still: blocks flat for at least
+# BENCH_STALL_NOTE_SECS, and rounds up by at most BENCH_STALL_NOTE_MAX_ROUNDS over the last
+# BENCH_STALL_NOTE_SECS of that (r20261006-0053: 301 s at block 15513, rounds +0 after the first
+# 28 s). Blocks flat while rounds advance is an idle chain: empty consensus outputs are not
+# executed, so blocks stop once the generators do (r20261006-0458 noted 213 s of that by mistake).
+# A stall prints one line, and goes into .commit_stalls[] with a note when the block moves again;
+# idle prints one line and is judged again at each poll. A stretch must start in the mixed phase
+# (in cooldown the generator only drains); a later advance closes it, after cooldown too.
+commit_flat_check() {
+    local ts blk
+    while read -r ts blk; do
+        case "${ts}:${blk}" in *[!0-9:]*|:*|*:) continue ;; esac
+        [ "${ts}" -ge "${STALL_WIN_START}" ] || continue
+        if [ -n "${FLAT_BLOCK}" ] && [ "${blk}" -le "${FLAT_BLOCK}" ]; then FLAT_UNTIL="${ts}"; continue; fi
+        [ -z "${FLAT_BLOCK}" ] || commit_flat_close "${ts}"
+        FLAT_BLOCK="${blk}"; FLAT_SINCE="${ts}"; FLAT_UNTIL="${ts}"; FLAT_STATE=""
+    done <<< "$1"
+    commit_flat_judge
+}
+
+# commit_flat_judge — the current stretch, once blocks have been flat for BENCH_STALL_NOTE_SECS:
+# stall when the rounds were flat over its last BENCH_STALL_NOTE_SECS, else idle. Unknown rounds
+# leave it for the next poll. A stall stays one until the block moves.
+commit_flat_judge() {
+    local span=$(( FLAT_UNTIL - FLAT_SINCE )) r0 r1 d since
+    { [ -n "${FLAT_BLOCK}" ] && [ "${FLAT_STATE}" != stall ] && [ "${FLAT_SINCE}" -lt "${STALL_MIXED_END}" ] \
+        && [ "${span}" -ge "${BENCH_STALL_NOTE_SECS}" ]; } || return 0
+    since="$(bench_iso_from_unix "${FLAT_SINCE}")"
+    r0="$(fleet_round_at $(( FLAT_UNTIL - BENCH_STALL_NOTE_SECS )))"; r1="$(fleet_round_at "${FLAT_UNTIL}")"
+    if [ -z "${r0}" ] || [ -z "${r1}" ] || [ "${r1}" -lt "${r0}" ]; then
+        echo "    blocks flat at ${FLAT_BLOCK} since ${since} (${span}s); consensus rounds unknown — judged again at the next poll"
+        return 0
+    fi
+    d=$(( r1 - r0 ))
+    if [ "${d}" -le "${BENCH_STALL_NOTE_MAX_ROUNDS}" ]; then
+        FLAT_STATE=stall; FLAT_ROUND="$(fleet_round_at "${FLAT_SINCE}")"; FLAT_ROUNDS_UP="${d}"
+        echo "    ⚠ commits flat at block ${FLAT_BLOCK} since ${since} (${span}s; rounds +${d} in its last ${BENCH_STALL_NOTE_SECS}s, at $(round_text "${r1}")) — note only"
+    elif [ "${FLAT_STATE}" != idle ]; then
+        FLAT_STATE=idle
+        echo "    idle: blocks flat at ${FLAT_BLOCK} since ${since} (${span}s), consensus rounds advancing (+${d} in ${BENCH_STALL_NOTE_SECS}s) — not a stall"
+    fi
+}
+
+# commit_flat_close <end-unix> — the block moved again at <end> (a sample of this poll): the stretch
+# is judged one last time, and a stall goes into .commit_stalls[].
+commit_flat_close() {
+    commit_flat_judge
+    [ "${FLAT_STATE}" != stall ] || commit_stall_record "$1" false
+    FLAT_STATE=""
+}
+
+# commit_stall_record <end-unix> <open: true|false> — the stall into .commit_stalls[] and a note.
+# Its bounds are sample times; round_start/round_end are the rounds at those times.
+commit_stall_record() {
+    local r1 s e; r1="$(fleet_round_at "$1")"
+    s="$(bench_iso_from_unix "${FLAT_SINCE}")"; e="$(bench_iso_from_unix "$1")"
+    bench_manifest_jq --arg s "${s}" --arg e "${e}" --argjson secs "$(( $1 - FLAT_SINCE ))" --argjson b "${FLAT_BLOCK}" \
+        --arg r0 "${FLAT_ROUND}" --arg r1 "${r1}" --argjson o "$2" '
+        def num: if . == "" then null else tonumber end;
+        .commit_stalls += [{start: $s, end: $e, secs: $secs, block: $b, round_start: ($r0|num), round_end: ($r1|num),
+                            source: "watch"} + (if $o then {open: true} else {} end)]' || true
+    bench_manifest_note "commit-stall (note only, no abort): the fleet's highest block stayed at ${FLAT_BLOCK} from ${s} to ${e}$([ "$2" = false ] || echo ' (still flat at the end of the watch)') ($(( $1 - FLAT_SINCE ))s between BENCH_STATUS samples); consensus rounds +${FLAT_ROUNDS_UP} in its last ${BENCH_STALL_NOTE_SECS}s, $(round_text "${FLAT_ROUND}") -> $(round_text "${r1}")" || true
+}
+
+# commit_flat_flush — at the end of the watch: a stall still flat goes in as open, ending at its
+# last flat sample.
+commit_flat_flush() {
+    commit_flat_judge
+    [ "${FLAT_STATE}" != stall ] || commit_stall_record "${FLAT_UNTIL}" true
+    FLAT_BLOCK=""; FLAT_STATE=""
+}
+
+# chaos_boundary_check [final] — epoch timing, once the restart is confirmed: the block that opened
+# epoch closing+1 (recovery-schedule.py --epoch), asked again at every poll until that epoch has
+# opened. The outage crossed the boundary when kill begin < boundary < restart begin (node-side
+# begin times). The verdict goes into .chaos[<kill>] (crossed_boundary, boundary_unix),
+# .chaos_boundary and a note. "final" (the end of the watch) records an epoch still not opened.
+# Reads do_run's recovery_schedule.
+chaos_boundary_check() {
+    { [ -n "${recovery_schedule}" ] && [ "${BOUNDARY_DONE}" -eq 0 ] && [ "${RUN_DID_BACK}" -eq 1 ]; } || return 0
+    local epoch rec start crossed verdict times
+    epoch=$(( $(printf '%s' "${recovery_schedule}" | jq -r .closing_epoch) + 1 ))
+    times="the kill began $(bench_iso_from_unix "${KILL_BEGIN%.*}") and the restart $(bench_iso_from_unix "${BACK_BEGIN%.*}") (node clock)"
+    bench_tunnel_up >/dev/null 2>&1 || true
+    if ! rec="$(python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" --epoch "${epoch}")"; then
+        if [ "${1:-}" != final ]; then echo "    chaos boundary: epoch ${epoch} not opened (or not readable) yet — asked again at the next poll"; return 0; fi
+        BOUNDARY_DONE=1
+        bench_manifest_jq --argjson i "${KILL_ENTRY:-null}" 'if $i == null then . else .chaos[$i].crossed_boundary = null end' || true
+        bench_manifest_note "chaos-boundary: epoch ${epoch} not opened by the end of the watch ($(bench_now_iso)); ${times}" || true
+        echo "    chaos boundary: epoch ${epoch} not opened by the end of the watch"
+        return 0
+    fi
+    start="$(printf '%s' "${rec}" | jq -r .epoch_start_unix)"
+    crossed="$(awk -v k="${KILL_BEGIN}" -v s="${start}" -v r="${BACK_BEGIN}" 'BEGIN { print ((k < s && s < r) ? "true" : "false") }')"
+    verdict="crossed"; [ "${crossed}" = true ] || verdict="did not cross"
+    BOUNDARY_DONE=1
+    bench_manifest_jq --argjson b "${rec}" --argjson i "${KILL_ENTRY:-null}" --argjson c "${crossed}" '.chaos_boundary = $b
+        | if $i == null then . else .chaos[$i] += {crossed_boundary: $c, boundary_unix: $b.epoch_start_unix} end' || true
+    bench_manifest_note "chaos-boundary: epoch ${epoch} opened at $(bench_iso_from_unix "${start}") (its closing block); ${times}: the outage ${verdict} the boundary" || true
+    echo "    chaos boundary: the outage ${verdict} the boundary (epoch ${epoch} opened $(bench_iso_from_unix "${start}"))"
 }
 
 # prom_get <json|""> <node> <absent> — the node's value; "?" when the query failed ("").
@@ -798,7 +1223,7 @@ do_run() {
     echo "    phases (planned): preamble ${BENCH_PREAMBLE_SECS}s, warmup ${BENCH_WARMUP_SECS}s, mixed ${BENCH_DURATION_SECS}s, cooldown ${BENCH_COOLDOWN_SECS}s; wait deadline $(bench_iso_from_unix "${deadline}")"
     local chaos_on="${BENCH_CHAOS:-1}"
     local t_kill=$(( mixed_start + BENCH_CHAOS_KILL_AT_SECS )) t_back=$(( mixed_start + BENCH_CHAOS_BACK_AT_SECS )) t_obs=$(( mixed_start + BENCH_CHAOS_OBS_AT_SECS ))
-    local recovery_schedule="" boundary_record=""
+    local recovery_schedule=""
     if [ "${chaos_on}" = "1" ]; then
         case "${BENCH_CHAOS_TIMING}" in
             epoch)
@@ -879,9 +1304,13 @@ do_run() {
         fi
     done
     [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN — re-run with --yes."; return 0; }
-    local failed=0 j
+    local failed=0 j used note
     for j in "${!pids[@]}"; do
-        if wait "${pids[$j]}"; then echo "    ✓ created ${names[$j]}"; else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
+        if wait "${pids[$j]}"; then
+            used="$(cat "${BENCH_RESULTS_DIR}/meta/${names[$j]}/MACHINE_TYPE" 2>/dev/null || true)"; note=""
+            [ -z "${used}" ] || [ "${used}" = "${BENCH_BLASTER_MACHINE_TYPES%% *}" ] || note=", fallback after a stockout"
+            echo "    ✓ created ${names[$j]} (${used:-type not recorded}${note})"
+        else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
     done
     [ "${failed}" -eq 0 ] || bench_die "blaster creation failed — clean up with: benchmark/benchmark-blast.sh delete --yes"
     for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
@@ -893,52 +1322,51 @@ do_run() {
         --arg c "$(bench_iso_from_unix "${p2}")" --arg d "$(bench_iso_from_unix "${p3}")" --arg e "$(bench_iso_from_unix "${p4}")" \
         '.phases = [{name:"preamble",start:$a,end:$b},{name:"warmup",start:$b,end:$c},{name:"mixed",start:$c,end:$d},{name:"cooldown",start:$d,end:$e}]
          | .notes += ["phases are PLANNED from BENCH_START_AT + configured durations; the per-blaster tn-blast/v2 run.phases are authoritative"]'
-    local bl="[]" id
-    for k in $(seq 0 $((VAL_COUNT - 1))); do
-        name="$(blaster_name "$k")"
-        id="$(gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null || true)"
-        bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
-            --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" \
-            --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
-            '. + [{name:$n, zone:$z, instance_id:$id, target:$t, node_url:$u, sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
-    done
-    bench_manifest_jq --argjson b "${bl}" '.blasters = $b'
+    bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
 
     # --- watch loop: chaos + abort watchers + done markers ---
-    local next_poll=$(( start_at + 60 )) all_done=0 sleep_for target
+    local next_poll=$(( start_at + 60 )) all_done=0 target due back_due n
     local kill_blaster; kill_blaster="$(blaster_name "${CHAOS_KILL_IDX}")"
+    # Chaos actions open their session this early (chaos_staged); epoch timing plans the kill.
+    local stage="${BENCH_CHAOS_STAGE_SECS}" kill_extra=""
+    [ -z "${recovery_schedule}" ] \
+        || kill_extra="$(printf '%s' "${recovery_schedule}" | jq -c '{planned: {closing_epoch, boundary_unix, restart_unix}}')"
     LAST_ADVANCE_TS="${start_at}"
+    STALL_WIN_START="${mixed_start}"; STALL_MIXED_END="${p3}"
     while :; do
         now="$(bench_now_unix)"
-        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ] && [ "${now}" -ge "${t_kill}" ]; then
-            save_log_first "${CHAOS_KILL_IDX}" pre-kill
+        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ] && [ "${now}" -ge "$(( t_kill - stage ))" ]; then
             # A restart is owed from here on, even if the kill reports a failure: an exit while its
             # ssh is in flight may follow a kill that landed. When it did not land, the owed restart
             # is harmless: `systemctl start` on an active unit does nothing, and is-active passes.
             RUN_DID_KILL=1
-            chaos_do "${CHAOS_KILL_IDX}" "sudo docker kill -s KILL telcoin && sudo systemctl stop telcoin && { systemctl is-active telcoin || true; }" \
-                "docker kill -s KILL telcoin" "restart across the epoch boundary; systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors"
+            KILL_ENTRY="$(jq '.chaos | length' "$(bench_manifest)" 2>/dev/null || true)"
+            chaos_staged "${CHAOS_KILL_IDX}" kill "${t_kill}" pre-kill "docker kill -s KILL telcoin" \
+                "systemctl stop holds it down (unit has Restart=on-failure). ${kill_blaster} targets ONLY this node, so its sends fail for the outage by design; the generator resends on connection errors" \
+                "${kill_extra}"
+            KILL_BEGIN="${CHAOS_BEGIN}"
+            # Epoch timing: the outage is BENCH_CHAOS_DOWNTIME_SECS from the kill's node-side begin.
             if [ "${BENCH_CHAOS_TIMING}" = epoch ]; then
-                t_back=$(( $(bench_now_unix) + BENCH_CHAOS_DOWNTIME_SECS ))
+                t_back=$(( ${KILL_BEGIN%.*} + BENCH_CHAOS_DOWNTIME_SECS ))
                 t_obs=$(( t_back + BENCH_CHAOS_OBS_AFTER_BACK_SECS ))
                 bench_manifest_jq --argjson due "${t_back}" '.chaos_restart_due_unix = $due'
             fi
-            bench_manifest_note "blaster-05-outage: ${kill_blaster}'s only RPC target ${INSTANCE_NAMES[$CHAOS_KILL_IDX]} is down from $(bench_now_iso) for ~$(( t_back - t_kill ))s (chaos); its connection errors/resends in that window are the chaos, not a blaster fault" || true
+            bench_manifest_note "blaster-05-outage: ${kill_blaster}'s only RPC target ${INSTANCE_NAMES[$CHAOS_KILL_IDX]} is down from $(bench_iso_from_unix "${KILL_BEGIN%.*}") (the kill's node-side begin) until its restart, due $(bench_iso_from_unix "${t_back}") (~$(( t_back - ${KILL_BEGIN%.*} ))s; chaos); its connection errors/resends in that window are the chaos, not a blaster fault" || true
         fi
-        # The restart is owed even after an abort: never leave v05 down. Not confirmed, it is tried
-        # again at the next poll (t_back moves there), and at each one after that until it is.
-        if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ] && { [ "${now}" -ge "${t_back}" ] || [ -n "${ABORTED}" ]; }; then
-            if [ -n "${recovery_schedule}" ] && [ -z "${boundary_record}" ]; then
-                boundary_record="$(python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" \
-                    --epoch "$(( $(printf '%s' "${recovery_schedule}" | jq -r .closing_epoch) + 1 ))")" || true
-                [ -z "${boundary_record}" ] || bench_manifest_jq --argjson b "${boundary_record}" '.chaos_boundary = $b'
+        # The restart is owed even after an abort: never leave v05 down (then it runs at once, not
+        # staged). Not confirmed, it is tried again at the next poll (t_back moves there), and at
+        # each one after that until it is.
+        if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ] && { [ "${now}" -ge "$(( t_back - stage ))" ] || [ -n "${ABORTED}" ]; }; then
+            back_due="${t_back}"; [ -z "${ABORTED}" ] || back_due=""
+            chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm" "${back_due}" \
+                || { n="$(bench_now_unix)"; t_back=$(( next_poll > n ? next_poll : n + BENCH_POLL_SECS )); }
+            # Epoch timing: the observer restart follows this restart's node-side begin.
+            if [ "${RUN_DID_BACK}" -eq 1 ] && [ "${BENCH_CHAOS_TIMING}" = epoch ]; then
+                t_obs=$(( ${BACK_BEGIN%.*} + BENCH_CHAOS_OBS_AFTER_BACK_SECS ))
             fi
-            chaos_restart_v05 "docker start is impossible: the unit runs docker run --rm" \
-                || t_back=$(( next_poll > now ? next_poll : now + BENCH_POLL_SECS ))
         fi
-        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_OBS}" -eq 0 ] && [ "${now}" -ge "${t_obs}" ]; then
-            save_log_first "${OBSERVER_IDX}" pre-restart
-            chaos_do "${OBSERVER_IDX}" "sudo systemctl restart telcoin && systemctl is-active telcoin" "systemctl restart telcoin" "observer restart"
+        if [ "${chaos_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_OBS}" -eq 0 ] && [ "${now}" -ge "$(( t_obs - stage ))" ]; then
+            chaos_staged "${OBSERVER_IDX}" restart "${t_obs}" pre-restart "systemctl restart telcoin" "observer restart"
             RUN_DID_OBS=1
         fi
         if [ "${lag_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${now}" -ge "${t_pause}" ]; then
@@ -952,15 +1380,18 @@ do_run() {
             lag_unpause "scheduled unpause" || t_unpause=$(( $(bench_now_unix) + 60 ))   # retry in a minute
         fi
 
-        if [ "${now}" -ge "${next_poll}" ]; then
+        if [ "${now}" -ge "${next_poll}" ] && ! poll_deferred "${now}"; then
             bench_log "poll: blasters + node status + obs memory"
             if poll_blasters; then all_done=1; else all_done=0; fi
-            # nodes: disk + FatalDBFailure from BENCH_STATUS (node-sampler.sh, serial console);
-            # block= is informational only.
-            local line inst pct fatal blk
+            # nodes: disk + FatalDBFailure from the newest BENCH_STATUS (node-sampler.sh, serial
+            # console); block= of every sample since the last poll feeds the commit-flat note only.
+            local lines line inst pct fatal blk
+            POLL_SAMPLES=""
             for k in "${!INSTANCE_NAMES[@]}"; do
                 inst="${INSTANCE_NAMES[$k]}"
-                line="$(bench_serial_last "${inst}" "${ZONES[$k]}" "BENCH_STATUS " || true)"
+                lines="$(bench_serial "${inst}" "${ZONES[$k]}" | grep -F -- "BENCH_STATUS " || true)"
+                line="$(printf '%s\n' "${lines}" | tail -1)"
+                status_collect "${k}" "${lines}"
                 [ -n "${line}" ] || { echo "    ${inst}: no BENCH_STATUS yet"; continue; }
                 pct="$(status_field "${line}" root_used_pct)"; fatal="$(status_field "${line}" fatal_db)"
                 blk="$(status_field "${line}" block)"
@@ -969,12 +1400,14 @@ do_run() {
                 if [ -n "${fatal}" ] && [ "${fatal}" -gt 0 ]; then record_abort "batch-cache-cliff" "${inst}" "FatalDBFailure x${fatal} in docker logs telcoin — batch-cache cliff, NOT a hardware limit"; fi
             done
             round_stall_check "${now}" "${all_done}"
+            commit_flat_check "$(printf '%s' "${POLL_SAMPLES}" | sort -n)"
             node_health_check "${now}" || true
             local mem; mem="$(bench_obs_mem_pct || true)"
             echo "    obs-devnet memory: ${mem:-n/a}%"
             if [ -n "${mem}" ] && awk -v m="${mem}" -v t="${BENCH_ABORT_OBS_MEM_PCT}" 'BEGIN{exit !(m>t)}'; then
                 record_abort "obs-memory" "${OBS_INSTANCE_NAME}" "obs-devnet memory ${mem}% > ${BENCH_ABORT_OBS_MEM_PCT}%"
             fi
+            chaos_boundary_check
             next_poll=$(( now + BENCH_POLL_SECS ))
         fi
 
@@ -984,20 +1417,17 @@ do_run() {
             deadline=$(( now + 600 ))
             next_poll=$(( now + BENCH_POLL_SECS ))
             t_unpause=$(( t_unpause < now ? t_unpause : now ))    # an owed unpause runs on the next pass
+            t_back=$(( t_back < now ? t_back : now ))             # and so does an owed restart
         fi
         [ "${all_done}" -eq 1 ] && { bench_log "all blasters reported BENCH_BLAST_DONE"; break; }
         [ "${now}" -lt "${deadline}" ] || { bench_warn "deadline reached before every blaster finished"; break; }
 
         target="${next_poll}"
-        if [ "${chaos_on}" = "1" ]; then
-            [ "${RUN_DID_KILL}" -eq 0 ] && [ "${t_kill}" -lt "${target}" ] && target="${t_kill}"
-            [ "${RUN_DID_BACK}" -eq 0 ] && [ "${RUN_DID_KILL}" -eq 1 ] && [ "${t_back}" -lt "${target}" ] && target="${t_back}"
-            [ "${RUN_DID_OBS}" -eq 0 ] && [ "${t_obs}" -lt "${target}" ] && target="${t_obs}"
-        fi
-        [ "${lag_on}" = "1" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${t_pause}" -lt "${target}" ] && target="${t_pause}"
+        read -r due _ <<< "$(next_action_due)" || true
+        [ -z "${due}" ] || [ $(( due - stage )) -ge "${target}" ] || target=$(( due - stage ))
+        [ "${lag_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${t_pause}" -lt "${target}" ] && target="${t_pause}"
         [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ] && [ "${t_unpause}" -lt "${target}" ] && target="${t_unpause}"
-        sleep_for=$(( target - $(bench_now_unix) )); [ "${sleep_for}" -ge 5 ] || sleep_for=5
-        sleep "${sleep_for}"
+        sleep_until "${target}"
     done
 
     # The loop can end (all done, abort, deadline) before the scheduled unpause or restart, or while
@@ -1005,6 +1435,8 @@ do_run() {
     # tries before the run exits stand in for its steps (a) and (b).
     [ "${RUN_DID_PAUSE}" -eq 0 ] || [ "${RUN_DID_UNPAUSE}" -eq 1 ] || lag_unpause "owed unpause at the end of the watch" || true
     [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || chaos_restart_v05 "owed restart at the end of the watch" || true
+    chaos_boundary_check final
+    commit_flat_flush
 
     # --- results ---
     bench_manifest_ts blast_end
@@ -1029,6 +1461,29 @@ do_run() {
 }
 
 # ================================ collect ============================================
+# collect_missing <instance> <what> — a sampler file not copied: a warning and a manifest note, so
+# the report never reads a missing file as a quiet node.
+collect_missing() {
+    bench_warn "$2 from $1 not copied"
+    bench_manifest_note "collect: $2 from $1 not copied at $(bench_now_iso)" || true
+}
+
+# stall_scan — .commit_stalls_sampled from the sampler CSVs (stall-scan.py: the fleet's highest
+# block per 30 s, flat for >= BENCH_STALL_NOTE_SECS inside the mixed phase and cooldown). A note
+# beside the watch's .commit_stalls, never fatal.
+stall_scan() {
+    local out
+    echo "    commit stalls from sampler/*.csv: stall-scan.py --min-secs ${BENCH_STALL_NOTE_SECS}"
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
+    if out="$(python3 "${DIR}/stall-scan.py" --results "${BENCH_RESULTS_DIR}" --min-secs "${BENCH_STALL_NOTE_SECS}")" \
+        && bench_manifest_jq --argjson s "${out}" '.commit_stalls_sampled = $s'; then
+        echo "      $(printf '%s' "${out}" | jq -r length) flat stretch(es) in .commit_stalls_sampled"
+    else
+        bench_warn "stall-scan failed — .commit_stalls_sampled not updated"
+    fi
+    return 0
+}
+
 do_collect() {
     local i inst
     echo ">>> collect ${BENCH_RUN_ID} -> ${BENCH_RESULTS_DIR}"
@@ -1038,12 +1493,20 @@ do_collect() {
         inst="${INSTANCE_NAMES[$i]}"
         echo "    ${inst}: sampler CSV (IAP scp)"
         bench_run bench_iap_scp_down "${inst}" "${ZONES[$i]}" "/var/lib/bench-sampler/${inst}.csv" "${BENCH_RESULTS_DIR}/sampler/${inst}.csv" \
-            || bench_warn "sampler CSV from ${inst} not copied"
+            || collect_missing "${inst}" "sampler CSV"
         bench_run bench_iap_scp_down "${inst}" "${ZONES[$i]}" "/var/lib/bench-sampler/${inst}.epochs.txt" "${BENCH_RESULTS_DIR}/sampler/${inst}.epochs.txt" \
-            || bench_warn "epoch inventory from ${inst} not copied"
+            || collect_missing "${inst}" "epoch inventory"
     done
+    stall_scan
     copy_prefix "$(recorded_prefix blast blasters)" blasters || true
     copy_prefix "$(recorded_prefix fund funder)" funder || true
+    # results/<run>/ is the only copy of the run: index it now, so an interrupted run has one too.
+    bench_local_analysis
+    # The certification outcome (manifest.certification, .cert_failures + log snapshots) needs the
+    # node logs, so it is usually recorded by the teardown; never fatal here.
+    bench_certification_record "${BENCH_RESULTS_DIR}/logs" "$(bench_manifest)" || bench_warn "certification not recorded"
+    bench_cert_failures_snapshot "${BENCH_RESULTS_DIR}/logs" "$(bench_manifest)" || bench_warn "certification snapshots not taken"
+    bench_local_index || bench_warn "INDEX.md / CHECKSUMS.sha256 not written — the teardown writes them"
 }
 
 # ================================ delete / status ====================================
@@ -1077,6 +1540,44 @@ do_status() {
     done
 }
 
+# ================================ chaos-stage-test ===================================
+# do_chaos_stage_test — one staged session (chaos_stage_send) against --instance with the action
+# `true`, due BENCH_CHAOS_STAGE_SECS after it opens, as a blast stages its chaos; the node's
+# container log is saved alongside as telcoin-stage-test-<UTC>.log.gz (the teardown pulls it with
+# the other saved logs). Prints BEGIN/END, the lateness and the save's state; non-zero when the
+# session, a marker or the action fails. A remote path tested only through stubs has never been parsed by a remote shell
+# (tasks/lessons.md): run this once against a live node before a blast depends on it.
+do_chaos_stage_test() {
+    local idx due rc=0 out begin end late
+    [ -n "${STAGE_INSTANCE}" ] || bench_die "chaos-stage-test needs --instance <node> (one of: ${INSTANCE_NAMES[*]})"
+    idx="$(bench_index_of "${STAGE_INSTANCE}")" || bench_die "${STAGE_INSTANCE} is not a node of this fleet (${INSTANCE_NAMES[*]})"
+    echo ">>> chaos-stage-test ${STAGE_INSTANCE} (${ZONES[$idx]}): save its container log in the background, wait for the due time on its clock, run 'true'"
+    printf 'CHAOS_NODE=x\nCHAOS_ACTION=true\nCHAOS_DUE=0\nCHAOS_SAVE=\nCHAOS_LOG_DIR=/x\nCHAOS_MAX_WAIT=0\nCHAOS_SAVE_WAIT=0\n%s\n' "${CHAOS_STAGE_SCRIPT}" \
+        | bash -n || bench_die "the staged chaos script does not parse (bash -n)"
+    echo "    ✓ the staged script parses (bash -n)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + chaos_stage_send ${idx} true <now+${BENCH_CHAOS_STAGE_SECS}s> stage-test: CHAOS_* lines + CHAOS_STAGE_SCRIPT | tn_iap_ssh_stdin ${STAGE_INSTANCE} ${ZONES[$idx]}"
+        echo "      (dry run — not executed; --yes runs it)"
+        return 0
+    fi
+    due=$(( $(bench_now_unix) + BENCH_CHAOS_STAGE_SECS ))
+    out="$(chaos_stage_send "${idx}" true "${due}" stage-test)" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/      /'
+    begin="$(chaos_mark BEGIN "${out}")"; end="$(chaos_mark END "${out}")"
+    { [ -n "${begin}" ] && [ -n "${end}" ]; } \
+        || bench_die "${STAGE_INSTANCE}: no BENCH_CHAOS_BEGIN/END (ssh rc=${rc}) — the staged path does not work there; a blast would fall back to the direct path"
+    [ "${rc}" -eq 0 ] || bench_die "${STAGE_INSTANCE}: the staged session ended rc=${rc}"
+    case "${out}" in
+        *BENCH_CHAOS_SAVED\ *) ;;
+        *BENCH_CHAOS_SAVE_RUNNING\ *) bench_warn "${STAGE_INSTANCE}: container log still being saved ${BENCH_CHAOS_SAVE_WAIT_SECS}s after the action (it completes on the node)" ;;
+        *) bench_warn "${STAGE_INSTANCE}: container log not saved (no telcoin container?)" ;;
+    esac
+    late="$(awk -v b="${begin}" -v d="${due}" 'BEGIN { printf "%.3f", b - d }')"
+    echo "    due $(bench_iso_from_unix "${due}") (${due}); BEGIN ${begin}, END ${end} (node clock): late ${late}s"
+    if awk -v l="${late}" 'BEGIN { exit !(l >= 0 && l < 1) }'; then echo "    ✓ the action began within 1 s of its due time"
+    else bench_warn "the action began ${late}s from its due time (expected 0 <= late < 1)"; fi
+}
+
 start_blast_log
 case "${ACTION}" in
     fund)    [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"; do_fund ;;
@@ -1084,4 +1585,5 @@ case "${ACTION}" in
     collect) do_collect ;;
     delete)  do_delete ;;
     status)  do_status ;;
+    chaos-stage-test) [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"; do_chaos_stage_test ;;
 esac

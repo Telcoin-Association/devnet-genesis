@@ -1,0 +1,134 @@
+{
+ "src_zone": "aa-west1-a",
+ "src_ip": "192.0.2.10",
+ "machine_type": "e2-small",
+ "at": "2026-10-06T12:00:00Z",
+ "finished_at": "2026-10-06T12:00:30Z",
+ "params": {
+  "pings": 3,
+  "ping_interval_s": 0.25,
+  "udp_count": 3,
+  "udp_size": 1200,
+  "tcp_count": 3,
+  "rate_per_s": 4.0,
+  "timeout_s": 2.0,
+  "tcp_port": 7777,
+  "udp_port": 7778
+ },
+ "peers": {
+  "bb-east1-b": {
+   "ip": "192.0.2.11",
+   "icmp": {
+    "min": 8.5,
+    "avg": 9.0,
+    "max": 9.5,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     9.0,
+     10.0,
+     11.0
+    ],
+    "median_ms": 10.0,
+    "p95_ms": 11.0,
+    "loss_pct": 0.0,
+    "sent": 3,
+    "received": 3,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "median_ms": 10.0,
+    "p95_ms": 10.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "cc-north1-c": {
+   "ip": "192.0.2.12",
+   "icmp": {
+    "min": 38.5,
+    "avg": 39.0,
+    "max": 39.5,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     49.0,
+     50.0,
+     51.0
+    ],
+    "median_ms": 50.0,
+    "p95_ms": 51.0,
+    "loss_pct": 0.0,
+    "sent": 3,
+    "received": 3,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     40.0,
+     40.0,
+     40.0
+    ],
+    "median_ms": 40.0,
+    "p95_ms": 40.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "dd-south1-d": {
+   "ip": "192.0.2.13",
+   "icmp": {
+    "min": 97.5,
+    "avg": 98.0,
+    "max": 98.5,
+    "mdev": 0.2,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     99.0,
+     100.0,
+     101.0,
+     99.0,
+     100.0,
+     101.0,
+     100.0,
+     102.0,
+     98.0
+    ],
+    "median_ms": 100.0,
+    "p95_ms": 102.0,
+    "loss_pct": 10.0,
+    "sent": 10,
+    "received": 9,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     99.0,
+     99.0,
+     99.0
+    ],
+    "median_ms": 99.0,
+    "p95_ms": 99.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  }
+ }
+}

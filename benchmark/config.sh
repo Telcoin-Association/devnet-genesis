@@ -44,7 +44,7 @@ _bench_caller="$(basename -- "${0:-}")"
 case "${_bench_caller}" in
     benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\
     devnet-keygen.sh|devnet-genesis-build.sh|devnet-finalize.sh|devnet-contracts.sh|\
-    create-instances.sh|genesis.sh|copy-committee.sh) ;;
+    create-instances.sh|genesis.sh|copy-committee.sh|params-apply.sh) ;;
     *)
         echo "❌ '${_bench_caller}' is not allowed to run with CONFIG_FILE=benchmark/config.sh." >&2
         echo "   The benchmark profile is driven only by benchmark/benchmark-*.sh (and the shared drivers they call)." >&2
@@ -73,13 +73,18 @@ fi
 export BENCH_RUN_ID
 
 #
-# Fleet: 10 validators + 1 observer, two per region across devnet's five regions,
-# the observer beside validator-01 in us-west2-a. Spelled out (bash 3.2 has no
-# brace-expansion-with-padding worth trusting in an array literal).
+# Fleet: 10 validators + 1 observer, one validator in each of ten regions (APAC-weighted), the
+# observer beside validator-01 in us-west2-a. ZONES[0] also hosts the funder and the IAP tunnel;
+# index 2 (Sydney) is BENCH_LAG_IDX's default and index 4 (Montreal) CHAOS_KILL_IDX's.
+# Two planned zones cannot host c3-highcpu-8 (tasks/regions/evaluation.md, 2026-10-06):
+# asia-southeast2 (Jakarta) offers it in no zone, so validator-07 runs in Singapore
+# (asia-southeast1-b); asia-south1 (Mumbai) offers it only in zone c. Alternates checked there:
+# asia-northeast1-c (v04), asia-east1-a (v08), asia-northeast3-b (v09).
+# Spelled out (bash 3.2 has no brace-expansion-with-padding worth trusting in an array literal).
 #
 export INSTANCE_NAMES=("bench-validator-01" "bench-validator-02" "bench-validator-03" "bench-validator-04" "bench-validator-05" "bench-validator-06" "bench-validator-07" "bench-validator-08" "bench-validator-09" "bench-validator-10" "bench-observer-11")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "observer")
-export ZONES=("us-west2-a" "us-west2-a" "australia-southeast1-c" "australia-southeast1-c" "northamerica-northeast1-b" "northamerica-northeast1-b" "europe-west4-a" "europe-west4-a" "europe-west2-b" "europe-west2-b" "us-west2-a")
+export ZONES=("us-west2-a" "europe-west2-b" "australia-southeast1-c" "asia-northeast1-b" "northamerica-northeast1-b" "europe-west4-a" "asia-southeast1-b" "asia-east2-a" "asia-northeast3-a" "asia-south1-c" "us-west2-a")
 export NODE_NAMES=("bench01" "bench02" "bench03" "bench04" "bench05" "bench06" "bench07" "bench08" "bench09" "bench10" "bench11")
 # From benchmark/.secrets/exec-keys.json (gitignored); validators 01-10, then observer 11.
 export EXECUTION_ADDRESSES=("0xc7d975abd962345e9a6024aab692f6bf19140f03" "0x92862b13608e00925551233f21b6f44f6acc7f91" "0x3205c561e8183aae91ef1ab26a1db3fea83bb120" "0x213aff13862c86b3159a9552cc2424b92f8cfcfc" "0x31faf1673f324c688fff60172099f944171d6ab3" "0xe47fbdfdedadd35501eb7c3f38884238bf251103" "0x58114823ab8b21c4162cc28472ff2a6810e123e2" "0x8e7abe6740a452ade8f02a1f005002976e77fb0a" "0xc2f61840713de91b60e5b5c404350d705877911e" "0x52791a4607b5944ec0da0828d0ee78205b208ef1" "0xe88cc26183754978af15a67c1597324eec9ec806")
@@ -168,6 +173,32 @@ export PARAMETERS_FILE="${BENCH_PARAMETERS_FILE:-${BENCH_DIR}/consensus-paramete
 # Absolute: the drivers re-source this file after changing directory.
 case "${PARAMETERS_FILE}" in /*) ;; *) PARAMETERS_FILE="$(pwd -P)/${PARAMETERS_FILE}" ;; esac
 export PARAMETERS_FILE
+# Per-node consensus parameters on top of PARAMETERS_FILE, written by deploy step 9 into that node's
+# <datadir>/parameters.yaml before its restart. Space-separated <index>:<key>=<value>[,<key>=<value>...],
+# index into INSTANCE_NAMES, e.g. "2:min_header_delay=50ms,max_header_delay=250ms 7:max_batch_delay=100ms".
+# Keys: BENCH_NODE_PARAM_KEYS (the node's Parameters at ba43a1f0e, crates/config/src/node.rs); durations
+# <int>ms or <int>s. gc_depth and basefee_address stay fleet-wide. Checked below; live changes between
+# sweep arms are tools/params-apply.sh's job, not this knob's.
+export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
+# <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. Keep in step with
+# tools/params-apply.sh PARAM_KEYS.
+export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
+# Node log filter: step 9 puts --log.stdout.filter <f> --log.file.filter <f> --log.file.max-files <n> on the
+# node's command line. The default logs per-peer vote request/response timing (primary::certifier), the
+# proposer's parents and delays (primary::proposer), the voter side (primary=debug: `Processing vote request
+# from peer`, `Created vote`; the three cert_* =info overrides drop the per-certificate dumps) and the
+# handler's missing-parent lines (tn_primary::network::handler).
+# The heavy diagnostic targets are opt-in: network=debug (`request received`, the vote request's arrival at
+# the voter, with the full header: the bulk), multistream_select=debug, libp2p_swarm::connection::pool=debug,
+# peer-manager=debug (per-substream negotiation and connection lifecycle, needed once to prove the
+# negotiation fix) and network-kad=info. With them on, r20261007-0316 logged ~1 MB per round per node:
+# ~3 GB/h raw idle and ~22 GB/h under load, on disk twice (container json-file log + unit append file), and
+# ~80 GB pulled at teardown; network=debug was 97 % of the bytes in a sample under load. For a diagnostic run,
+# append them to the default:
+#   BENCH_NODE_LOG_FILTER="<default>,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info"
+# BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
+export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug}"
+export BENCH_NODE_LOG_MAX_FILES="${BENCH_NODE_LOG_MAX_FILES:-20}"
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"
 
@@ -206,7 +237,17 @@ export BENCH_TXGEN_CONFIG="${BENCH_TXGEN_CONFIG:-${BENCH_TXGEN_REPO}/config.benc
 export BENCH_TXGEN_MASTER_ADDRESS="0xb1F7fB246DDF3F621442368e4122b087b1Ea3C8E"
 export BENCH_TXGEN_MASTER_SECRET="bench-txgen-master-key"
 export BENCH_TXGEN_SEED_SECRET="bench-txgen-children-seed"
-export BENCH_BLASTER_MACHINE_TYPE="${BENCH_BLASTER_MACHINE_TYPE:-e2-standard-2}"
+# Blaster machine types, tried in this order: a create that fails because the zone is out of the
+# type (a stockout) is retried at once on the next one, and the type used is recorded as
+# manifest blasters[].machine_type. Keep them one shape (2 vCPU). BENCH_BLASTER_MACHINE_TYPE=<type>
+# pins a single type (no fallback) and wins over the list. Boot disk: BENCH_BLASTER_BOOT_DISK_GB of
+# pd-balanced (SSD_TOTAL_GB quota). Both are read by benchmark-blast.sh create_vm and deploy step 0.
+[ -z "${BENCH_BLASTER_MACHINE_TYPE:-}" ] || BENCH_BLASTER_MACHINE_TYPES="${BENCH_BLASTER_MACHINE_TYPE}"
+export BENCH_BLASTER_MACHINE_TYPES="${BENCH_BLASTER_MACHINE_TYPES:-e2-standard-2 n2-standard-2 n2d-standard-2}"
+case "${BENCH_BLASTER_MACHINE_TYPES}" in
+    ''|' '*|*' '|*'  '*|*[!a-z0-9\ -]*) echo "❌ benchmark/config.sh: BENCH_BLASTER_MACHINE_TYPES='${BENCH_BLASTER_MACHINE_TYPES}' must be machine types separated by single spaces." >&2; exit 1 ;;
+esac
+export BENCH_BLASTER_BOOT_DISK_GB=20
 export BENCH_SENDERS="${BENCH_SENDERS:-600}"            # per blaster
 export BENCH_RUN_INDEX="${BENCH_RUN_INDEX:-0}"          # re-blast on the same fleet with fresh senders
 export BENCH_WARMUP_SECS="${BENCH_WARMUP_SECS:-120}"
@@ -227,6 +268,18 @@ export BENCH_CHAOS_OBS_AFTER_BACK_SECS="${BENCH_CHAOS_OBS_AFTER_BACK_SECS:-300}"
 export BENCH_CHAOS_KILL_AT_SECS="${BENCH_CHAOS_KILL_AT_SECS:-900}"
 export BENCH_CHAOS_BACK_AT_SECS="${BENCH_CHAOS_BACK_AT_SECS:-1200}"
 export BENCH_CHAOS_OBS_AT_SECS="${BENCH_CHAOS_OBS_AT_SECS:-1500}"
+# Chaos timing (benchmark-blast.sh): each action's IAP session opens BENCH_CHAOS_STAGE_SECS before
+# it is due and waits on the node's clock; no poll starts within BENCH_CHAOS_GUARD_SECS of a due
+# action (a poll takes ~40 s; STAGE must stay below GUARD). The session starts the pre-action
+# container-log save in the background, runs the action on time whatever the save's state, then
+# waits up to BENCH_CHAOS_SAVE_WAIT_SECS for the save (a longer one completes on the node by
+# itself); STAGE + SAVE_WAIT must stay below the outage. BENCH_STALL_NOTE_SECS: the fleet's
+# highest block flat this long in the mixed phase is noted (.commit_stalls), never an abort.
+export BENCH_CHAOS_STAGE_SECS="${BENCH_CHAOS_STAGE_SECS:-30}"
+export BENCH_CHAOS_GUARD_SECS="${BENCH_CHAOS_GUARD_SECS:-90}"
+export BENCH_CHAOS_SAVE_WAIT_SECS="${BENCH_CHAOS_SAVE_WAIT_SECS:-60}"
+export BENCH_STALL_NOTE_SECS="${BENCH_STALL_NOTE_SECS:-60}"
+export BENCH_STALL_NOTE_MAX_ROUNDS="${BENCH_STALL_NOTE_MAX_ROUNDS:-4}"   # rounds may rise by this much and still count as flat
 # Lag injection (BENCH_LAG_INJECT=1): pause one validator's container at BENCH_LAG_AT_SECS after
 # the mixed phase starts, for BENCH_LAG_PAUSE_SECS. BENCH_LAG_IDX is zero-based; the default 2
 # (bench-validator-03) has its own blaster; with BENCH_CHAOS=1 it must not be the node chaos kills.
@@ -245,11 +298,17 @@ export BENCH_BUCKET="tn-devnet-bench-${BENCH_RUN_ID}"
 export BENCH_BUCKET_LOCATION="${BENCH_BUCKET_LOCATION:-us-west2}"
 export BENCH_FIREWALL_RULES=("bench-allow-consensus" "bench-allow-iap-rpc")
 export BENCH_LABELS="benchmark=1,network=bench,bench-run=${BENCH_RUN_ID}"
+# The only copy of a run: nothing is archived to a bucket. The teardown's local gate checks it holds
+# every node's logs before anything is deleted (bench_local_gate_check); back results/ up by hand.
 export BENCH_RESULTS_DIR="${BENCH_DIR}/results/${BENCH_RUN_ID}"
 # Abort thresholds (benchmark-blast.sh watchers).
 export BENCH_ABORT_DISK_PCT="${BENCH_ABORT_DISK_PCT:-85}"
 export BENCH_ABORT_OBS_MEM_PCT="${BENCH_ABORT_OBS_MEM_PCT:-85}"
 export BENCH_ABORT_STALL_SECS="${BENCH_ABORT_STALL_SECS:-120}"
+# Certification outcome (recorded after collect and at teardown, never an abort): a validator that
+# certified fewer than this % of its own headers in a window where it proposed >= 50 goes into
+# manifest.cert_failures, gets a log snapshot, and the teardown's local gate requires its logs.
+export BENCH_CERT_FAIL_PCT="${BENCH_CERT_FAIL_PCT:-90}"
 
 # --- self-checks: a mis-edit here must fail before anything reaches GCP ---------
 _bench_n="${#INSTANCE_NAMES[@]}"
@@ -282,6 +341,50 @@ fi
 if [ ! -f "${PARAMETERS_FILE}" ] || [ ! -r "${PARAMETERS_FILE}" ]; then
     echo "❌ benchmark/config.sh: PARAMETERS_FILE='${PARAMETERS_FILE}' is not a readable regular file." >&2; exit 1
 fi
+# BENCH_NODE_PARAM_OVERRIDES: <index>:<key>=<value>[,...] items, each index once and a node of the fleet.
+case "${BENCH_NODE_PARAM_OVERRIDES}" in
+    *[*?[]*) echo "❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' holds a glob character." >&2; exit 1 ;;
+esac
+_bench_seen=" "
+for _bench_item in ${BENCH_NODE_PARAM_OVERRIDES}; do
+    _bench_bad=""
+    _bench_idx="${_bench_item%%:*}"
+    case "${_bench_item}" in *:*=*) ;; *) _bench_bad="not <index>:<key>=<value>[,<key>=<value>...]" ;; esac
+    case "${_bench_idx}" in ''|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index '${_bench_idx}' is not a number}" ;; esac
+    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${#INSTANCE_NAMES[@]}" ]; then _bench_bad="index ${_bench_idx} is past the last node ($(( ${#INSTANCE_NAMES[@]} - 1 )))"; fi
+    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac
+    _bench_seen="${_bench_seen}${_bench_idx} "
+    _bench_kvs="${_bench_item#*:},"; _bench_keys=" "
+    while [ -z "${_bench_bad}" ] && [ -n "${_bench_kvs}" ]; do
+        _bench_kv="${_bench_kvs%%,*}"; _bench_kvs="${_bench_kvs#*,}"
+        _bench_k="${_bench_kv%%=*}"; _bench_v="${_bench_kv#*=}"
+        case "${_bench_kv}" in *=*) ;; *) _bench_bad="'${_bench_kv}' is not <key>=<value>"; break ;; esac
+        case "${_bench_keys}" in *" ${_bench_k} "*) _bench_bad="${_bench_k} is given twice"; break ;; esac
+        _bench_keys="${_bench_keys}${_bench_k} "
+        case "${_bench_k}" in
+            gc_depth|basefee_address) _bench_bad="${_bench_k} must stay fleet-wide (set it in PARAMETERS_FILE, never per node)"; break ;;
+        esac
+        _bench_t=""
+        for _bench_arr in ${BENCH_NODE_PARAM_KEYS}; do [ "${_bench_arr#*:}" != "${_bench_k}" ] || _bench_t="${_bench_arr%%:*}"; done
+        case "${_bench_t}:${_bench_v}" in
+            :*) _bench_bad="unknown key '${_bench_k}' (known: $(printf '%s ' ${BENCH_NODE_PARAM_KEYS} | sed 's/[a-z]*://g'))" ;;
+            dur:*) case "${_bench_v}" in *ms) _bench_v="${_bench_v%ms}" ;; *s) _bench_v="${_bench_v%s}" ;; *) _bench_v="" ;; esac
+                case "${_bench_v}" in ''|*[!0-9]*) _bench_bad="${_bench_kv#*=} is not <int>ms or <int>s (${_bench_k})" ;; esac ;;
+            int:*[!0-9]*|int:|int:0*) _bench_bad="${_bench_k}=${_bench_v} is not a positive integer" ;;
+            bool:true|bool:false|int:*) ;;
+            bool:*) _bench_bad="${_bench_k}=${_bench_v} is not true or false" ;;
+        esac
+    done
+    if [ -n "${_bench_bad}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES item '${_bench_item}': ${_bench_bad}." >&2; exit 1
+    fi
+done
+case "${BENCH_NODE_LOG_FILTER}" in
+    *[!A-Za-z0-9_:,=.-]*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_FILTER='${BENCH_NODE_LOG_FILTER}' may hold only [A-Za-z0-9_:,=.-] (target=level directives)." >&2; exit 1 ;;
+esac
+case "${BENCH_NODE_LOG_MAX_FILES}" in
+    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_MAX_FILES='${BENCH_NODE_LOG_MAX_FILES}' must be a positive integer." >&2; exit 1 ;;
+esac
 case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
     e2-*:hyperdisk-*|n1-*:hyperdisk-*)
         echo "❌ benchmark/config.sh: MACHINE_TYPE='${MACHINE_TYPE}' cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
@@ -317,4 +420,4 @@ fi
 if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
     echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
 fi
-unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir
+unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys

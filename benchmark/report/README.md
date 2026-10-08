@@ -182,12 +182,14 @@ site wins. Fix this side to match, not the other way round.
    directory is refused before any work. The backfill is loaded and checked. With `--compare`,
    an existing scratch of the compare run built from another blast is refused here too.
 2. **Scratch** (`1 scratch`). An allowlisted copy of `results/<run>/` goes to
-   `benchmark/work/report/<run>/`: `manifest.json`, `metrics.json`, `blasters/*.json`,
-   `sampler/*.csv` and the node logs, plus an empty `reference-chains.json` (`[]`). With
-   `--blast-index N` the manifest, metrics and blasters come from `blast-N-*/`. Nothing else
-   is copied: no `genesis/`, `bucket/`, `meta/`, `funder/` or `evidence/`. An existing scratch
-   directory is refused unless you pass `--force`.
-3. **Provenance** (`2 provenance`). The node logs are checked against the expected sha:
+   `benchmark/work/report/<run>/`: `manifest.json`, `metrics.json`, `blasters/*.json` and
+   `sampler/*.csv`, plus an empty `reference-chains.json` (`[]`). With `--blast-index N` the
+   manifest, metrics and blasters come from `blast-N-*/`. Nothing else is copied: no node logs
+   (25-80 GB for a run with a debug log filter), no `genesis/`, `bucket/`, `meta/`, `funder/` or
+   `evidence/`. The scratch directory holds the tools' inputs and outputs only. An existing
+   scratch directory is refused unless you pass `--force`.
+3. **Provenance** (`2 provenance`). The node logs in `results/<run>/logs/` are read in place
+   (never copied) and checked against the expected sha:
    `manifest.node_git_sha`, else the backfill's `upstream.sha`. A mismatch stops the run here,
    before the slow steps, unless you pass `--allow-provenance-mismatch`. That publishes with
    evidence `inferred` and a caveat. A run with no node logs takes its evidence from the
@@ -270,7 +272,8 @@ GitHub Action builds and deploys the pages.
 
 A backfill is a single JSON object written by hand. It fills in what a run did not record.
 Every key is optional unless marked. Keys starting with `_` are comments and are ignored. Any
-other unknown key is an error.
+other unknown key is an error. A draft marker such as `<<RESULT>>` anywhere in a value, or in the
+assembled `run.json`, refuses the build with a message naming the field.
 
 | Key | Contents | Where the backfill wins |
 |---|---|---|
@@ -303,7 +306,8 @@ The backfills for the first three published runs are in `backfill/`:
 
 `benchmark/results/`, `benchmark/work/`, `benchmark/private/` and `benchmark/genesis/` are
 gitignored. Nothing in them is committed, and `make_bundle.py` copies only the allowlist above
-out of `results/`.
+out of `results/`. Scratch directories built before 7 October 2026 also hold a `logs/` copy;
+nothing reads it, and deleting it (or the whole scratch, which `--force` rebuilds) is safe.
 
 Findings from a run that still need work, and that must not be published, go in
 `benchmark/private/followups.md`. Give each run one `## <run>` section with four parts:

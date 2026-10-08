@@ -1,0 +1,252 @@
+{
+ "src_zone": "europe-west2-b",
+ "src_ip": "192.0.2.21",
+ "src_ip_external": "198.51.100.21",
+ "addresses": "both",
+ "machine_type": "e2-small",
+ "at": "2026-10-07T00:00:00Z",
+ "finished_at": "2026-10-07T00:00:40Z",
+ "params": {
+  "pings": 4,
+  "ping_interval_s": 0.25,
+  "udp_count": 4,
+  "udp_size": 1200,
+  "tcp_count": 3,
+  "rate_per_s": 4.0,
+  "timeout_s": 2.0,
+  "tcp_port": 7777,
+  "udp_port": 7778
+ },
+ "peers": {
+  "us-west2-a": {
+   "address": "internal",
+   "ip": "192.0.2.20",
+   "icmp": {
+    "min": 128.0,
+    "avg": 129.0,
+    "max": 130.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     129.0,
+     130.0,
+     130.0,
+     131.0
+    ],
+    "median_ms": 130.0,
+    "p95_ms": 131.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     130.0,
+     130.0,
+     130.0
+    ],
+    "median_ms": 130.0,
+    "p95_ms": 130.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "asia-northeast1-b": {
+   "address": "internal",
+   "ip": "192.0.2.22",
+   "icmp": {
+    "min": 148.0,
+    "avg": 149.0,
+    "max": 150.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     149.0,
+     150.0,
+     150.0,
+     151.0
+    ],
+    "median_ms": 150.0,
+    "p95_ms": 151.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     150.0,
+     150.0,
+     150.0
+    ],
+    "median_ms": 150.0,
+    "p95_ms": 150.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "australia-southeast1-c": {
+   "address": "internal",
+   "ip": "192.0.2.23",
+   "icmp": {
+    "min": 298.0,
+    "avg": 299.0,
+    "max": 300.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     299.0,
+     300.0,
+     300.0,
+     301.0
+    ],
+    "median_ms": 300.0,
+    "p95_ms": 301.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     300.0,
+     300.0,
+     300.0
+    ],
+    "median_ms": 300.0,
+    "p95_ms": 300.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  }
+ },
+ "peers_external": {
+  "us-west2-a": {
+   "address": "external",
+   "ip": "198.51.100.20",
+   "icmp": {
+    "min": 129.0,
+    "avg": 130.0,
+    "max": 131.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     130.0,
+     131.0,
+     131.0,
+     132.0
+    ],
+    "median_ms": 131.0,
+    "p95_ms": 132.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     131.0,
+     131.0,
+     131.0
+    ],
+    "median_ms": 131.0,
+    "p95_ms": 131.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "asia-northeast1-b": {
+   "address": "external",
+   "ip": "198.51.100.22",
+   "icmp": {
+    "min": 230.0,
+    "avg": 231.0,
+    "max": 232.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     231.0,
+     232.0,
+     232.0,
+     233.0
+    ],
+    "median_ms": 232.0,
+    "p95_ms": 233.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     232.0,
+     232.0,
+     232.0
+    ],
+    "median_ms": 232.0,
+    "p95_ms": 232.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  },
+  "australia-southeast1-c": {
+   "address": "external",
+   "ip": "198.51.100.23",
+   "icmp": {
+    "min": 333.0,
+    "avg": 334.0,
+    "max": 335.0,
+    "mdev": 0.3,
+    "loss_pct": 0.0
+   },
+   "udp": {
+    "samples_ms": [
+     334.0,
+     335.0,
+     335.0,
+     336.0
+    ],
+    "median_ms": 335.0,
+    "p95_ms": 336.0,
+    "loss_pct": 0.0,
+    "sent": 4,
+    "received": 4,
+    "size_bytes": 1200,
+    "send_errors": 0
+   },
+   "tcp": {
+    "samples_ms": [
+     335.0,
+     335.0,
+     335.0
+    ],
+    "median_ms": 335.0,
+    "p95_ms": 335.0,
+    "attempts": 3,
+    "failed": 0,
+    "errors": {}
+   }
+  }
+ }
+}

@@ -30,7 +30,9 @@ BENCH_APPLY="${BENCH_APPLY:-0}"
 BENCH_PROTECTED_RE='^(devnet-|default-|obs-|wg-|allow-)'
 # A pull marker counts for this long after its pull (see "pull markers"). A node keeps logging, so
 # an older marker no longer covers what is on the node and the node is pulled again. Fixed here,
-# not a knob: set unconditionally so the environment cannot stretch it.
+# not a knob: set unconditionally so the environment cannot stretch it. The one way past it is
+# BENCH_TEARDOWN_TRUST_MARKERS=1 (exactly "1"), which accepts an older marker that is otherwise
+# intact (see _bench_marker_verdict).
 BENCH_MARKER_MAX_AGE_SECS=900
 export BENCH_TXGEN_BENCH_DIR="${BENCH_TXGEN_REPO}/bench"
 
@@ -267,10 +269,34 @@ bench_serial_wait() {
     return 1
 }
 
-# bench_iap_scp_down <inst> <zone> <remote-src> <local-dest> (IAP; remote -> local)
+# bench_iap_scp_down <inst> <zone> <remote-src> <local-dest> (IAP; remote -> local). The copy lands
+# as <local-dest>.part and is renamed, so a cut-off copy never stands in for the file. IAP can
+# refuse a tunnel it grants seconds later (4033 on a healthy node at the r20261006-0053 collect;
+# 4003 and 4047 are the same class): only those are retried, up to BENCH_IAP_RETRIES attempts
+# (default 3), 10 s then 20 s apart. Every attempt has a 300 s alarm and a closed stdin.
 bench_iap_scp_down() {
-    gcloud compute scp "$1:$3" "$4" --zone="$2" --project="${PROJECT_ID}" \
-        --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
+    local tries="${BENCH_IAP_RETRIES:-3}" try=1 rc err
+    case "${tries}" in ''|*[!0-9]*|0*) bench_warn "BENCH_IAP_RETRIES='${tries}' is not a positive integer — using 3"; tries=3 ;; esac
+    err="$(mktemp)" || return 1
+    while :; do
+        rc=0
+        perl -e 'alarm shift; exec @ARGV' 300 gcloud compute scp "$1:$3" "$4.part" --zone="$2" --project="${PROJECT_ID}" \
+            --tunnel-through-iap --scp-flag="-o ConnectTimeout=20" </dev/null 2>"${err}" || rc=$?
+        if [ "${rc}" -eq 0 ]; then
+            rm -f "${err}"
+            mv -f "$4.part" "$4"
+            return
+        fi
+        cat "${err}" >&2
+        rm -f "$4.part"
+        if [ "${try}" -ge "${tries}" ] || ! grep -Eq '\[(4003|4033|4047): ' "${err}"; then
+            rm -f "${err}"
+            return "${rc}"
+        fi
+        echo "      … $1: IAP refused the tunnel (attempt ${try}/${tries}); retrying in $((try * 10)) s" >&2
+        sleep "$((try * 10))"
+        try=$((try + 1))
+    done
 }
 
 # --- node logs ---------------------------------------------------------------------
@@ -485,12 +511,18 @@ _bench_instance_ident() {
 # copy cut short; a checksum would add a read of every log for no case the tooling can produce.
 # Anything else (the older one-line format, another id, a file gone or resized, a partial or
 # unreadable marker, a stale or future pull time) counts as no marker: the node is pulled again.
+# BENCH_TEARDOWN_TRUST_MARKERS=1 lifts the age rule only: a marker older than the window counts
+# when everything else above holds, and its verdict says so. It is for a teardown re-run after an
+# interrupted one, when the logs the marker vouches for are the ones wanted and the lines the node
+# logged since (an idling fleet) are not worth pulling again.
 BENCH_PULL_MARKER_V="tn-bench-pulled/v2"
 
 # _bench_marker_verdict <marker> <dest> <inst> <id> — one line: "accepted — ..." or "not accepted
-# — <why>", for the instance <id> that holds <inst> now. rc 0 = accepted. Reads only.
+# — <why>", for the instance <id> that holds <inst> now. rc 0 = accepted. A marker older than
+# BENCH_MARKER_MAX_AGE_SECS is accepted only with BENCH_TEARDOWN_TRUST_MARKERS=1, and its line then
+# ends "(BENCH_TEARDOWN_TRUST_MARKERS=1)". Reads only.
 _bench_marker_verdict() {
-    local m="$1" d="$2" inst="$3" want="$4" head="" k a b ln=0 end=0 mi="" mid="" mc="" mr="" mp="" files="" bad="" s nf=0
+    local m="$1" d="$2" inst="$3" want="$4" head="" k a b ln=0 end=0 mi="" mid="" mc="" mr="" mp="" files="" bad="" s nf=0 trusted=""
     if [ ! -f "${m}" ] || [ ! -r "${m}" ]; then echo "not accepted — not a readable file"; return 1; fi
     IFS= read -r head < "${m}" || true
     if [ "${head}" != "${BENCH_PULL_MARKER_V}" ]; then echo "not accepted — older format, names no instance id"; return 1; fi
@@ -519,8 +551,8 @@ _bench_marker_verdict() {
         echo "not accepted — it is for instance ${mid} (created ${mc:-?}); ${inst} now is instance ${want}"
         return 1
     fi
-    # Fresh only: pulled within BENCH_MARKER_MAX_AGE_SECS, and not in the future. The fixed-width
-    # UTC form compares as a 14-digit number.
+    # Fresh only: pulled within BENCH_MARKER_MAX_AGE_SECS (unless BENCH_TEARDOWN_TRUST_MARKERS=1),
+    # and never in the future. The fixed-width UTC form compares as a 14-digit number.
     local now since
     case "${mp}" in
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
@@ -531,8 +563,11 @@ _bench_marker_verdict() {
         echo "not accepted — the current time could not be read"; return 1
     fi
     if [ "${mp//[!0-9]/}" -lt "${since//[!0-9]/}" ]; then
-        echo "not accepted — pulled ${mp}, more than $((BENCH_MARKER_MAX_AGE_SECS / 60)) min ago; the node has logged since"
-        return 1
+        if [ "${BENCH_TEARDOWN_TRUST_MARKERS:-0}" != "1" ]; then
+            echo "not accepted — pulled ${mp}, more than $((BENCH_MARKER_MAX_AGE_SECS / 60)) min ago; the node has logged since"
+            return 1
+        fi
+        trusted=" (BENCH_TEARDOWN_TRUST_MARKERS=1)"
     fi
     if [ "${mp//[!0-9]/}" -gt "${now//[!0-9]/}" ]; then echo "not accepted — pulled ${mp}, which is in the future"; return 1; fi
     while IFS=' ' read -r a b; do
@@ -546,7 +581,7 @@ _bench_marker_verdict() {
         nf=$((nf + 1))
     done <<< "${files}"
     if [ "${nf}" -eq 0 ]; then echo "not accepted — it lists no log"; return 1; fi
-    echo "accepted — instance ${mid} (created ${mc:-?}), run ${mr:-?}, pulled ${mp:-?}; its ${nf} log(s) are here at their recorded sizes"
+    echo "accepted — instance ${mid} (created ${mc:-?}), run ${mr:-?}, pulled ${mp:-?}; its ${nf} log(s) are here at their recorded sizes${trusted}"
 }
 
 # bench_node_markers_report <dest> <inst> <id> — one line per marker of <inst> in <dest> saying
@@ -966,7 +1001,8 @@ bench_txgen_cli_probe() {
 # fleet exists. Fixed here, not knobs. The strings the binary must carry: node-image-contract.txt.
 BENCH_NODE_CONTRACT_FILE="${BENCH_LIB_DIR}/node-image-contract.txt"
 BENCH_NODE_BIN="/usr/local/bin/telcoin"
-BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --http --http.addr --ws --ws.addr --healthcheck --metrics"
+# --log.* filter flags: deploy step 9 puts BENCH_NODE_LOG_FILTER / BENCH_NODE_LOG_MAX_FILES on the command line.
+BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --log.stdout.filter --log.file.filter --log.file.max-files --http --http.addr --ws --ws.addr --healthcheck --metrics"
 BENCH_NODE_FLAGS_GENESIS="--datadir --chain-id --bls-passphrase-source --accounts --epoch-duration-in-secs --min-header-delay-ms --max-header-delay-ms"
 BENCH_NODE_FLAGS_KEYTOOL="--datadir --address --external-primary-addr --external-worker-addrs"
 
@@ -1220,6 +1256,8 @@ bench_node_probe_manifest() {
 # bench_consensus_params_manifest — record PARAMETERS_FILE in the manifest: consensus_parameters
 # {file (its basename), sha256, max_header_delay_ms, min_header_delay_ms, max_batch_delay_ms}; a
 # key the file lacks (or cannot be read as a duration) is null. Non-zero when the file is unreadable.
+# Then the per-node part (bench_node_params_manifest): consensus_parameters.overrides and
+# node_startup[<instance>].log_filter / .log_max_files.
 bench_consensus_params_manifest() {
     local f="${PARAMETERS_FILE:-}" sha
     if ! sha="$(bench_file_sha256 "${f}")"; then
@@ -1233,12 +1271,606 @@ bench_consensus_params_manifest() {
         def num_or_null: if . == "" then null else tonumber end;
         .consensus_parameters = {file: $file, sha256: $sha, max_header_delay_ms: ($max | num_or_null),
                                  min_header_delay_ms: ($min | num_or_null),
-                                 max_batch_delay_ms: ($batch | num_or_null)}'
+                                 max_batch_delay_ms: ($batch | num_or_null)}' || return 1
+    bench_node_params_manifest
+}
+
+# --- per-node consensus parameters and node log filter ------------------------------------------
+# BENCH_NODE_PARAM_OVERRIDES (config.sh checks its syntax and keys) puts per-node values on top of
+# PARAMETERS_FILE; deploy step 9 writes them into each node's <datadir>/parameters.yaml before its
+# restart, and BENCH_NODE_LOG_FILTER onto its command line. Live changes between sweep arms are
+# tools/params-apply.sh's (it records manifest.param_arms), not these helpers'.
+
+# bench_node_overrides <node-index> — that node's overrides, one "<key>=<value>" per line (none: no output).
+bench_node_overrides() {
+    local item
+    for item in ${BENCH_NODE_PARAM_OVERRIDES:-}; do
+        [ "${item%%:*}" = "${1:-}" ] || continue
+        printf '%s\n' "${item#*:}" | tr ',' '\n'
+    done
+}
+
+# bench_node_override <node-index> <key> — the node's override of <key> as written ("" when none).
+bench_node_override() { bench_node_overrides "$1" | sed -n "s/^$2=//p" | tail -1; }
+
+# bench_dur_ms <value> — a knob duration (<int>ms or <int>s) in ms; "" for anything else.
+bench_dur_ms() {
+    awk -v v="${1:-}" 'BEGIN {
+        if (v ~ /^[0-9]+ms$/) { sub(/ms$/, "", v); printf "%d\n", v }
+        else if (v ~ /^[0-9]+s$/) { sub(/s$/, "", v); printf "%d\n", v * 1000 }
+    }'
+}
+
+# bench_params_raw <file> <key> — a top-level scalar of a parameters YAML as written (comment and
+# quotes stripped); "" when absent, unreadable or a block.
+bench_params_raw() {
+    [ -r "${1:-}" ] && [ -n "${2:-}" ] || return 0
+    awk -v k="$2" 'index($0, k ":") == 1 {
+        v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/(^|[ \t]+)#.*$/, "", v); sub(/[ \t]+$/, "", v)
+        gsub(/^["\047]|["\047]$/, "", v); print v; exit }' "$1"
+}
+
+# bench_node_param_ms <node-index> <key> — what step 9 leaves node <node-index> with for a duration
+# key, in ms: its override, else PARAMETERS_FILE's value ("" when the file lacks the key).
+bench_node_param_ms() {
+    local ov
+    ov="$(bench_node_override "$1" "$2")"
+    if [ -n "${ov}" ]; then bench_dur_ms "${ov}"; else bench_params_ms "${PARAMETERS_FILE}" "$2"; fi
+}
+
+# bench_node_param_int <node-index> <key> — the same for an integer key.
+bench_node_param_int() {
+    local ov
+    ov="$(bench_node_override "$1" "$2")"
+    printf '%s' "${ov:-$(bench_params_raw "${PARAMETERS_FILE}" "$2")}"
+}
+
+# bench_node_params_problems — one line per node whose effective parameters the node would refuse at
+# startup (crates/config/src/node.rs validate_operational_floors, consensus.rs validate_vote_timeout
+# at ba43a1f0e): min_header_delay > max_header_delay, header_num_of_batches_threshold outside
+# 1..max_header_num_of_batches, vote_timeout (5 s when unset) below max_header_delay + 250 ms (the
+# drift tolerance, sub-second builds) or at/above 10 s. No output when every node is fine.
+bench_node_params_problems() {
+    local i inst mx mn vt thr cap
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        mx="$(bench_node_param_ms "${i}" max_header_delay)"; mn="$(bench_node_param_ms "${i}" min_header_delay)"
+        vt="$(bench_node_param_ms "${i}" vote_timeout)"; vt="${vt:-5000}"
+        thr="$(bench_node_param_int "${i}" header_num_of_batches_threshold)"
+        cap="$(bench_node_param_int "${i}" max_header_num_of_batches)"
+        if [ -n "${mx}" ] && [ -n "${mn}" ] && [ "${mn}" -gt "${mx}" ]; then
+            echo "${inst}: min_header_delay ${mn} ms > max_header_delay ${mx} ms"
+        fi
+        if [ -n "${mx}" ] && [ "${vt}" -lt $((mx + 250)) ]; then
+            echo "${inst}: vote_timeout ${vt} ms < max_header_delay ${mx} ms + 250 ms drift tolerance"
+        fi
+        [ "${vt}" -lt 10000 ] || echo "${inst}: vote_timeout ${vt} ms is not below the 10 s libp2p request timeout"
+        case "${thr}:${cap}" in
+            *[!0-9:]*|:*|*:) ;;
+            *) if [ "${thr}" -lt 1 ] || [ "${thr}" -gt "${cap}" ]; then
+                   echo "${inst}: header_num_of_batches_threshold ${thr} is outside 1..max_header_num_of_batches ${cap}"
+               fi ;;
+        esac
+    done
+}
+
+# bench_node_overrides_json — BENCH_NODE_PARAM_OVERRIDES as compact JSON {<instance>: {<key>: "<value>"}}.
+bench_node_overrides_json() {
+    local i kv
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        bench_node_overrides "${i}" | while IFS= read -r kv; do
+            printf '%s\t%s\t%s\n' "${INSTANCE_NAMES[$i]}" "${kv%%=*}" "${kv#*=}"
+        done
+    done | jq -c -R -s 'split("\n") | map(select(length > 0) | split("\t")) | reduce .[] as $r ({}; .[$r[0]][$r[1]] = $r[2])'
+}
+
+# bench_node_params_manifest — record what step 9 applies per node: consensus_parameters.overrides
+# = {<instance>: {<key>: "<value>"}} (nodes with overrides only; {} when none), and
+# node_startup[<instance>].log_filter / .log_max_files (null when BENCH_NODE_LOG_FILTER is empty:
+# the node's command line is left as it is). Step 9 overwrites both log fields with what it reads
+# back from the running node.
+bench_node_params_manifest() {
+    local ov insts mf=""
+    ov="$(bench_node_overrides_json)" || return 1
+    insts="$(printf '%s\n' "${INSTANCE_NAMES[@]}" | jq -R -s 'split("\n") | map(select(length > 0))')" || return 1
+    [ -z "${BENCH_NODE_LOG_FILTER:-}" ] || mf="${BENCH_NODE_LOG_MAX_FILES:-}"
+    bench_manifest_jq --argjson ov "${ov}" --argjson insts "${insts}" --arg f "${BENCH_NODE_LOG_FILTER:-}" \
+        --arg mf "${mf}" '
+        .consensus_parameters = ((.consensus_parameters // {}) + {overrides: $ov})
+        | reduce $insts[] as $i (.; .node_startup[$i] = ((.node_startup[$i] // {})
+            + {log_filter: (if $f == "" then null else $f end),
+               log_max_files: (if $mf == "" then null else ($mf | tonumber) end)}))'
+}
+
+# --- local results: results/<run>/ is the only copy ------------------------------------------
+# Nothing is copied to a persistent bucket. The run bucket gs://tn-devnet-bench-<run> is only the
+# blasters' upload transport: the teardown copies it into results/<run>/bucket/ and deletes it.
+# So the teardown's local gate proves, before its first delete, that results/<run>/ holds every
+# node's logs and the manifest, and leaves INDEX.md and CHECKSUMS.sha256 beside them. Back
+# results/ up outside the repo: it is gitignored and on one disk.
+
+# _bench_sha256_cmd — the SHA-256 tool, printed one word per line: shasum -a 256 where it exists
+# (macOS), else sha256sum (Linux). Both print "<hex>  <file>" and both check with -c.
+_bench_sha256_cmd() {
+    if command -v shasum >/dev/null 2>&1; then printf '%s\n' shasum -a 256
+    elif command -v sha256sum >/dev/null 2>&1; then printf '%s\n' sha256sum
+    else echo "❌ neither shasum nor sha256sum is on PATH" >&2; return 1; fi
+}
+
+# _bench_results_files <dir> — every regular file under <dir> as a path relative to it, sorted,
+# one per line, except CHECKSUMS.sha256 and its temp files.
+_bench_results_files() {
+    (cd "$1" && find . -type f ! -path ./CHECKSUMS.sha256 ! -path './.CHECKSUMS.sha256.*' | sed 's#^\./##' | LC_ALL=C sort)
+}
+
+# _bench_results_totals <dir> — "<files> <bytes>" over _bench_results_files <dir>.
+_bench_results_totals() {
+    (cd "$1" && find . -type f ! -path ./CHECKSUMS.sha256 ! -path './.CHECKSUMS.sha256.*' -exec wc -c {} + \
+        | awk '!(NF == 2 && $2 == "total") { n++; b += $1 } END { printf "%d %d\n", n, b }')
+}
+
+# _bench_index_kind <path> — "<order>|<group>|<what it is>|<written by>" for a path relative to
+# results/<run>/, from the patterns below (first match wins); unknown paths get order 99 and their
+# own row. INDEX.md lists the groups by <order>.
+_bench_index_kind() {
+    case "$1" in
+        .DS_Store|*/.DS_Store) echo "29|.DS_Store, */.DS_Store|macOS Finder metadata|not the harness" ;;
+        manifest.json) echo "01|manifest.json|run manifest: fleet, image, parameters, phases, blast, chaos, stalls, notes, archive (local gate)|benchmark-deploy.sh, benchmark-blast.sh, benchmark-teardown.sh" ;;
+        INDEX.md) echo "02|INDEX.md|this index|bench_local_index (collect, deploy step 15, teardown)" ;;
+        CHECKSUMS.sha256) echo "03|CHECKSUMS.sha256|SHA-256 of every other file here; check: shasum -a 256 -c CHECKSUMS.sha256|bench_local_index (collect, deploy step 15, teardown)" ;;
+        analysis/cert-rate.md) echo "04|analysis/cert-rate.md|per-validator certification rate per window (tools/cert-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
+        analysis/block-rate.md) echo "05|analysis/block-rate.md|rounds/s, blocks/s, tx/s and commit latency per window (tools/block-rate.py)|bench_local_analysis (collect, deploy step 15, teardown)" ;;
+        analysis/certification.json) echo "04|analysis/certification.json|tools/cert-rate.py --format json: the certification outcome behind manifest.certification and .cert_failures|bench_certification_record (collect, teardown before the local gate)" ;;
+        # Analysis the harness does not write (a sweep's summaries, per-arm tables, often added after
+        # the teardown; --reindex indexes them): a row per top-level file, one per directory.
+        analysis/*/*) echo "06|${1%"${1#analysis/*/}"}*|other analysis output, one directory|not the harness" ;;
+        analysis/*) echo "06|$1|other analysis output|not the harness" ;;
+        metrics.json) echo "07|metrics.json|Cloud Monitoring + Prometheus series over the run window|deploy step 15 (tn-transaction-generator collect-gcp-metrics.py)" ;;
+        pre-instances.json|pre-firewall.json) echo "08|pre-instances.json, pre-firewall.json|project snapshot before the run (the teardown compares the devnet rule to it)|benchmark-deploy.sh preflight" ;;
+        deployments-bench.json) echo "09|deployments-bench.json|app contract addresses on the bench chain|deploy step 11" ;;
+        tunnel.log|tunnel.pid) echo "10|tunnel.log, tunnel.pid|local IAP tunnel to the first node's RPC|bench_tunnel_up (deploy step 10)" ;;
+        chaos-remote.log) echo "11|chaos-remote.log|output of the staged chaos sessions on the nodes|benchmark-blast.sh run (chaos)" ;;
+        logs/*.pulled|logs/*.pulled-*) echo "12|logs/<node>.pulled*|pull markers: which instance id each node log came from|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*-recovery-*.tgz) echo "13|logs/<node>-recovery-<id>.*.tgz|service journal + sampler files of the node (recovery evidence)|teardown (recovery-lib.sh bench_pull_recovery_evidence)" ;;
+        logs/*-telcoin-cert-fail-*.log.gz) echo "16|logs/<node>-telcoin-cert-fail-<UTC>.log.gz|container log of a validator below the certification threshold, saved when the outcome was recorded (listed in manifest.cert_failures[].logs; the local gate requires it)|bench_cert_failures_snapshot (collect, teardown before the local gate)" ;;
+        logs/*-unit-stdout*.log.gz|logs/*-unit-stderr*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.log.gz|the unit's append files /var/log/telcoin/telcoin{,-error}.log: every container run's output since setup|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*-telcoin.log.gz|logs/*-telcoin-[0-9]*Z.log.gz) echo "15|logs/<node>-telcoin.log.gz|the current container's log at the pull|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*.log.gz) echo "16|logs/<node>-<saved>.log.gz|container logs saved on the node before a restart, kill or pause (pre-step9, pre-kill, ...)|bench_save_node_log (deploy step 9, blast chaos); pulled by the teardown" ;;
+        logs/deploy-*.log) echo "17|logs/deploy-*.log|benchmark-deploy.sh output, one file per invocation|benchmark-deploy.sh" ;;
+        logs/blast-*.log) echo "18|logs/blast-<action>-*.log|benchmark-blast.sh output, one file per invocation|benchmark-blast.sh" ;;
+        logs/create-*.log) echo "19|logs/create-<vm>.log|load VM create output (current blast index)|benchmark-blast.sh fund/run" ;;
+        sampler/*.csv) echo "20|sampler/<node>.csv|node-sampler.sh rows every 30 s (memory, I/O, PSI, disk, block)|benchmark-blast.sh collect" ;;
+        sampler/*.epochs.txt) echo "21|sampler/<node>.epochs.txt|epoch-file inventory of the node every minute|benchmark-blast.sh collect" ;;
+        blasters/*) echo "22|blasters/*|blaster results (<vm>.json), txgen and docker logs|benchmark-blast.sh collect (from the run bucket)" ;;
+        funder/*) echo "23|funder/*|funder output (prepare.json) and logs|benchmark-blast.sh collect (from the run bucket)" ;;
+        meta/*) echo "24|meta/<vm>/*|arguments and node URLs each load VM was created with|benchmark-blast.sh fund/run" ;;
+        blast-*/*) echo "25|blast-<index>-<UTC>/*|an earlier blast index set aside, with its manifest copy|benchmark-blast.sh run (archive_prev_blast)" ;;
+        funder-*/*) echo "26|funder-<index>-<UTC>/*|an earlier funder output set aside, with its manifest copy|benchmark-blast.sh fund" ;;
+        bucket/*) echo "27|bucket/<run bucket>/*|copy of the run bucket gs://tn-devnet-bench-<run>, taken before its delete|benchmark-teardown.sh" ;;
+        genesis*/*) echo "28|genesis*/*|genesis workspace: committee, genesis and validator files (keys: never publish)|benchmark-teardown.sh (moves benchmark/genesis)" ;;
+        *) echo "99|$1|not known to the harness|?" ;;
+    esac
+}
+
+# _bench_write_index <dir> — <dir>/INDEX.md: one row per file group (_bench_index_kind) with its
+# file count, every unknown file on a row of its own. Written through a temp file.
+_bench_write_index() {
+    local d="$1" tmp
+    tmp="$(mktemp "${d}/.INDEX.md.XXXXXX")" || return 1
+    {
+        echo "# results/$(basename -- "${d}")/ — index"
+        echo ""
+        echo "Generated $(bench_now_iso). This directory is the only copy of the run: no bucket keeps"
+        echo "another. Back it up outside the repo. \`CHECKSUMS.sha256\` holds the SHA-256 of every"
+        echo "other file; check them with \`shasum -a 256 -c CHECKSUMS.sha256\` (Linux: \`sha256sum -c\`)"
+        echo "from this directory."
+        echo ""
+        echo "| files | path | what it is | written by |"
+        echo "|------:|------|------------|------------|"
+        { _bench_results_files "${d}" | grep -v -x -e 'INDEX\.md' -e '\.INDEX\.md\..*' || true; printf '%s\n' INDEX.md CHECKSUMS.sha256; } \
+            | while IFS= read -r f; do _bench_index_kind "${f}"; done \
+            | LC_ALL=C sort | uniq -c \
+            | awk '{ n = $1; sub(/^ *[0-9]+ /, ""); split($0, a, "|"); printf "| %d | `%s` | %s | %s |\n", n, a[2], a[3], a[4] }'
+    } > "${tmp}" || { rm -f "${tmp}"; return 1; }
+    mv "${tmp}" "${d}/INDEX.md"
+}
+
+# _bench_write_checksums <dir> — <dir>/CHECKSUMS.sha256 over _bench_results_files <dir>, written
+# through a temp file. Paths are relative to <dir>.
+_bench_write_checksums() {
+    local d="$1" tmp sha
+    sha="$(_bench_sha256_cmd)" || return 1
+    tmp="$(mktemp "${d}/.CHECKSUMS.sha256.XXXXXX")" || return 1
+    # shellcheck disable=SC2086  # the tool and its flags, one word each
+    if ! (cd "${d}" && _bench_results_files . | tr '\n' '\0' | xargs -0 ${sha}) > "${tmp}"; then
+        rm -f "${tmp}"; return 1
+    fi
+    mv "${tmp}" "${d}/CHECKSUMS.sha256"
+}
+
+# bench_local_index [<jq argument>... <filter>] — results/<run>/INDEX.md, then CHECKSUMS.sha256.
+# With arguments, it first runs bench_manifest_jq with them and records manifest.archive.files and
+# .bytes: the count and total size of what CHECKSUMS.sha256 then covers, the manifest at its final
+# size included. Non-zero when a write failed. Dry run: says what it would write.
+bench_local_index() {
+    local d="${BENCH_RESULTS_DIR}" t prev="" i
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      (dry run) would write ${d}/INDEX.md and ${d}/CHECKSUMS.sha256$([ "$#" -eq 0 ] || echo ', and set manifest.archive')"
+        return 0
+    fi
+    [ -d "${d}" ] || { echo "❌ ${d} does not exist" >&2; return 1; }
+    _bench_write_index "${d}" || { echo "❌ could not write ${d}/INDEX.md" >&2; return 1; }
+    if [ "$#" -gt 0 ]; then
+        bench_manifest_jq "$@" || return 1
+        # The totals include manifest.json, which grows as they are written into it: repeat until
+        # they describe the file they are written in (two or three passes).
+        for i in 1 2 3 4 5; do
+            t="$(_bench_results_totals "${d}")" || return 1
+            [ "${t}" != "${prev}" ] || break
+            bench_manifest_jq --argjson n "${t% *}" --argjson b "${t#* }" '.archive.files = $n | .archive.bytes = $b' || return 1
+            prev="${t}"
+        done
+    fi
+    _bench_write_checksums "${d}" || { echo "❌ could not write ${d}/CHECKSUMS.sha256" >&2; return 1; }
+    t="$(_bench_results_totals "${d}")"
+    echo "    ✓ ${d}/INDEX.md and CHECKSUMS.sha256: ${t% *} file(s), ${t#* } bytes"
+}
+
+# bench_local_gate_check [<inst>...] — what results/<run>/ must hold before the teardown deletes
+# anything: for each <inst>, non-empty logs/<inst>-telcoin.log.gz, logs/<inst>-unit-stdout.log.gz
+# and logs/<inst>-recovery-*.tgz (the names bench_pull_node_logs and bench_pull_recovery_evidence
+# write); manifest.json, parsing as JSON; and every path in manifest.cert_failures[].logs[]
+# (relative to results/<run>/ unless absolute), non-empty. Reads only. Prints a ✓ line, or one
+# ✗ line per missing file; non-zero when anything is missing.
+bench_local_gate_check() {
+    local d="${BENCH_RESULTS_DIR}" inst f p ok miss=() nf=0 mf="${BENCH_RESULTS_DIR}/manifest.json" cf
+    for inst in "$@"; do
+        for f in "logs/${inst}-telcoin.log.gz" "logs/${inst}-unit-stdout.log.gz"; do
+            if [ -s "${d}/${f}" ]; then nf=$((nf + 1)); else miss+=("${f}"); fi
+        done
+        ok=0
+        for p in "${d}/logs/${inst}-recovery-"*.tgz; do [ -s "${p}" ] && ok=1; done
+        if [ "${ok}" -eq 1 ]; then nf=$((nf + 1)); else miss+=("logs/${inst}-recovery-*.tgz"); fi
+    done
+    if [ ! -s "${mf}" ]; then
+        miss+=("manifest.json")
+    elif ! jq -e 'type == "object"' "${mf}" >/dev/null 2>&1; then
+        miss+=("manifest.json (does not parse as a JSON object)")
+    else
+        nf=$((nf + 1))
+        cf="$(jq -r '[(.cert_failures // [])[]? | objects | (.logs // [])[]? | strings] | unique[]' "${mf}")" || cf=""
+        while IFS= read -r p; do
+            [ -n "${p}" ] || continue
+            case "${p}" in /*) f="${p}" ;; *) f="${d}/${p}" ;; esac
+            if [ -s "${f}" ]; then nf=$((nf + 1)); else miss+=("${p} (manifest.cert_failures)"); fi
+        done <<< "${cf}"
+    fi
+    if [ "${#miss[@]}" -gt 0 ]; then
+        for f in "${miss[@]}"; do echo "    ✗ missing or empty: ${f}"; done
+        return 1
+    fi
+    echo "    ✓ ${nf} required file(s) present and non-empty: logs of ${#} node(s) (container, unit stdout, recovery evidence), manifest.json$([ -z "${cf}" ] || echo ', manifest.cert_failures logs')"
+}
+
+# bench_local_analysis — results/<run>/analysis/cert-rate.md (tools/cert-rate.py over the pulled
+# validator logs, windows from the manifest; only once the teardown has pulled them) and
+# block-rate.md (tools/block-rate.py over the run dir). Informational: a tool that fails leaves a
+# warning and no file, never a non-zero status. Dry run: prints the commands.
+bench_local_analysis() {
+    local d="${BENCH_RESULTS_DIR}" a="${BENCH_RESULTS_DIR}/analysis" t="${BENCH_DIR}/tools" name tmp err rc
+    echo "    analysis -> ${a}/ (informational)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      + python3 ${t}/cert-rate.py --logs ${d}/logs --windows ${d}/manifest.json > ${a}/cert-rate.md"
+        echo "      + python3 ${t}/block-rate.py --run ${d} > ${a}/block-rate.md"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — no analysis"; return 0; }
+    mkdir -p "${a}" || { bench_warn "could not create ${a} — no analysis"; return 0; }
+    for name in cert-rate block-rate; do
+        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/bench-validator-*.log.gz" >/dev/null; then
+            echo "      - cert-rate: no validator log in logs/ yet (the teardown pulls them)"
+            continue
+        fi
+        tmp="$(mktemp "${a}/.${name}.md.XXXXXX")" || { bench_warn "${name}: no temp file"; continue; }
+        rc=0
+        if [ "${name}" = cert-rate ]; then
+            err="$(python3 "${t}/cert-rate.py" --logs "${d}/logs" --windows "${d}/manifest.json" 2>&1 > "${tmp}")" || rc=$?
+        else
+            err="$(python3 "${t}/block-rate.py" --run "${d}" 2>&1 > "${tmp}")" || rc=$?
+        fi
+        if [ "${rc}" -eq 0 ] && [ -s "${tmp}" ]; then
+            mv "${tmp}" "${a}/${name}.md" && echo "      ✓ ${a}/${name}.md"
+        else
+            rm -f "${tmp}"
+            bench_warn "${name}.py failed — ${a}/${name}.md not written: $(printf '%s\n' "${err:-no output}" | tail -1)"
+        fi
+    done
+    return 0
+}
+
+# --- certification outcome -------------------------------------------------------------------
+# A validator whose own headers are not certified (a far node in fast rounds) is a result of the
+# run, recorded with its logs, not something found later by hand. After every collect, and at the
+# teardown after the log and evidence pulls and before the local gate:
+#   bench_certification_record    tools/cert-rate.py over the pulled validator logs ->
+#                                 analysis/certification.json, manifest.certification, .certification_meta
+#                                 and .cert_failures
+#   bench_cert_failures_snapshot  per failing validator still up: a labelled container-log snapshot
+#                                 (telcoin-cert-fail-<UTC>.log.gz) pulled into logs/, and its logs listed
+#                                 in .cert_failures[].logs[], which the local gate then requires
+# A validator fails a window in which it proposed at least BENCH_CERT_MIN_PROPOSED headers and
+# certified fewer than BENCH_CERT_FAIL_PCT % of them (config.sh, default 90). Both functions only
+# warn: they return 0 whatever happens, and the local gate decides. The minimum is fixed here, not
+# a knob: fewer proposals than that in a window say too little to judge it.
+BENCH_CERT_MIN_PROPOSED=50
+
+# _bench_cert_fail_pct — BENCH_CERT_FAIL_PCT as an integer from 0 to 100; anything else warns and gives 90.
+_bench_cert_fail_pct() {
+    local p="${BENCH_CERT_FAIL_PCT:-90}"
+    case "${p}" in [0-9]|[0-9][0-9]|100) printf '%s\n' "$((10#${p}))"; return 0 ;; esac
+    bench_warn "BENCH_CERT_FAIL_PCT='${p}' is not an integer from 0 to 100 — using 90"
+    printf '90\n'
+}
+
+# _bench_cert_validators_json — the fleet's validators (NODE_ROLES; the observer never proposes) as a JSON array.
+_bench_cert_validators_json() {
+    local i
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        [ "${NODE_ROLES[$i]:-}" != "validator" ] || printf '%s\n' "${INSTANCE_NAMES[$i]}"
+    done | jq -R . | jq -s -c .
+}
+
+# _bench_cert_rel <base dir> <path> — <path> relative to <base dir> when it lies under it, else as given.
+_bench_cert_rel() { case "$2" in "$1"/*) printf '%s\n' "${2#"$1"/}" ;; *) printf '%s\n' "$2" ;; esac; }
+
+# _bench_cert_jq <file> <jq-args...> <filter> — an in-place, atomic jq edit of <file> (as bench_manifest_jq).
+_bench_cert_jq() {
+    local f="$1" tmp
+    shift
+    tmp="$(mktemp "${f}.XXXXXX")" || return 1
+    if jq "$@" "${f}" > "${tmp}"; then mv -f "${tmp}" "${f}"; else rm -f "${tmp}"; return 1; fi
+}
+
+# _bench_cert_insts <manifest> — the string .inst of every manifest.cert_failures[] entry, sorted, one per line.
+_bench_cert_insts() { jq -r '[(.cert_failures // [])[]? | objects | .inst | strings] | unique[]' "$1" 2>/dev/null || true; }
+
+# bench_certification_record <logs dir> <manifest> — tools/cert-rate.py --windows <manifest>
+# --format json over the validator logs in <logs dir>, kept raw as analysis/certification.json beside
+# the manifest, and recorded in the manifest:
+#   certification       {<inst>: {<window>: {proposed, certified, rate_pct, own_cert_share_pct,
+#                        own_leader_share_pct, not_committed_pct}}}: every validator and window
+#                        cert-rate.py reports (windows "arm <name>", "phase <name>", "run"), replaced
+#   certification_meta  {fail_below_pct, min_proposed, windows (in cert-rate.py's order), source, recorded_at}
+#   cert_failures       one entry per validator that certified fewer than fail_below_pct % of its own
+#                       headers in a window where it proposed >= min_proposed: {inst, window (the
+#                       worst), rate_pct, proposed, certified, windows (every failing one), logs}
+# Re-running merges cert_failures by instance. An instance judged now (proposed >= min_proposed in
+# some window) gets the new verdict, keeping the logs[] of its earlier entry still on disk; one that
+# passes now loses its entry (a manifest note; its files stay). An entry of an instance not judged now
+# is kept, its logs[] cut to the files still on disk; an entry without a string inst is not touched.
+# Skipped with a warning while <logs dir> holds no validator log or the manifest has no phases or
+# param_arms. Returns 0 whatever happens: a failure leaves a warning and the manifest as it was.
+# Dry run: prints what it would run.
+bench_certification_record() {
+    local logs="${1:-}" mf="${2:-}" base a pct tmp err rc=0 present before after i p f
+    base="$(dirname -- "${mf:-.}")"
+    a="${base}/analysis"
+    echo "    certification -> ${a}/certification.json and manifest.certification (informational)"
+    if [ -z "${logs}" ] || [ -z "${mf}" ]; then
+        bench_warn "bench_certification_record <logs dir> <manifest>: missing argument — not recorded"
+        return 0
+    fi
+    pct="$(_bench_cert_fail_pct)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      + python3 ${BENCH_DIR}/tools/cert-rate.py --logs ${logs} --windows ${mf} --format json > ${a}/certification.json"
+        echo "      + manifest.certification, .certification_meta and .cert_failures (below ${pct} % in a window with >= ${BENCH_CERT_MIN_PROPOSED} proposed)"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    if ! compgen -G "${logs}/bench-validator-*.log.gz" >/dev/null; then
+        bench_warn "certification: no validator log in ${logs} yet (the teardown pulls them) — not recorded"
+        return 0
+    fi
+    if ! jq -e '[(.param_arms // [])[]?, (.phases // [])[]? | objects | select((.begin // .start) and .end)] | length > 0' \
+        "${mf}" >/dev/null 2>&1; then
+        bench_warn "certification: ${mf} has no phases or param_arms yet (or does not parse) — not recorded"
+        return 0
+    fi
+    command -v python3 >/dev/null 2>&1 || { bench_warn "certification: python3 not on PATH — not recorded"; return 0; }
+    mkdir -p "${a}" || { bench_warn "certification: could not create ${a} — not recorded"; return 0; }
+    tmp="$(mktemp "${a}/.certification.json.XXXXXX")" || { bench_warn "certification: no temp file in ${a} — not recorded"; return 0; }
+    err="$(python3 "${BENCH_DIR}/tools/cert-rate.py" --logs "${logs}" --windows "${mf}" --format json 2>&1 > "${tmp}")" || rc=$?
+    if [ "${rc}" -ne 0 ] || ! jq -e '(.windows | type) == "array" and (.nodes | type) == "object"' "${tmp}" >/dev/null 2>&1; then
+        rm -f "${tmp}"
+        bench_warn "certification: cert-rate.py failed (exit ${rc}) — not recorded: $(printf '%s\n' "${err:-its output is not a cert-rate report}" | tail -1)"
+        return 0
+    fi
+    mv -f "${tmp}" "${a}/certification.json" || { rm -f "${tmp}"; bench_warn "certification: ${a}/certification.json not written — not recorded"; return 0; }
+    # The logs earlier entries list that are still on disk: the merge keeps only those. (No case
+    # statement in here: bash 3.2 misparses one inside a command substitution.)
+    present="$(jq -r '[(.cert_failures // [])[]? | objects | (.logs // [])[]? | strings] | unique[]' "${mf}" \
+        | while IFS= read -r p; do
+            f="${base}/${p}"; [ "${p#/}" = "${p}" ] || f="${p}"
+            [ ! -s "${f}" ] || printf '%s\n' "${p}"
+        done | jq -R . | jq -s -c .)" || present='[]'
+    before="$(_bench_cert_insts "${mf}")"
+    if ! _bench_cert_jq "${mf}" --slurpfile doc "${a}/certification.json" --argjson vals "$(_bench_cert_validators_json)" \
+        --argjson present "${present}" --argjson pct "${pct}" --argjson minp "${BENCH_CERT_MIN_PROPOSED}" \
+        --arg src "analysis/certification.json" --arg now "$(bench_now_iso)" '
+        def judged($m): (.proposed // 0) >= $m and (.rate_pct | type) == "number";
+        def among($a; $x): any($a[]; . == $x);
+        [($doc[0].windows // [])[]? | objects | select((.name | type) == "string")] as $w
+        | (reduce $vals[] as $v ({};
+              ([$w[] | select((.nodes[$v]? | type) == "object")
+                     | {key: .name, value: (.nodes[$v] | {proposed, certified: .quorum, rate_pct,
+                         own_cert_share_pct: .own_cert_pct, own_leader_share_pct: .own_leader_pct, not_committed_pct})}]
+               | from_entries) as $row
+              | if $row == {} then . else . + {($v): $row} end)) as $cert
+        | [$cert | to_entries[] | select([.value[] | judged($minp)] | any) | .key] as $judged
+        | [$cert | to_entries[] | .key as $i
+           | [.value | to_entries[] | select((.value | judged($minp)) and .value.rate_pct < $pct) | {window: .key} + .value] as $fails
+           | select($fails | length > 0)
+           | (reduce $fails[] as $f (null; if . == null or $f.rate_pct < .rate_pct then $f else . end)) as $worst
+           | {inst: $i, window: $worst.window, rate_pct: $worst.rate_pct, proposed: $worst.proposed,
+              certified: $worst.certified, windows: [$fails[].window], logs: []}] as $new
+        | [(.cert_failures // [])[]? | objects] as $old
+        | .certification = $cert
+        | .certification_meta = {fail_below_pct: $pct, min_proposed: $minp, windows: [$w[].name], source: $src, recorded_at: $now}
+        | .cert_failures = (
+            [$new[] | .inst as $i
+             | .logs = ([$old[] | select(.inst == $i) | (.logs // [])[]? | strings | select(among($present; .))] | unique)]
+            + [$old[] | select((.inst | type) != "string")]
+            + [$old[] | select((.inst | type) == "string") | .inst as $i
+               | select((among([$new[].inst]; $i) or among($judged; $i)) | not)
+               | .logs = [(.logs // [])[]? | strings | select(among($present; .))]])'; then
+        bench_warn "certification: the manifest update failed — ${mf} kept as it was"
+        return 0
+    fi
+    after="$(_bench_cert_insts "${mf}")"
+    for i in ${before}; do
+        _bench_in_lines "${i}" "${after}" && continue
+        echo "      - ${i}: no longer below ${pct} % — its cert_failures entry is dropped (its logs stay in logs/)"
+        _bench_cert_jq "${mf}" --arg n "certification: ${i} no longer below ${pct} % at $(bench_now_iso); its cert_failures entry was dropped, its logs stay in logs/" \
+            '.notes = ((.notes // []) + [$n])' || true
+    done
+    # One line per validator: its verdict; then any entry kept from an earlier record.
+    jq -r --argjson minp "${BENCH_CERT_MIN_PROPOSED}" --argjson pct "${pct}" '
+        (.certification // {}) as $c
+        | [(.cert_failures // [])[]? | objects | select((.inst | type) == "string")] as $cf
+        | ($c | to_entries[] | .key as $i
+           | ([$cf[] | select(.inst == $i)] | first) as $f
+           | [.value | to_entries[] | select((.value.proposed // 0) >= $minp and (.value.rate_pct | type) == "number")] as $j
+           | if $f then "      ✗ \($i): \($f.rate_pct) % of \($f.proposed) own headers certified in \($f.window) (below \($pct) % in: \($f.windows // [] | join(", ")))"
+             elif ($j | length) == 0 then "      - \($i): fewer than \($minp) headers proposed in every window — not judged"
+             else ($j | min_by(.value.rate_pct)) as $lo
+                  | "      ✓ \($i): at or above \($pct) % in every window it was judged in (lowest \($lo.value.rate_pct) % in \($lo.key))"
+             end),
+          ($cf[] | select($c[.inst] == null)
+           | "      ✗ \(.inst): kept from an earlier record (not in this report): \(.rate_pct) % in \(.window)")' "${mf}" || true
+    return 0
+}
+
+# _bench_cert_logs_here <logs dir> <inst> — the certification logs of <inst> in <logs dir>, full
+# paths, one per line: <inst>-telcoin.log.gz and its stamped copies (-telcoin-<UTC>.log.gz), every
+# -telcoin-cert-fail-*.log.gz snapshot, -unit-stdout.log.gz and its stamped copies. Non-empty only.
+_bench_cert_logs_here() {
+    local f n s='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z'
+    for f in "$1/$2"-*.log.gz; do
+        [ -f "${f}" ] && [ -s "${f}" ] || continue
+        n="${f##*/}"
+        _bench_log_name_ok "${n}" || continue
+        # shellcheck disable=SC2254  # ${s} is a glob on purpose
+        case "${n#"$2"-}" in
+            telcoin.log.gz|telcoin-cert-fail-*.log.gz|unit-stdout.log.gz|telcoin-${s}.log.gz|unit-stdout-${s}.log.gz) printf '%s\n' "${f}" ;;
+        esac
+    done
+    return 0
+}
+
+# bench_cert_failures_snapshot <logs dir> <manifest> — for every instance in manifest.cert_failures[]:
+# when the instance still exists (describe, under an alarm; a describe that fails for any other
+# reason than "not found" tries anyway), bench_save_node_log <idx> cert-fail saves its container
+# log on the node as telcoin-cert-fail-<UTC>.log.gz, and the node's saved logs <logs dir> lacks are
+# pulled in (_bench_pull_saved_logs with _bench_saved_log_cmd), the snapshot as
+# <inst>-telcoin-cert-fail-<UTC>.log.gz. Its cert_failures[].logs[] (paths relative to the manifest's
+# directory) then gains that snapshot, even when its pull failed (the local gate refuses until it is
+# here), and every certification log of the instance on disk (_bench_cert_logs_here). An instance
+# already gone (a teardown after an abort), outside the fleet, or whose save failed gets its logs on
+# disk and a manifest note. One line per instance. Returns 0 whatever happens: the local gate decides.
+# Dry run: says what it would do.
+bench_cert_failures_snapshot() {
+    local logs="${1:-}" mf="${2:-}" base insts inst idx zone rc err out name snap why f add n
+    base="$(dirname -- "${mf:-.}")"
+    echo "    certification snapshots -> ${logs}/ (informational; the local gate requires what manifest.cert_failures[].logs lists)"
+    if [ -z "${logs}" ] || [ -z "${mf}" ]; then
+        bench_warn "bench_cert_failures_snapshot <logs dir> <manifest>: missing argument — no snapshot"
+        return 0
+    fi
+    if [ ! -f "${mf}" ]; then echo "      - no manifest at ${mf} — nothing to snapshot"; return 0; fi
+    insts="$(_bench_cert_insts "${mf}")"
+    if [ -z "${insts}" ]; then echo "      ✓ no validator in manifest.cert_failures — no snapshot"; return 0; fi
+    for inst in ${insts}; do
+        case "${inst}" in
+            *[!abcdefghijklmnopqrstuvwxyz0123456789-]*)
+                bench_warn "certification: '${inst}' in manifest.cert_failures is not an instance name — skipped"; continue ;;
+        esac
+        idx="$(bench_index_of "${inst}")" || idx=""
+        if [ "${BENCH_APPLY}" != "1" ]; then
+            if [ -n "${idx}" ]; then
+                echo "      + ${inst}: if it still exists, bench_save_node_log ${idx} cert-fail and pull its new saved logs into ${logs}/; list its snapshot, container and unit-stdout logs in cert_failures[].logs"
+            else
+                echo "      + ${inst}: not a node of this fleet — list its logs in ${logs}/ only"
+            fi
+            continue
+        fi
+        snap=""; why=""
+        if [ -z "${idx}" ]; then
+            why="not a node of this fleet (INSTANCE_NAMES)"
+        else
+            zone="${ZONES[$idx]}"
+            rc=0
+            err="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${inst}" --zone="${zone}" \
+                --project="${PROJECT_ID}" --format=json </dev/null 2>&1 >/dev/null)" || rc=$?
+            if [ "${rc}" -ne 0 ] && printf '%s\n' "${err}" | grep -qi 'not found'; then
+                why="instance gone"
+            else
+                [ "${rc}" -eq 0 ] || bench_warn "certification: ${inst}: describe failed (exit ${rc}) — trying the snapshot anyway"
+                rc=0
+                out="$(bench_save_node_log "${idx}" cert-fail </dev/null)" || rc=$?
+                [ -z "${out}" ] || printf '%s\n' "${out}"
+                name="$(printf '%s\n' "${out}" | sed -n "s#.* saved on the node as ${BENCH_NODE_LOG_DIR}/##p" | tail -1)"
+                case "${name}" in telcoin-cert-fail-*.log.gz) ;; *) name="" ;; esac
+                if [ "${rc}" -ne 0 ] || [ -z "${name}" ] || ! _bench_log_name_ok "${name}"; then
+                    why="its container log could not be saved (see above)"
+                else
+                    snap="${logs}/${inst}-${name}"
+                    if { [ -d "${logs}" ] || mkdir "${logs}"; } \
+                        && _bench_pull_saved_logs "${inst}" "${zone}" "$(_bench_saved_log_cmd "${logs}" "${inst}")" "${logs}" </dev/null \
+                        && [ -s "${snap}" ]; then :
+                    else
+                        bench_warn "certification: ${inst}: ${name} is saved on the node but not pulled — the local gate requires $(_bench_cert_rel "${base}" "${snap}") until a re-run pulls it"
+                    fi
+                fi
+            fi
+        fi
+        add="$({ [ -z "${snap}" ] || printf '%s\n' "${snap}"; _bench_cert_logs_here "${logs}" "${inst}"; } \
+            | while IFS= read -r f; do _bench_cert_rel "${base}" "${f}"; done | LC_ALL=C sort -u | jq -R . | jq -s -c .)" || add='[]'
+        if ! _bench_cert_jq "${mf}" --arg i "${inst}" --argjson add "${add}" \
+            '.cert_failures |= map(if type == "object" and .inst == $i then .logs = ([(.logs // [])[]? | strings] + $add | unique) else . end)'; then
+            bench_warn "certification: ${inst}: manifest.cert_failures[].logs not updated"
+            continue
+        fi
+        n="$(printf '%s' "${add}" | jq length)"
+        if [ -n "${why}" ]; then
+            echo "      ⚠ ${inst}: ${why} — no snapshot; ${n} log(s) on disk listed in cert_failures[].logs"
+            _bench_cert_jq "${mf}" --arg n "certification: ${inst}: ${why} at $(bench_now_iso) — no cert-fail snapshot; cert_failures[].logs lists the ${n} log(s) on disk" \
+                '.notes = ((.notes // []) + [$n])' || true
+        elif [ -s "${snap}" ]; then
+            echo "      ✓ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}"); ${n} log(s) listed in cert_failures[].logs"
+        else
+            echo "      ✗ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}") is on the node only; listed with ${n} log(s), so the local gate refuses until it is here"
+        fi
+    done
+    return 0
+}
+
+# bench_certification_summary <manifest> — one line: the certification outcome the manifest records.
+bench_certification_summary() {
+    jq -r '
+        if (.certification | type) != "object" then "not recorded (no validator log or phase when it ran)"
+        else (.certification_meta.fail_below_pct // 90) as $p
+            | [(.cert_failures // [])[]? | objects | select((.inst | type) == "string")] as $f
+            | if ($f | length) == 0 then "no validator below \($p) % of its own headers certified (\(.certification | length) validator(s))"
+              else "\($f | length) validator(s) below \($p) %: \([$f[] | "\(.inst) \(.rate_pct) % in \(.window)"] | join(", ")); logs in manifest.cert_failures"
+              end
+        end' "$1" 2>/dev/null || echo "not recorded (manifest unreadable)"
 }
 
 # --- leftovers (anything the benchmark could have created) -----------------------------
 # bench_bucket_names — buckets that are ours by label benchmark=1 OR by name tn-devnet-bench-*
-# (step 12 labels in a second call, so an unlabelled bucket must still be found).
+# (step 12 labels in a second call, so an unlabelled bucket must still be found). The teardown
+# deletes what this lists, after copying each into results/<run>/bucket/.
 bench_bucket_names() {
     gcloud storage buckets list --project="${PROJECT_ID}" --format=json 2>/dev/null \
         | jq -r '.[] | select(((.labels.benchmark // "") == "1") or (.name | startswith("tn-devnet-bench-"))) | .name' || true

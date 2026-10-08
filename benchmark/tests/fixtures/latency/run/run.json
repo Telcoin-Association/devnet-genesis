@@ -1,0 +1,67 @@
+{
+ "tool": "latency-probe.sh",
+ "status": "complete",
+ "stamp": "20261006T120000Z",
+ "started_at": "2026-10-06T12:00:00Z",
+ "finished_at": "2026-10-06T12:05:00Z",
+ "argv": [
+  "latency-probe.sh",
+  "--project",
+  "example-proj",
+  "--zones",
+  "aa-west1-a,bb-east1-b,cc-north1-c,dd-south1-d,ee-gone1-a"
+ ],
+ "project": "example-proj",
+ "network": "default",
+ "subnet": null,
+ "machine_type": "e2-small",
+ "params": {
+  "pings": 3,
+  "udp_count": 3,
+  "udp_size": 1200,
+  "tcp_count": 3
+ },
+ "kept_resources": false,
+ "zones": [
+  "aa-west1-a",
+  "bb-east1-b",
+  "cc-north1-c",
+  "dd-south1-d",
+  "ee-gone1-a"
+ ],
+ "skipped": [
+  {
+   "zone": "ee-gone1-a",
+   "error": "ERROR: (gcloud.compute.instances.create) Could not fetch resource: - The zone 'projects/example-proj/zones/ee-gone1-a' does not have enough resources available to fulfill the request. (ZONE_RESOURCE_POOL_EXHAUSTED) on 192.0.2.99"
+  }
+ ],
+ "failed": [],
+ "vms": {
+  "aa-west1-a": {
+   "name": "lat-aa-west1-a",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.10"
+  },
+  "bb-east1-b": {
+   "name": "lat-bb-east1-b",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.11"
+  },
+  "cc-north1-c": {
+   "name": "lat-cc-north1-c",
+   "machine_type": "e2-small",
+   "internal_ip": "192.0.2.12"
+  },
+  "dd-south1-d": {
+   "name": "lat-dd-south1-d",
+   "machine_type": "e2-micro",
+   "internal_ip": "192.0.2.13"
+  }
+ },
+ "measured": [
+  "aa-west1-a",
+  "bb-east1-b",
+  "cc-north1-c",
+  "dd-south1-d"
+ ]
+}
