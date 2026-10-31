@@ -47,12 +47,12 @@ new image (main + PR 1715)" plan (see transcript). No Claude attribution on any 
 - [x] R5 PASS independently (32/32 cases; set -e/-u postures; odd values); low finding closed in devnet-deploy.sh gate: TN_NODE_SCRIPTS_REF must be a 40-hex sha
 
 ## Wave 4 (orchestrator)
-- [~] config.sh: TN_NODE_SCRIPTS_REF pinned to 090d9e19…80bc; DIGEST + NODE5 address still placeholders (need gcloud auth)
+- [~] config.sh: TN_NODE_SCRIPTS_REF pinned to d9446f72…f4eb; DIGEST + NODE5 address still placeholders (need gcloud auth)
 - [x] gitlinks: common → 0af7698 (branch devnet/genesis-knobs), tn-node-deployment → 090d9e1 (detached) — staged at commit time
 - [x] G1 common 0af7698: gated `--user $GENESIS_DOCKER_USER -e HOME=/tmp` (26/26 identical unset); FULL genesis build rehearsed on xerxes with v0.2.0-devnet: rc 0, WorkerConfigs(0) = 0x989680, owners 8, outputs drtnarg-owned; without the knob rc 1 (reproduces the HIGH)
 - [x] DOC README.md + INSTRUCTIONS.md rewritten for the v2 model (IAP default, 16 steps, knobs, closed admission, day-two tools, not-yet-v2 list)
 - [x] R6 C1-C6/C8 PASS; HIGH: genesis build docker runs as uid 1101 → cannot write the workspace on xerxes → G1 (gated --user knob in common/genesis.sh + GENESIS_DOCKER_USER in config.sh + full build rehearsal); lows fixed by the orchestrator (runbook ×4, config/deploy comments, step numbers, startup keeps checkout on reboot, node-5 funding check); C7 README/INSTRUCTIONS drift → DOC agent
-- [ ] commit per track (DG), no attribution
+- [x] committed per track on main (8aa445b..d895f50, 11 commits, no attribution; NOT pushed); genesis/network-config/ left untracked until step 7 re-renders
 
 ## Phase 4 (operator-present) — see the plan; blocked on `gcloud auth login`
 - [ ] 0 gcloud auth login / project / configure-docker; Secret Manager check
