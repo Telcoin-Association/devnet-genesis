@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# devnet-txgen.sh — deploy runbook Step 15: stand up tn-transaction-generator as a
+# devnet-txgen.sh — deploy runbook Step 16: stand up tn-transaction-generator as a
 # PERMANENT, continuous transaction source for devnet.
 #
 # An idle devnet produces no blocks: eth_blockNumber sits flat and every dashboard,
@@ -143,7 +143,7 @@ step_1() {
     done
     if [ "${#missing[@]}" -gt 0 ]; then
         echo "❌ address book is missing mandatory keys: ${missing[*]}" >&2
-        echo "   Run ./devnet-contracts.sh --yes (Step 14) first." >&2
+        echo "   Run ./devnet-contracts.sh --yes (Step 15) first." >&2
         return 1
     fi
     echo "    ✓ address book has every mandatory key ($(jq -r '.eXYZs | length' "${book}") eXYZs)"
@@ -672,7 +672,7 @@ ALLOYCHECK
 
 # =============================== runner ========================================
 echo "=========================================="
-echo "devnet transaction generator (Step 15)"
+echo "devnet transaction generator (Step 16)"
 echo "Instance:  ${TXGEN_INSTANCE} (${TXGEN_ZONE}, ${TXGEN_MACHINE_TYPE}, ${TXGEN_DISK_SIZE}GB)"
 echo "Project:   ${PROJECT_ID}"
 echo "Source:    ${TXGEN_SRC_DIR}"

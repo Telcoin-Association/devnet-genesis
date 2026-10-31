@@ -24,7 +24,7 @@
 #     node{1..5}/admin.node*/obs./rpc. stay correct and deploy step 4 is a no-op.
 #   * GCP Secret Manager secrets (obs-ingest-token, obs-grafana-admin,
 #     devnet-admin-dashboard-hash)
-#   * obs-devnet + its obs-devnet-data persistent disk (redeployed by deploy step 8)
+#   * obs-devnet + its obs-devnet-data persistent disk (redeployed by deploy step 9)
 #   * the RPC load balancer (devnet-rpc-fr / -backend / -hc / -ip) and its URL map/cert
 #   * DNS records, VPC firewall rules
 #   * the WireGuard hub in tn-devops-sandbox

@@ -16,31 +16,41 @@
 #    4. MANUAL: create DNS A-records node{N}.${BASE_DOMAIN} -> each static IP   [pause]
 #    5. keygen                        ./devnet-keygen.sh
 #    6. build genesis                 ./devnet-genesis-build.sh
-#    7. finalize (stage + start)      ./devnet-finalize.sh
-#    8. obs VM                        ./common/create-obs-instance.sh --wipe-data
-#    9. per-node observability        ./devnet-observability.sh
-#   10. host firewall (UFW)          ./devnet-firewall.sh --enable ; ./devnet-firewall.sh
-#   11. GCP/VPC firewall rules        ./setup-firewall.sh
-#   12. DNS/Caddy + load balancer     ./common/dns.sh ; ./common/setup-load-balancer.sh
-#   13. admin dashboards (default ON)  ./devnet-dashboards.sh ; ./common/dns.sh   (opt out: TN_ADMIN_DASHBOARD=0)
-#   14. app-contract stack           ./devnet-contracts.sh    (tn-contracts: infra + LPs + faucet role)
-#   15. transaction generator        ./devnet-txgen.sh        (txgen-devnet VM + permanent systemd service)
+#    7. per-node network-config       ./devnet-network-config.sh --yes   (BEFORE the first node start)
+#    8. finalize (stage + start)      ./devnet-finalize.sh
+#    9. obs VM                        ./common/create-obs-instance.sh --wipe-data
+#   10. host firewall (UFW)           ./devnet-firewall.sh --enable ; ./devnet-firewall.sh
+#   11. per-node observability        ./devnet-observability.sh   (needs UFW active: step 10)
+#   12. GCP/VPC firewall rules        ./setup-firewall.sh
+#   13. DNS/Caddy + load balancer     ./common/dns.sh ; ./common/setup-load-balancer.sh
+#   14. admin dashboards (default ON) ./devnet-dashboards.sh ; ./common/dns.sh   (opt out: TN_ADMIN_DASHBOARD=0)
+#   15. app-contract stack            ./devnet-contracts.sh --yes   (tn-contracts: infra + LPs + faucet role)
+#   16. transaction generator         ./devnet-txgen.sh --yes       (txgen-devnet VM + permanent systemd service)
+#
+# Steps 7, 15 and 16 pass --yes to their sub-script. Without it those scripts print a
+# plan and exit 0, so the runbook would report success having changed nothing. This
+# runbook's own gate (--yes, or DEPLOY typed at the prompt) is the confirmation for them.
+#
+# Before that gate it refuses to run at all while config.sh still holds a PLACEHOLDER_
+# value (image digest, node-5 address) outside a comment, or while TN_NODE_SCRIPTS_REF is
+# not a full 40-hex commit sha.
 #
 # Resume / piecemeal:
-#   ./devnet-deploy.sh --yes              # full run, steps 1..15 (step 13 skips only if TN_ADMIN_DASHBOARD=0)
+#   ./devnet-deploy.sh --yes              # full run, steps 1..16 (step 14 skips only if TN_ADMIN_DASHBOARD=0)
 #   ./devnet-deploy.sh --yes --from 5     # resume at step 5 to the end
-#   ./devnet-deploy.sh --yes --only 9     # run ONLY step 9
+#   ./devnet-deploy.sh --yes --only 11    # run ONLY step 11
 #
-# This script authors the sequence; it reaches nodes only via the lib's IAP
-# helpers (step 3's readiness poll). It does NOT run anything until confirmed.
+# This script authors the sequence. Its only direct contact with the nodes is step 3's
+# readiness poll, which reads each serial console through the GCP API; every other node
+# operation happens inside the sub-scripts. It does NOT run anything until confirmed.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${REPO_DIR}/devnet-lib.sh"
 
-LAST_STEP=15
-BOOTSTRAP_TIMEOUT_SECS=600   # per-node first-boot wait (apt docker-ce + clone scripts)
+LAST_STEP=16
+BOOTSTRAP_TIMEOUT_SECS=600   # per-node first-boot wait (apt docker-ce + fetch scripts at tn-scripts-ref)
 BOOTSTRAP_POLL_SECS=15
 
 # --- args ----------------------------------------------------------------------
@@ -76,10 +86,12 @@ step_3()  {
     # (get-serial-port-output) for devnet-startup.sh's completion marker — NOT by probing
     # over IAP SSH. The serial read travels the GCP REST API and needs no SSH/IAP path to
     # the node, so Step 3 stays reliable even when the operator's local IAP tunnel is down.
-    # NOTE: this confirms the startup-script FINISHED (docker installed + node scripts
-    # cloned). The later per-node steps (keygen/finalize/observability/firewall) still run
-    # commands ON the node over IAP SSH and need that path working. The marker is emitted at
-    # first boot, so run Step 3 right after Step 2 while it is fresh in the (rolling) buffer.
+    # NOTE: this confirms the startup-script FINISHED: docker installed, and the node
+    # scripts fetched at the ref named by the `tn-scripts-ref` instance-metadata attribute
+    # into /opt/telcoin-node-scripts (root-owned). The later per-node steps (keygen,
+    # network-config, finalize, firewall, observability) still run commands ON the node over
+    # IAP SSH and need that path working. The marker is emitted at first boot, so run Step 3
+    # right after Step 2 while it is fresh in the (rolling) buffer.
     local marker="devnet-startup.sh complete"
     local i inst zone waited ready out
     for i in "${!INSTANCE_NAMES[@]}"; do
@@ -130,33 +142,53 @@ EOF
 
 step_5()  { echo ">>> Step 5: keygen";                    "${REPO_DIR}/devnet-keygen.sh"; }
 step_6()  { echo ">>> Step 6: build genesis";             "${REPO_DIR}/devnet-genesis-build.sh"; }
-step_7()  { echo ">>> Step 7: finalize (stage + start)";  "${REPO_DIR}/devnet-finalize.sh"; }
-step_8()  { echo ">>> Step 8: obs VM (+ wipe data)";      "${REPO_DIR}/common/create-obs-instance.sh" --wipe-data; }
-step_9()  { echo ">>> Step 9: per-node observability";    "${REPO_DIR}/devnet-observability.sh"; }
+
+step_7()  {
+    echo ">>> Step 7: per-node network-config (render + install BEFORE the first node start)"
+    # Renders each node's <datadir>/network-config (closed admission, committee_peers, and
+    # the trusted/bootstrap peers for node1/node5) and installs it. It must land before
+    # Step 8 starts any node: a node that finds no network-config writes a default one,
+    # and that default is not ours. --yes because the gate above already confirmed this run.
+    "${REPO_DIR}/devnet-network-config.sh" --yes
+}
+
+step_8()  { echo ">>> Step 8: finalize (stage + start)";  "${REPO_DIR}/devnet-finalize.sh"; }
+step_9()  { echo ">>> Step 9: obs VM (+ wipe data)";      "${REPO_DIR}/common/create-obs-instance.sh" --wipe-data; }
 
 step_10() {
     echo ">>> Step 10: host firewall (UFW) — lockout-safe enable, then consensus rules"
+    # Runs BEFORE per-node observability (Step 11): v2's setup-observability.sh
+    # --enable-health opens the health port with ufw and requires ufw to be ACTIVE already.
+    #
     # No longer a manual step. devnet-firewall.sh --enable delegates to the node's
     # firewall-setup.sh --json --enable, which allows SSH, the 10.100.0.0/16 overlay, the
     # Kuma monitor and the Google LB health-check ranges BEFORE `ufw --force enable`, then
     # re-verifies SSH per node and ABORTS the whole run on loss (no further nodes touched).
     #
     # FALLBACK (only if --enable itself is broken): enable UFW by hand, SSH allowed FIRST,
-    # once per node from an IAP/console session, then re-run this step with --only 10:
+    # once per node from an IAP/console session, then re-run this step with --only 10
+    # (and Step 11 after it):
     #     sudo ufw allow 22/tcp && sudo ufw --force enable
     "${REPO_DIR}/devnet-firewall.sh" --enable   # per-node enable + SSH re-verify + abort on loss
     echo "    applying host consensus rules via devnet-firewall.sh"
     "${REPO_DIR}/devnet-firewall.sh"            # consensus ingress, asserted via --json --status
 }
 
-step_11() { echo ">>> Step 11: GCP/VPC firewall rules";   "${REPO_DIR}/setup-firewall.sh"; }
-step_12() {
-    echo ">>> Step 12: DNS/Caddy reverse-proxy + load balancer"
+step_11() {
+    echo ">>> Step 11: per-node observability"
+    # After Step 10 on purpose: --enable-health needs ufw active. The obs VM (Step 9) was
+    # already wiped and recreated, so the nodes ship into a clean Loki/Prometheus.
+    "${REPO_DIR}/devnet-observability.sh"
+}
+
+step_12() { echo ">>> Step 12: GCP/VPC firewall rules";   "${REPO_DIR}/setup-firewall.sh"; }
+step_13() {
+    echo ">>> Step 13: DNS/Caddy reverse-proxy + load balancer"
     "${REPO_DIR}/common/dns.sh"
     "${REPO_DIR}/common/setup-load-balancer.sh"
 }
-step_13() {
-    echo ">>> Step 13: admin dashboard (Node Manager UI) — install + expose read-only"
+step_14() {
+    echo ">>> Step 14: admin dashboard (Node Manager UI) — install + expose read-only"
     # Mandatory by default (config.sh TN_ADMIN_DASHBOARD=1). Opt out only with TN_ADMIN_DASHBOARD=0.
     if [ "${TN_ADMIN_DASHBOARD:-1}" != "1" ]; then
         echo "    TN_ADMIN_DASHBOARD=0 (explicitly opted out) — skipping."
@@ -169,19 +201,23 @@ step_13() {
     "${REPO_DIR}/common/dns.sh"          # (2) re-apply Caddy; dns.sh auto-fetches the hash + emits the vhost
 }
 
-step_14() {
-    echo ">>> Step 14: app-contract stack (tn-contracts)"
+step_15() {
+    echo ">>> Step 15: app-contract stack (tn-contracts)"
     # The chain wipe takes every script-deployed contract with it (WTEL, the eXYZ
     # stablecoins, StablecoinManager, the Uniswap factories/routers/pools). Only
     # ConsensusRegistry/Issuance/StakeManager are genesis-assigned. The transaction
     # generator reads all of them from deployments-devnet.json and fails hard on a
-    # missing mandatory key, so this must land before Step 15.
-    "${REPO_DIR}/devnet-contracts.sh"
+    # missing mandatory key, so this must land before Step 16.
+    # --yes: without it devnet-contracts.sh is a dry run that exits 0 and deploys nothing.
+    # Reaching this step means the gate above was passed (--yes or typed DEPLOY), and that
+    # is the confirmation, so --yes is passed in both cases.
+    "${REPO_DIR}/devnet-contracts.sh" --yes
 }
-step_15() {
-    echo ">>> Step 15: transaction generator (txgen-devnet)"
+step_16() {
+    echo ">>> Step 16: transaction generator (txgen-devnet)"
     # Permanent, continuous transaction source so the chain never sits idle.
-    "${REPO_DIR}/devnet-txgen.sh"
+    # --yes for the same reason as Step 15: without it devnet-txgen.sh only prints its plan.
+    "${REPO_DIR}/devnet-txgen.sh" --yes
 }
 
 # pause_for_operator — block until ENTER (skipped only if stdin isn't a TTY, e.g.
@@ -206,6 +242,29 @@ else
 fi
 echo "This triggers MUTATING GCP/fleet operations via sub-scripts."
 echo "=========================================="
+
+# Refuse BEFORE the prompt, --yes or not, while config.sh still holds a PLACEHOLDER_
+# value: a half-filled config must never reach a mutating step. Full-line comments are
+# skipped: they do not reach the sourced config, and prose naming a marker must not hold
+# the gate shut.
+# CONFIG_FILE is honoured the same way devnet-lib.sh honours it when sourcing.
+config_file="${CONFIG_FILE:-${REPO_DIR}/config.sh}"
+if placeholder_hits="$(grep -n 'PLACEHOLDER_' "${config_file}" | grep -v -E '^[0-9]+:[[:space:]]*#')"; then
+    echo "❌ ${config_file} still contains PLACEHOLDER_ values. Fill them in, then re-run:" >&2
+    printf '%s\n' "${placeholder_hits}" | sed 's/^/    /' >&2
+    exit 1
+fi
+# TN_NODE_SCRIPTS_REF travels into every node's instance metadata (create-instances.sh
+# appends `,tn-scripts-ref=<ref>` to --metadata=) and into a root git command on the
+# node, so it must be a full lowercase 40-hex commit sha: a branch name could carry `,`
+# or `=` into the metadata string, and the node refuses a short sha at first boot.
+case "${TN_NODE_SCRIPTS_REF:-}" in
+    *[!0-9a-f]*|'') echo "❌ TN_NODE_SCRIPTS_REF must be a full lowercase 40-hex commit sha (got '${TN_NODE_SCRIPTS_REF:-}')." >&2; exit 1 ;;
+esac
+if [ "${#TN_NODE_SCRIPTS_REF}" -ne 40 ]; then
+    echo "❌ TN_NODE_SCRIPTS_REF must be exactly 40 hex characters (got ${#TN_NODE_SCRIPTS_REF})." >&2
+    exit 1
+fi
 
 if [ "${CONFIRM}" -ne 1 ]; then
     if [ ! -t 0 ]; then

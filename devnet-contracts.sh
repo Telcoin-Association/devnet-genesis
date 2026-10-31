@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# devnet-contracts.sh — deploy runbook Step 14: redeploy the APP-CONTRACT stack onto a
+# devnet-contracts.sh — deploy runbook Step 15: redeploy the APP-CONTRACT stack onto a
 # freshly-genesised devnet.
 #
 # A genesis reset takes every script-deployed contract with it. Only ConsensusRegistry,
@@ -8,8 +8,8 @@
 # StablecoinManager, GitAttestationRegistry and all the Uniswap factories/routers/pools
 # are CREATE2-deployed by tn-contracts and die with the chain. tn-transaction-generator
 # reads every one of them out of deployments-devnet.json at startup and refuses to run if
-# a mandatory key is missing (src/deployments.rs:31-71), so Step 14 must land before
-# Step 15.
+# a mandatory key is missing (src/deployments.rs:31-71), so Step 15 must land before
+# Step 16.
 #
 # This is a THIN WRAPPER, not a reimplementation. The real work is done by tn-contracts'
 # own scripts, which are already idempotent and chain-id aware:
@@ -119,7 +119,7 @@ done
 [ "${FORCE:-}" = "true" ] && CONFIRM=1
 
 echo "=========================================="
-echo "devnet app-contract stack (Step 14)"
+echo "devnet app-contract stack (Step 15)"
 echo "Contracts:  ${TN_CONTRACTS_DIR} (branch ${TN_CONTRACTS_BRANCH})"
 echo "RPC:        ${DEVNET_RPC}"
 echo "Chain id:   ${EXPECTED_CHAIN_ID} (expected)"
@@ -394,5 +394,5 @@ Next:
   1. commit the regenerated address book on ${TN_CONTRACTS_BRANCH}:
        git -C '${TN_CONTRACTS_DIR}' add ${DEPLOYMENTS_JSON} && git -C '${TN_CONTRACTS_DIR}' commit
   2. point tn-transaction-generator's vendor/tn-contracts submodule at that commit
-  3. ./devnet-txgen.sh --yes    (Step 15)
+  3. ./devnet-txgen.sh --yes    (Step 16)
 EOF

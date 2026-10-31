@@ -97,7 +97,7 @@ documented env var / property to fall back to the legacy websocket.
 The deploy's per-node steps execute commands ON the nodes over IAP SSH (via
 `devnet-lib.sh` → `tn_iap_ssh`, which uses `gcloud compute ssh --tunnel-through-iap`):
 keygen (Step 5, `devnet-keygen.sh`), finalize (Step 7, `devnet-finalize.sh`), observability
-(Step 9, `devnet-observability.sh`), and host-firewall rules (Step 10, `devnet-firewall.sh`).
+(Step 11, `devnet-observability.sh`), and host-firewall rules (Step 10, `devnet-firewall.sh`).
 Genesis build (Step 6) consumes keygen output, so it is gated too. None of these can run
 until IAP SSH works.
 
