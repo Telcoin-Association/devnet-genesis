@@ -100,9 +100,9 @@ Re-render after every new keygen.
    1. wait for first-boot bootstrap on every node (serial-console completion marker)
    1. MANUAL: DNS A-records `node{N}.devnet.telcoin.network` to each static IP (always pauses for ENTER)
    1. keygen: `devnet-keygen.sh`
-   1. build genesis: `devnet-genesis-build.sh`
+   1. build genesis: `devnet-genesis-build.sh`, then the release manifest: `devnet-release-sign.sh prepare` ([signing ceremony](docs/release-signing-ceremony.md))
    1. per-node network-config: `devnet-network-config.sh --yes` (before the first node start)
-   1. finalize (stage + start): `devnet-finalize.sh`
+   1. finalize (stage + start): `devnet-finalize.sh`. It first runs `devnet-release-sign.sh verify` and stops with `RELEASE_SIG_PENDING` (exit 3, no node touched) until `SHA256SUMS.asc` is signed; then resume with `--from 8`
    1. obs VM: `common/create-obs-instance.sh --wipe-data`
    1. host firewall (UFW): `devnet-firewall.sh --enable`, then `devnet-firewall.sh`
    1. per-node observability: `devnet-observability.sh` (needs UFW active from step 10)
@@ -115,6 +115,12 @@ Re-render after every new keygen.
    Node 5 can first sit in the committee of activation epoch + 2.
 
 The full operator runbook for the 2026-10-30 reset is [`tasks/runbook-reset-2026-10-30.md`](tasks/runbook-reset-2026-10-30.md).
+
+Further reading:
+
+- [`docs/validator-key-provisioning.md`](docs/validator-key-provisioning.md): validator execution keys and `devnet-validator-key.sh`, which does step 1's node 5 address and funding (`./devnet-validator-key.sh node5 --apply`).
+- [`docs/release-signing-ceremony.md`](docs/release-signing-ceremony.md)
+- [`docs/mainnet-simulation-plan.md`](docs/mainnet-simulation-plan.md)
 
 ### Additional notes for GCP Deployment:
 

@@ -55,6 +55,11 @@ unset _bench_caller
 # --- inherit the devnet constants, then override the fleet identity -------------
 # shellcheck source=../config.sh
 source "${BENCH_DIR}/../config.sh"
+# The release-signing gate (devnet-release-sign.sh prepare/verify, wired into deploy step 6
+# and finalize) is a devnet rehearsal of the mainnet release model. The bench profile has no
+# signed release and this script is not in devnet-release-sign.sh's caller allowlist, so the
+# gate must be OFF here (empty RELEASE_TAG disables both hooks).
+export RELEASE_TAG=""
 
 export TN_PROFILE="benchmark"
 export BENCH_DIR

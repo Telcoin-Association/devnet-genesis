@@ -1,3 +1,67 @@
+# Plan: launch 1 — execute the reset (2026-10-31)
+
+Source: the approved "Devnet launch 1 (execute the reset now) + launch 2 design" plan. Supersedes
+the 2026-10-30 plan below (its code is complete and committed; nothing had touched GCP).
+No Claude attribution on any commit/PR. Live state at start: 5 VMs RUNNING, 5 static IPs IN_USE,
+head block 0x12f9e8, chain 0x7e1d; gcloud authenticated as the operator.
+
+## Wave 0
+- [x] project-context refresh (devnet-genesis, tn-cli-dev) spawned; gcloud token OK; live state recorded
+
+## Wave 1 (parallel, opus; config.sh single writer = U4b)
+- [x] U1 image pushed 10:21Z (cache hit, 11 s); index digest sha256:5257e768e657586a19e31308906bfacac0df95e5ca3da29a68f818f159d4a610 (gcloud + imagetools agree); 4 probes green by digest; log logs/push-v0.2.0-devnet-20261031T1021Z.log
+- [x] U2 devnet-validator-key.sh (<nodeN> [--apply] [--rotate]; key only on a pipe to tn_secret_set; read-back via import-key; atomic config/accounts edits; 1,000,100 TEL = 0xd3c787962b1b04100000, NOT the brief's 0xd3c21b… which is 1,000,000) + docs/validator-key-provisioning.md + Further-reading links; stub matrix a-h green, 0 key hits
+- [x] U3a-code tn-cli-dev: re-pin to 3f9b0709c FAILS upstream (tn-kad-client → tn-network-libp2p needs TN's [patch.crates-io] libp2p-quic/quinn-proto/libp2p-connection-limits; fix = 3 patch entries, proven in scratch, NOT applied → launch-2 decision); stays on c07d6d6a (risk: `tn node record` rejects >1 multiaddr, moot while nodes are Closed); FALLBACK_HANDLER → 0xfd0732Dc…Ec99; build OK, 193 tests pass (anvil e2e ran), ~/.cargo/bin/tn installed; R2 to fix safe-spec.example.toml:23-24 + cli.rs:418 wording
+- [x] U3a-docs tn-cli-dev: 32285 in devnet docs (2017 kept for Adiri-only deploy doc), --trezor no longer forced (signer passthrough; R2 checks hot-key fallback), TARGET 10000000, devnet RPC default, README `tn` + compressed BLS + on-chain owners, v2 rewrites of new-validator/observer-to-validator, toml example faucet placeholder
+- [x] U4a devnet-release-sign.sh prepare/verify (490 lines, +x); verdict stricter than the node (any NO_PUBKEY/ERRSIG/BADSIG fails); 30-row matrix green incl. real shipped keyring → rc 1 for an unlisted key; `releases/` stays committable (c3)
+- [x] U4b config.sh RELEASE_TAG/KEYS_DIR/SIGNER_FPR; deploy step_6 → prepare; finalize gate rc0/3/1 + bypass only for rc 3; stub matrix green; HEAD-identical when RELEASE_TAG empty. Orchestrator pinned DOCKER_IMAGE digest (1 PLACEHOLDER left: node5 address)
+- [x] U4c docs/release-signing-ceremony.md (3 paths, re-sign rule, evidence, troubleshooting); PR ref fixed to #52
+- [x] U6 docs/mainnet-simulation-plan.md (452 lines; 8 design findings flagged [I]: forward target, default-allow-internal tcp:443, nc -u probe ambiguity, staged-joiner persistence, L2-C/L2-D overlap, port 80 for http-01, node 5 Closed pre-join)
+- [x] U7 tasks/runbook-l1-2026-10-31.md (536 lines). ADOPTED D1b: `./devnet-deploy.sh --yes --only 12 </dev/null` right after D1 so the VPC /32 consensus rules learn node 2's Dallas IP before step 8 (otherwise nodes 1,3,4 = exact quorum through steps 8-11)
+
+## Wave 2 (serialized)
+- [ ] R1 review U2 + U4a/b/c (secret hygiene, gpg strictness, gate not silently skippable)
+- [x] R2 tn-cli-dev reviewed: F1 HIGH fixed (tn falls back to PRIVATE_KEY env/.env → new-validator.sh now requires exactly one of --ledger/--trezor/--hot-key), node-info-vs-Safe guard, Adiri HAS the handler (docs corrected), N+3 wording unified, leftovers fixed; 193 tests pass; commit 8462884 pushed (76a9cfd..8462884)
+- [ ] config.sh: pin digest → `./devnet-validator-key.sh node5 --apply` for real → `./devnet-deploy.sh </dev/null` gates pass → commit c1
+- [ ] memory "teardown in progress" → DESTRUCTIVE `./devnet-teardown.sh` dry run → `--yes` (old ZONES) → verify
+- [ ] zone move: ZONES[1]=us-south1-a, docs, delete Sydney address + LB group → commit c2
+
+## Wave 3 (deploy in three segments)
+- [ ] D1 steps 1-3 → Dallas IP → operator sets node2 + admin.node2 A records; D1b `--only 12` (VPC rules pick up the new /32)
+- [ ] D2 --from 5 → RELEASE_SIG_PENDING at step 8 → operator signs on the laptop; dig confirms DNS
+- [ ] D3 --from 8 → 16; commit c3 after step 8 (releases/, genesis/, parameters.yaml)
+- [ ] U3b tn-cli-dev genesis copy + anvil e2e; U3c faucet address + live `tn` checks; commit + push
+
+## Wave 4
+- [ ] S1 stake node 5 (dry → --yes → watch 3 epochs)
+- [ ] V1 tasks/verification-l1-2026-10-31.md with numbers; V2 node 5 seated over ≥3 epochs
+- [ ] close-out: todo.md review, lessons.md, plan ticks, memory; commit c4; push origin main
+
+## Launch 2 (mainnet simulation)
+
+Design: docs/mainnet-simulation-plan.md. Starts only after launch 1 (the 2026-10-31 reset) is live and reviewed; it is a second teardown + deploy.
+
+- [ ] G0: launch 1 live and reviewed, node 2 in us-south1; record baseline (base fee per epoch, RPC submit-to-inclusion latency).
+- [ ] L2-A config model: append sentry-{1..5}-devnet at indices 5..9 of INSTANCE_NAMES/NODE_ROLES/ZONES/NODE_NAMES/STATIC_IP_NAMES; add SENTRY_OF, NODE_ROLES "sentry", LB backend roles, per-node INSTANCE_TAGS.
+- [ ] L2-A common PR: common/create-instances.sh honors per-node INSTANCE_TAGS; reserve 5 sentry static IPs in each validator's region.
+- [ ] L2-B network-config renderer roles validator|sentry|joiner per the admission matrix (trusted_nodes, bootstrap_peers, committee_peers = 4 genesis validators everywhere).
+- [ ] Confirm at telcoin-network 3f9b0709c which validator a sentry forwards transactions to; set the validator tcp:443 sources (own sentry vs all sentries) before L2-C.
+- [ ] L2-C setup-firewall.sh: per-validator udp:49590,49594 ingress (tag validator-<i>), 1050 deny from 10.128.0.0/9, devnet-sentry-allow-consensus from 0.0.0.0/0, egress allow to validators+sentries, 443 to own sentry, web + LB health check retargeted to sentries.
+- [ ] L2-C devnet-firewall.sh: --enable --p2p-from <per-node list> on validators, --p2p-anywhere on sentries; drop the `--port … on` pass; assert sources via --json --status.
+- [ ] L2-D --stage-joiner node5 (VPC + ufw on validators 1-4 and node 5, staged state recorded in config.sh) and the join runbook (mint, stake, sync, activate, N..N+3 checks).
+- [ ] L2-E tn-node-deployment PR 13 devnet release channel (--release-tag <x>-devnet, GPG-signed SHA256SUMS/IMAGE_DIGEST, chain-config pins from signed sums); fallback = launch 1 laptop-signed release.
+- [ ] L2-F dns.sh/obs/dashboards for 10 nodes; manual A records for sentry1..5; LB backends = sentries only; decide admin.nodeN access behind the 443 restriction.
+- [ ] L2-G gate G2: rendered admission shapes for all 10 nodes match the admission matrix.
+- [ ] L2-G gate G3: firewall dry-run output (VPC + ufw) matches the firewall matrix; lockout-safe one-node-at-a-time order; lockdown-firewall-gcp.sh never called.
+- [ ] L2-G gate G4: secrets (5 sentry BLS keys + passphrases, no persisted network keys, PR 13 key dir public-only).
+- [ ] Second teardown + deploy (10 node VMs + obs + txgen).
+- [ ] Verify: validators admission_mode=2, sentries Open, node 5 Closed pre-join; txgen `nc -u` + deny-rule log hit on a validator's 49590, accepted on a sentry; `tn node record` via a sentry works.
+- [ ] Verify: a tx sent to rpc.devnet lands via the sentry forward path (record hash, block, sentry, receiving validator, latency).
+- [ ] Join rehearsal: node 5 CvvActive at N+3; record draws missed, admission_fallback excursion per validator, committee rotation including node 5, base fee stepping vs G0.
+- [ ] Record results and lessons in the tasks/todo.md review section.
+
+---
+
 # Plan: devnet full reset on tn-node-deployment v2 + new image (2026-10-30)
 
 Source plan: the approved "Devnet full reset on tn-node-deployment v2 (PR 11 + stacked PR 12),

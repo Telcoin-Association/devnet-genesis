@@ -15,7 +15,7 @@
 #    3. wait for first-boot bootstrap on EVERY node (serial-console completion marker)
 #    4. MANUAL: create DNS A-records node{N}.${BASE_DOMAIN} -> each static IP   [pause]
 #    5. keygen                        ./devnet-keygen.sh
-#    6. build genesis                 ./devnet-genesis-build.sh
+#    6. build genesis (+ release manifest) ./devnet-genesis-build.sh ; ./devnet-release-sign.sh prepare
 #    7. per-node network-config       ./devnet-network-config.sh --yes   (BEFORE the first node start)
 #    8. finalize (stage + start)      ./devnet-finalize.sh
 #    9. obs VM                        ./common/create-obs-instance.sh --wipe-data
@@ -34,6 +34,15 @@
 # Before that gate it refuses to run at all while config.sh still holds a PLACEHOLDER_
 # value (image digest, node-5 address) outside a comment, or while TN_NODE_SCRIPTS_REF is
 # not a full 40-hex commit sha.
+#
+# Release signing (config.sh RELEASE_TAG; empty turns it off): step 6 ends with
+# devnet-release-sign.sh prepare, which writes releases/<tag>/{IMAGE_DIGEST,SHA256SUMS}.
+# Step 8 stops with RELEASE_SIG_PENDING (finalize exit 3, before any node is touched)
+# until releases/<tag>/SHA256SUMS.asc exists: sign SHA256SUMS on the signing machine,
+# place SHA256SUMS.asc beside it, and resume with --from 8.
+#
+# Exit code: a failing step stops the run (set -e) and its rc is the runbook's exit code
+# (3 = release signature pending). Sub-script output passes through unfiltered.
 #
 # Resume / piecemeal:
 #   ./devnet-deploy.sh --yes              # full run, steps 1..16 (step 14 skips only if TN_ADMIN_DASHBOARD=0)
@@ -141,7 +150,23 @@ EOF
 }
 
 step_5()  { echo ">>> Step 5: keygen";                    "${REPO_DIR}/devnet-keygen.sh"; }
-step_6()  { echo ">>> Step 6: build genesis";             "${REPO_DIR}/devnet-genesis-build.sh"; }
+step_6()  {
+    echo ">>> Step 6: build genesis (+ release manifest)"
+    "${REPO_DIR}/devnet-genesis-build.sh"
+    # Release manifest over the configs just built (config.sh RELEASE_TAG; empty = off).
+    # Step 8's finalize refuses to touch a node until SHA256SUMS.asc signs this manifest.
+    [ -n "${RELEASE_TAG:-}" ] || return 0
+    local rc=0
+    "${REPO_DIR}/devnet-release-sign.sh" prepare || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "❌ devnet-release-sign.sh prepare failed (rc ${rc})." >&2
+        if [ "${rc}" -eq 1 ]; then
+            echo "   releases/${RELEASE_TAG}/SHA256SUMS.asc signs different content (keygen or genesis re-ran):" >&2
+            echo "   run ./devnet-release-sign.sh prepare --force, re-sign SHA256SUMS, then resume with --from 7." >&2
+        fi
+        return "${rc}"
+    fi
+}
 
 step_7()  {
     echo ">>> Step 7: per-node network-config (render + install BEFORE the first node start)"

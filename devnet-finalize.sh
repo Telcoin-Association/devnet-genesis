@@ -8,6 +8,7 @@
 # Phase A, per node (a failure skips the rest of that node, never the other nodes):
 #   0. local checks: DOCKER_IMAGE is <repository>@sha256:<64 hex> (v2 on devnet runs an
 #      image by digest only) and the node's EXECUTION_ADDRESSES entry is 0x + 40 hex.
+#      Once per run, before the first node: the release-signature gate (see below).
 #   1. readiness gate (one ssh): setup-node.sh is in TN_NODE_SCRIPTS_DIR, keygen ran
 #      (.node-meta records PASSPHRASE_METHOD), no telcoin unit is installed yet (v2
 #      refuses to finalize over one), and <DATA_DIR>/network-config from deploy step 7
@@ -51,6 +52,17 @@
 #      TN_BLS_PASSPHRASE in /proc/<pid>/environ of the container's process (docker
 #      inspect .State.Pid) or of any `telcoin node` process on the host.
 #
+# Release-signature gate (config.sh RELEASE_TAG; empty skips it and changes nothing else).
+# Runs after the local artifact + digest checks and before the PyYAML check and any
+# gcloud/ssh: ./devnet-release-sign.sh verify checks releases/<tag>/SHA256SUMS.asc with
+# gpgv against the RELEASE_KEYS_DIR allow-list, and SHA256SUMS against IMAGE_DIGEST and
+# the chain configs. Verified (rc 0): one ✓ line, the run goes on. Signature absent (rc 3):
+# the sign script's RELEASE_SIG_PENDING line reaches stdout, a hint goes to stderr, and
+# finalize exits 3 with no node touched. Bad or unlisted signature, hash or digest
+# mismatch, missing file, usage or tooling error (any other rc): ❌, exit 1.
+# Bypass, devnet only: TN_SKIP_RELEASE_SIG=1 lets a PENDING signature (rc 3) through
+# behind a ⚠️ banner on stdout and stderr. A FAILED verification is never bypassable.
+#
 # SECURITY: finalize takes NO secret. v2 keygen stored the BLS passphrase on the node (a
 # systemd credential, or a root-only file below systemd 250) and the unit loads it from
 # there, so this script never resolves, sends or logs a passphrase.
@@ -61,7 +73,9 @@
 #   ./devnet-finalize.sh observer-5-devnet  # subset by INSTANCE_NAME
 #   ./devnet-finalize.sh 0 4                # subset by index (0-based)
 # An unknown target stops the run before any node is touched.
-# Exit: 0 every targeted node finalized and passed A1-A5; 1 a node failed; 2 bad target.
+# Exit: 0 every targeted node finalized and passed A1-A5; 1 a node failed, or a local
+# check did (a failed release-signature verification included); 2 bad target; 3 release
+# signature pending (RELEASE_SIG_PENDING), no node touched.
 
 set -euo pipefail
 
@@ -138,6 +152,43 @@ if [ "${#_hex}" -ne 64 ]; then
     exit 1
 fi
 unset _hex
+
+# Release-signature gate (config.sh RELEASE_TAG; empty skips it). Runs before any gcloud
+# or ssh call, so a pending or failed signature leaves every node untouched. The sign
+# script's output is not captured: its RELEASE_SIG_PENDING line reaches stdout as is.
+if [ -n "${RELEASE_TAG:-}" ]; then
+    echo ">>> verifying release signature (${RELEASE_TAG})"
+    _sig_rc=0
+    "${DEVNET_LIB_DIR}/devnet-release-sign.sh" verify || _sig_rc=$?
+    case "${_sig_rc}" in
+        0)
+            echo "    ✓ release ${RELEASE_TAG}: SHA256SUMS.asc verified against the release keys" ;;
+        3)
+            if [ "${TN_SKIP_RELEASE_SIG:-}" = "1" ]; then
+                _sig_banner() {
+                    echo "⚠️  =========================================================================="
+                    echo "⚠️  RELEASE SIGNATURE BYPASSED (TN_SKIP_RELEASE_SIG=1) — nodes start on an UNSIGNED release; devnet only"
+                    echo "⚠️  release ${RELEASE_TAG}: releases/${RELEASE_TAG}/SHA256SUMS.asc is absent and was NOT verified."
+                    echo "⚠️  Unset TN_SKIP_RELEASE_SIG once the release is signed."
+                    echo "⚠️  =========================================================================="
+                }
+                _sig_banner
+                _sig_banner >&2
+                unset -f _sig_banner
+            else
+                echo "    sign releases/${RELEASE_TAG}/SHA256SUMS on the signing machine, place SHA256SUMS.asc beside it," >&2
+                echo "    then re-run ./devnet-finalize.sh or ./devnet-deploy.sh --yes --from 8" >&2
+                exit 3
+            fi ;;
+        *)
+            echo "❌ release ${RELEASE_TAG}: signature verification FAILED (devnet-release-sign.sh verify rc ${_sig_rc}); no node was touched." >&2
+            if [ "${TN_SKIP_RELEASE_SIG:-}" = "1" ]; then
+                echo "   TN_SKIP_RELEASE_SIG=1 bypasses only a pending signature, never a failed verification." >&2
+            fi
+            exit 1 ;;
+    esac
+    unset _sig_rc
+fi
 
 # The gate and A3 run devnet-network-config.py's validator on each node's network-config,
 # with the context devnet-network-config.sh --verify gives it (the fleet in config.sh

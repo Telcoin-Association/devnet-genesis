@@ -77,3 +77,9 @@ Use a separate shell for IAP. The drivers suppress the shim themselves.
 
 Full reference (architecture, admin runbook, security model):
 [`common/wgvpn/README.md`](common/wgvpn/README.md).
+
+## Further reading
+
+- [`docs/validator-key-provisioning.md`](docs/validator-key-provisioning.md): validator execution keys (`devnet-validator-key.sh`).
+- [`docs/release-signing-ceremony.md`](docs/release-signing-ceremony.md)
+- [`docs/mainnet-simulation-plan.md`](docs/mainnet-simulation-plan.md)

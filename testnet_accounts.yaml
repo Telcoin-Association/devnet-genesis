@@ -47,3 +47,5 @@
   balance: "0x0"
   nonce: 0
   code: "0xfe"
+"0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8": # node5 execution key (stake 1,000,000 TEL + gas)
+  balance: "0xd3c787962b1b04100000"

@@ -39,7 +39,24 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # them; TN_NODE_SCRIPTS_REF must be a full 40-hex sha). Comments never spell the marker
 # with its underscore, so the check can grep the file as text.
 export DOCKER_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.2.0-devnet"
-export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:PLACEHOLDER_DIGEST"
+export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:5257e768e657586a19e31308906bfacac0df95e5ca3da29a68f818f159d4a610"
+
+#
+# Release signing (devnet rehearsal of the mainnet release model)
+#
+# On mainnet a release is a GPG detached signature (SHA256SUMS.asc) over SHA256SUMS, the
+# hash list of IMAGE_DIGEST (the pinned image digest) and the chain configs; nodes verify
+# it with gpgv against the release keys shipped in tn-node-deployment (lib/release-keys).
+# Devnet rehearses that with devnet-release-sign.sh: devnet-deploy.sh step 6 runs
+# `prepare` right after the genesis build (writes releases/<tag>/IMAGE_DIGEST + SHA256SUMS),
+# and devnet-finalize.sh runs `verify` before any node is finalized (stops with
+# RELEASE_SIG_PENDING, exit 3, until releases/<tag>/SHA256SUMS.asc exists).
+# RELEASE_TAG empty disables both hooks. RELEASE_SIGNER_FPR is informational: verification
+# trusts the keyring allow-list in RELEASE_KEYS_DIR, not this value. A rerun of keygen or
+# the genesis build changes the chain configs, so it needs a new prepare and a new signature.
+export RELEASE_TAG="v0.2.0-devnet"
+export RELEASE_KEYS_DIR="${REPO_ROOT}/tn-node-deployment/lib/release-keys"
+export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
 
 # TN_BLS_PASSPHRASE is deliberately NOT set here. devnet-lib.sh:tn_require_bls_passphrase
 # checks $TN_BLS_PASSPHRASE first, so exporting it here would shadow (and defeat) the
@@ -75,7 +92,7 @@ export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
 # lives only in Secret Manager (NODE5_VALIDATOR_PK_SECRET). Replace the placeholder
 # with that address. The old recorded 0xb4e5ed81... disagreed with
 # genesis/observers/node5.yaml and was never funded.
-export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "PLACEHOLDER_NODE5_ADDRESS")
+export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8")
 export NODE5_VALIDATOR_PK_SECRET="devnet-node5-validator-pk"   # Secret Manager (tn-devnet): node 5 execution-key private key
 # Reserved static external IPs — one per instance, PARALLEL to INSTANCE_NAMES. The
 # Ubuntu migration pins these so the GCP consensus /32 rules + DNS A-records survive
@@ -167,7 +184,7 @@ export SERVICE_USER="telcoin"
 # tn-node-deployment checkout on each node: root-owned, detached at TN_NODE_SCRIPTS_REF.
 # Not under /home any more: v2's install-ui refuses a checkout owned by the service account.
 export TN_NODE_SCRIPTS_DIR="/opt/telcoin-node-scripts"
-# Full 40-hex tn-node-deployment commit the fleet runs: PR 12 head until it merges, then main.
+# Full 40-hex tn-node-deployment commit the fleet runs: PR #52 (the "PR 12" devnet-image work) head until it merges, then main.
 export TN_NODE_SCRIPTS_REF="d9446f720026fa5ce8b64fce9074e56b05b3f4eb"
 # devnet-startup.sh is self-contained (it is GCP metadata, not sourced against this file)
 # and keeps its own copy of this URL; change both together.
