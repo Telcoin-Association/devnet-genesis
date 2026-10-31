@@ -23,7 +23,7 @@ console, `instances describe`) works fine; anything that needs an IAP tunnel doe
   bootstrap **completed** on every one (serial marker `devnet-startup.sh complete` present,
   docker installed, `tn-node-deployment` scripts cloned, `telcoin` user created):
   - `validator-1-devnet` (us-west2-a)
-  - `validator-2-devnet` (australia-southeast1-c)
+  - `validator-2-devnet` (us-south1-a; Sydney until 2026-10-31)
   - `validator-3-devnet` (northamerica-northeast1-b)
   - `validator-4-devnet` (europe-west4-a)
   - `observer-5-devnet` (europe-west2-b)

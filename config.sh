@@ -71,7 +71,7 @@ export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
 # EXTERNAL_IPS / INTERNAL_IPS arrays here anymore.
 #
 # 1 - LA
-# 2 - Australia
+# 2 - Dallas (moved from Sydney 2026-10-31; validator-2-devnet-ip re-reserved in us-south1)
 # 3 - Montreal
 # 4 - Netherlands
 # 5 - London
@@ -84,7 +84,7 @@ export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
 # every epoch.
 export INSTANCE_NAMES=("validator-1-devnet" "validator-2-devnet" "validator-3-devnet" "validator-4-devnet" "observer-5-devnet")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
-export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
+export ZONES=("us-west2-a" "us-south1-a" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
 # Per-node hostnames → node{N}.${BASE_DOMAIN}
 export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
 # EXECUTION_ADDRESSES[4] (node 5) is a NEW key generated at deploy time with

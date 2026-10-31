@@ -25,7 +25,7 @@ gcloud compute ssh observer-5-devnet --zone=europe-west2-b --tunnel-through-iap 
 
 # The same helper the drivers use (sources config.sh for you).
 source ./devnet-lib.sh
-tn_iap_ssh validator-2-devnet australia-southeast1-c 'sudo tail -n 50 /var/log/telcoin/telcoin.log'
+tn_iap_ssh validator-2-devnet us-south1-a 'sudo tail -n 50 /var/log/telcoin/telcoin.log'
 ```
 
 The node scripts are the root-owned checkout at `/opt/telcoin-node-scripts`, so run them with `sudo`.

@@ -20,11 +20,11 @@ head block 0x12f9e8, chain 0x7e1d; gcloud authenticated as the operator.
 - [x] U7 tasks/runbook-l1-2026-10-31.md (536 lines). ADOPTED D1b: `./devnet-deploy.sh --yes --only 12 </dev/null` right after D1 so the VPC /32 consensus rules learn node 2's Dallas IP before step 8 (otherwise nodes 1,3,4 = exact quorum through steps 8-11)
 
 ## Wave 2 (serialized)
-- [ ] R1 review U2 + U4a/b/c (secret hygiene, gpg strictness, gate not silently skippable)
+- [x] R1: safe to run for real; A1 MAJOR fixed (set -x in CONFIG_FILE leaked the cast JSON → re-checked before cast), BENCH MAJOR fixed by orchestrator (benchmark/config.sh RELEASE_TAG=""), B1/B2 verdict tightened (NEWSIG reset, gpgv rc), docs aligned; 9 MINORs listed in tasks/checkpoint-l1-R1.md
 - [x] R2 tn-cli-dev reviewed: F1 HIGH fixed (tn falls back to PRIVATE_KEY env/.env → new-validator.sh now requires exactly one of --ledger/--trezor/--hot-key), node-info-vs-Safe guard, Adiri HAS the handler (docs corrected), N+3 wording unified, leftovers fixed; 193 tests pass; commit 8462884 pushed (76a9cfd..8462884)
-- [ ] config.sh: pin digest → `./devnet-validator-key.sh node5 --apply` for real → `./devnet-deploy.sh </dev/null` gates pass → commit c1
-- [ ] memory "teardown in progress" → DESTRUCTIVE `./devnet-teardown.sh` dry run → `--yes` (old ZONES) → verify
-- [ ] zone move: ZONES[1]=us-south1-a, docs, delete Sydney address + LB group → commit c2
+- [x] digest pinned; `./devnet-validator-key.sh node5 --apply` real: 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8, secret devnet-node5-validator-pk v1 (read back OK), 0 placeholders; gate check exits "refusing to run unattended" with no side effects; c1 = b1b49be
+- [x] teardown --yes 10:58Z: 5 VMs + boot disks deleted, 5 addresses RESERVED (unchanged), obs/txgen/LB/disks intact (log logs/teardown-20261031T1058Z.log)
+- [x] zone move: ZONES[1]=us-south1-a (+README/INSTRUCTIONS/issue.md), Sydney validator-2-devnet-ip deleted, devnet-rpc-ig-2 removed from devnet-rpc-backend and deleted → c2
 
 ## Wave 3 (deploy in three segments)
 - [ ] D1 steps 1-3 → Dallas IP → operator sets node2 + admin.node2 A records; D1b `--only 12` (VPC rules pick up the new /32)

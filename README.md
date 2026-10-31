@@ -152,7 +152,7 @@ Further reading:
 | Node | Instance | Role | Zone | Location | Execution address |
 | --- | --- | --- | --- | --- | --- |
 | node1 | `validator-1-devnet` | genesis validator | `us-west2-a` | LA | `0x3518b301b86ceb53b5a3dff62e55cd43ef59d024` |
-| node2 | `validator-2-devnet` | genesis validator | `australia-southeast1-c` | Australia | `0x7489025dfbaad94f2366d88a62989147d9c8b5d3` |
+| node2 | `validator-2-devnet` | genesis validator | `us-south1-a` | Dallas | `0x7489025dfbaad94f2366d88a62989147d9c8b5d3` |
 | node3 | `validator-3-devnet` | genesis validator | `northamerica-northeast1-b` | Montreal | `0x0033a370616805b1fd275b7ffab83fc41d665ccb` |
 | node4 | `validator-4-devnet` | genesis validator | `europe-west4-a` | Netherlands | `0xefaacf04b92298a88200aa50aa6bb7bfce587b17` |
 | node5 | `observer-5-devnet` | unified node, staked after genesis | `europe-west2-b` | London | new key at deploy time: `config.sh` `EXECUTION_ADDRESSES[4]` |
