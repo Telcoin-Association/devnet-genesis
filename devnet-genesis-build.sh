@@ -16,6 +16,10 @@
 # genesis/validators/, and the accounts file MUST live at
 # ${REPO_ROOT}/testnet_accounts.yaml (so the container sees /code/testnet_accounts.yaml).
 # Outputs land at genesis/committee.yaml and genesis/genesis.yaml.
+# After the build it checks the consensus knobs in the parameters file (step 4)
+# and applies two devnet-only overrides to the governance Safe in genesis.yaml:
+# threshold 1 (step 5) and SAFE_EXTRA_OWNER as an extra owner (step 6, through
+# devnet-genesis-safe-owner.py; needs python3 + foundry's cast).
 #
 # Note on --bls-passphrase-source stdin: images up to v0.12.1 accepted the flag and
 # never read stdin, so the committee assembly ran without a passphrase. The
@@ -33,11 +37,46 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 
 # ----------------------------------------------------------------------------
-# Step 0: work from the genesis workspace so the docker `-v ./:/code` mount == the
+# Step 0: banner — print the config.sh inputs that shape this genesis and fail
+# loud if any is unset or empty. CHAIN_ID, EPOCH_DURATION_SECS and the four
+# timing/fee knobs (common/genesis.sh passes them to `telcoin genesis`) change the
+# genesis hash, and an empty knob would silently fall back to the binary default.
+# SAFE_ADDR + SAFE_EXTRA_OWNER drive step 6 and the basefee check in step 4;
+# PARAMETERS_FILE is what devnet-finalize.sh ships. Step 6 also needs python3 and
+# foundry's cast, so they are checked here, before the build instead of after it.
+# ----------------------------------------------------------------------------
+echo ">>> step 0: genesis inputs"
+inputs_missing=0
+for v in CHAIN_ID EPOCH_DURATION_SECS MIN_HEADER_DELAY_MS MAX_HEADER_DELAY_MS \
+         MAX_BATCH_DELAY_MS WORKER_FEE_CONFIG SAFE_ADDR SAFE_EXTRA_OWNER PARAMETERS_FILE; do
+    if [ -n "${!v:-}" ]; then
+        printf '    %-20s %s\n' "${v}" "${!v}"
+    else
+        printf '    %-20s ✗ UNSET OR EMPTY\n' "${v}" >&2
+        inputs_missing=1
+    fi
+done
+for c in python3 cast; do
+    command -v "${c}" >/dev/null 2>&1 || { echo "    ✗ ${c} not on PATH (step 6 needs it)" >&2; inputs_missing=1; }
+done
+if [ "${inputs_missing}" -ne 0 ]; then
+    echo "❌ genesis inputs incomplete (see above). Set them in config.sh and retry." >&2
+    exit 1
+fi
+
+# Then work from the genesis workspace so the docker `-v ./:/code` mount == the
 # workspace. config.sh sets GENESIS_WORKSPACE=REPO_ROOT for devnet (matches
 # common/genesis.sh); a profile such as benchmark/ points it at its own tree.
-# ----------------------------------------------------------------------------
 GENESIS_WS="${GENESIS_WORKSPACE:-${REPO_ROOT}}"
+# Node 5 joins the committee after genesis by staking 1,000,000 TEL from its own address,
+# so that address must be funded at genesis: testnet_accounts.yaml keys are checksummed
+# (mixed case) while config.sh stores lower case, hence the case-insensitive grep.
+node5_addr="${EXECUTION_ADDRESSES[4]:-}"
+if [ -z "${node5_addr}" ] || ! grep -qi "^\"${node5_addr}\":" "${GENESIS_WS}/testnet_accounts.yaml" 2>/dev/null; then
+    echo "❌ node 5 address '${node5_addr}' (EXECUTION_ADDRESSES[4]) is not a funded key in ${GENESIS_WS}/testnet_accounts.yaml; add it with 1,000,100 TEL before the build (runbook §3)" >&2
+    exit 1
+fi
+echo "    node 5 ${node5_addr} is funded in testnet_accounts.yaml"
 echo ">>> step 0: cd ${GENESIS_WS}"
 cd "${GENESIS_WS}"
 
@@ -111,6 +150,10 @@ fi
 # the container's stdin; without this call the var is unset here and v0.1.0-devnet aborts.
 # tn_require_bls_passphrase exports it from .secrets/bls-passphrase and never echoes it.
 tn_require_bls_passphrase || exit 1
+# A shell variable from here on, never an environment variable: genesis.sh is sourced
+# into THIS shell and its `printf '%s' "$TN_BLS_PASSPHRASE" | docker run -i …` expands
+# the value here, so no child (docker, python3, cast, awk) needs it in its environ.
+export -n TN_BLS_PASSPHRASE
 echo ">>> BLS passphrase resolved (value redacted)"
 
 echo ">>> step 3: building committee + genesis via tn_genesis_build_committee"
@@ -131,13 +174,77 @@ tn_genesis_build_committee
 set -euo pipefail
 
 # ----------------------------------------------------------------------------
-# Step 4: verify the two output artifacts exist and report their paths.
+# Step 4: verify the output artifacts exist and report their paths, then check
+# that the parameters file carries the consensus knobs. The expected values ARE
+# the config.sh variables (the same ones common/genesis.sh passed to the build),
+# so the check cannot drift from the build.
+#
+# Which parameters file: devnet ships the parameters.yaml that
+# `telcoin genesis --datadir ./` just wrote at the workspace root
+# (PARAMETERS_FILE == ${REPO_ROOT}/parameters.yaml), so PARAMETERS_FILE itself is
+# checked; a stale path there fails here instead of shipping old delays. A
+# profile workspace (benchmark/) ships its own hand-kept PARAMETERS_FILE, which
+# its config.sh validates; there the file the build wrote in the workspace is
+# checked, which still proves the build honoured the knobs.
 # ----------------------------------------------------------------------------
+
+# param_get FILE KEY — print the value of top-level KEY in a parameters.yaml with
+# double quotes stripped. A nested map (`KEY:` then indented `secs:` / `nanos:`
+# lines) comes back on one line ("secs: 1 nanos: 0"). Prints nothing when absent.
+param_get() {
+    awk -v key="$2" '
+        { sub(/\r$/, "") }
+        inmap && /^[ ]/ { l = $0; sub(/^[ ]+/, "", l); val = (val == "" ? l : val " " l); next }
+        inmap { exit }
+        index($0, key ":") == 1 {
+            found = 1
+            v = substr($0, length(key) + 2)
+            sub(/^[ ]+/, "", v); sub(/[ ]+$/, "", v); gsub(/"/, "", v)
+            if (v == "") { inmap = 1; next }
+            val = v; exit
+        }
+        END { if (found) print val }
+    ' "$1"
+}
+
+# duration_ms VALUE — a duration as param_get prints it, in whole milliseconds.
+# Reads both serde forms the binary writes: humantime ("1s", "350ms", "1s 500ms")
+# and the {secs, nanos} map ("secs: 1 nanos: 0"). Prints "?" for anything else and
+# "<n>ns" for a duration that is not a whole number of milliseconds.
+duration_ms() {
+    awk -v s="$1" 'BEGIN {
+        n = split(s, t, /[ :]+/); ns = 0
+        if (n == 0) { print "?"; exit }
+        if (n == 4 && t[1] == "secs" && t[3] == "nanos") {
+            ns = t[2] * 1e9 + t[4]
+        } else {
+            for (i = 1; i <= n; i++) {
+                if (!match(t[i], /^[0-9]+/)) { print "?"; exit }
+                u = substr(t[i], RLENGTH + 1); m = 0
+                if (u == "ns") m = 1; else if (u == "us") m = 1e3; else if (u == "ms") m = 1e6
+                else if (u == "s") m = 1e9; else if (u == "m") m = 60e9; else if (u == "h") m = 3600e9
+                if (m == 0) { print "?"; exit }
+                ns += substr(t[i], 1, RLENGTH) * m
+            }
+        }
+        if (ns % 1e6 == 0) printf "%d\n", ns / 1e6; else printf "%dns\n", ns
+    }'
+}
+
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
 echo ">>> step 4: verifying outputs"
 COMMITTEE_OUT="${GENESIS_WS}/genesis/committee.yaml"
 GENESIS_OUT="${GENESIS_WS}/genesis/genesis.yaml"
+if [ "${GENESIS_WS}" = "${REPO_ROOT}" ]; then
+    PARAMS_CHECK="${PARAMETERS_FILE}"
+else
+    PARAMS_CHECK="${GENESIS_WS}/parameters.yaml"
+fi
+outputs=("${COMMITTEE_OUT}" "${GENESIS_OUT}" "${PARAMS_CHECK}")
+[ "${PARAMETERS_FILE}" = "${PARAMS_CHECK}" ] || outputs+=("${PARAMETERS_FILE}")
 missing=0
-for f in "${COMMITTEE_OUT}" "${GENESIS_OUT}"; do
+for f in "${outputs[@]}"; do
     if [ -f "${f}" ]; then
         echo "    ✓ ${f}"
     else
@@ -147,6 +254,40 @@ for f in "${COMMITTEE_OUT}" "${GENESIS_OUT}"; do
 done
 if [ "${missing}" -ne 0 ]; then
     echo "❌ genesis build did not produce the expected artifacts." >&2
+    exit 1
+fi
+
+echo ">>> step 4: consensus knobs in ${PARAMS_CHECK}"
+params_bad=0
+for spec in "max_header_delay=${MAX_HEADER_DELAY_MS}" \
+            "min_header_delay=${MIN_HEADER_DELAY_MS}" \
+            "max_batch_delay=${MAX_BATCH_DELAY_MS}"; do
+    key="${spec%%=*}"; want="${spec#*=}"
+    raw="$(param_get "${PARAMS_CHECK}" "${key}")"
+    got="$(duration_ms "${raw}")"
+    if [ -n "${raw}" ] && [ "${got}" = "${want}" ]; then
+        echo "    ✓ ${key}: ${raw}  (${got} ms)"
+    else
+        echo "    ✗ ${key}: ${raw:-<missing>}  (${got} ms; config.sh wants ${want} ms)" >&2
+        params_bad=1
+    fi
+done
+raw="$(param_get "${PARAMS_CHECK}" basefee_address)"
+if [ -n "${raw}" ] && [ "$(lower "${raw}")" = "$(lower "${SAFE_ADDR}")" ]; then
+    echo "    ✓ basefee_address: ${raw}"
+else
+    echo "    ✗ basefee_address: ${raw:-<missing>}  (config.sh SAFE_ADDR is ${SAFE_ADDR})" >&2
+    params_bad=1
+fi
+raw="$(param_get "${PARAMS_CHECK}" allow_private_forward_targets)"
+if [ "${raw}" = "false" ]; then
+    echo "    ✓ allow_private_forward_targets: ${raw}"
+else
+    echo "    ✗ allow_private_forward_targets: ${raw:-<missing>}  (want false)" >&2
+    params_bad=1
+fi
+if [ "${params_bad}" -ne 0 ]; then
+    echo "❌ ${PARAMS_CHECK} does not carry the config.sh consensus knobs (see above)." >&2
     exit 1
 fi
 
@@ -179,10 +320,28 @@ SAFE_ADDR="${SAFE_ADDR}" SLOT="${THR_SLOT}" VAL="${THR_VAL}" awk '
 mv "${tmp}" "${GENESIS_OUT}"
 echo "    ✓ governance Safe threshold set to 1 signer (slot 0x..04 = ...0001)"
 
+# ----------------------------------------------------------------------------
+# Step 6: devnet-only override — add SAFE_EXTRA_OWNER as an owner of the same
+# Safe. Post-build for the same reason as step 5. devnet-genesis-safe-owner.py
+# rewrites ONLY the storage map of the Safe's alloc block, as raw text (every
+# other byte is kept): owners[SENTINEL] := extra, a new owners[extra] := old head
+# line, ownerCount (slot 0x..03) += 1. That is the storage effect of the Safe's
+# addOwnerWithThreshold minus the threshold write, which step 5 owns. It walks
+# the owner list before writing and fails loud on a missing slot or a broken or
+# inconsistent list. Idempotent: a re-run prints "already applied" and leaves the
+# file byte-identical. The owners mapping keys are keccak256, so it shells out to
+# cast (checked in step 0).
+# ----------------------------------------------------------------------------
+echo ">>> step 6: devnet override — add ${SAFE_EXTRA_OWNER} as an owner of Safe ${SAFE_ADDR}"
+python3 "${REPO_ROOT}/devnet-genesis-safe-owner.py" "${GENESIS_OUT}" "${SAFE_EXTRA_OWNER}" --safe "${SAFE_ADDR}" \
+  || { echo "❌ Safe owner override failed; ${GENESIS_OUT} is not shippable as is." >&2; exit 1; }
+echo "    ✓ governance Safe owners include ${SAFE_EXTRA_OWNER} (threshold stays 1)"
+
 echo ""
 echo "========================================="
 echo "genesis build complete"
 echo "========================================="
-echo "  committee: ${COMMITTEE_OUT}"
-echo "  genesis:   ${GENESIS_OUT}"
+echo "  committee:  ${COMMITTEE_OUT}"
+echo "  genesis:    ${GENESIS_OUT}"
+echo "  parameters: ${PARAMETERS_FILE}"
 echo "Next: ./devnet-finalize.sh to stage + finalize on every node."
