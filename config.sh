@@ -29,7 +29,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # (pushed 2026-09-17T17:32Z, sha256:f6fcef5d..., newest tag in the registry). The whole
 # chain is regenerated from it, so the ConsensusRegistry it bakes into genesis is the new one.
 # export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.12.1-devnet-fork740"
-export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.1.0-devnet"
+# export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.1.0-devnet"
+# Fresh-genesis reset 2026-10-30 onto tn-node-deployment v2 + image v0.2.0-devnet. v2 pins
+# the image BY DIGEST: on devnet its setup-node.sh accepts only <repo>@sha256:<64 hex> and
+# refuses the tag form on the node. DOCKER_IMAGE_TAG is informational (the tag the digest
+# was cut from; the genesis build may use either form). Fill in the pushed digest:
+# devnet-deploy.sh refuses to run while any PLACEHOLDER marker (upper case + underscore)
+# remains in this file (this digest and EXECUTION_ADDRESSES[4] until the deploy fills
+# them; TN_NODE_SCRIPTS_REF must be a full 40-hex sha). Comments never spell the marker
+# with its underscore, so the check can grep the file as text.
+export DOCKER_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.2.0-devnet"
+export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:PLACEHOLDER_DIGEST"
 
 # TN_BLS_PASSPHRASE is deliberately NOT set here. devnet-lib.sh:tn_require_bls_passphrase
 # checks $TN_BLS_PASSPHRASE first, so exporting it here would shadow (and defeat) the
@@ -50,15 +60,23 @@ export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.1.0-de
 # 5 - London
 #
 # NODE_ROLES is the single source of truth every script branches on. The
-# first four are committee validators. The fifth is outside the genesis
-# committee, so the binary runs it as an observer; there is no `--observer`
-# flag. It can later stake into a future committee via ConsensusRegistry.
+# first four are the genesis committee. Node 5 is a unified node outside the
+# genesis committee (there is no `--observer` flag): it syncs as an observer and
+# is minted + staked + activated after genesis by devnet-stake-node5.sh. With
+# nextCommitteeSize 4 and five eligible validators, the committee is reshuffled
+# every epoch.
 export INSTANCE_NAMES=("validator-1-devnet" "validator-2-devnet" "validator-3-devnet" "validator-4-devnet" "observer-5-devnet")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
 export ZONES=("us-west2-a" "australia-southeast1-c" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
 # Per-node hostnames → node{N}.${BASE_DOMAIN}
 export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
-export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0xb4e5ed8167873a3cf3c405aa7155948db869dbe3")
+# EXECUTION_ADDRESSES[4] (node 5) is a NEW key generated at deploy time with
+# `cast wallet new`, funded 1,000,100 TEL in testnet_accounts.yaml; its private key
+# lives only in Secret Manager (NODE5_VALIDATOR_PK_SECRET). Replace the placeholder
+# with that address. The old recorded 0xb4e5ed81... disagreed with
+# genesis/observers/node5.yaml and was never funded.
+export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "PLACEHOLDER_NODE5_ADDRESS")
+export NODE5_VALIDATOR_PK_SECRET="devnet-node5-validator-pk"   # Secret Manager (tn-devnet): node 5 execution-key private key
 # Reserved static external IPs — one per instance, PARALLEL to INSTANCE_NAMES. The
 # Ubuntu migration pins these so the GCP consensus /32 rules + DNS A-records survive
 # node restart/reuse (fixes the ephemeral-IP churn). Reserve them once with
@@ -82,8 +100,9 @@ export SERVICE_ACCOUNT="1095385745561-compute@developer.gserviceaccount.com"
 # Debian docker apt repo; see OBS_IMAGE below.)
 export IMAGE="projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64"
 # Per-node GCP startup-script. Devnet drives tn-node-deployment, so this is devnet's
-# OWN startup (apt docker-ce + telcoin user + clone node scripts + wgvpn overlay),
-# NOT common/startup.sh (which moved to the adiri repo).
+# OWN startup (apt docker-ce + ops agent + root-owned tn-node-deployment checkout at the
+# tn-scripts-ref metadata sha + wgvpn overlay; v2's setup-node.sh creates the service
+# account), NOT common/startup.sh (which moved to the adiri repo).
 export STARTUP_SCRIPT_PATH="${REPO_ROOT}/devnet-startup.sh"
 export DEFAULT_PRIMARY_UDP_PORT=49590
 export DEFAULT_WORKER_UDP_PORT=49594
@@ -119,21 +138,45 @@ export CONFIG_CADDY_SCRIPT="${REPO_ROOT}/common/config-caddy.sh"
 export EPOCH_DURATION_SECS=3600
 # Explicit chain id passed to `telcoin genesis --chainid`.
 export CHAIN_ID=32285
+# Consensus + fee knobs consumed by common/genesis.sh. EVERY one of them changes the
+# genesis hash. Header/batch delays are the benchmark stage-2 final config
+# (vote_timeout stays at the 5 s default).
+export MIN_HEADER_DELAY_MS=350
+export MAX_HEADER_DELAY_MS=1000
+export MAX_BATCH_DELAY_MS=250
+# `telcoin genesis --worker-fee-config` WORKER_ID:STRATEGY:VALUE (strategy 0 = EIP-1559,
+# 1 = static fee). Worker 0, EIP-1559, target 10,000,000 gas per epoch; the
+# permanent generator lands ~900M gas/epoch, so the EIP-1559 base fee rises 12.5 % per
+# epoch from the 7 wei floor. The WorkerConfigs owner
+# 0xFee0FEe0fee0fEE0FEe0fee0FEE0fEe0feE0FEe0 can change it later with setWorkerConfig.
+export WORKER_FEE_CONFIG="0:0:10000000"
 #
 # Node deployment model (tn-node-deployment)
 # ------------------------------------------
 # Devnet drives per-node actions (keygen, finalize, observability, firewall) through
 # the Association's tn-node-deployment tooling (run ON each node via the devnet-*.sh
 # drivers), while this repo owns fleet/GCP orchestration. These parameterize the drivers.
+# In v2, setup-validator.sh / setup-observer.sh are shims: the drivers call setup-node.sh
+# with --phase=keygen|finalize. The node's listeners live in /etc/telcoin/node.env and
+# the start script is /usr/local/libexec/telcoin/tn-start-docker.
 export NODE_DEPLOY_MODE="tn-node-deployment"
 export TN_INSTALL_METHOD="docker"                          # node runs the telcoin docker image
-export SERVICE_USER="telcoin"                              # systemd service + data-dir owner on node
-export TN_NODE_SCRIPTS_DIR="/home/${SERVICE_USER}/telcoin-node-scripts"  # install.sh target on node
+# systemd service + data-dir owner on node. v2's setup-node.sh creates it as a SYSTEM
+# account (uid < 1000, NOT in the docker group); devnet-startup.sh no longer creates it.
+export SERVICE_USER="telcoin"
+# tn-node-deployment checkout on each node: root-owned, detached at TN_NODE_SCRIPTS_REF.
+# Not under /home any more: v2's install-ui refuses a checkout owned by the service account.
+export TN_NODE_SCRIPTS_DIR="/opt/telcoin-node-scripts"
+# Full 40-hex tn-node-deployment commit the fleet runs: PR 12 head until it merges, then main.
+export TN_NODE_SCRIPTS_REF="d9446f720026fa5ce8b64fce9074e56b05b3f4eb"
+# devnet-startup.sh is self-contained (it is GCP metadata, not sourced against this file)
+# and keeps its own copy of this URL; change both together.
+export TN_NODE_DEPLOY_REPO="https://github.com/Telcoin-Association/tn-node-deployment.git"
 export VALIDATOR_DATA_DIR="/var/lib/telcoin"               # DATA_DIR: chain data + node-keys/ live here (unified, no role subdir)
 export OBSERVER_DATA_DIR="/var/lib/telcoin"
 export TN_CHAIN_SUBDIR="devnet"                            # chain-configs/<subdir> the node looks under
-# Where devnet-finalize.sh stages committee/genesis/parameters so setup-validator.sh
-# --genesis-dir finds them (matches setup-*.sh ${CONFIG_DIR}/chain-configs/<subdir>).
+# Where devnet-finalize.sh stages committee/genesis/parameters so setup-node.sh
+# --phase=finalize --genesis-dir finds them (matches ${CONFIG_DIR}/chain-configs/<subdir>).
 export VALIDATOR_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
 export OBSERVER_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
 #
@@ -157,6 +200,10 @@ export LB_FIREWALL_RULE="devnet-lb-allow-health-check"
 export RPC_URL="https://rpc.devnet.telcoin.network"
 # Canonical TN system Safe (multisig) precompile — identical on every TN network.
 export SAFE_ADDR="0x00000000000000000000000000000000000007a0"
+# Contracts admin (Secret Manager: devnet-contracts-admin-pk). devnet-genesis-build.sh
+# step 6 inserts it as the FIRST owner of the registry-owner Safe (SAFE_ADDR, threshold 1)
+# at genesis, so the admin can mint and govern without the other 7 owners.
+export SAFE_EXTRA_OWNER="0xAee2797478Cb5EfaF1869A2e33e369421EBf520f"
 # StablecoinManager deployment that holds the TEL mint role.
 # VERIFY: this address was inherited from testnet and may differ on devnet —
 # confirm the devnet StablecoinManager before any send.
@@ -173,8 +220,16 @@ export REMOTE_SHARE_PATH="/home/share/"
 # purpose: a profile that sources this file (benchmark/config.sh) overrides it afterwards,
 # so an inherited environment value can never re-point the devnet build.
 export GENESIS_WORKSPACE="${REPO_ROOT}"
+# The genesis image runs as uid 1101 (`USER nonroot` in etc/Dockerfile) and must write
+# committee/genesis/parameters.yaml into the bind-mounted workspace. On rootful Linux
+# docker (xerxes) that uid owns nothing here, so common/genesis.sh runs the container as
+# the operator's own uid:gid when this is set (R6 review; Docker Desktop on the Mac hid
+# the problem). Unset => adiri's historical docker argv, byte for byte.
+GENESIS_DOCKER_USER="$(id -u):$(id -g)"
+export GENESIS_DOCKER_USER
 export GENESIS_FILE="${GENESIS_WORKSPACE}/genesis/genesis.yaml"
-export PARAMETERS_FILE="${REPO_ROOT}/common/parameters.yaml"
+# `telcoin genesis` writes the ROOT parameters.yaml (the old common/ path was a shared file).
+export PARAMETERS_FILE="${REPO_ROOT}/parameters.yaml"
 export COMMITTEE_FILE="./genesis/committee.yaml"
 export UPLOAD_COMMITTEE_SCRIPT="${REPO_ROOT}/common/copy-committee.sh"
 # NOTE: the docker-image node-start scripts (start-validator-node.sh,
