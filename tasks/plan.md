@@ -1,60 +1,67 @@
-# Plan: fastest viable block cadence across a 10-region fleet (2026-10-06)
+# Plan: devnet full reset on tn-node-deployment v2 + new image (2026-10-30)
 
-Source plan: the approved "latency-adjustments" plan (see transcript). Branch
-`bench/preserve-logs-and-harness-fixes`; txgen `fix/preamble-gap-repair`. No Claude attribution.
+Source plan: the approved "Devnet full reset on tn-node-deployment v2 (PR 11 + stacked PR 12),
+new image (main + PR 1715)" plan (see transcript). No Claude attribution on any commit/PR.
+
+## State deltas found at start (vs the plan text)
+- tn-node-deployment: local `mainnet-hardening` tip 8175a88 is ONE unpushed commit ahead of
+  origin (326a89d). PR 12 branch `devnet-docker-images` created from 8175a88; P0b pushes
+  8175a88 to origin/mainnet-hardening first so the PR 12 diff is only PR 12.
+- common: origin/main moved dee644f → 4a2925c (WG_NODE_SUDOERS guard in wg-node-bootstrap.sh
+  only, default 1 = unchanged behaviour). Phase 2 branches from 4a2925c; byte-identical gate
+  against 4a2925c (genesis.sh/create-instances.sh unchanged between the two).
+- telcoin-network: PR 1715 head 3f9b0709 fast-forwards from origin/main 8aedf72e (confirmed).
+- gcloud auth EXPIRED → P1 builds with `--load` now (default builder holds the 17 GB cache),
+  registry push + digest resolution happen after the operator's `gcloud auth login`.
+- Only the `default` (docker driver) buildx builder exists; do not create tn-builder (cold cache).
 
 ## Wave 1 (parallel, opus)
-- [x] W1 committed c47cb79: probe + matrix tools, 18 zones probed (no UDP loss; QUIC-only transport confirmed), tables under benchmark/latency/2026-10-06/ incl. kth-nearest-final.md
-- [x] W2 committed e8ef7f1: ZONES = LA, London, Sydney, Tokyo, Montréal, NL, Singapore (Jakarta has no c3-highcpu-8), Hong Kong (alt Taiwan), Seoul, Mumbai zone c; all quotas OK, none filed; step-0 machine/quota preflights; blaster family fallback (no live trial yet: run `benchmark-blast.sh fund --run <id>` dry-run before stage 1)
-- [x] W4 merged (b601b84..ce71bc7): archive code gone, local gate + INDEX/CHECKSUMS, cert-rate.py/block-rate.py, verify.md 319/319 MD5 match
-- [x] W5 txgen image blast-v2-9f61303 built (Cloud Build 9edb4446, 4m18s), gate passed 15/15 flags; digest sha256:515311a6a8ffdde56ed190f85c11cee6abdec1434e2fff5e8ffd57d4a554eee2; branch pushed; run env: `export BENCH_TXGEN_SHA=9f61303` (tag form only, never @sha256)
+- [x] P0a ND code: devnet repos + `-devnet` grammar (final=1), --release-tag refused on devnet, _tn_guard_network in update-node/edit-config AND tn_docker_image_allowed fallback, no registry walk on devnet, UI parity; versions 2.0.1; only the 5 expected vector flips fail
+- [x] P0c ND docs done (CHANGELOG, followup.md closed, README x2, OPERATOR, tasks/pr12-body.md); P0b must fill script versions + gate results + fix the detect_network wording for edit-config
+- [x] P1 TN `devnet/v0.2.0-devnet` = 3f9b0709c (ff from main), pushed; amd64 image built --load in 8 min (image ID 0a3dfb28…), probes green; registry push + digest pending gcloud auth; `Build Features` is empty for faucet builds (probe by precompile strings); Reference block in tasks/checkpoint-reset-P1.md
+- [x] P2 common `devnet/genesis-knobs` pushed @ ebffdcb (gate 10/10 identical when unset); PR NOT opened: gh PAT lacks repo access on deploy-networks-common → OPERATOR opens https://github.com/Telcoin-Association/deploy-networks-common/pull/new/devnet/genesis-knobs with tasks/pr-common-genesis-knobs.md
+- [x] A1 config.sh: digest DOCKER_IMAGE + DOCKER_IMAGE_TAG, /opt scripts dir + REF + repo, root parameters.yaml, 4 genesis knobs, SAFE_EXTRA_OWNER, node5 placeholder + secret name; follow-ups: devnet-update*.sh TARGET_TAG parse, benchmark/config.sh inherits
+- [x] A2 devnet-startup.sh: 5 steps, no useradd, fetch by `tn-scripts-ref` into /opt (full 40-hex sha or branch name only; short sha refused), die() before the marker, no install.sh; rehearsal a-g green
+- [x] A3 devnet-lib.sh: setup-node.sh path, tn_iap_ssh_cmd_stdin, tn_secret_set (stdin), tn_node_meta_get, refresh by full-sha ref, empty-command guard; stub evidence green
+- [x] B2 devnet-genesis-build.sh: step-0 banner asserts knobs; step-4 parameters.yaml checks (humantime+secs/nanos); step 6 devnet-genesis-safe-owner.py (idempotent, anvil: getOwners 7→8, 0xAee… first); follow-ups: benchmark profile inherits knobs+extra owner; __pycache__ at root to clean
+- [x] B3 devnet-network-config.sh + .py (render/validate/merge; --yes install, --verify; PeerId derived in stdlib; PyYAML for parsing). Corrections: bootstrap_peers is a MAP keyed by BLS; hostname appended in FINALIZE (step 7 before 8 is right); rendered files in genesis/network-config/ (re-render after new keygen)
+- [x] C1 devnet-deploy.sh order — 16 steps, network-config = 7, firewall 10 before obs 11, --yes to 15/16, PLACEHOLDER gate; stale step refs in contracts/txgen/teardown comments fixed by the orchestrator
+- [x] C3 devnet-dashboards.sh: node runs its own ui/install-ui.sh (first install / --update), no tarball/chown, enable + :8080 probe; stub runs green
+- [x] D2 devnet-basefee-check.sh + .py: formula transcribed from gas_accumulator.rs:557-568 + alloy-eips, fee(N) from WorkerConfigs.data (empty-close copies parent fee), epoch range via tn_getEpochInfo or nonce bisection; live --last 2 / --epoch 1020 / --watch verified; live finding: target already 1e6, txgen idle since ~1238764
 
 ## Wave 2
-- [x] W4 merged; suite 282 OK, shellcheck OK, mutations OK; ANALYSIS.md saved; CI covers tools (46db468)
-- [x] W3a committed f7ad4ae: per-node overrides, log filter, step-9 per-node checks (ran out of budget before the tool)
-- [x] W3b committed b08f7c0: params-apply.sh (phase A read-only, validate, serial apply, PARAMS_OK, param_arms), provenance/bundle per-node values, probe log flags
-- [x] W3c merged (e6d5900, f594514): manifest.certification/cert_failures, cert-fail log snapshots the local gate enforces, Certification-by-node table + caveat
-- [ ] final suite + shellcheck on the merged tree, push (dry-run deploy already shown in tasks/regions/evaluation.md)
-- [x] gs://tn-devnet-benchmark-archive deleted ~18:20 UTC after verify.md review; only tn-devnet_cloudbuild remains
+- [x] P0b PR 12 = tn-node-deployment PR #52 (base mainnet-hardening @ 8175a88 pushed; head 090d9e19735572ea2ea0086a00c8a9eba00580bc; 4 commits); gates: 59 files/3687 checks 0 failed, pytest 258, helper 494, bash 3.2 run, sidecars x5; gap noted: _tn_release_fetch/tn_source_checkout_tag pass -devnet tags (unreachable) → R4 decides
+- [x] B1 devnet-keygen.sh: setup-node.sh --json --phase=keygen … --passphrase-stdin via tn_iap_ssh_cmd_stdin; export -n passphrase; per-run log; real parser accepts argv; 0 passphrase hits outside stdin
+- [x] B4 devnet-finalize.sh: setup-node.sh --json --phase=finalize (no passphrase), root 0644 staging, readiness gate, 5 post-checks (stable 60 s + enabled + NRestarts 0; .node-meta NETWORK/digest; network-config Closed+committee_peers; log patterns; tn-start-docker + --pull=never --read-only + environ), selector exits 2; orchestrator added --external-*/--public-ip; follow-up: reset-network.sh/devnet-update.sh re-run finalize (v2 refuses)
+- [x] C2 devnet-observability.sh: --json --enable-* --token-stdin via tn_iap_ssh_cmd_stdin, sudo env TN_SKIP_EPOCH_WAIT=1 (operator may set 0), sequential with before/after probes (telcoin + telcoin-alloy active, tn_nodeMode back to CvvActive ≤300 s), refused-restart detection stops the sweep; 0 token hits outside stdin
+- [x] D1 devnet-stake-node5.sh + .py: preflight (chain id, owner, PoP simulated vs the live blsVerify precompile), Safe-exec mint (pre-approved sig), stake, sync gate, activate, watch; keys via pty keystore import (0 argv/env hits in 560 samples); anvil T1 green with a stubbed B151; seating = activationEpoch+2 (N+3)
 
-## W6 — latency-adjustments.md (repo root) → USER REVIEW GATE
-- [x] written + committed 46db468 (model: idle round ≈ 400 ms for min ≤ 300 on the new layout; arms A0 250/500, A1 50/250, A2 400/800, A3 250/1000, A4 500/1000)
-- [x] user review + arm confirmation (2026-10-06: "continue launch the stage-1 sweep"; arms A0..A4 and the Singapore-for-Jakarta layout unchanged)
+## Wave 3 (reviews + rehearsal)
+- [x] T1 anvil rehearsal done inside B2 (owners) and D1 (mint/stake/activate via the Safe)
+- [x] R1 no blocking defects (anvil: patch bytes == addOwnerWithThreshold); LOW blank-line-in-map fixed (now refused), ADDR_RE \\Z, cast timeout 60 s; infos: bench profile inherits the extra owner, step 5 hard-codes SAFE_ADDR
+- [x] F2 devnet-finalize.sh: gate + A3 fetch the file base64 and run raw checks + the validator (m02/m14 + 16 mutants refused); A4 scans only post-gate bytes (cksum-guarded) + journal after cursor; 59 scenarios green; I3 closed by the orchestrator (verify accepts any mode without g/o write)
+- [x] F1 network-config.py: syntax + canonical checks (BOM/merge/anchor/tag refused; 16/16 mutants refused), atomic multi-node render, accurate merge message; rendered files byte-identical
+- [x] R2 no High/Medium (serde_yaml-0.8 mirror parses all five; container uid reads 0640 via owner bit; 18 finalize flags accepted); lows L1 (BOM/merge-key pass-through), L2 (unanchored Closed grep), L3 (old log lines) + I1/I2/I3 → fix agents F1/F2
+- [x] R3 keygen/obs/lib/stake-pty clean (strace + /proc sampler); FIXED: stake HUP/PIPE traps, genesis-build export -n, lib never exports + message, -T on stdin ssh; FOLLOW-UP (pre-existing): devnet-contracts.sh + tn-contracts scripts put the admin key on cast argv and in .env
+- [ ] R4 PR 12 review (testnet/mainnet unchanged) → head sha = TN_NODE_SCRIPTS_REF
+- [x] R5 PASS independently (32/32 cases; set -e/-u postures; odd values); low finding closed in devnet-deploy.sh gate: TN_NODE_SCRIPTS_REF must be a 40-hex sha
 
-## Live checks the operator/stage-1 runbook must do first
-- blast `fund`/`run` dry-run (new create argv; permission classifier blocked it here)
-- `params-apply.sh --from-config --stage-test bench-observer-11`, then one validator arm
-- deploy step 9 with overrides live once (host datadir parse, yaml rewrite, log flags, docker inspect)
-- first teardown with a failing validator exercises the cert-fail snapshot path
-- site schema: tn-benchmarks/scrub.py needs optional `overrides`/`param_arms` under consensus before publishing a run that has them
+## Wave 4 (orchestrator)
+- [~] config.sh: TN_NODE_SCRIPTS_REF pinned to 090d9e19…80bc; DIGEST + NODE5 address still placeholders (need gcloud auth)
+- [x] gitlinks: common → 0af7698 (branch devnet/genesis-knobs), tn-node-deployment → 090d9e1 (detached) — staged at commit time
+- [x] G1 common 0af7698: gated `--user $GENESIS_DOCKER_USER -e HOME=/tmp` (26/26 identical unset); FULL genesis build rehearsed on xerxes with v0.2.0-devnet: rc 0, WorkerConfigs(0) = 0x989680, owners 8, outputs drtnarg-owned; without the knob rc 1 (reproduces the HIGH)
+- [x] DOC README.md + INSTRUCTIONS.md rewritten for the v2 model (IAP default, 16 steps, knobs, closed admission, day-two tools, not-yet-v2 list)
+- [x] R6 C1-C6/C8 PASS; HIGH: genesis build docker runs as uid 1101 → cannot write the workspace on xerxes → G1 (gated --user knob in common/genesis.sh + GENESIS_DOCKER_USER in config.sh + full build rehearsal); lows fixed by the orchestrator (runbook ×4, config/deploy comments, step numbers, startup keeps checkout on reboot, node-5 funding check); C7 README/INSTRUCTIONS drift → DOC agent
+- [ ] commit per track (DG), no attribution
 
-## W7 stage 1 sweep → W8 stage 2 full run
-- [x] deploy gained `--to N` (stop after a step) so the sweep deploys 0..12, then blasts per arm with `--from 13 --to 15` under a new BENCH_RUN_INDEX; plan text shows chaos off when BENCH_CHAOS=0
-- [x] W7 stage-1 sweep r20261006-2058 (2026-10-06 20:59Z → 2026-10-07 01:50Z; three orchestrator handoffs; checkpoint `tasks/checkpoint-bench-stage1.md`)
-  - [x] deploy 0..12 (certfix image digest caeb6be2…, txgen blast-v2-9f61303, log filter on, BENCH_CHAOS=0) → params-apply `--stage-test bench-observer-11` → A0 → A1 → A2 → A3 → A4, each: open arm, ~8 min idle, 480 s blast (warm 60 / cool 60), collect, per-arm analysis
-  - [x] teardown with the local gate (passed; 4 cert-fail snapshots pulled); stage-1 section in benchmark/private/followups.md; lessons
-  - [x] analysis: `results/r20261006-2058/analysis/stage1-summary.md`. NO ARM PASSES §6: bench-validator-02 (London) 7-50 % and -06 (Netherlands) 0.7-21 % own-header certification idle in every arm (Asian voters answer them at ~2× RTT; their 6th vote lands after the 7th other certificate, so they advance and cancel their own header). Idle round 527-550 ms in every arm (min 50..500 ms never binds). Best among the healthy eight: A3 = max 1000 / min 250 / batch 250 (fewest re-proposals, 1.41 rounds/s, 5005 tx/s loaded).
-  - chosen config for W8, conditional on the v02/v06 finding: `max_header_delay_ms: 1000`, `min_header_delay_ms: 250`, `max_batch_delay_ms: 250`; fallback if the vote path is not fixed: `min_header_delay_ms ≥ 600` (pre-check first, never an arm)
-- [x] vote-path root cause (source trace + regression on the run's per-link vote timings): strict multistream-select V1 negotiation = +1 RTT per vote; Europe↔Asia on external IPs routes via the US (vote = 2×(RTT to LA + RTT LA→peer) within 7 ms). latency-adjustments.md §9.2/§9.4
-- [x] node debug filter default now includes primary=debug (+3 =info overrides), tn_primary::network::handler, multistream_select, libp2p_swarm::connection::pool, peer-manager
-- [x] USER DECISION 2026-10-07: external IPs stay (production realism; no VPC addressing). Path: external probe → V1Lazy + classification fix in a new image → A3 re-check → stage 2. Subagents keep the main context clean.
+## Phase 4 (operator-present) — see the plan; blocked on `gcloud auth login`
+- [ ] 0 gcloud auth login / project / configure-docker; Secret Manager check
+- [ ] 1 push image (`--push`, cache hit) → digest → config.sh pin; probe by digest
+- [x] 2 tn-contracts bundle fetched (prereq d95fea88 from origin) + worktree ../tn-contracts-devnet-relaunch @ 2005b45 (done early; local-only)
+- [ ] 3 node 5 key → Secret Manager + config.sh + testnet_accounts.yaml
+- [ ] 4 DESTRUCTIVE devnet-teardown.sh --yes
+- [ ] 5 devnet-deploy.sh --yes
+- [ ] 6 devnet-stake-node5.sh --yes; watch two boundaries
+- [ ] 7 todo.md review, lessons, memory, commits
 
-## W9 — external-address latency probe (opus; checkpoint tasks/checkpoint-probe-external.md)
-- [x] latency-probe.sh `--addresses internal|external|both` (9bfa8ae); live run 20261007T025234Z on the ten zones (d3fde76): EXTERNAL = INTERNAL on all 90 pairs (median +0.6 ms) → the via-LA fit is node-side; Mumbai zone c ≈ zone a
-
-## W10 — telcoin-network: lazy protocol negotiation + error classification (tn-rust-engineer; checkpoint tasks/checkpoint-v1lazy.md)
-- [x] branch fix/libp2p-lazy-protocol-negotiation (b0838dd38) off devnet-bench-10-5-2026 @ ba43a1f0e: `with_substream_upgrade_protocol_override(Version::V1Lazy)` in network-libp2p consensus.rs swarm config
-- [x] classification: error.rs `is_unsupported_protocol` / `normalize_outbound_failure` / `is_negotiation_failure` (typed downcast to NegotiationError::Failed) applied at the top of both OutboundFailure arms; sync-stream upgrade does a zero-length read so a lazy open to a wrong-role peer fails at open (classified UpgradeFailed, penalty-exempt); 2 unit tests + extended classify test; permanent sync-stream regression test = separate agent (checkpoint tasks/checkpoint-v1lazy-test.md)
-- [x] fmt/clippy clean; nextest tn-network-libp2p 343 passed 1 skipped; tn-kad-client 12/12; merged --no-ff = f8ff81bf4, both branches pushed
-- [x] image `adiri:mmap-subsecond-v1lazy-10-7-2026` = sha256:71c5b03bf050762a845fbe87ce201460e675a851b74c138a5a22d4fdfdf3d7cb (make docker-devnet, 930 s, amd64+arm64 manifest); probe passed (git sha f8ff81bf4…, subsecond-from-genesis, contract ok)
-
-## W11 — A3 re-check on the new image (fable live orchestrator, one fleet shared with W12; LAUNCHED 2026-10-07, checkpoint tasks/checkpoint-bench-stage2.md)
-- [x] consensus-parameters.yaml → max 1000 ms committed (3f9fe3b); 11 tests that hardcoded 500 ms being fixed by a separate agent (checkpoint tasks/checkpoint-test-500.md)
-- [x] consensus-parameters.yaml → max 1000 / min 250 / batch 250 (A3) committed; deploy 0..12 with the new image + EXPECT values, debug filter default (vote handler + negotiation), BENCH_CHAOS=0
-- [x] ~10 min idle + 480 s blast (index 0) + collect; propose-latency/cert-rate per window WITHOUT teardown (unit-stdout pull or wait) — decide: every validator ≥ 90 % idle → stage 2 at 250/1000; else min_header_delay = slowest C p95 + ~50 ms (params-apply --arm stage2) and record why
-- [x] negotiation check from the logs: `Dialer: Proposed protocol` → `Received confirmation` gap on London→Tokyo ≈ 0 extra RTT; per-link vote ≈ 1× effective RTT
-
-## W12 — stage 2 (same fleet): 40-min chaos run
-- [x] BENCH_RUN_INDEX=1, BENCH_CHAOS=1 (epoch-timed kill of validator-05), BENCH_DURATION_SECS=2400, warm 120 / cool 180 defaults; collect; teardown with local gate; `--reindex` after analysis — run, collect and analysis DONE 2026-10-07; teardown re-run + `--reindex` DONE 2026-10-07 (attempt 4 with BENCH_TEARDOWN_TRUST_MARKERS=1, 17:37-21:14Z, exit 0, fleet deleted, post-checks clean; `--reindex` 21:15Z: final INDEX 382 files, 100,512,570,038 bytes; cert_failures v06 a3check 82.2 %, v08 warmup 86.9 %, v02 preamble 89.1 %)
-- [x] report: every validator's certification idle/load, orphan share, inclusion gaps, blocks/s, KPI table vs 0458/0053, cert_failures + paths; bundle via make_bundle --blast-index 1 (local; publishing = operator); followups, lessons, memory; final config committed to consensus-parameters.yaml
-- [x] FINAL CONFIG (committed in benchmark/consensus-parameters.yaml): max_header_delay 1000 ms / min_header_delay 350 ms / max_batch_delay 250 ms. Rule: min = slowest idle C p95 + 50 ms, rounded up (Netherlands 299 + 50 = 349 → 350). Trigger: at 250 ms Netherlands certified 83.4 % of its idle headers (criterion: every validator ≥ 90 % idle); at 350 ms every validator reached quorum on ≥ 99.9 % of its idle headers, 0 canceled (but London/Netherlands certificates were then ~90 % never committed — the orphan proxy — vs 5-10 % at 250 ms; see analysis/stage2-summary.md), idle round 353 ms (min binds); loaded: fleet 94.9 % certified (91.8-97.6 per node), 1.39 committed rounds/s, 5352 tx/s mixed.
+## Phase 5 verification — see the plan's list (numbers, not adjectives)

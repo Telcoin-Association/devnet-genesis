@@ -1169,3 +1169,63 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   network-level targets to opt-in (`BENCH_NODE_LOG_FILTER`) or plan the teardown as a multi-hour operator step
   with a fresh gcloud session, `df` headroom of twice the pull, and the analysis step run afterwards on the
   unit-stdout files only.
+
+## 2026-10-30 — a plan's "known" on-chain value must be read from the chain before it is written down
+- The reset plan stated the live devnet's WorkerConfigs(0) base-fee target was inert (u64::MAX). The
+  base-fee verifier's first live run read 1,000,000 (strategy 0) and a fee of ~6.2e12 wei; only epoch 0→1
+  ever had u64::MAX. The premise was never checked; one `cast call` would have taken five seconds.
+- Rule: any numeric chain state a plan relies on (targets, thresholds, owners, nonces) is read live with
+  `cast call` and pasted with the block number, never recalled from a design doc or an earlier chain.
+
+## 2026-10-30 — `telcoin --version` "Build Features:" is empty for faucet builds
+- The line comes from the CLI crate's own cargo features; `faucet` is a tn-node feature, so a devnet image
+  built with `CARGO_FEATURES=faucet` prints `Build Features:` blank although the precompile is compiled in.
+- Rule: prove faucet by a string the precompile carries (`grep -c 'grantMintRole: expected 32 bytes'
+  /usr/local/bin/telcoin` inside the image = 1), never by the version line. The `--version` output is
+  multi-line (`Commit SHA:` on its own line), not `0.1.0 (<sha>)`.
+
+## 2026-10-30 — a validator activated in epoch N is first drawn for the committee of N+3
+- `activate()` in epoch N sets activationEpoch N+1; at the close of N the registry stores the committee for
+  N+3 (`_updateEpochInfo` writes newEpoch+2). Committees N+1 and N+2 were drawn before activation.
+- Rule: the staking watch starts at activationEpoch+2 and reports the two earlier draws as "before
+  activation"; with 5 eligible for 4 seats any single draw can leave the new validator out.
+
+## 2026-10-30 — network-config: the node ignores unknown top-level keys and reads YAML differently from PyYAML
+- `bootstrap_peers` is a MAP keyed by BLS key (not a list); `trusted_nodes` workers are a MAP `0:`; committee
+  entries carry workers as a LIST. NetworkConfig has no deny_unknown_fields, so `admision:` leaves the node
+  Open. The node uses serde_yaml 0.8: a UTF-8 BOM or a `<<` merge key is read as Open there while PyYAML
+  reads Closed. A grep for `mode: Closed` proved nothing.
+- Rule: render from our own emitter, validate the INSTALLED bytes (BOM, anchors, tags, merge keys refused;
+  the file minus its `hostname:` line must equal the emitter's output), and check the shape against a
+  mirror built on the node's serde_yaml version when the shape matters. `hostname:` is written by v2
+  finalize (`--advertised-name`), not keygen: install network-config after keygen, before finalize.
+
+## 2026-10-30 — a resolved secret is a shell variable, never an export; hand it over on stdin
+- `tn_require_bls_passphrase` exported the passphrase, so the genesis build put it in the environ of docker,
+  python3, cast, awk and every other child (strace confirmed). Keygen had to `export -n` it afterwards.
+- Rule: helpers resolve a secret into a plain shell variable (`export -n` any inherited export) and the
+  caller pipes it (`printf '%s\n' "$v" | tn_iap_ssh_cmd_stdin …`, `--passphrase-stdin`, `--token-stdin`,
+  `gcloud secrets versions add --data-file=-`). Never on argv, never `sudo env NAME=`, never `set -x`.
+  Add `--ssh-flag=-T` on stdin-carrying ssh so a `RequestTTY force` config cannot echo it into stdout.
+
+## 2026-10-30 — bash runs no EXIT trap when an untrapped signal kills it
+- The stake script's keystore + password-file cleanup ran on EXIT/INT/TERM only; a SIGHUP (closed terminal,
+  dropped ssh to xerxes) left both files in /tmp for the whole sync wait. Rehearsed: HUP rc 129, dir left.
+- Rule: when an EXIT trap guards a secret on disk, also `trap 'exit 129' HUP` and `trap 'exit 141' PIPE`
+  (exit runs the EXIT trap); SIGKILL cannot be caught, so keep the exposure window short.
+
+## 2026-10-30 — the gh token is read-only on some Association repos; keep the PR text in the repo
+- `gh pr create` on deploy-networks-common failed ("Resource not accessible by personal access token");
+  it worked on tn-node-deployment. The push itself succeeded over ssh.
+- Rule: when gh cannot open the PR, save the title/body under tasks/ and the compare URL in the plan, and
+  say so in the hand-off; never touch the auth config to get past it.
+
+## 2026-10-30 — parallel Bash calls in one message share the shell's cwd
+- Six commands issued together: one `cd`'d into common/, and three others that began with their own
+  absolute `cd` still ran in common/ (`config.sh: No such file`). The cd carried across the batch.
+- Rule: in parallel tool batches use absolute paths for every file and `git -C <dir>`; never rely on cwd.
+
+## 2026-10-30 — the image build on xerxes is ~8 min with the warm cargo cache mount
+- `docker buildx build --load` of main+PR 1715 (893 crates) took 477 s on the default builder, not the
+  40-80 min cold estimate: the cache mount keeps compiled deps across image tags. `tn-builder`
+  (docker-container driver) would be cold. Estimate from `docker buildx du` before quoting a time.

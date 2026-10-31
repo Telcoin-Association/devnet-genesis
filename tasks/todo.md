@@ -1258,3 +1258,66 @@ Open:
 - Operator: archive the OLD run's logs (`benchmark/benchmark-teardown.sh --run r20261006-0053 --yes`, fleet already
   gone; blocked for the agent by the permission mode); publish 0458 if wanted (backfill draft has 8 placeholders).
 - Harness: automatic machine-family fallback on stockout; blaster machine type into the manifest.
+
+## Review: devnet full reset onto tn-node-deployment v2 + v0.2.0-devnet (2026-10-30)
+
+Code-complete, reviewed and rehearsed locally; NOTHING has run against GCP (gcloud auth was
+expired for the whole session). Operator steps: tasks/runbook-reset-2026-10-30.md. Unit map and
+evidence: tasks/plan.md + tasks/checkpoint-reset-*.md.
+
+Done:
+- tn-node-deployment PR #52 (`devnet-docker-images`, base `mainnet-hardening` @ 8175a88, head
+  d9446f720026fa5ce8b64fce9074e56b05b3f4eb): devnet Docker installs pinned by digest from
+  {tn-public/adiri, ghcr}; `-devnet` tag grammar (final=false); `--release-tag` refused on devnet;
+  `_tn_guard_network` on the image-change paths; devnet rc 3 in release fetch/checkout; chain-id
+  check after a devnet apply; versions 2.0.1; 3697 shell checks / 258 pytest / 494 helper checks
+  green, bash 3.2 run green; independently reviewed (R4: testnet/mainnet identical over 3,783
+  vectors × 3 registry modes, except the whitespace-repo tightening).
+- telcoin-network `devnet/v0.2.0-devnet` = main 8aedf72e + PR 1715 (3f9b0709c, pushed); amd64 image
+  built and loaded locally in 8 min; all CLI probes green. Registry push + digest pin pending auth.
+- deploy-networks-common `devnet/genesis-knobs` (pushed; PR to open by hand): env-driven header
+  delays, optional `--max-batch-delay-ms` / `--worker-fee-config`, `tn-scripts-ref` metadata, gated
+  `--user` for the nonroot genesis image; byte-identical argv when unset (author + independent R5).
+- devnet-genesis: config.sh (digest image, /opt scripts dir + 40-hex ref pin, root parameters.yaml,
+  knobs 350/1000/250 + 0:0:10000000, SAFE_EXTRA_OWNER, node-5 secret name, GENESIS_DOCKER_USER);
+  devnet-startup.sh (fetch by `tn-scripts-ref`, no useradd, no install.sh, reboot keeps the checkout);
+  devnet-lib.sh (setup-node.sh, tn_iap_ssh_cmd_stdin with -T, tn_secret_set, tn_node_meta_get,
+  refresh by sha, passphrase never exported); devnet-keygen.sh / devnet-finalize.sh /
+  devnet-observability.sh / devnet-dashboards.sh on v2 (secrets on stdin only; finalize has a
+  readiness gate + 5 post-checks incl. network-config validated byte-for-byte and post-gate log scan);
+  devnet-genesis-build.sh (knob banner, node-5 funding check, parameters.yaml asserts, step 6 Safe
+  owner patch via devnet-genesis-safe-owner.py — anvil: 8 owners, admin first, patch bytes equal
+  addOwnerWithThreshold); NEW devnet-network-config.{sh,py} (closed admission; strict validator
+  cross-checked against a serde_yaml-0.8 mirror); NEW devnet-stake-node5.{sh,py} (Safe-exec mint,
+  stake, activate, watch; keys via pty keystore import; anvil rehearsal end to end); NEW
+  devnet-basefee-check.{sh,py} (formula verified on the live chain); devnet-deploy.sh 16 steps with
+  placeholder + sha gate; README/INSTRUCTIONS rewritten for v2.
+- Reviews: R1 Safe patch, R2 network-config/finalize, R3 secrets (strace + /proc sampler), R4 PR
+  #52, R5 common gate, R6 integration — every High/Medium/Low closed in-tree (see plan.md).
+
+Open (operator):
+- `gcloud auth login` → push image, pin digest, node-5 key (Secret Manager), fund it, teardown,
+  deploy, stake, verify (runbook steps 0-7).
+- Open the deploy-networks-common PR by hand (tasks/pr-common-genesis-knobs.md); after merges move
+  `TN_NODE_SCRIPTS_REF` and the `common` gitlink to the merge commits.
+- Live chain today: txgen idle since ~block 1238764; WorkerConfigs(0) target is 1,000,000 (fee
+  ~6e12 wei). Both go away with the reset.
+
+Follow-ups (not in this reset):
+- devnet-update.sh / devnet-update-all.sh: `TARGET_TAG="${DOCKER_IMAGE##*:}"` is the digest hex now;
+  compare `.node-meta` DOCKER_IMAGE_DIGEST with `${DOCKER_IMAGE##*@}` and use `update-node.sh --json
+  --prepare --ref <digest>` / `--apply --yes` (now possible on devnet via PR #52); reset-network.sh and
+  `devnet-update.sh --finalize` re-run finalize, which v2 refuses.
+- benchmark/config.sh inherits devnet's digest DOCKER_IMAGE, the four genesis knobs, SAFE_EXTRA_OWNER
+  and the root PARAMETERS_FILE (finalize would ship devnet's parameters.yaml from a benchmark
+  workspace) — benchmark owner's call before the next bench run.
+- Pre-existing secrets hygiene in the contracts path: devnet-contracts.sh:186 puts the admin key on
+  `cast wallet address --private-key` argv and leaves ADMIN_PK in the tn-contracts `.env`; the
+  tn-contracts bash scripts pass `--private-key` on argv. Needs a change in tn-contracts' scripts.
+- Devnet admission monitoring: nothing reads `tn_network_admission_mode` yet (R2 I4) — add a Grafana
+  panel / check after the first live run.
+- After node 5 joins the committee: add it to every node's `committee_peers` in one coordinated
+  network-config update + restart (until then restarts log a coverage warning).
+- tn-node-deployment tasks/ckpt-*.md carry Mac scratchpad paths and are cloned onto every node at
+  /opt/telcoin-node-scripts (harmless; tidy in a later PR).
+- WireGuard lockdown, PR 1716 chain-487 guards, moving devnet images to ghcr: unchanged from before.
