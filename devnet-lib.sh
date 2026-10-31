@@ -6,6 +6,17 @@
 # the always-on `wg-allow-iap-ssh` door (35.235.240.0/20 -> tcp:22) — which works
 # post-lockdown and regardless of the wireguard overlay's state.
 #
+# Node model: tn-node-deployment v2 (mainnet-hardening). Every node is set up by ONE entry
+# point, setup-node.sh (setup-validator.sh / setup-observer.sh survive only as deprecated
+# shims that exec it; the role is decided on-chain). The service account (SERVICE_USER) is
+# a system uid with no home directory and owns no scripts: the node scripts are a
+# ROOT-owned checkout at TN_NODE_SCRIPTS_DIR (/opt/telcoin-node-scripts), detached at the
+# pinned commit TN_NODE_SCRIPTS_REF, so on-node git and reads there are plain `sudo`.
+# Node metadata is /etc/telcoin/.node-meta (root 0600; read it with tn_node_meta_get).
+# Secrets reach the node on STDIN only (setup-node.sh --passphrase-stdin,
+# setup-observability.sh --token-stdin, via tn_iap_ssh_cmd_stdin), never in a command
+# string or the environment; tn_secret_set stores one in Secret Manager from stdin.
+#
 # Break-glass: set TN_SSH_TRANSPORT=overlay to route the per-node ssh/scp helpers over the
 # WireGuard overlay instead — for when the IAP transport itself is broken locally (e.g.
 # gcloud's bundled lightweight websocket client dropping the tunnel). The overlay path reuses
@@ -36,11 +47,23 @@ fi
 # re-created, so a pinned known_hosts entry would otherwise block reconnects).
 TN_SSH_FLAGS=(--tunnel-through-iap --ssh-flag="-o ConnectTimeout=20" --ssh-flag="-o StrictHostKeyChecking=accept-new")
 
+# _tn_require_cmd <caller> <remote-command-string> — refuse an EMPTY remote command:
+# `gcloud compute ssh --command=""` (and `ssh host ""`) opens an interactive login shell
+# instead, which is what `tn_iap_ssh n z "$(tn_cmd_refresh_scripts)"` would get if the
+# builder failed. Message on stderr, rc 1.
+_tn_require_cmd() {
+    [ -n "${2:-}" ] && return 0
+    echo "❌ $1: empty remote command refused (it would open an interactive login shell)" >&2
+    return 1
+}
+
 # tn_iap_ssh <instance> <zone> <remote-command-string>
 # Runs one command on the node over IAP. The command string is passed verbatim to
-# the remote shell; callers that need sudo should include it in the string.
+# the remote shell; callers that need sudo should include it in the string. An empty
+# command string is refused (see _tn_require_cmd).
 tn_iap_ssh() {
-    local inst="$1" zone="$2" cmd="$3"
+    local inst="$1" zone="$2" cmd="${3:-}"
+    _tn_require_cmd tn_iap_ssh "${cmd}" || return 1
     if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
         tn_ssh "${inst}" "${cmd}"
     else
@@ -58,7 +81,34 @@ tn_iap_ssh_stdin() {
         tn_ssh "${inst}" "sudo bash -s"
     else
         gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
-            "${TN_SSH_FLAGS[@]}" --command="sudo bash -s"
+            "${TN_SSH_FLAGS[@]}" --ssh-flag="-T" --command="sudo bash -s"
+    fi
+}
+
+# tn_iap_ssh_cmd_stdin <instance> <zone> <remote-command-string> — run ONE command on the
+# node with the CALLER'S stdin forwarded to it, for v2's secret-on-stdin flags
+# (setup-node.sh --passphrase-stdin, setup-observability.sh --token-stdin). The caller
+# pipes the secret in; it NEVER goes in the command string (that is remote argv: visible
+# in ps, sudo's log and the ssh audit trail), NEVER in the environment, and is never
+# echoed:
+#   printf '%s\n' "${TN_BLS_PASSPHRASE}" | tn_iap_ssh_cmd_stdin "${inst}" "${zone}" \
+#       "sudo bash '${TN_NODE_SCRIPTS_DIR}/setup-node.sh' --json ... --passphrase-stdin"
+# Both v2 readers take one line, with or without the trailing newline, and drop one CR.
+# Transport as tn_iap_ssh: gcloud hands its stdin to ssh (tn_iap_ssh_stdin relies on
+# exactly that for `bash -s`), and the overlay's tn_ssh forwards stdin when given a
+# command. Unlike tn_iap_ssh_stdin, the remote command is the caller's (no implied
+# `sudo bash -s`). Empty command refused, as tn_iap_ssh.
+tn_iap_ssh_cmd_stdin() {
+    local inst="$1" zone="$2" cmd="${3:-}"
+    _tn_require_cmd tn_iap_ssh_cmd_stdin "${cmd}" || return 1
+    # -T: never allocate a remote pty for a call that carries a secret on stdin. ssh skips
+    # the pty for a command anyway, but an operator ~/.ssh/config with `RequestTTY force`
+    # would otherwise echo the piped bytes back into the captured stdout (R3 review).
+    if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
+        tn_ssh "${inst}" "${cmd}"
+    else
+        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+            "${TN_SSH_FLAGS[@]}" --ssh-flag="-T" --command="${cmd}"
     fi
 }
 
@@ -94,19 +144,49 @@ tn_secret() {
     gcloud secrets versions access latest --secret="$1" --project="${PROJECT_ID}"
 }
 
+# tn_secret_set <secret-name> — store STDIN as the newest version of a Secret Manager
+# secret, creating the secret first (automatic replication) when it does not exist. The
+# VALUE comes from stdin only (never argv or env) and is never echoed; gcloud reads it
+# straight from the pipe (--data-file=-), so this helper never holds it in a variable:
+#   printf '%s' "${value}" | tn_secret_set "${NAME}"
+# The bytes are stored exactly as piped (printf '%s': no trailing newline, which is what
+# tn_secret then reads back). Refuses a terminal on stdin (an interactively typed value
+# would echo). describe/create read </dev/null, so no gcloud prompt can swallow the value
+# meant for `versions add`. rc 1 on any failure.
+tn_secret_set() {
+    local name="${1:-}"
+    if [ -z "${name}" ]; then
+        echo "❌ tn_secret_set: secret name required (pipe the value on stdin)" >&2
+        return 1
+    fi
+    if [ -t 0 ]; then
+        echo "❌ tn_secret_set: stdin is a terminal; pipe the value in (printf '%s' \"\$v\" | tn_secret_set ${name})" >&2
+        return 1
+    fi
+    if ! gcloud secrets describe "${name}" --project="${PROJECT_ID}" >/dev/null 2>&1 </dev/null; then
+        gcloud secrets create "${name}" --replication-policy=automatic \
+            --project="${PROJECT_ID}" </dev/null || return 1
+    fi
+    gcloud secrets versions add "${name}" --data-file=- --project="${PROJECT_ID}" || return 1
+}
+
 # tn_require_bls_passphrase — resolve the BLS keystore passphrase WITHOUT ever
-# committing it. Precedence: $TN_BLS_PASSPHRASE (env) > $TN_BLS_PASSPHRASE_FILE >
-# ${REPO_ROOT}/.secrets/bls-passphrase (gitignored). Exports TN_BLS_PASSPHRASE.
-# Never echo it. Returns 1 (caller should exit) if it cannot be resolved.
+# committing it. Precedence: $TN_BLS_PASSPHRASE (already set) > $TN_BLS_PASSPHRASE_FILE >
+# ${REPO_ROOT}/.secrets/bls-passphrase (gitignored). Leaves it as a plain SHELL variable:
+# it is never exported, and an inherited export is removed, so no child process (gcloud,
+# ssh, docker, cast, python3) sees it in its environment. Callers hand it to the node on
+# stdin (printf | tn_iap_ssh_cmd_stdin) or to the genesis container's stdin. Never echo
+# it. Returns 1 (caller should exit) if it cannot be resolved.
 tn_require_bls_passphrase() {
-    if [ -n "${TN_BLS_PASSPHRASE:-}" ]; then export TN_BLS_PASSPHRASE; return 0; fi
+    if [ -n "${TN_BLS_PASSPHRASE:-}" ]; then export -n TN_BLS_PASSPHRASE; return 0; fi
     local f="${TN_BLS_PASSPHRASE_FILE:-${DEVNET_LIB_DIR}/.secrets/bls-passphrase}"
     if [ -f "${f}" ]; then
-        TN_BLS_PASSPHRASE="$(cat "${f}")"; export TN_BLS_PASSPHRASE
+        TN_BLS_PASSPHRASE="$(cat "${f}")"; export -n TN_BLS_PASSPHRASE
         [ -n "${TN_BLS_PASSPHRASE}" ] && return 0
     fi
-    echo "❌ BLS passphrase not resolved. Set: export TN_BLS_PASSPHRASE=... (or put it in" >&2
-    echo "   ${f}, which is gitignored). It is NEVER committed and must stay out of logs." >&2
+    echo "❌ BLS passphrase not resolved. Put it in ${f} (gitignored, mode 0600) or point" >&2
+    echo "   TN_BLS_PASSPHRASE_FILE at such a file. Do NOT export it from your shell: every" >&2
+    echo "   driver and its gcloud/docker/cast children would inherit it. Never log it." >&2
     return 1
 }
 
@@ -118,10 +198,58 @@ tn_data_dir_for_role() { printf '%s' "${VALIDATOR_DATA_DIR}"; }
 tn_genesis_dir_for_role() { printf '%s' "${VALIDATOR_GENESIS_DIR}"; }
 tn_service_for_role() { printf %s "telcoin"; }
 
-# tn_setup_script_for_role <role> -> the on-node setup script path (in TN_NODE_SCRIPTS_DIR)
+# tn_setup_script_for_role <role> -> the on-node setup script path (in TN_NODE_SCRIPTS_DIR).
+# v2 has one setup entry point for every role, setup-node.sh (setup-validator.sh and
+# setup-observer.sh are deprecated shims that exec it). The role argument is accepted, so
+# call sites stay unchanged, and ignored.
 tn_setup_script_for_role() {
-    [ "$1" = "observer" ] && printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-observer.sh" \
-                          || printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-validator.sh"
+    printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-node.sh"
+}
+
+# tn_node_meta_get <instance> <zone> <KEY> — print KEY's value from the node's
+# /etc/telcoin/.node-meta, read with sudo over tn_iap_ssh. v2 writes that file root 0600
+# as unquoted KEY=VALUE lines (lib/common.sh meta_set); the value is everything after the
+# first '=', with any CR dropped, as v2's meta_get reads it. Keys setup-node.sh records
+# include HOST_SERVICE_USER, HOST_SERVICE_GROUP, DATA_DIR, NETWORK, INSTALL_METHOD,
+# DOCKER_IMAGE, DOCKER_IMAGE_DIGEST, RELEASE_TAG, RPC_PORT, WS_PORT, PASSPHRASE_METHOD,
+# VALIDATOR_ADDRESS, LOG_TARGET, NODE_LOG_DIR (no NODE_TYPE: the role is on-chain).
+#   rc 0  value printed (possibly empty, for a `KEY=` line)
+#   rc 1  nothing printed: KEY is not in the file, or the node has no readable .node-meta
+#   rc 2  nothing printed: the node did not answer, KEY is set more than once (no single
+#         value, as meta_get), or KEY is not ^[A-Z][A-Z0-9_]*$
+# The remote grep's rc travels back on a sentinel line, so an unreachable node is never
+# mistaken for an absent key.
+tn_node_meta_get() {
+    local inst="$1" zone="$2" key="${3:-}" meta="/etc/telcoin/.node-meta"
+    local remote out rc lines nl=$'\n'
+    case "${key}" in
+        ""|[!ABCDEFGHIJKLMNOPQRSTUVWXYZ]*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
+            echo "❌ tn_node_meta_get: bad key '${key}' (expected ^[A-Z][A-Z0-9_]*$)" >&2
+            return 2 ;;
+    esac
+    # grep + `$?` run ON THE NODE (escaped); ${key}/${meta} expand locally. </dev/null:
+    # a getter must not eat the caller's stdin (e.g. a `while read` loop over nodes).
+    remote="sudo grep -E '^${key}=' '${meta}' 2>/dev/null; echo \"__tn_meta_rc=\$?\""
+    if ! out="$(tn_iap_ssh "${inst}" "${zone}" "${remote}" </dev/null)"; then
+        echo "❌ tn_node_meta_get: could not read ${key} from ${inst} (ssh failed)" >&2
+        return 2
+    fi
+    out="$(printf '%s\n' "${out}" | tr -d '\r')"
+    case "${out}" in
+        *__tn_meta_rc=*) rc="${out##*__tn_meta_rc=}" ;;
+        *) echo "❌ tn_node_meta_get: no answer from ${inst} reading ${key}" >&2; return 2 ;;
+    esac
+    case "${rc}" in
+        0) ;;
+        1) return 1 ;;
+        *) echo "⚠️  tn_node_meta_get: no readable ${meta} on ${inst}" >&2; return 1 ;;
+    esac
+    lines="$(printf '%s\n' "${out}" | grep -E "^${key}=" || true)"
+    case "${lines}" in
+        "") echo "❌ tn_node_meta_get: ${inst} matched ${key} but sent no ${key}= line" >&2; return 2 ;;
+        *"${nl}"*) echo "❌ tn_node_meta_get: ${key} is set more than once in ${inst}:${meta}; no single value" >&2; return 2 ;;
+    esac
+    printf '%s\n' "${lines#*=}"
 }
 
 # wait_healthy <instance> <zone> <service> — gate a node HEALTHY only when, ON THE NODE,
@@ -177,22 +305,39 @@ else echo NOLISTEN; fi"
 # human-readable line to stderr — so callers must capture STDOUT ONLY for
 # parsing and log stderr to the per-run file.
 #
-# The tn_cmd_* builders expand TN_NODE_SCRIPTS_DIR / DOCKER_IMAGE / SERVICE_USER
+# The tn_cmd_* builders expand TN_NODE_SCRIPTS_DIR / TN_NODE_SCRIPTS_REF / DOCKER_IMAGE
 # (config.sh) LOCALLY and single-quote them into the remote command string.
 # =============================================================================
 
-# tn_cmd_refresh_scripts — remote command: fast-forward the node's
-# tn-node-deployment clone to GitHub main, then PROVE the wrapper-aware
-# update-node.sh actually landed (marker: TN_UPDATE_VERIFY_TIMEOUT) before any
-# caller risks downtime with it. git runs as the clone's owner (SERVICE_USER)
-# so root's git doesn't refuse with dubious-ownership; the stash is a safety
-# valve for stray on-node edits (never expected — nodes track main; see
-# tasks/lessons.md), deliberately `;`-joined so refresh proceeds regardless.
-# EVERY command in the chain must be privileged: the SSH login user cannot read
-# under /home/telcoin (0750 home dir), so an unprivileged marker grep fails
-# with EACCES even after a successful pull (the 2026-07-18 phase-0 false abort).
+# tn_cmd_refresh_scripts — remote command: move the node's tn-node-deployment checkout
+# to the pinned commit TN_NODE_SCRIPTS_REF (config.sh), then PROVE the wrapper-aware
+# update-node.sh is what landed (marker: TN_UPDATE_VERIFY_TIMEOUT) before any caller
+# risks downtime with it.
+#
+# v2 model: the checkout at TN_NODE_SCRIPTS_DIR (/opt/telcoin-node-scripts) is ROOT-owned
+# and detached at a full commit sha; the service account is a system uid that owns no
+# scripts. So every step is plain `sudo` (root owns the repo: no dubious-ownership
+# refusal, no `sudo -u`), and the fetch names the exact sha, never a moving branch: the
+# fleet runs only the reviewed commit. No stash: nothing edits the root-owned scripts on
+# the node, and if something ever does, `checkout --detach` refuses to overwrite a changed
+# file and the refresh fails loudly instead of discarding it. `&&`-joined, so any failed
+# step fails the whole command (non-zero over ssh).
+#
+# Prints nothing and returns 1 (message on stderr) unless TN_NODE_SCRIPTS_REF is a full
+# 40-hex commit sha: empty means config.sh pinned nothing, a short sha cannot be fetched
+# by name, and the value lands in a root command. Build the string first so that stops
+# the caller (tn_iap_ssh also refuses the empty string an inline "$(...)" would pass):
+#   cmd="$(tn_cmd_refresh_scripts)" || exit 1; tn_iap_ssh "${inst}" "${zone}" "${cmd}"
 tn_cmd_refresh_scripts() {
-    printf '%s' "sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' stash --include-untracked; sudo -u ${SERVICE_USER} git -C '${TN_NODE_SCRIPTS_DIR}' pull --ff-only origin main && sudo -u ${SERVICE_USER} grep -q TN_UPDATE_VERIFY_TIMEOUT '${TN_NODE_SCRIPTS_DIR}/update-node.sh'"
+    local ref="${TN_NODE_SCRIPTS_REF:-}" dir="${TN_NODE_SCRIPTS_DIR}"
+    case "${ref}" in
+        *[!0123456789abcdef]*) ref="" ;;
+    esac
+    if [ "${#ref}" -ne 40 ]; then
+        echo "❌ tn_cmd_refresh_scripts: TN_NODE_SCRIPTS_REF='${TN_NODE_SCRIPTS_REF:-}' is not a full 40-hex commit sha (config.sh must pin the tn-node-deployment commit)" >&2
+        return 1
+    fi
+    printf '%s' "sudo git -C '${dir}' fetch --depth=1 origin '${ref}' && sudo git -C '${dir}' checkout --detach FETCH_HEAD && sudo grep -q TN_UPDATE_VERIFY_TIMEOUT '${dir}/update-node.sh'"
 }
 
 # tn_cmd_update_check — remote command: report install method + current/latest
