@@ -404,17 +404,48 @@ Three things were not measured:
 V1 added five observations to §12. The one that most changes the record is that the previous chain's txgen unit
 was loading the new chain from 16:13:50Z, not from 17:40Z. None of these blocks launch 1.
 
-## To be appended by V2
+## V2 — node 5's first seat (appended 2026-11-02 19:47Z)
 
-- [ ] Node 5 seated: at or after 19:33:56Z (the start of epoch 5; tasks/plan.md says ≈20:34Z, see V1-d),
-  `tn_nodeMode` = CvvActive on node 5, node 5's authority in node 1's `tn_latestConsensusHeader` authors, and
-  validator-4's mode while it sits out epoch 5.
-- [ ] Committee membership over at least 3 epochs: 5, 6 and 7, from `logs/stake-node5-20261102T1721Z.log` (the watch ends ≈22:34Z)
-  and `getCommitteeValidators(uint32)` for each epoch. Record which epochs seat node 5 and which validator sits out.
-- [ ] Admission around node 5's first seat: `tn_network_admission_fallback` on nodes 1-4 (the runbook expects a
-  temporary fallback 4 until node 5's record arrives), then back to 0. Read it on the node, because of the
-  label collision V1-a.
-- [ ] Base fee after more boundaries: `./devnet-basefee-check.sh --last 4` once 3→4 (18:33:56Z) and 4→5 (19:33:56Z)
-  have closed. Expect +12.5 % per epoch while gas ≥ 2× target: 9→10→11 (rounded, with at least +1 wei).
-- [ ] Optional, if V1-b is fixed first: txgen `txgen_tx_submitted_total` rising between two reads, and the
-  authenticated admin 200.
+Sources, all read-only: `probe-nodes.sh` (one IAP ssh per node, 19:40:51Z), `probe-committee.sh` (registry +
+public RPC, 19:42:15Z), `probe-v2-seat.sh` (one IAP ssh per node, 19:42:09Z), `probe-v2-adm.sh` (Prometheus
+through Grafana's datasource proxy, 19:45:30Z; admin password from Secret Manager on curl's stdin, never
+printed), `./devnet-basefee-check.sh --last 4` (19:40:5xZ). Scripts live in this session's scratchpad
+(`/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/8196a332-f8e5-4df3-87af-aa766473e44a/scratchpad/`).
+The stake watch (`logs/stake-node5-20261102T1721Z.log`) supplied nothing for epochs 5-7: it crashed at 18:13Z
+on `InvalidEpoch(6)` (tasks/todo.md), so membership was read from the registry directly.
+
+Authority ids in the consensus log were mapped to nodes by recomputing them: `AuthorityIdentifier` =
+bs58(blake3(96-byte BLS public key)) (telcoin-network crates/types/src/committee.rs, `From<BlsPublicKey>`),
+from `genesis/validators/node{1..4}.yaml` and `genesis/observers/node5.yaml`. node1 = EjVAZv…6GYn,
+node2 = Akev8K…HYch, node3 = 7XYjSS…eJyH, node4 = Eq3fBc…Y5gV, node5 = 32dLRc…UGDA.
+
+| check | command / source | value |
+|---|---|---|
+| node modes, epoch 5 (IAP, 19:40:51Z) | `tn_nodeMode` + `eth_blockNumber` on localhost:8545 | validator-1 CvvActive 16068; validator-2 CvvActive 16088; validator-3 CvvActive 16101; **validator-4 Observer** 16109; **observer-5 CvvActive** 16121 |
+| node modes, epoch 5 (public RPC, 19:42:15Z) | the same over `https://nodeN.devnet.telcoin.network` | same five modes; all five at block 16144 (0x3f10) |
+| node 5 authoring | validator-1 `/var/log/telcoin/telcoin.log`, last 24 "certificate committed" lines, 19:42:12Z (round 1552) | node1 7, node2 6, node3 6, **node5 5, node4 0** |
+| committee(3), (4) | `getCommitteeValidators(uint32)` on 0x07E1…17e1 | node1 node2 node3 node4 (genesis set, as in V1) |
+| committee(5) | same | node1 node2 node3 **node5** (node 4 sits out) |
+| committee(6) | same | node1 node2 node3 node4 (node 5 sits out) |
+| committee(7) | same | node1 node3 node4 node5 (node 2 sits out) |
+| admission mode / fallback, local (19:42:09Z) | `127.0.0.1:9101/metrics` on each node, primary and worker-0 | mode 2/2, fallback 0/0, required 3/3, resolved 4/4 on 5/5; connected 3/3 on nodes 1, 2, 3, 5 and 4/4 on node 4 |
+| admission around the seat (Prometheus, 19:28:00-19:45:30Z, 15 s step, 71 samples per node) | `max by (node) (tn_network_admission_fallback)` etc. via `query_range` | fallback min 0 max 0 on 5/5; resolved_current 4 throughout on 5/5; mode 2 throughout on 5/5 |
+| connected_current across the boundary | same query, non-default samples | observer-5: 4 until 19:34:00Z, then 3; validator-4: 3 until 19:34:00Z, then 4 from 19:34:15Z; validators 1-3: 3 throughout |
+| base fee, four boundaries | `./devnet-basefee-check.sh --last 4` | 1→2: 7→8 (1262 blocks, 52,106,278 gas); 2→3: 8→9 (4425, 620,184,018); 3→4: 9→10 (2895, 257,379,633); 4→5: 10→11 (6452, 540,225,395); **PASS 4 FAIL 0**; 65 RPC requests, 8.3 s; WorkerConfigs(0) @16121 = (0, 10000000, 11) |
+| txgen counter, admin 200 | optional V2 items | still not measured (V1-b open; dashboard hash only) |
+
+Reading:
+- Node 5 took its first seat exactly where the model says: `activate()` in epoch 2 → Active in epoch 3 →
+  first draw in committee(5) = N+3. It is CvvActive and authored 5 of the last 24 committed certificates
+  eight minutes into the epoch; the committee behaves as 4 seats drawn from 5 eligible validators (nodes 4,
+  5 and 2 each sit out one of epochs 5, 6, 7).
+- The runbook §7 expectation of a temporary `admission_fallback` 4 on nodes 2-4 around node 5's seat did not
+  occur: fallback stayed 0 and resolved_current stayed 4 on every node through the boundary, because node 5's
+  records were already held by every validator (it had been an admitted, connected peer since launch and was
+  in the "next" window during epoch 4). The only movement was in `connected_current`: node 5 counted 4
+  current-committee peers while "next" and 3 once seated; node 4 counted 3 as a member and 4 once it became
+  "previous". Runbook §7 should say so (tasks/todo.md).
+- Heads advanced 16068 → 16144 between the 19:40:51Z and 19:42:15Z reads, so the rotation cost no quorum.
+- The base fee kept stepping +1 wei per loaded boundary (7 → 8 → 9 → 10 → 11) with gas 5-62× the target.
+
+V2 verdict: pass. With V1 (12/12 at 17:58Z) this closes the launch-1 verification.

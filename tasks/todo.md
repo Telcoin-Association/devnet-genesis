@@ -1408,3 +1408,24 @@ service handling in teardown/step 16, dns.sh retry, finalize two-phase start + a
 obs after-wait, Alloy `network` label overwrite (V1-a), txgen Loki job label (V1-c), R1 MINORs,
 tn-cli re-pin for launch 2). V2 (node 5 seated at epoch 5 from 19:33:56Z, membership over 3 epochs,
 base fee after more boundaries) is appended to the verification file when the watch ends.
+- (2026-11-02, launch 1) devnet-stake-node5.sh step 6 watch: after "Active in epoch 3" it printed
+  committee(3), (4), (5) (the three epochs known at that moment), then at 18:13Z hit
+  `line 510: [: : integer expected` (current_epoch() returned an empty string once, so the
+  "wait until epoch e-2" loop fell through) and called getCommitteeValidators(6), which reverts
+  InvalidEpoch(6) until epoch 4 starts (committees are known two epochs ahead). The watch should
+  start at activationEpoch+2 and wait for each draw instead of reading ahead; mint/stake/activate
+  were unaffected.
+- (2026-11-02, launch 1, V1-b detail) On txgen-devnet the unit shows ActiveEnterTimestamp 2026-10-30
+  21:50:48Z with NRestarts 69 (step 16 never restarted it: `enable --now` is a no-op on an active
+  unit), its journal carries 5 full startup-marker sets and "tx submitted" lines with the NEW router
+  addresses from 17:40Z, and 127.0.0.1:9090/metrics DOES expose txgen_* series (rpc_calls ok 87,731 /
+  err 201,025; skipped rpc_open 603,714; epoch_poll_errors 170,346, mostly from the dead-chain days),
+  while Prometheus lost the txgen_* series at 17:39:40Z: the gap is in the Alloy scrape path, not the
+  generator. Step 16 should `systemctl restart` the unit explicitly and fail (not pass) on missing
+  startup markers; then re-check the scrape and reset the counters.
+- (2026-11-02, launch 1, V2) tasks/runbook-reset-2026-10-30.md §7 says nodes 2-4 show
+  `admission_fallback` = 4 around node 5's activation boundary until its record arrives. Measured at the
+  19:33:56Z seat: fallback 0 and resolved_current 4 on all five nodes throughout (15 s samples), because a
+  joiner that is already an admitted, connected peer has its records everywhere before it is drawn. Only
+  `connected_current` moved (node 5: 4→3, node 4: 3→4). Reword §7 to the "next"-window behaviour and keep the
+  fallback dip as the cold-join case (launch 2's join rehearsal).

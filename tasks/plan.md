@@ -49,7 +49,7 @@ head block 0x12f9e8, chain 0x7e1d; gcloud authenticated as the operator.
 ## Wave 4
 - [x] S1 stake node 5 (see above)
 - [x] V1 tasks/verification-l1-2026-10-31.md: 12/12 pass at 17:58Z (new: V1-a Alloy overwrites the `network` label; V1-b old txgen hit the new chain from 16:13Z and its txgen_* metrics stopped 17:39Z; V1-c Loki job label; V1-e committee(5) seats node 5 in place of node 4)
-- [ ] V2 node 5 CvvActive from epoch 5 (19:33:56Z) + membership over ≥3 epochs + basefee --last 4
+- [x] V2 done 19:47Z: node 5 CvvActive + authoring in epoch 5 (node 4 Observer); committee(5)=1,2,3,5 (6)=1,2,3,4 (7)=1,3,4,5; no admission fallback across the boundary; basefee --last 4 PASS 4/4 (7→8→9→10→11)
 - [x] close-out: todo.md review section, lessons (3 entries), plan ticks, memory; c4 pushed (V2 appends later)
 
 ## Launch 2 (mainnet simulation)
