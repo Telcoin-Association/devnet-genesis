@@ -193,7 +193,14 @@ error_name() {
         *) echo "unrecognised revert $1" ;;
     esac
 }
-revert_selector() { printf '%s' "$1" | grep -oE 'custom error 0x[0-9a-fA-F]{8}' | head -1 | sed 's/custom error //'; }
+# cast prints an unresolved selector as `custom error 0x…`; once it has resolved the name
+# (cast 1.8 caches lookups in ~/.foundry/cache/signatures) only the raw `data: "0x…"` field
+# still carries it. Match both; print nothing (rc 0) when neither is present, so a caller
+# under `set -e` can test the result instead of dying.
+revert_selector() {
+    printf '%s' "$1" | grep -oiE '(custom error |data: "?)0x[0-9a-f]{8}' | head -1 \
+        | grep -oiE '0x[0-9a-f]{8}$' | tr '[:upper:]' '[:lower:]' || true
+}
 
 # send <signer admin|node5> <label> <cast send args...>: signs with that keystore, prints one
 # receipt line, fails on a reverted tx. Only file paths reach argv.

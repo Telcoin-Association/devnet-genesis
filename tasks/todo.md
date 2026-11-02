@@ -1321,3 +1321,50 @@ Follow-ups (not in this reset):
 - tn-node-deployment tasks/ckpt-*.md carry Mac scratchpad paths and are cloned onto every node at
   /opt/telcoin-node-scripts (harmless; tidy in a later PR).
 - WireGuard lockdown, PR 1716 chain-487 guards, moving devnet images to ghcr: unchanged from before.
+- (2026-11-02, launch 1) devnet-finalize.sh: retry a read-only post-check once on ssh rc 255 and add
+  an assert-only `--verify nodeN` mode; a single transient IAP drop on node 4's A3 check ended the
+  D3 run after all five nodes were already started (recovered with
+  `devnet-network-config.sh --verify node4` + `--from 9`). See tasks/lessons.md.
+- (2026-11-02, launch 1) R1 MINORs on the new tooling (tasks/checkpoint-l1-R1.md): key.sh A2 (temp+mv
+  instead of in-place copy), A4 (match NOT_FOUND on describe), A5 (`python3 -I` for the read-back,
+  together with devnet-stake-node5.sh); sign.sh B3 (check the key dir before reporting PENDING), B4
+  (snapshot SHA256SUMS/IMAGE_DIGEST into TMP_DIR), B5 (assert GENESIS_FILE == workspace path); deploy
+  C1 (conditional rc-1 hint). None affects correctness on this launch.
+- (2026-11-02, launch 2 prep) tn-cli-dev: moving to telcoin-network 3f9b0709c needs three
+  [patch.crates-io] entries (libp2p-quic, quinn-proto, libp2p-connection-limits → the TN rev) plus
+  `cargo update -p quinn-proto`; proven in scratch, not applied. Needed once sentries make
+  `tn node record` usable (c07d6d6a rejects records with >1 multiaddr).
+- (2026-11-02, launch 1) common/dns.sh Phase 4 verifies the public endpoint ~1 s after the Caddy reload
+  with no retry, so a node whose Let's Encrypt certificate is still being issued fails the step and
+  stops the sweep (node 1 lost by one second; the cert arrived at 15:59:45Z, the probe ran 15:59:46Z).
+  Add a bounded retry (e.g. 6 × 10 s) around the eth_blockNumber + WSS probes in the common repo and
+  bump the gitlink. Worked around here by re-running `--only 13` until it passes.
+- (2026-11-02, launch 1, F1) devnet-finalize.sh starts nodes sequentially ~80 s apart; with the 350 ms
+  cadence the 4th validator came up >50 rounds late and sat out epoch 1 (CvvInactive until the
+  boundary). Add a two-phase finalize (stage + enable everywhere, then start all units within a few
+  seconds) or a `--no-start` + parallel `systemctl start`; until then, expect the straggler to rejoin
+  at the next boundary and run the restart-free steps (12-14) first. Mainnet launch-day hazard; see
+  tasks/lessons.md.
+- (2026-11-02, launch 1, F2) devnet-observability.sh: after a restart the "after" probe accepts
+  tn_nodeMode=CvvActive at 0 s, but the member is absent from commits for ~30-60 s, so the NEXT
+  node's tn_committee_down_guard counts it as down and refuses (validator-3 after validator-2).
+  Make the after-wait require the node's authority in the reference node's recent commits (or
+  a fixed ≥60 s settle) before moving on. Worked around with scratchpad/recover-obs.sh.
+- (2026-11-02, launch 1) txgen secrets live only on the Mac and, sops-encrypted, on the txgen VM:
+  step 16 from xerxes failed on a missing tn-transaction-generator/secrets/master.key (the master
+  wallet 0x46c26b4f… is genesis-funded, so it cannot be re-minted). Recovered by decrypting the VM's
+  master.sops/children.sops with the age identity (.secrets/txgen-age-key.txt = Secret Manager
+  devnet-txgen-age-key). Mirror master.key + children.seed to Secret Manager
+  (devnet-txgen-master-key / devnet-txgen-children-seed, like the bench ones) and make
+  devnet-txgen.sh's preflight restore them (or say where they come from); also step 2 silently
+  mints a NEW age identity when the local file is missing instead of restoring the Secret
+  Manager copy.
+- (2026-11-02, launch 1) Native TEL faucet drips revert: the StablecoinManager/TNFaucet proxy
+  0xf09a4e512cf87ecac839d732681959cefd83ecb9 has no mint role on the TEL precompile 0x…07e1
+  (hasMintRole = false; the Safe has it). One governance Safe tx fixes it:
+  to 0x00000000000000000000000000000000000007e1, calldata
+  0xc2e3273d000000000000000000000000f09a4e512cf87ecac839d732681959cefd83ecb9 (grantMintRole),
+  executed through 0x…07a0 (threshold 1; the contracts admin is an owner). Stablecoin drips
+  already work. tn-cli has no subcommand for it (README notes the calldata).
+- (2026-11-02, launch 1) devnet-stake-node5.sh `revert_selector` fixed for cast 1.8's resolved-error
+  output; R1's MINOR A5 (`python3 -I`) still open there.

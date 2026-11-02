@@ -1,5 +1,41 @@
 # Lessons
 
+## Genesis validators must start within ~50 rounds of each other or the late one sits out the epoch (2026-11-02)
+
+**Symptom:** devnet-finalize.sh starts the nodes one at a time (~80 s apart). Validators 1-3 reached
+quorum at 15:33:56Z and advanced at the 350 ms cadence; validator-4's unit started 36 s after the
+epoch began, when the others were already past round 50. From then on node 4 rejected their
+certificates ("TooNew"), they rejected its vote requests ("too new for max round 50"), it
+restarted its epoch tasks every 69 s and logged "batch builder not started: node is in committee
+but not an active CVV; accepted transactions stay pooled until a later epoch". It followed the
+chain only through state-sync (CvvInactive) until the epoch closed at 16:34Z, then rejoined as
+CvvActive at round 1 with everyone else. Side effect: the observability step's quorum guard
+refused every restart for the whole epoch (one member counted as down, f=0 with four seats).
+
+**Fix / rule:** at genesis (and after any coordinated restart) all committee members must start
+inside the certificate window: either stage the unit on every node and `systemctl start` them
+within a few seconds of each other (finalize with a `--no-start` phase + a parallel start), or
+accept that a straggler is out until the next boundary and plan the deploy around it (do the
+restart-free steps first, as done here). This is mainnet-relevant: independently operated
+validators that start minutes apart on launch day lose the straggler for a full epoch. Diagnose
+with `tn_nodeMode` per node (CvvInactive on one member) and the "too new for max round 50" lines;
+do not restart anything, it cannot help inside the epoch.
+
+## One transient IAP ssh drop in a post-check fails a whole deploy segment; make asserts retry or re-runnable (2026-11-02)
+
+**Symptom:** D3 (`devnet-deploy.sh --yes --from 8`) finalized and started all five nodes, then
+exited 1 because node 4's A3 network-config post-check got `ssh rc 255` once; the A4/A5 calls to
+the same node succeeded seconds later and `devnet-network-config.sh --verify node4` passed
+read-only. Steps 9-16 never ran, and finalize cannot be re-run on a node that already has a unit
+(its gate refuses), so the runbook's "re-run finalize for that node" recovery did not apply.
+
+**Fix / rule:** a post-check that is pure read (`tn_iap_ssh` + grep) must retry once after a few
+seconds on rc 255 before declaring ✗, and a driver whose gate refuses re-runs needs an
+assert-only mode (`devnet-finalize.sh --verify nodeN`) so a transient tunnel drop costs a
+re-check, not a diagnosis. Until then: on a lone rc 255 in step 8, run
+`./devnet-network-config.sh --verify nodeN` and resume with `--from 9`. Extends the 2026-07-20
+IAP-throttling lesson: one failed ssh is never evidence about the node.
+
 ## A remote command string with nested quotes is parsed twice; ship remote scripts over stdin (2026-10-06)
 
 **Symptom:** the first live teardown of r20261006-0053 saved all 11 node logs and then refused to
