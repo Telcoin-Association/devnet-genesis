@@ -1368,3 +1368,43 @@ Follow-ups (not in this reset):
   already work. tn-cli has no subcommand for it (README notes the calldata).
 - (2026-11-02, launch 1) devnet-stake-node5.sh `revert_selector` fixed for cast 1.8's resolved-error
   output; R1's MINOR A5 (`python3 -I`) still open there.
+
+## Review: launch 1 — devnet reset onto tn-node-deployment v2 + v0.2.0-devnet (2026-10-31 / 2026-11-02)
+
+Outcome: the devnet (chain 32285) was torn down 2026-10-31 10:58Z and relaunched on the v2 node
+model with image adiri@sha256:5257e768…a610 (telcoin-network 3f9b0709c), a GPG-signed release
+manifest verified with gpgv before any node started, node 2 moved from Sydney to Dallas
+(34.174.181.214), closed admission on all five nodes, and node 5 minted, staked and activated
+after genesis. The chain started 2026-11-02 15:33:56Z (the operator pauses for DNS and the YubiKey
+signature spanned two days); all 16 deploy steps completed by 17:38Z. Verification with numbers:
+tasks/verification-l1-2026-10-31.md (12/12 pass at 17:58Z). Commits: devnet-genesis b1b49be, ee6078a,
+6807ece, 50c920a (+ c4); tn-cli-dev 8462884, a9a9e10, 6962def. Launch-2 design: docs/mainnet-simulation-plan.md.
+
+What went to plan: Wave 1's nine units and both reviews (R1 fixed a `set -x` key-leak path and
+tightened the gpg verdict; R2 caught a hot-key fallback in tn-cli's new-validator.sh); the key
+provisioning script; prepare/verify with the laptop one-liner; D1b (VPC rules before any node start);
+the stake script's Safe-exec mint, stake and activate (blocks 5025-5027, Active in epoch 3, drawn
+into committee(5)).
+
+What did not, and what it cost:
+- F1 (protocol, mainnet-relevant): finalize starts nodes ~80 s apart; validator-4 came up 36 s into
+  epoch 1, >50 rounds behind, and sat out the whole epoch as CvvInactive (rejoined at the 16:34Z
+  boundary). Cost: ~1 h, and the observability quorum guard refused every restart meanwhile.
+- F2 (tooling): devnet-observability.sh moves to the next node as soon as the restarted one reports
+  CvvActive, but it is absent from commits for ~30-60 s, so the next node's guard refused. Recovered
+  with a serialized driver gated on 4 distinct authors in a reference node's last 24 commits.
+- A single transient IAP ssh rc 255 in a finalize post-check (node 4, A3) ended the step-8 run after
+  all nodes were already started; finalize cannot be re-run on a node with a unit.
+- dns.sh Phase 4 lost a ~1 s race against first-time Let's Encrypt issuance on three nodes (4 runs).
+- Step 16 needed sops/age on xerxes and the txgen master key, which lived only on the Mac and
+  (sops-encrypted) on the VM; recovered with the Secret Manager age identity.
+- The gcloud token expired during the two-day pause; the old txgen kept running through the
+  teardown and hit the new chain from 16:13Z (52M gas in epoch 1); its Prometheus series stopped
+  at 17:39Z (V1-b, monitoring gap only).
+- tn-cli could not move to 3f9b0709c (needs TN's [patch.crates-io] QUIC crates); stays on c07d6d6a.
+
+Open follow-ups: see the dated items above (faucet grantMintRole Safe tx, txgen secrets and
+service handling in teardown/step 16, dns.sh retry, finalize two-phase start + assert-only mode,
+obs after-wait, Alloy `network` label overwrite (V1-a), txgen Loki job label (V1-c), R1 MINORs,
+tn-cli re-pin for launch 2). V2 (node 5 seated at epoch 5 from 19:33:56Z, membership over 3 epochs,
+base fee after more boundaries) is appended to the verification file when the watch ends.
