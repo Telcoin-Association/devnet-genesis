@@ -27,9 +27,10 @@ head block 0x12f9e8, chain 0x7e1d; gcloud authenticated as the operator.
 - [x] zone move: ZONES[1]=us-south1-a (+README/INSTRUCTIONS/issue.md), Sydney validator-2-devnet-ip deleted, devnet-rpc-ig-2 removed from devnet-rpc-backend and deleted → c2
 
 ## Wave 3 (deploy in three segments)
-- [ ] D1 steps 1-3 → Dallas IP → operator sets node2 + admin.node2 A records; D1b `--only 12` (VPC rules pick up the new /32)
-- [ ] D2 --from 5 → RELEASE_SIG_PENDING at step 8 → operator signs on the laptop; dig confirms DNS
-- [ ] D3 --from 8 → 16; commit c3 after step 8 (releases/, genesis/, parameters.yaml)
+- [x] D1 steps 1-3 done 11:04-11:07Z (5 VMs RUNNING, startup markers in ~100 s); node 2 = 34.174.181.214 (us-south1); D1b step 12 done 11:09Z (consensus rules new=1 old=0, 10 /32s). DNS pause: operator sets node2 + admin.node2 → 34.174.181.214
+- [x] D2 --from 5 done 11:12-11:22Z: keygen ok ×5, genesis built (Safe threshold 1, owners 7→8 with 0xAee… first, knob checks pass), prepare wrote releases/v0.2.0-devnet/{IMAGE_DIGEST,SHA256SUMS}, network-config installed ×5, step 8 stopped RELEASE_SIG_PENDING rc 3 (no node touched); node-info addresses match config ×5. PAUSE: operator signs on the laptop + DNS
+- [x] operator pause done 2026-11-02: DNS node2/admin.node2 → 34.174.181.214 (authoritative + local agree); SHA256SUMS.asc verified rc 0 (VALIDSIG 4E36D35A4AB61B589861D01AC7173F2377CA7573, signed 2026-11-02 15:27Z); c3 committed before D3
+- [ ] D3 --from 8 → 16 (blocked on `gcloud auth login`: token expired during the pause)
 - [ ] U3b tn-cli-dev genesis copy + anvil e2e; U3c faucet address + live `tn` checks; commit + push
 
 ## Wave 4

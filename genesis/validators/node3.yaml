@@ -1,16 +1,16 @@
 ---
-name: node-PxeWQ2e4JG5
-bls_public_key: pHW2w5B56qLY7tQgeDrdj3PLbHD4vqRk1yJyK3dy2kxjCCbe7bPD8Jg1t9vEbDB1z8Y8UoEmnJJfSTZ74qLbX6Zt6gNbmV7krqMBBGCFAcYLGQc23Mcr9BGMxXsK2ShFWVD
+name: node-UW9ah4uu9Jo
+bls_public_key: yeBEGqVHo6vuzHvxMpwVAW6mLgBAmJibY7cMYfB6AJcTFAHZJ59G81R29T29wt4M4isT7eDNjymfiDEkTQVPTKPyvebXsJaaNQqbnKFu9uocn4DSBDEsF36aNu4gvdVN9vm
 p2p_info:
   primary:
-    network_address: /ip4/34.19.189.1/udp/49590/quic-v1/p2p/12D3KooWJQFwAYLVZiNQcSBB35UWb2MCnSDKcGtpNfwvB264WskX
-    network_key: 4XTTM9iwb1goaB5W4e6dbA7NLjczsG7CmjVW46tMgDFhbUeXd
+    network_address: /ip4/34.19.189.1/udp/49590/quic-v1/p2p/12D3KooWSywKNBZTzdcyVPcrSHJcFZGnrLxdmedFX3U5djWSdsij
+    network_key: 4XTTMJJcyDL2YbzkdX45GZKCSQ9vTL1x5tsEVFFsqfy7ybeVq
     rpc: ~
   workers:
-    - network_address: /ip4/34.19.189.1/udp/49594/quic-v1/p2p/12D3KooWAioqujneq6EjLkWkLoTnNPrKTjQVwAvJkpw91UCwQyrD
-      network_key: 4XTTM23VVktFjSTNPNQyATqMcWzVywQPx4PXYV3Lu3hpUNkdK
+    - network_address: /ip4/34.19.189.1/udp/49594/quic-v1/p2p/12D3KooWPvVXSzKFkc4sjhfWwiptDvfnSfzTD4pF7vVpJWc5PUD9
+      network_key: 4XTTMFFBBJ8nLMyCXmN7w4kiiNXKSvLyuLHRUr8uaLkDcMEzF
       rpc:
         http: "https://node3.devnet.telcoin.network/"
         ws: "wss://node3.devnet.telcoin.network/"
 execution_address: "0x0033a370616805b1fd275b7ffab83fc41d665ccb"
-proof_of_possession: 7HJvbfSt6MDYqeeUQuUAqzbLeJvGoMxv6LdEriNDTwACrpfTsx7WYf3bJ7LBJifGaa
+proof_of_possession: 7DWS1MAS5cPcdhX7QgypRmqCtDMR4ftxXGvFSjobWxDafhy8hoctU1DiUYyP9C7o53

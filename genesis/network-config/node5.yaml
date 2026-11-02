@@ -1,0 +1,73 @@
+admission:
+  mode: Closed
+  snapshot_max_age_secs: 300
+bootstrap_peers:
+  26aS3fJeCmMpch7MgGkTMkJMJg8nWPVhiHYn1Y9U8KhHhwek7b3L5M9D4n31CLveEzsXn7HspUPscxgDtv8P1oVhMTTgWFD3M2Ss5Sw8y4PzZrGD8Vfat17ALrJ5Buv3TYHg:
+    primary:
+      network_address: /ip4/35.236.51.63/udp/49590/quic-v1/p2p/12D3KooWNqhmaRQwgLg2pSZU3fD4Ss9eH5f6vbdVHHnwu3WB4q78
+      network_key: 4XTTMEAPRRZt2Hhogr71tAh6tbToJkkeZ3pEj1WChwH7i2btE
+      rpc: ~
+    workers:
+      - network_address: /ip4/35.236.51.63/udp/49594/quic-v1/p2p/12D3KooWN3CNgJr7LBu5jWu265TxVzpoXPeuzbEgGQj9bMctT9u6
+        network_key: 4XTTMDMt2XTKBwZ2jmBMSD7MnebUU14eN7oquzd8udbERQvgC
+        rpc:
+          http: "https://node1.devnet.telcoin.network/"
+          ws: "wss://node1.devnet.telcoin.network/"
+trusted_nodes:
+  26aS3fJeCmMpch7MgGkTMkJMJg8nWPVhiHYn1Y9U8KhHhwek7b3L5M9D4n31CLveEzsXn7HspUPscxgDtv8P1oVhMTTgWFD3M2Ss5Sw8y4PzZrGD8Vfat17ALrJ5Buv3TYHg:
+    primary:
+      network_address: /ip4/35.236.51.63/udp/49590/quic-v1/p2p/12D3KooWNqhmaRQwgLg2pSZU3fD4Ss9eH5f6vbdVHHnwu3WB4q78
+      network_key: 4XTTMEAPRRZt2Hhogr71tAh6tbToJkkeZ3pEj1WChwH7i2btE
+      rpc: ~
+    workers:
+      0:
+        network_address: /ip4/35.236.51.63/udp/49594/quic-v1/p2p/12D3KooWN3CNgJr7LBu5jWu265TxVzpoXPeuzbEgGQj9bMctT9u6
+        network_key: 4XTTMDMt2XTKBwZ2jmBMSD7MnebUU14eN7oquzd8udbERQvgC
+        rpc:
+          http: "https://node1.devnet.telcoin.network/"
+          ws: "wss://node1.devnet.telcoin.network/"
+committee_peers:
+  trXL6LbmRRo8hn4h2M4mvA6VsZEqvkQ1uXh5wnVwypTQCyap4uxVDaT1siLSBRG4JcbPfoRXWnmDH1W8yRvcEdhv1r1uq1soZgv5FHvriMr9qtTcjmttD7CJagFX5WEwnup:
+    primary:
+      network_address: /ip4/34.7.93.35/udp/49590/quic-v1/p2p/12D3KooWJtGB58wNrNVc5tCQvULuSfv6LtzLSDAijuy98HfhegWz
+      network_key: 4XTTMACwpvHQTTjdG7Yeq3WEjbGZkpZynZRmxU8NuAXHEcTJ6
+      rpc: ~
+    workers:
+      - network_address: /ip4/34.7.93.35/udp/49594/quic-v1/p2p/12D3KooWLcGztFJWkUwGTWT4fxkY1UfmBDPADJw794zh8b5CNPu1
+        network_key: 4XTTMBvxejPmbMr4vVAuUnzeNA5KRetNcLXYLsHQTApgjLAg7
+        rpc:
+          http: "https://node4.devnet.telcoin.network/"
+          ws: "wss://node4.devnet.telcoin.network/"
+  yeBEGqVHo6vuzHvxMpwVAW6mLgBAmJibY7cMYfB6AJcTFAHZJ59G81R29T29wt4M4isT7eDNjymfiDEkTQVPTKPyvebXsJaaNQqbnKFu9uocn4DSBDEsF36aNu4gvdVN9vm:
+    primary:
+      network_address: /ip4/34.19.189.1/udp/49590/quic-v1/p2p/12D3KooWSywKNBZTzdcyVPcrSHJcFZGnrLxdmedFX3U5djWSdsij
+      network_key: 4XTTMJJcyDL2YbzkdX45GZKCSQ9vTL1x5tsEVFFsqfy7ybeVq
+      rpc: ~
+    workers:
+      - network_address: /ip4/34.19.189.1/udp/49594/quic-v1/p2p/12D3KooWPvVXSzKFkc4sjhfWwiptDvfnSfzTD4pF7vVpJWc5PUD9
+        network_key: 4XTTMFFBBJ8nLMyCXmN7w4kiiNXKSvLyuLHRUr8uaLkDcMEzF
+        rpc:
+          http: "https://node3.devnet.telcoin.network/"
+          ws: "wss://node3.devnet.telcoin.network/"
+  25LE46S8E7MsPkFETXYAbP2t1CYDYq7f4ztmYbRrTEqnvoHeYQYa2JQKT55kxKk5nBPmnPDShagSDLysL1mp3nrgVYCRYbPRycEHPgnua1TsMWmXHTZ5VVhRgUU8gy4HP29u:
+    primary:
+      network_address: /ip4/34.174.181.214/udp/49590/quic-v1/p2p/12D3KooWJ86U7WrXj1wADhiaW6UXHxrsBXNsvmxcuNjNjPKUSriF
+      network_key: 4XTTM9Sn7xfKcLP4pFNAzd8NMSZWXfCNL3zZrdb98mcw1QdVM
+      rpc: ~
+    workers:
+      - network_address: /ip4/34.174.181.214/udp/49594/quic-v1/p2p/12D3KooWPiRVSH27mBGWcKQxoRbgebpxMmtkQFodFGnb5G7FaV6F
+        network_key: 4XTTMF379HRVCNYQAdysNvTVWoCUcqStCXUQryVCM7VinYFsM
+        rpc:
+          http: "https://node2.devnet.telcoin.network/"
+          ws: "wss://node2.devnet.telcoin.network/"
+  26aS3fJeCmMpch7MgGkTMkJMJg8nWPVhiHYn1Y9U8KhHhwek7b3L5M9D4n31CLveEzsXn7HspUPscxgDtv8P1oVhMTTgWFD3M2Ss5Sw8y4PzZrGD8Vfat17ALrJ5Buv3TYHg:
+    primary:
+      network_address: /ip4/35.236.51.63/udp/49590/quic-v1/p2p/12D3KooWNqhmaRQwgLg2pSZU3fD4Ss9eH5f6vbdVHHnwu3WB4q78
+      network_key: 4XTTMEAPRRZt2Hhogr71tAh6tbToJkkeZ3pEj1WChwH7i2btE
+      rpc: ~
+    workers:
+      - network_address: /ip4/35.236.51.63/udp/49594/quic-v1/p2p/12D3KooWN3CNgJr7LBu5jWu265TxVzpoXPeuzbEgGQj9bMctT9u6
+        network_key: 4XTTMDMt2XTKBwZ2jmBMSD7MnebUU14eN7oquzd8udbERQvgC
+        rpc:
+          http: "https://node1.devnet.telcoin.network/"
+          ws: "wss://node1.devnet.telcoin.network/"
