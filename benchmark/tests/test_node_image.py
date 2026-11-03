@@ -1,4 +1,4 @@
-"""The node image probe (bench-lib.sh) and deploy step 9's boot-line check, fully offline.
+"""The node image probe (bench-lib.sh) and the deploy steps that touch v2 nodes, fully offline.
 
 Every bash run happens in a temporary copy of the scripts (the deploy script's results root is
 fixed to <its dir>/results, so nothing here ever runs the scripts in place), with stub `docker`,
@@ -7,11 +7,17 @@ serves is a directory: the -V / --version / --help texts and the fake binary the
 and greps (fixtures/node-image/{out-*,help-*,fake-node-bin}.txt), varied per test. The stub curl
 fails the run if anything tries the network.
 
-Step 9's remote script (--print-postconfig) is run under `bash -s` on this host, its absolute
-node paths (/opt/telcoin, /etc/telcoin, /etc/systemd/system, the sampler in /usr/local/bin)
-relocated into a sandbox directory, with stub docker/curl/systemctl/date/sleep standing in for
-the node; on a BSD-sed host (macOS) a shim gives the script the GNU `sed -i` it targets.
+The remote scripts (step 7's pre-start config, step 8's observability session, step 9's verify
+script) run on sandbox v2 nodes: directories laid out like a node's root from the shared C8
+fixture (fixtures/v2-node), with stub systemctl/docker/date/git/stat/curl/sleep, a stub
+lib/common.sh standing in for the v2 lib's launch-flag functions, and the scripts' absolute node
+paths relocated (fixtures/node-image/v2-node-run.sh). The deploy steps reach them through a fake
+gcloud that runs each `sudo bash -s` session on that node's sandbox
+(fixtures/node-image/stub-gcloud-v2-node.sh); on a BSD-sed host (macOS) a shim gives the scripts
+the GNU `sed -i` they target.
 """
+import base64
+import functools
 import hashlib
 import json
 import os
@@ -90,6 +96,7 @@ def contract_entries(path):
     return out
 
 
+@functools.lru_cache(maxsize=None)
 def host_sed_is_gnu():
     return subprocess.run(["sed", "--version"], stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL).returncode == 0
@@ -427,71 +434,382 @@ class HelperTests(BashCase):
         self.assertEqual(self.calls(), [])
 
 
-# Step 9's gcloud for Step9Tests: like fixtures/node-image/stub-gcloud.sh, but the POSTCFG_OK line it
-# answers carries the readback fields too, taken from the script it was sent, as a node that applied
-# it would report them: the delays and threshold of its setp lines (else PARAMS_YAML's 500/250/250
-# ms and 5) and the filter of its F= line. STUB_BAD_INST answers STUB_BAD_SHA and STUB_BAD_MHD (boot
-# line) instead; STUB_MHD sets every node's boot max header delay.
-STEP9_GCLOUD = r"""#!/usr/bin/env bash
-printf 'gcloud %s\n' "$*" >> "${STUB_LOG:?}"
-case "$*" in
-    "compute ssh "*)
-        inst="$3"; cmd=""
-        for a in "$@"; do case "${a}" in --command=*) cmd="${a#--command=}" ;; esac; done
-        [ "${cmd}" = "sudo bash -s" ] || exit 0
-        f="${STUB_SPOOL:?}/${inst}.sh"; cat > "${f}"
-        val() { sed -n "s/^setp $1 \([0-9]*\)ms$/\1/p" "${f}" | tail -1; }
-        mx="$(val max_header_delay)"; mx="${mx:-500}"; mn="$(val min_header_delay)"; mn="${mn:-250}"
-        mb="$(val max_batch_delay)"; mb="${mb:-250}"
-        thr="$(sed -n 's/^setp header_num_of_batches_threshold \([0-9]*\)$/\1/p' "${f}" | tail -1)"
-        fl="$(sed -n "s/^F='\([^']*\)'; MF='[0-9]*'$/\1/p" "${f}")"; mf="$(sed -n "s/^F='[^']*'; MF='\([0-9]*\)'$/\1/p" "${f}")"
-        sha="${STUB_SHA:?}"; bmx="${STUB_MHD:-${mx}}"
-        if [ "${inst}" = "${STUB_BAD_INST:-}" ]; then sha="${STUB_BAD_SHA:-${sha}}"; bmx="${STUB_BAD_MHD:-${bmx}}"; fi
-        echo "Warning: Permanently added 'compute.0000' (ED25519) to the list of known hosts."
-        echo "POSTCFG_OK ${inst} chain=0x7e1e block=0x5 ip=192.0.2.9 progress=blocks 3->5 sha=${sha} mhd=${bmx} nhd=${mn} mbd=${mb} vt=? forks=subsecond-from-genesis max=${mx} min=${mn} batch=${mb} thr=${thr:-5} vote=- filter=${fl:--} maxfiles=${mf:--}"
-        ;;
-    *) echo "stub gcloud: unexpected: $*" >&2; exit 1 ;;
-esac
-"""
+# --------------------------------------------------------------------------- v2 nodes (steps 7, 8, 9)
+# A sandbox v2 node is a directory laid out like a node's root: the C8 fixture (fixtures/v2-node:
+# .node-meta, node.env, tn-start-docker, telcoin.service) with DATA_DIR moved under it, the Alloy
+# env, <DATA_DIR>/parameters.yaml, the scripts' checkout with a stub lib/common.sh
+# (fixtures/node-image/v2-lib-common.sh), the node stubs in bin/, and state/ files the stubs answer
+# from. fixtures/node-image/v2-node-run.sh runs a remote script there, its node paths relocated
+# (RELOCATED, kept in step with the script by test_relocation_list_matches_the_runner).
+V2 = Path(__file__).resolve().parent / "fixtures" / "v2-node"
+RELOCATED = ("/etc/telcoin/", "/etc/systemd/system/", "/usr/local/libexec/telcoin/",
+             "/usr/local/bin/bench-node-sampler.sh", "/opt/telcoin-node-scripts", "/var/lib/telcoin-alloy/",
+             "/tmp/bench-obs")
+NODE_STUBS = (("systemctl", "stub-v2-node-systemctl.sh"), ("docker", "stub-v2-node-docker.sh"),
+              ("date", "stub-v2-node-date.sh"), ("git", "stub-v2-node-git.sh"), ("stat", "stub-v2-node-stat.sh"),
+              ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"))
+STARTED = "2026-01-01T00:00:00.000000000Z"     # the container's StartedAt (stub date -d: 1767225600)
+CHAIN_HEX = "0x7e1e"                           # the bench chain 32286, as the nodes' RPC answers it
+GUARD_RPC = "http://127.0.0.1:9"               # BENCH_GUARD_PUBLIC_RPC (contract C5a)
 FILTER = "info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug"
+STEP9_PARAMS = PARAMS_YAML + "header_num_of_batches_threshold: 5\n"
+FORK_LINE = "fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
+PRE_SUBSECOND_LINE = "fork schedule: seed_signature, multi_workers, prevrandao, and leader_seeded_ordering active from genesis"
 
 
-class Step9Tests(BashCase):
-    """`benchmark-deploy.sh --yes --only 9` on a mock run whose manifest names the build."""
+def scripts_ref():
+    """TN_NODE_SCRIPTS_REF as config.sh pins it (the checkout every node must be at)."""
+    return re.search(r'^export TN_NODE_SCRIPTS_REF="([0-9a-f]{40})"', (REPO / "config.sh").read_text(), re.M).group(1)
 
-    RUN = "rtest-step9"
+
+def v2_node_line():
+    """(docker run prefix up to the image, node command) of the C8 start script's one live line."""
+    line = [l for l in (V2 / "usr/local/libexec/telcoin/tn-start-docker").read_text().splitlines()
+            if l.startswith("exec /usr/bin/docker run ")]
+    assert len(line) == 1, "fixtures/v2-node tn-start-docker: want one docker run line"
+    prefix, _, args = line[0].partition(" telcoin node ")
+    return prefix + " ", "telcoin node " + args
+
+
+def v2_cmdline(http="0.0.0.0", ws="0.0.0.0", metrics="127.0.0.1:9101", log_filter=FILTER, max_files="20"):
+    """The node command of a node step 7's pre-start config edited (C3), as `docker inspect -f
+    '{{.Path}} {{join .Args " "}}' telcoin` shows it: the C8 command, its RPC/WS addresses set in
+    place, --metrics and the log flags appended (the order tn_launch_flag_set leaves them in). A
+    None value leaves that flag out (http/ws: the C8 loopback value stays)."""
+    cmd = v2_node_line()[1]
+    if http is not None:
+        cmd = cmd.replace(" --http.addr 127.0.0.1", " --http.addr " + http)
+    if ws is not None:
+        cmd = cmd.replace(" --ws.addr 127.0.0.1", " --ws.addr " + ws)
+    for flag, value in (("--metrics", metrics), ("--log.stdout.filter", log_filter),
+                        ("--log.file.filter", log_filter), ("--log.file.max-files", max_files)):
+        if value is not None:
+            cmd += " %s %s" % (flag, value)
+    return cmd
+
+
+def boot_log(sha=FULL_SHA, mhd=500, nhd=250, mbd=250, vt=None, fork=FORK_LINE):
+    """`docker logs telcoin --since <start>` of a node that booted the given build and delays: the
+    good boot fixture's lines, values swapped in (vote timeout only when given)."""
+    text = (FIX / "node-log-boot-good.txt").read_text().replace(FULL_SHA, sha).replace(FORK_LINE, fork)
+    for name, value in (("Max header delay", mhd), ("Min header delay", nhd), ("Max batch delay", mbd)):
+        text, n = re.subn(r"%s set to \d+ ms" % name, "%s set to %d ms" % (name, value), text)
+        assert n == 1, name
+    if vt is not None:
+        lines = text.splitlines(True)
+        i = next(i for i, l in enumerate(lines) if "Max batch delay set to" in l)
+        lines.insert(i + 1, re.sub(r"Max batch delay set to \d+ ms", "Vote timeout set to %d ms" % vt, lines[i]))
+        text = "".join(lines)
+    return text
+
+
+class V2Node:
+    """One sandbox v2 node (see above). unit: the telcoin unit's state; start: the node command
+    on tn-start-docker (None: the C8 start script as staged, unedited)."""
+
+    def __init__(self, root, inst, unit="active", params=STEP9_PARAMS, start=None, cmdline=None, log=None,
+                 label="bench"):
+        self.root, self.inst = Path(root), inst
+        r = str(self.root)
+        shutil.rmtree(str(self.root / "state"), ignore_errors=True)   # a node rebuilt in place starts afresh
+        for rel in ("etc/telcoin/alloy", "etc/systemd/system", "usr/local/bin", "usr/local/libexec/telcoin",
+                    "var/lib/telcoin", "var/lib/telcoin-alloy", "var/log/telcoin", "opt/telcoin-node-scripts/lib", "tmp",
+                    "state", "bin"):
+            (self.root / rel).mkdir(parents=True, exist_ok=True)
+        for rel in ("etc/telcoin/.node-meta", "etc/telcoin/node.env", "etc/systemd/system/telcoin.service"):
+            (self.root / rel).write_text((V2 / rel).read_text().replace("=/var/lib/telcoin\n", "=%s/var/lib/telcoin\n" % r)
+                                         .replace("/var/log/telcoin", r + "/var/log/telcoin"))
+        # The unit's append file (telcoin.service StandardOutput=append:, under NODE_LOG_DIR): every run since finalize.
+        self.unit_log = self.root / "var/log/telcoin/telcoin.log"
+        self.start_script = self.root / "usr/local/libexec/telcoin/tn-start-docker"
+        text = (V2 / "usr/local/libexec/telcoin/tn-start-docker").read_text()
+        if start is not None:
+            prefix, staged = v2_node_line()
+            text = text.replace(prefix + staged, prefix + start)
+        self.start_script.write_text(text.replace(" -v /var/lib/telcoin:", " -v %s/var/lib/telcoin:" % r))
+        self.start_script.chmod(0o755)
+        self.datadir = self.root / "var/lib/telcoin"
+        self.yaml = self.datadir / "parameters.yaml"
+        self.yaml.write_text(params)
+        self.alloy = self.root / "etc/telcoin/alloy/telcoin-alloy.env"
+        self.alloy.write_text("TN_CHAIN=%s\nTN_NODE=%s\nOBS_METRICS_PUSH_URL=http://127.0.0.1:9/bench-hold\n"
+                              % (label, inst if label == "bench" else "node"))
+        (self.root / "var/lib/telcoin-alloy/wal").write_text("devnet-labelled samples\n")
+        shutil.copyfile(FIX / "v2-lib-common.sh", self.root / "opt/telcoin-node-scripts/lib/common.sh")
+        for name, fixture in NODE_STUBS:
+            install(self.root / "bin", name, fixture)
+        if not host_sed_is_gnu():
+            install(self.root / "bin", "sed", "stub-sed-gnu-inplace.sh")
+        self.put("unit", unit)
+        self.put("started", STARTED)
+        self.put("git-head", scripts_ref())
+        self.put("cmdline", cmdline if cmdline is not None else v2_cmdline())
+        self.put("boot.log", log if log is not None else boot_log())
+        (self.root / "calls").write_text("")
+
+    def put(self, name, text):
+        (self.root / "state" / name).write_text(text + ("" if text.endswith("\n") else "\n"))
+
+    def calls(self):
+        return (self.root / "calls").read_text().splitlines()
+
+    def node_command(self):
+        """The node command on its start script now (from `telcoin node`)."""
+        live = [l for l in self.start_script.read_text().splitlines() if l.startswith("exec /usr/bin/docker run ")]
+        return "telcoin node " + live[0].split(" telcoin node ", 1)[1]
+
+    def run(self, script, stdin=None, name=None, **env):
+        """<script> on this node: `bash -s` (stdin = the script), or with <name> `bash -c <script>
+        <name>` with <stdin> on its stdin (step 8's session). Returns (process, its RESULT lines)."""
+        base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "STUB_CHAIN_HEX": CHAIN_HEX}
+        base.update(env)
+        cmd = ["bash", str(FIX / "v2-node-run.sh"), str(self.root)]
+        if name is not None:
+            f = self.root / "session.sh"
+            f.write_text(script)
+            cmd += [str(f), name]
+        p = subprocess.run(cmd, input=script if name is None else stdin, env=base, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=60, universal_newlines=True, errors="replace")
+        return p, [l for l in p.stdout.splitlines() if re.match(r"^(PRECFG|POSTCFG|OBSCFG)_(OK|FAIL) ", l)]
+
+
+def relocation_problems(script):
+    """Absolute node paths <script> writes (a `>` redirection) that v2-node-run.sh would not move
+    into the sandbox (/dev/null aside)."""
+    return [t for t in re.findall(r"(?<![0-9&-])>\s*(/[^\s;|&)\"']*)", script)
+            if t != "/dev/null" and not t.startswith(RELOCATED)]
+
+
+class RemoteScriptTests(BashCase):
+    """Step 7's pre-start config (--print-prestart, bench_prestart_script) on a stopped sandbox
+    v2 node: the start script edits through the lib's tn_launch_flag_set, the per-node overrides
+    into parameters.yaml, the readback, and the C5b PRECFG_OK line."""
+
+    INST = "bench-validator-01"
 
     def setUp(self):
         super().setUp()
-        (self.bin / "gcloud").write_text(STEP9_GCLOUD)
-        (self.bin / "gcloud").chmod(0o755)
+        self.node = V2Node(self.root / "node", self.INST, unit="inactive", params=staged_yaml())
+        self.staged = self.yaml_text()
+
+    def yaml_text(self):
+        return self.node.yaml.read_text()
+
+    def script_for(self, **env):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", self.INST],
+                           env=self.env(**env), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                           universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])   # printing the script contacts nothing
+        self.assertEqual(relocation_problems(p.stdout), [])
+        return p.stdout
+
+    def lib_calls(self, op):
+        return [l for l in self.node.calls() if l.startswith("lib %s " % op)]
+
+    def precfg_ok(self, filt="-", maxfiles="-", params=0):
+        return ("PRECFG_OK %s datadir=%s/var/lib/telcoin http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:9101 filter=%s "
+                "maxfiles=%s params=%d owner=root:root mode=755 unit=inactive" % (self.INST, self.node.root, filt,
+                                                                                  maxfiles, params))
+
+    def test_default_filter_sets_six_flags_and_reports_precfg_ok(self):
+        p, lines = self.node.run(self.script_for())
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(lines, [self.precfg_ok(FILTER, "20")], p.stdout)
+        self.assertEqual(self.lib_calls("set"), [
+            "lib set --http.addr 0.0.0.0 rc=0", "lib set --ws.addr 0.0.0.0 rc=0", "lib set --metrics 127.0.0.1:9101 rc=0",
+            "lib set --log.stdout.filter %s rc=0" % FILTER, "lib set --log.file.filter %s rc=0" % FILTER,
+            "lib set --log.file.max-files 20 rc=0"])
+        self.assertEqual([l.split(" rc=")[1] for l in self.lib_calls("get")], ["0"] * 6)
+        # Every lib call sourced lib/common.sh with the guard's black hole exported, never a real RPC.
+        sources = self.lib_calls("source")
+        self.assertEqual(len(sources), 12)
+        self.assertEqual(set(sources), {"lib source DEVNET_RPC_URL=" + GUARD_RPC})
+        # The start script is what step 9 will read off the running container; nothing else moved.
+        self.assertEqual(self.node.node_command(), v2_cmdline())
+        self.assertEqual(self.yaml_text(), self.staged)
+        self.assertIn("git -C %s/opt/telcoin-node-scripts rev-parse HEAD" % self.node.root, self.node.calls())
+        unit_calls = [l for l in self.node.calls() if l.startswith("systemctl ")]
+        self.assertEqual(unit_calls, ["systemctl is-active telcoin"] * 2)   # read twice, never started
+
+    def test_empty_filter_leaves_the_log_flags_alone(self):
+        p, lines = self.node.run(self.script_for(BENCH_NODE_LOG_FILTER=""))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(lines, [self.precfg_ok()], p.stdout)
+        self.assertEqual([l.split()[2] for l in self.lib_calls("set")], ["--http.addr", "--ws.addr", "--metrics"])
+        self.assertEqual(self.node.node_command(), v2_cmdline(log_filter=None, max_files=None))
+
+    def test_rerun_converges_with_rc_1_setters(self):
+        script = self.script_for(BENCH_NODE_PARAM_OVERRIDES="0:min_header_delay=50ms,max_header_delay=250ms,vote_timeout=2s")
+        p, lines = self.node.run(script)
+        self.assertEqual(lines, [self.precfg_ok(FILTER, "20", 3)], p.stdout)
+        first = (self.node.start_script.read_text(), self.yaml_text())
+        want = [l.replace("max_header_delay: 500ms", "max_header_delay: 250ms  # bench-override")
+                 .replace("min_header_delay: 250ms", "min_header_delay: 50ms  # bench-override")
+                for l in self.staged.splitlines()] + ["vote_timeout: 2s  # bench-override"]
+        self.assertEqual(self.yaml_text().splitlines(), want)
+        (self.node.root / "calls").write_text("")
+        p, lines = self.node.run(script)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(lines, [self.precfg_ok(FILTER, "20", 3)], p.stdout)
+        self.assertEqual([l.rsplit(" ", 1)[1] for l in self.lib_calls("set")], ["rc=1"] * 6)
+        self.assertEqual((self.node.start_script.read_text(), self.yaml_text()), first)
+
+    def test_setter_rc_3_fails_naming_the_flag(self):
+        p, lines = self.node.run(self.script_for(), STUB_LIB_FORCE="set:--ws.addr=3")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertEqual(lines, ["PRECFG_FAIL %s tn_launch_flag_set --ws.addr 0.0.0.0: rc 3" % self.INST], p.stdout)
+        self.assertEqual([l.split()[2] for l in self.lib_calls("set")], ["--http.addr", "--ws.addr"])
+
+    def test_running_unit_or_wrong_checkout_refused_before_any_edit(self):
+        cases = (("unit", "active", "unit telcoin is 'active', want inactive"),
+                 ("git-head", "0" * 40, "is at '%s', want %s" % ("0" * 40, scripts_ref())))
+        for name, value, phrase in cases:
+            with self.subTest(state=name):
+                node = V2Node(self.root / ("node-" + name), self.INST, unit="inactive", params=staged_yaml())
+                node.put(name, value)
+                p, lines = node.run(self.script_for())
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertEqual(len(lines), 1, p.stdout)
+                self.assertTrue(lines[0].startswith("PRECFG_FAIL %s " % self.INST), lines)
+                self.assertIn(phrase, lines[0])
+                self.assertFalse([l for l in node.calls() if l.startswith("lib ")])
+                self.assertEqual(node.node_command(), v2_node_line()[1])
+
+
+class PreStartScriptTests(BashCase):
+    """--print-prestart <instance>: the review aid prints exactly step 7's pre-start script."""
+
+    # The C3 steps, in the order the script must take them.
+    ORDER = ('h="$(git -C "$SD" rev-parse HEAD', 'u="$(systemctl is-active telcoin', 'D="$(meta DATA_DIR)"',
+             'grep -qF " -v $D:/home/nonroot " "$S"', 'MP="$(meta METRICS_PORT)"', "setf --http.addr 0.0.0.0",
+             "setf --ws.addr 0.0.0.0", 'setf --metrics "127.0.0.1:$MP"', 'setf --log.stdout.filter "$F"',
+             'setf --log.file.filter "$F"', 'setf --log.file.max-files "$MF"', 'P="$D/parameters.yaml"',
+             "getf --http.addr 0.0.0.0", "getf --ws.addr 0.0.0.0", 'getf --metrics "127.0.0.1:$MP"',
+             'getf --log.stdout.filter "$F"', 'getf --log.file.filter "$F"', 'getf --log.file.max-files "$MF"',
+             "o=\"$(stat -c '%U:%G %a' \"$S\"", 'bash -n "$S"', 'u="$(systemctl is-active telcoin', 'echo "PRECFG_OK ')
+
+    def prestart(self, inst, **env):
+        return subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", inst],
+                              env=self.env(**env), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                              universal_newlines=True)
+
+    def test_script_parses_takes_the_c3_steps_in_order_and_contacts_nothing(self):
+        p = self.prestart("bench-validator-01")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        syntax = subprocess.run(["bash", "-n"], input=p.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                universal_newlines=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stdout)
+        lines = p.stdout.splitlines()
+        self.assertEqual(lines[2:4], ["SD=/opt/telcoin-node-scripts",
+                                      'tnlib(){ ( export DEVNET_RPC_URL=%s; . "$SD/lib/common.sh"; "$@" ); }' % GUARD_RPC])
+        self.assertIn("REF='%s'; NOV=0" % scripts_ref(), lines)
+        at, pos = [], 0
+        for step in self.ORDER:
+            pos = next(i for i in range(pos, len(lines)) if step in lines[i] and not lines[i].startswith("#"))
+            at.append(pos)
+            pos += 1
+        self.assertEqual(at, sorted(at))
+        self.assertEqual(lines[-1], 'echo "PRECFG_OK bench-validator-01 datadir=$D http=0.0.0.0 ws=0.0.0.0 '
+                         'metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 '
+                         'unit=$u"')
+        self.assertFalse([l for l in lines if re.search(r"systemctl (start|restart|stop)|docker ", l)])
+
+    def test_script_differs_per_instance_by_its_overrides(self):
+        env = {"BENCH_NODE_PARAM_OVERRIDES": "0:max_header_delay=250ms 3:vote_timeout=2s,min_header_delay=50ms"}
+        one, two, four = (self.prestart(i, **env).stdout for i in ("bench-validator-01", "bench-validator-02",
+                                                                      "bench-validator-04"))
+
+        def setp(script):
+            return [l for l in script.splitlines() if re.match(r"^setp [a-z_]+ \S+$", l)]
+        self.assertEqual(setp(one), ["setp max_header_delay 250ms"])
+        self.assertEqual(setp(two), [])
+        self.assertEqual(setp(four), ["setp vote_timeout 2s", "setp min_header_delay 50ms"])
+        self.assertIn("; NOV=1\n", one)
+        self.assertIn("; NOV=0\n", two)
+        self.assertIn("; NOV=2\n", four)
+        self.assertIn('echo "PRECFG_FAIL bench-validator-04 $*"', four)
+        self.assertEqual(two.replace("bench-validator-02", "bench-validator-01"),
+                         one.replace("; NOV=1\n", "; NOV=0\n").replace("setp max_header_delay 250ms\n", ""))
+
+    def test_unknown_instance_refused(self):
+        p = self.prestart("bench-validator-99")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.stdout, "")
+        self.assertIn("bench-validator-99", p.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_relocation_list_matches_the_runner(self):
+        runner = (FIX / "v2-node-run.sh").read_text()
+        for path in RELOCATED:
+            self.assertIn('"s#%s#${R}%s#g"' % (path, path), runner)
+
+
+class FleetCase(BashCase):
+    """A deploy run against eleven sandbox v2 nodes: gcloud is fixtures/node-image/
+    stub-gcloud-v2-node.sh, which runs every `sudo bash -s` session on the node's sandbox."""
+
+    RUN = "rtest-fleet"
+    NODE_UNIT = "active"
+
+    def setUp(self):
+        super().setUp()
+        install(self.bin, "gcloud", "stub-gcloud-v2-node.sh")
+        install(self.bin, "v2-node-run.sh", "v2-node-run.sh")
+        self.params.write_text(STEP9_PARAMS)
         self.run_dir = self.bench / "results" / self.RUN
         self.run_dir.mkdir(parents=True)
         self.manifest = self.run_dir / "manifest.json"
         self.manifest.write_text(json.dumps({
-            "schema": "tn-bench-manifest/v1", "run_id": self.RUN, "docker_image": REF,
-            "node_git_sha": FULL_SHA, "node_fork_schedule": "subsecond-from-genesis",
+            "schema": "tn-bench-manifest/v1", "run_id": self.RUN, "docker_image": PINNED, "node_image_ref": REF,
+            "node_image_pinned": PINNED, "node_git_sha": FULL_SHA, "node_fork_schedule": "subsecond-from-genesis",
             "consensus_parameters": {
                 "file": self.params.name, "sha256": hashlib.sha256(self.params.read_bytes()).hexdigest(),
                 "max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250},
             "timestamps": {}, "phases": [], "chaos": [], "instances": [], "notes": []}, indent=2) + "\n")
         self.spool = self.root / "remote-stdin"
         self.spool.mkdir()
+        self.nodes = {inst: V2Node(self.root / "nodes" / inst, inst, unit=self.NODE_UNIT, **self.node_args(inst))
+                      for inst in NODES}
 
-    def deploy(self, **env):
+    def node_args(self, inst):
+        """V2Node keywords for <inst>: a node step 7 configured (pre-start edits on its start script)."""
+        return {"start": v2_cmdline()}
+
+    def edit_manifest(self, **values):
+        m = json.loads(self.manifest.read_text())
+        m.update(values)
+        self.manifest.write_text(json.dumps(m, indent=2) + "\n")
+
+    def deploy(self, step, **env):
         return subprocess.run(
-            ["bash", str(self.bench / "benchmark-deploy.sh"), "--run", self.RUN, "--yes", "--only", "9"],
-            env=self.env(BENCH_RUN_ID=None, STUB_SHA=FULL_SHA, STUB_SPOOL=str(self.spool), **env),
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120, universal_newlines=True,
-            errors="replace")
+            ["bash", str(self.bench / "benchmark-deploy.sh"), "--run", self.RUN, "--yes", "--only", str(step)],
+            env=self.env(BENCH_RUN_ID=None, STUB_NODES=str(self.root / "nodes"), STUB_SPOOL=str(self.spool),
+                         STUB_CHAIN_HEX=CHAIN_HEX, POSTCFG_WAIT_SECS="10", **env),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300, universal_newlines=True, errors="replace")
 
     def ssh_targets(self):
         return [c.split()[3] for c in self.calls() if c.startswith("gcloud compute ssh ")]
 
+    def m(self):
+        return json.loads(self.manifest.read_text())
+
+
+class Step9Tests(FleetCase):
+    """`benchmark-deploy.sh --yes --only 9`: verify only. One session per node runs step 9's script
+    on the node's sandbox; nothing restarts, nothing is edited."""
+
+    def deploy9(self, **env):
+        return self.deploy(9, **env)
+
+    def node_line(self, out, inst):
+        return [l.strip() for l in out.splitlines() if l.strip().startswith("POSTCFG_OK %s " % inst)]
+
     def test_every_node_boots_the_manifest_build(self):
-        p = self.deploy()
+        p = self.deploy9()
         self.assertEqual(p.returncode, 0, p.stdout)
-        m = json.loads(self.manifest.read_text())
+        m = self.m()
         self.assertEqual(sorted(m["node_startup"]), sorted(NODES))
         for inst in NODES:
             self.assertEqual(m["node_startup"][inst], {
@@ -499,236 +817,517 @@ class Step9Tests(BashCase):
                 "params": {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250,
                            "header_num_of_batches_threshold": 5, "vote_timeout_ms": None},
                 "log_filter": FILTER, "log_max_files": 20}, inst)
-        self.assertEqual(m["consensus_parameters"]["overrides"], {})
-        script = (self.spool / "bench-validator-01.sh").read_text()
-        self.assertIn("F='%s'; MF='20'" % FILTER, script)
-        self.assertNotIn("\nsetp ", script)
+            line = self.node_line(p.stdout, inst)
+            self.assertEqual(len(line), 1, p.stdout)
+            self.assertTrue(line[0].endswith(" filter=%s maxfiles=20 back=-" % FILTER), line)
+            self.assertIn(" chain=%s block=0x" % CHAIN_HEX, line[0])
+            self.assertIn(" ip=192.0.2.7 progress=consensus log (1 subdag committed/quorum reached lines", line[0])
         self.assertIn("step_9_done", m["timestamps"])
-        # Serially: each node's log saved, then its post-config session, in fleet order.
-        self.assertEqual(self.ssh_targets(), [n for n in NODES for _ in (0, 1)])
-        self.assertIn("POSTCFG_OK bench-validator-01 ", (self.spool / "bench-validator-01.sh").read_text())
+        # One session per node, in fleet order, and gcloud did nothing else.
+        self.assertEqual(self.ssh_targets(), NODES)
         self.assertFalse([c for c in self.calls() if not c.startswith("gcloud compute ssh ")])
+        for inst, node in self.nodes.items():
+            calls = node.calls()
+            # Verify only: no unit or container action, the start script and the yaml untouched.
+            self.assertFalse([c for c in calls if re.match(r"systemctl (start|stop|restart|reset-failed) telcoin$", c)
+                              or re.match(r"docker (run|stop|restart|rm|start) ", c)], inst)
+            self.assertEqual(node.node_command(), v2_cmdline(), inst)
+            self.assertEqual(node.yaml.read_text(), STEP9_PARAMS, inst)
+            self.assertEqual([c for c in calls if c.startswith("systemctl show ")], ["systemctl show -p NRestarts --value telcoin"])
+            self.assertEqual(calls.count("docker inspect -f {{.State.StartedAt}} telcoin"), 2, inst)
+            logs = [c for c in calls if c.startswith("docker logs ")]
+            self.assertTrue(logs, inst)
+            self.assertEqual([c for c in logs if not re.match(r"docker logs telcoin --since \S+$", c)], [], inst)
+            self.assertIn("docker logs telcoin --since " + STARTED, logs)
+            # No coordinated_start in the manifest: progress counts from the container's StartedAt.
+            self.assertIn("date -d %s +%%s" % STARTED, calls)
+            self.assertEqual((node.root / "usr/local/bin/bench-node-sampler.sh").read_bytes(),
+                             (BENCH / "node-sampler.sh").read_bytes())
+            self.assertTrue((node.root / "etc/systemd/system/bench-node-sampler.service").is_file())
+            self.assertIn("systemctl enable --now bench-node-sampler.service", calls)
+        script = (self.spool / "bench-validator-01.sh").read_text()
+        self.assertEqual(relocation_problems(script), [])
+        self.assertNotIn("tn_launch_flag_set", script)
+        self.assertNotIn("setp ", script)
 
     def test_wrong_sha_on_first_node_stops_the_fleet(self):
-        p = self.deploy(STUB_BAD_INST="bench-validator-01", STUB_BAD_SHA=BAD_SHA)
+        self.nodes["bench-validator-01"].put("boot.log", boot_log(sha=BAD_SHA))
+        p = self.deploy9()
         self.assertNotEqual(p.returncode, 0, p.stdout)
         self.assertIn("bench-validator-01: boot sha = %s, expected %s" % (BAD_SHA, FULL_SHA), p.stdout)
-        self.assertEqual(self.ssh_targets(), ["bench-validator-01", "bench-validator-01"])
-        m = json.loads(self.manifest.read_text())
-        # The gate recorded every node's planned log filter; only the restarted node has boot fields.
+        self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
+        m = self.m()
         self.assertEqual([i for i, v in m["node_startup"].items() if "sha" in v], ["bench-validator-01"])
         self.assertEqual(m["node_startup"]["bench-validator-01"]["sha"], BAD_SHA)
         self.assertNotIn("step_9_done", m["timestamps"])
 
     def test_short_manifest_sha_matches_by_prefix_and_delay_mismatch_stops(self):
-        m = json.loads(self.manifest.read_text())
-        m["node_git_sha"] = FULL_SHA[:9]
-        self.manifest.write_text(json.dumps(m, indent=2) + "\n")
-        p = self.deploy(STUB_MHD="3000")
+        self.edit_manifest(node_git_sha=FULL_SHA[:9])
+        self.nodes["bench-validator-01"].put("boot.log", boot_log(mhd=3000))
+        p = self.deploy9()
         self.assertNotEqual(p.returncode, 0, p.stdout)
         self.assertIn("bench-validator-01: max_header_delay = 3000 ms, expected 500 ms", p.stdout)
-        self.assertEqual(self.ssh_targets(), ["bench-validator-01", "bench-validator-01"])
+        self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
         self.assertNotIn("boot sha =", p.stdout)
 
+    def test_fork_schedule_mismatch_stops(self):
+        self.nodes["bench-validator-01"].put("boot.log", boot_log(fork=PRE_SUBSECOND_LINE))
+        p = self.deploy9()
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("bench-validator-01: fork schedule = pre-subsecond, expected subsecond-from-genesis "
+                      "(manifest node_fork_schedule)", p.stdout)
+        self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
+
     OVERRIDE = "2:min_header_delay=50ms,max_header_delay=250ms"
+    OVERRIDDEN_YAML = STEP9_PARAMS.replace("max_header_delay: 500ms", "max_header_delay: 250ms  # bench-override") \
+        .replace("min_header_delay: 250ms", "min_header_delay: 50ms  # bench-override")
 
     def test_override_on_one_node_only(self):
-        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE)
+        three = self.nodes["bench-validator-03"]
+        three.yaml.write_text(self.OVERRIDDEN_YAML)
+        three.put("boot.log", boot_log(mhd=250, nhd=50))
+        self.edit_manifest(coordinated_start={"due": 1767225660, "nodes": 11, "started": 11, "skipped_running": 0,
+                                              "spread_secs": 2, "max_late_secs": 1, "ts": "2026-01-01T00:01:00Z"})
+        p = self.deploy9(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE)
         self.assertEqual(p.returncode, 0, p.stdout)
-        m = json.loads(self.manifest.read_text())
-        self.assertEqual(m["consensus_parameters"]["overrides"],
-                         {"bench-validator-03": {"min_header_delay": "50ms", "max_header_delay": "250ms"}})
+        m = self.m()
         for inst in NODES:
             got = m["node_startup"][inst]
             want = (250, 50) if inst == "bench-validator-03" else (500, 250)
             self.assertEqual((got["mhd"], got["nhd"]), want, inst)
             self.assertEqual((got["params"]["max_header_delay_ms"], got["params"]["min_header_delay_ms"]), want, inst)
-        three = (self.spool / "bench-validator-03.sh").read_text()
-        self.assertIn("\nsetp min_header_delay 50ms\nsetp max_header_delay 250ms\n", three)
-        self.assertIn('cat "$P.bak" > "$P"', three)       # the yaml rewrite itself travels in the script
-        for inst in NODES:
-            if inst != "bench-validator-03":
-                self.assertNotIn("\nsetp ", (self.spool / (inst + ".sh")).read_text(), inst)
-        self.assertIn("bench-validator-03: http.addr 0.0.0.0, assert alloy labels, parameters.yaml "
+            # Progress counts from the coordinated start's due time, not from a date -d of StartedAt.
+            self.assertFalse([c for c in self.nodes[inst].calls() if c.startswith("date -d")], inst)
+            self.assertIn("\nT0='1767225660'\n", (self.spool / (inst + ".sh")).read_text())
+        self.assertEqual(three.yaml.read_text(), self.OVERRIDDEN_YAML)   # read, never rewritten
+        self.assertIn("bench-validator-03: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml "
                       "(min_header_delay=50ms,max_header_delay=250ms)", p.stdout)
 
     def test_wrong_value_on_one_node_stops_the_fleet(self):
-        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE, STUB_BAD_INST="bench-validator-03",
-                        STUB_BAD_MHD="500")
+        self.nodes["bench-validator-03"].yaml.write_text(self.OVERRIDDEN_YAML)
+        p = self.deploy9(BENCH_NODE_PARAM_OVERRIDES=self.OVERRIDE)
         self.assertNotEqual(p.returncode, 0, p.stdout)
         self.assertIn("bench-validator-03: max_header_delay = 500 ms, expected 250 ms (manifest "
                       "consensus_parameters + BENCH_NODE_PARAM_OVERRIDES)", p.stdout)
-        self.assertEqual(self.ssh_targets(), [n for n in NODES[:3] for _ in (0, 1)])
+        self.assertEqual(self.ssh_targets(), NODES[:3])
+
+    CONSENSUS_ONLY = "".join(l + "\n" for l in (FIX / "node-log-boot-good.txt").read_text().splitlines()
+                             if "subdag committed" in l)
+
+    def test_boot_lines_rotated_out_of_docker_logs_come_from_the_unit_file(self):
+        # The capped json-file log kept only consensus lines; the unit's append file holds the stage-only
+        # run (other values, a vote timeout, pre-subsecond) and then this run: step 9 reads the last block.
+        run1 = boot_log(sha=BAD_SHA, mhd=3000, nhd=1000, mbd=1000, vt=1500, fork=PRE_SUBSECOND_LINE)
+        cases = (("telcoin.service StandardOutput=append:", None),
+                 ("NODE_LOG_DIR/telcoin.log", "var/log/telcoin-alt"))
+        for where, alt in cases:
+            with self.subTest(source=where):
+                node = V2Node(self.root / "nodes" / "bench-validator-01", "bench-validator-01", start=v2_cmdline(),
+                              log=self.CONSENSUS_ONLY)
+                unit_log = node.unit_log
+                if alt is not None:   # no StandardOutput= line: the unit file is $NODE_LOG_DIR/telcoin.log
+                    svc = node.root / "etc/systemd/system/telcoin.service"
+                    svc.write_text("".join(l for l in svc.read_text().splitlines(True)
+                                           if not l.startswith("StandardOutput=")))
+                    meta = node.root / "etc/telcoin/.node-meta"
+                    meta.write_text(meta.read_text().replace("/var/log/telcoin\n", "/%s\n" % alt))
+                    (node.root / alt).mkdir(parents=True, exist_ok=True)
+                    unit_log = node.root / alt / "telcoin.log"
+                unit_log.write_text(run1 + boot_log())
+                self.log.write_text("")
+                p = self.deploy9()
+                self.assertEqual(p.returncode, 0, p.stdout)
+                line = self.node_line(p.stdout, "bench-validator-01")
+                self.assertEqual(len(line), 1, p.stdout)
+                self.assertIn(" sha=%s mhd=500 nhd=250 mbd=250 vt=? forks=subsecond-from-genesis " % FULL_SHA, line[0])
+                got = self.m()["node_startup"]["bench-validator-01"]
+                self.assertEqual((got["sha"], got["mhd"], got["vt"], got["forks"]),
+                                 (FULL_SHA, 500, None, "subsecond-from-genesis"))
+                self.assertEqual(self.ssh_targets(), NODES)
+
+    def test_no_starting_line_in_docker_logs_nor_the_unit_file_fails_naming_both(self):
+        node = self.nodes["bench-validator-01"]
+        node.put("boot.log", self.CONSENSUS_ONLY)
+        node.unit_log.write_text(self.CONSENSUS_ONLY)
+        p = self.deploy9()
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("POSTCFG_FAIL no 'telcoin-network <version> (<sha>) starting' line in docker logs since the "
+                      "container started (%s) nor in the unit file %s" % (STARTED, node.unit_log), p.stdout)
+        self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
+
+    def test_yaml_that_disagrees_with_the_boot_lines_stops(self):
+        self.nodes["bench-validator-02"].yaml.write_text(STEP9_PARAMS.replace("max_batch_delay: 250ms", "max_batch_delay: 300ms"))
+        p = self.deploy9()
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("bench-validator-02: parameters.yaml has max/min header delay 500/250 ms and max batch delay "
+                      "300 ms, expected 500/250/250 ms", p.stdout)
+        self.assertEqual(self.ssh_targets(), NODES[:2])
 
     def test_empty_log_filter_leaves_the_command_line_alone(self):
-        p = self.deploy(BENCH_NODE_LOG_FILTER="")
+        for node in self.nodes.values():
+            node.put("cmdline", v2_cmdline(log_filter=None, max_files=None))
+        p = self.deploy9(BENCH_NODE_LOG_FILTER="")
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertNotIn("\nF=", (self.spool / "bench-validator-01.sh").read_text())
-        m = json.loads(self.manifest.read_text())
+        self.assertNotIn("--log.stdout.filter/--log.file.filter '$rf'", (self.spool / "bench-validator-01.sh").read_text())
+        m = self.m()
         self.assertEqual({(v["log_filter"], v["log_max_files"]) for v in m["node_startup"].values()}, {(None, None)})
+
+    def test_node_without_the_log_filter_stops(self):
+        self.nodes["bench-validator-01"].put("cmdline", v2_cmdline(log_filter=None, max_files=None))
+        p = self.deploy9()
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("POSTCFG_FAIL running --log.stdout.filter/--log.file.filter '' --log.file.max-files '', "
+                      "expected '%s' / 20" % FILTER, p.stdout)
+        self.assertIn("post-config verification failed on bench-validator-01", p.stdout)
+        self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
+
+    def test_restart_or_missing_flags_fail_the_session(self):
+        cases = (("nrestarts", "1", "POSTCFG_FAIL telcoin NRestarts=1, expected 0 (no restart after the coordinated start)"),
+                 ("started-flip", "1", "POSTCFG_FAIL the telcoin container restarted while step 9 ran"),
+                 ("cmdline", v2_cmdline(http=None), "POSTCFG_FAIL running --http.addr is '127.0.0.1', expected 0.0.0.0"),
+                 ("cmdline", v2_cmdline(ws=None), "POSTCFG_FAIL running --ws.addr is '127.0.0.1', expected 0.0.0.0"),
+                 ("cmdline", v2_cmdline(metrics=None), "POSTCFG_FAIL running --metrics is '', expected 127.0.0.1:9101"))
+        for name, value, line in cases:
+            with self.subTest(line=line):
+                node = V2Node(self.root / "nodes" / "bench-validator-01", "bench-validator-01", start=v2_cmdline())
+                node.put(name, value)
+                self.log.write_text("")
+                p = self.deploy9()
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(line, p.stdout)
+                self.assertNotIn("POSTCFG_OK", p.stdout)
+                self.assertEqual(self.ssh_targets(), ["bench-validator-01"])
+                self.assertFalse((node.root / "usr/local/bin/bench-node-sampler.sh").exists())
 
     def test_fleet_minimum_max_header_delay_feeds_fork_delay_check(self):
         # A pre-subsecond build at 1 s delays passes, until one node is given 500 ms.
-        m = json.loads(self.manifest.read_text())
+        m = self.m()
         m["node_fork_schedule"] = "pre-subsecond"
         m["consensus_parameters"].update(max_header_delay_ms=1000, min_header_delay_ms=250, max_batch_delay_ms=250)
         self.manifest.write_text(json.dumps(m, indent=2) + "\n")
         self.params.write_text("max_header_delay: 1s\nmin_header_delay: 250ms\nmax_batch_delay: 250ms\n")
-        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES="2:max_header_delay=500ms", STUB_MHD="1000")
+        p = self.deploy9(BENCH_NODE_PARAM_OVERRIDES="2:max_header_delay=500ms")
         self.assertNotEqual(p.returncode, 0, p.stdout)
         self.assertIn("max_header_delay is 500 ms (BENCH_NODE_PARAM_OVERRIDES (bench-validator-03))", p.stdout)
         self.assertEqual(self.ssh_targets(), [])
 
     def test_gate_refuses_parameters_a_node_would_refuse(self):
-        p = self.deploy(BENCH_NODE_PARAM_OVERRIDES="4:min_header_delay=600ms 6:max_header_delay=1s,vote_timeout=1s")
+        p = self.deploy9(BENCH_NODE_PARAM_OVERRIDES="4:min_header_delay=600ms 6:max_header_delay=1s,vote_timeout=1s")
         self.assertNotEqual(p.returncode, 0, p.stdout)
         self.assertIn("✗ bench-validator-05: min_header_delay 600 ms > max_header_delay 500 ms", p.stdout)
         self.assertIn("✗ bench-validator-07: vote_timeout 1000 ms < max_header_delay 1000 ms + 250 ms", p.stdout)
         self.assertEqual(self.ssh_targets(), [])
 
-
-# docker on the node for RemoteScriptTests: `docker logs telcoin ...` prints the boot log fixture,
-# `docker inspect` the telcoin command of the wrapper $STUB_WRAPPER as the restarted container's
-# command line (continuation lines joined); every other call succeeds silently.
-NODE_DOCKER = r"""#!/usr/bin/env bash
-printf 'docker %s\n' "$*" >> "${STUB_LOG:?}"
-case "${1:-}" in
-    logs) cat "${STUB_BOOT_LOG:?}" ;;
-    inspect) sed -n '/^telcoin node/,$p' "${STUB_WRAPPER:?}" | tr -d '\\' | tr '\n' ' '; echo ;;
-    *) exit 0 ;;
-esac
-"""
+    def test_print_postconfig_contacts_nothing_and_writes_only_node_paths(self):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-postconfig", "bench-validator-01"],
+                           env=self.env(BENCH_RUN_ID=self.RUN), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=60, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(relocation_problems(p.stdout), [])
+        self.assertTrue(p.stdout.rstrip().endswith('vote=$(ms "$(pv vote_timeout)") filter=${rf:--} maxfiles=${rmf:--} back=-"'))
 
 
-class RemoteScriptTests(BashCase):
-    """Step 9's remote script (--print-postconfig) against a stubbed node."""
+class ObsScriptTests(BashCase):
+    """Step 8's session (--print-obs-script): the ingest token on stdin only, setup-observability.sh
+    with --metrics already on the node command (no restart), then the same-session Alloy relabel."""
 
-    RELOCATE = ("/opt/telcoin/", "/etc/telcoin/", "/etc/systemd/system/",
-                "/usr/local/bin/bench-node-sampler.sh")
+    INST = "bench-validator-03"
+    TOKEN = "tok-3f9b0709-not-a-secret"
 
     def setUp(self):
         super().setUp()
-        self.node = self.root / "node-root"
-        self.script = self.script_for()
-        (self.node / "opt/telcoin").mkdir(parents=True)
-        (self.node / "etc/telcoin/alloy").mkdir(parents=True)
-        (self.node / "etc/systemd/system").mkdir(parents=True)
-        (self.node / "usr/local/bin").mkdir(parents=True)
-        # The node's wrapper as setup-node.sh writes it: the datadir bind-mounted at the container's
-        # --datadir, whose host side holds the parameters.yaml step 7 staged (staged_yaml()).
-        self.datadir = self.node / "home/telcoin/data"
-        self.datadir.mkdir(parents=True)
-        self.yaml = self.datadir / "parameters.yaml"
-        self.staged = staged_yaml()
-        self.yaml.write_text(self.staged)
-        self.wrapper = self.node / "opt/telcoin/start-telcoin.sh"
-        self.wrapper.write_text(
-            "#!/usr/bin/env bash\n# Auto-generated by setup-node.sh (--datadir in a comment is not the flag)\n"
-            "exec docker run --rm \\\n--name telcoin \\\n-v %s:/home/nonroot \\\n-v /etc/tn:/etc/telcoin:ro \\\n"
-            "img \\\ntelcoin node \\\n--datadir /home/nonroot \\\n--log.stdout.format log-fmt \\\n-vvv \\\n"
-            "--http --http.addr 127.0.0.1 --ws --ws.addr 127.0.0.1\n" % self.datadir)
-        (self.node / "etc/telcoin/alloy/telcoin-alloy.env").write_text(
-            "TN_CHAIN=%s\nTN_NODE=bench-validator-01\n" % self.label)
-        self.nodebin = self.root / "node-bin"
-        for name in ("curl", "systemctl", "date", "sleep"):
-            install(self.nodebin, name, "stub-node-%s.sh" % name)
-        (self.nodebin / "docker").write_text(NODE_DOCKER)
-        (self.nodebin / "docker").chmod(0o755)
-        if not host_sed_is_gnu():
-            install(self.nodebin, "sed", "stub-sed-gnu-inplace.sh")
-        self.state = self.root / "node-state"
-        self.state.mkdir()
-
-    def script_for(self, **env):
-        """Step 9's script for bench-validator-01 (--print-postconfig), node paths moved into the sandbox."""
-        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"),
-                            "--print-postconfig", "bench-validator-01"],
-                           env=self.env(BENCH_RUN_ID="rtest-postcfg", **env), stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, timeout=60, universal_newlines=True)
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-obs-script", self.INST],
+                           env=self.env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                           universal_newlines=True)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(self.calls(), [])   # printing the script contacts nothing
-        script = p.stdout
-        self.chain_hex = re.search(r'\[ "\$cid" = "(0x[0-9a-f]+)" \]', script).group(1)
-        self.label = re.search(r"grep -qx 'TN_CHAIN=([^']+)'", script).group(1)
-        for rel in self.RELOCATE:
-            self.assertIn(rel, script)
-            script = script.replace(rel, str(self.node) + rel)
-        # Every redirection now lands in the sandbox (or /dev/null).
-        for target in re.findall(r"(?<![0-9&-])>\s*(/[^\s;|&)]*)", script):
-            self.assertTrue(target == "/dev/null" or target.startswith(str(self.node) + "/"), target)
-        return script
+        self.assertEqual(self.calls(), [])
+        self.printed = p.stdout
+        lines = p.stdout.splitlines()
+        n = next(i for i, l in enumerate(lines) if not l.startswith("#"))
+        self.header, self.body = lines[:n], "\n".join(lines[n:]) + "\n"
+        self.zone = re.search(r"tn_iap_ssh_cmd_stdin %s (\S+) " % self.INST, self.header[1]).group(1)
+        self.node = V2Node(self.root / "node", self.INST, start=v2_cmdline(), label="devnet")
+        obs = self.node.root / "opt/telcoin-node-scripts/setup-observability.sh"
+        shutil.copyfile(FIX / "stub-v2-setup-observability.sh", obs)
+        obs.chmod(0o755)
+        # The two obs-devnet URLs, as config.sh gives them to the script.
+        self.config = {"OBS_PUSH_URL": re.search(r"--push-url '([^']+)'", self.body).group(1),
+                       "OBS_METRICS_PUSH_URL": re.search(r"grep -qx 'OBS_METRICS_PUSH_URL=([^']+)'", self.body).group(1)}
 
-    def run_remote(self, boot_log, script=None):
-        env = {"PATH": str(self.nodebin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
-               "HOME": str(self.root), "TMPDIR": str(self.tmpdir), "STUB_LOG": str(self.log),
-               "STUB_BOOT_LOG": str(FIX / boot_log), "STUB_STATE": str(self.state),
-               "STUB_CHAIN_HEX": self.chain_hex, "POSTCFG_WAIT_SECS": "10", "STUB_WRAPPER": str(self.wrapper)}
-        p = subprocess.run(["bash", "-s"], input=script or self.script, env=env, cwd=str(self.node),
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60,
-                           universal_newlines=True, errors="replace")
-        lines = [l for l in p.stdout.splitlines() if l.startswith("POSTCFG_")]
-        return p, lines
+    def session(self, events="obs-events-ok.jsonl", stdin=None, **env):
+        return self.node.run(self.body, stdin=self.TOKEN + "\n" if stdin is None else stdin, name="bench-obs",
+                             STUB_OBS_EVENTS=str(FIX / events), **env)
 
-    def test_good_boot_reports_build_delays_and_forks(self):
-        p, lines = self.run_remote("node-log-boot-good.txt")
+    def state(self, name):
+        f = self.node.root / "state" / name
+        return f.read_text() if f.exists() else None
+
+    def test_printed_header_keeps_the_token_on_stdin(self):
+        self.assertEqual(self.header[0], "# step 8 session for %s (--print-obs-script). Sent as:" % self.INST)
+        sent = self.header[1]
+        left, bar, remote = sent.partition(" | ")
+        self.assertEqual(left, "#   printf '%s\\n' PLACEHOLDER-TOKEN")
+        self.assertTrue(remote.startswith("tn_iap_ssh_cmd_stdin %s %s 'sudo bash -c " % (self.INST, self.zone)), sent)
+        self.assertNotIn("PLACEHOLDER-TOKEN", remote)
+        for line in self.printed.splitlines():
+            if "PLACEHOLDER-TOKEN" in line:
+                self.assertIn(line, self.header)
+        self.assertNotIn("PLACEHOLDER-TOKEN", self.body)
+        syntax = subprocess.run(["bash", "-n"], input=self.body, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                universal_newlines=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stdout)
+        self.assertEqual(relocation_problems(self.body), [])
+        # The only command the token reaches: setup-observability.sh, on its stdin.
+        self.assertIn("printf '%s\\n' \"${TOKEN}\" | DEVNET_RPC_URL='" + GUARD_RPC + "' ", self.body)
+        self.assertIn(" --token-stdin ", self.body)
+        self.assertNotRegex(self.body, r"--token[ =]")
+
+    def test_remote_command_is_the_printed_script(self):
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "obs_script", "obs_remote_cmd")
+        script = ('set -euo pipefail\nsource "$1/bench-lib.sh"\neval "$2"\n'
+                  'obs_remote_cmd "$3" "$(tn_region_from_zone "$4")"\n')
+        p = self.bash(script, self.bench, fns, self.INST, self.zone)
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertEqual(len(lines), 1, p.stdout)
-        self.assertTrue(lines[0].startswith("POSTCFG_OK bench-validator-01 chain=%s " % self.chain_hex), lines)
-        self.assertIn(" ip=192.0.2.7 ", lines[0])
-        self.assertTrue(lines[0].endswith(" sha=%s mhd=500 nhd=250 mbd=250 vt=? forks=subsecond-from-genesis"
-                                          " max=500 min=250 batch=250 thr=5 vote=- filter=%s maxfiles=20"
-                                          % (FULL_SHA, FILTER)), lines[0])
-        self.assertIn("--http.addr 0.0.0.0", self.wrapper.read_text())
-        self.assertIn("\n--datadir /home/nonroot --log.stdout.filter %s --log.file.filter %s --log.file.max-files 20 \\\n"
-                      % (FILTER, FILTER), self.wrapper.read_text())
-        # No override: the staged file is untouched, and kept as the .bak.
-        self.assertEqual(self.yaml.read_text(), self.staged)
-        self.assertEqual((self.datadir / "parameters.yaml.bak").read_text(), self.staged)
-        self.assertEqual((self.node / "usr/local/bin/bench-node-sampler.sh").read_bytes(),
-                         (BENCH / "node-sampler.sh").read_bytes())
-        self.assertTrue((self.node / "etc/systemd/system/bench-node-sampler.service").is_file())
-        calls = self.calls()
-        self.assertIn("systemctl restart telcoin", calls)
-        self.assertIn("systemctl enable --now bench-node-sampler.service", calls)
+        m = re.fullmatch(r'sudo bash -c "\$\(printf %s ([A-Za-z0-9+/=]+) \| base64 -d\)" bench-obs', p.stdout.strip())
+        self.assertIsNotNone(m, p.stdout)
+        self.assertEqual(base64.b64decode(m.group(1)).decode(), self.body)
+        self.assertEqual(self.calls(), [])
 
-    def test_baseline_boot_reports_vote_timeout_and_pre_subsecond(self):
-        p, lines = self.run_remote("node-log-boot-baseline.txt")
+    def test_token_reaches_only_the_stdin_of_setup_observability(self):
+        p, lines = self.session()
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertIn(" sha=%s mhd=3000 nhd=1000 mbd=1000 vt=1500 forks=pre-subsecond max=" % FULL_SHA, lines[-1])
+        done = (FIX / "obs-events-ok.jsonl").read_text().splitlines()[-1]
+        self.assertEqual(lines, ["OBSCFG_OK %s restarted=none %s" % (self.INST, done)], p.stdout)
+        self.assertEqual(self.state("obs-stdin"), self.TOKEN + "\n")
+        argv = self.state("obs-argv").splitlines()
+        self.assertEqual(argv, ["--json", "--enable-metrics", "--region", self.zone.rsplit("-", 1)[0], "--token-stdin",
+                                "--push-url", self.config["OBS_PUSH_URL"], "--metrics-push-url",
+                                "http://127.0.0.1:9/bench-hold"])
+        env = self.state("obs-env")
+        self.assertIn("DEVNET_RPC_URL=%s\n" % GUARD_RPC, env)
+        for where, text in (("argv", "\n".join(argv)), ("env", env), ("node calls", "\n".join(self.node.calls())),
+                            ("session output", p.stdout)):
+            self.assertNotIn(self.TOKEN, text, where)
+        # No restart; Alloy stopped, its WAL wiped, relabelled, started, all in this session.
+        self.assertFalse([c for c in self.node.calls() if re.match(r"systemctl (start|stop|restart) telcoin$", c)])
+        self.assertEqual([c for c in self.node.calls() if re.match(r"systemctl (start|stop) ", c)],
+                         ["systemctl stop telcoin-alloy.service", "systemctl start telcoin-alloy.service"])
+        self.assertEqual(list((self.node.root / "var/lib/telcoin-alloy").iterdir()), [])
+        self.assertEqual(self.node.alloy.read_text(), "TN_CHAIN=bench\nTN_NODE=%s\nOBS_METRICS_PUSH_URL=%s\n"
+                         % (self.INST, self.config["OBS_METRICS_PUSH_URL"]))
 
-    def test_no_starting_line_fails(self):
-        p, lines = self.run_remote("node-log-boot-nostart.txt")
-        self.assertNotEqual(p.returncode, 0, p.stdout)
-        self.assertEqual(lines, ["POSTCFG_FAIL no 'telcoin-network <version> (<sha>) starting' line "
-                                 "in docker logs since the restart"], p.stdout)
-        self.assertFalse((self.node / "usr/local/bin/bench-node-sampler.sh").exists())
-
-    def test_overrides_rewrite_the_yaml_in_place_and_a_rerun_starts_from_the_bak(self):
-        script = self.script_for(BENCH_NODE_PARAM_OVERRIDES="0:min_header_delay=50ms,max_header_delay=250ms,vote_timeout=2s")
-        original = self.yaml.read_text()
-        for attempt in (1, 2):
-            p, lines = self.run_remote("node-log-boot-good.txt", script)
-            self.assertEqual(p.returncode, 0, p.stdout)
-            self.assertIn(" max=250 min=50 batch=250 thr=5 vote=2000 filter=%s maxfiles=20" % FILTER, lines[-1])
-            got = self.yaml.read_text().splitlines()
-            want = [l.replace("max_header_delay: 500ms", "max_header_delay: 250ms  # bench-override")
-                     .replace("min_header_delay: 250ms", "min_header_delay: 50ms  # bench-override")
-                    for l in original.splitlines()] + ["vote_timeout: 2s  # bench-override"]
-            self.assertEqual(got, want, attempt)
-            self.assertEqual((self.datadir / "parameters.yaml.bak").read_text(), original, attempt)
-            self.assertEqual(self.wrapper.read_text().count("--log.stdout.filter"), 1, attempt)
-
-    def test_block_form_key_is_refused_before_the_restart(self):
-        self.yaml.write_text(self.yaml.read_text().replace("max_header_delay: 500ms\n",
-                                                           "max_header_delay:\n  secs: 0\n  nanos: 500000000\n"))
-        before = self.yaml.read_text()
-        p, lines = self.run_remote("node-log-boot-good.txt",
-                                   self.script_for(BENCH_NODE_PARAM_OVERRIDES="0:max_header_delay=250ms"))
-        self.assertNotEqual(p.returncode, 0, p.stdout)
+    def assertObsFails(self, phrase, p, lines, called=True):
+        self.assertEqual(p.returncode, 1, p.stdout)
         self.assertEqual(len(lines), 1, p.stdout)
-        self.assertTrue(lines[0].startswith("POSTCFG_FAIL max_header_delay is a block (secs/nanos) in "), lines)
-        self.assertEqual(self.yaml.read_text(), before)
-        self.assertNotIn("systemctl restart telcoin", self.calls())
+        self.assertTrue(lines[0].startswith("OBSCFG_FAIL %s " % self.INST), lines)
+        self.assertIn(phrase, lines[0])
+        self.assertEqual(self.state("obs-argv") is not None, called)
+        # The Alloy env still points at the black hole: nothing labelled devnet goes anywhere.
+        self.assertIn("TN_CHAIN=devnet\n", self.node.alloy.read_text())
+        self.assertNotIn("TN_NODE=%s\n" % self.INST, self.node.alloy.read_text())
+
+    def test_done_ok_false_fails(self):
+        p, lines = self.session("obs-events-fail.jsonl")
+        self.assertObsFails('done event: {"event":"done","ok":false,', p, lines)
+
+    def test_missing_no_restart_phrase_is_contract_drift(self):
+        p, lines = self.session(STUB_OBS_PHRASE="0")
+        self.assertObsFails("contract drift: setup-observability.sh did not report 'Node already serves a metrics "
+                            "endpoint (--metrics).'", p, lines)
+
+    def test_changed_started_at_fails(self):
+        self.node.put("started-flip", "1")
+        p, lines = self.session()
+        self.assertObsFails("the node restarted: container StartedAt %s -> 2026-01-01T00:09:00.000000000Z" % STARTED,
+                            p, lines)
+
+    def err_lines(self, out):
+        """(OBSCFG_ERR lines, index of the OBSCFG_FAIL line) of a session's output."""
+        lines = out.splitlines()
+        fail = next(i for i, l in enumerate(lines) if l.startswith("OBSCFG_FAIL %s " % self.INST))
+        errs = [(i, l) for i, l in enumerate(lines) if l.startswith("OBSCFG_ERR ")]
+        self.assertTrue(all(i < fail for i, _ in errs), out)
+        return [l for _, l in errs]
+
+    def test_failure_reports_the_last_five_stderr_lines_ansi_stripped(self):
+        p, lines = self.session("obs-events-fail.jsonl", STUB_OBS_ERR_LINES="6")
+        self.assertObsFails('done event: {"event":"done","ok":false,', p, lines)
+        self.assertEqual(self.err_lines(p.stdout), ["OBSCFG_ERR %s   [ERROR] alloy check %d failed" % (self.INST, n)
+                                                    for n in range(2, 7)])
+        self.assertNotIn("\x1b", p.stdout)
+
+    def test_a_stderr_line_holding_the_token_is_withheld(self):
+        p, lines = self.session("obs-events-fail.jsonl", STUB_OBS_ERR_LINES="1", STUB_OBS_LEAK="1")
+        self.assertObsFails('done event: {"event":"done","ok":false,', p, lines)
+        self.assertIn(self.TOKEN, (self.node.root / "tmp/bench-obs.err").read_text())   # the stub did leak it
+        self.assertEqual(self.err_lines(p.stdout)[-2:], [
+            "OBSCFG_ERR %s   [ERROR] alloy check 1 failed" % self.INST,
+            "OBSCFG_ERR %s (line withheld: it holds the ingest token)" % self.INST])
+        self.assertNotIn(self.TOKEN, p.stdout)
+        self.assertNotIn(self.TOKEN, "\n".join(self.node.calls()))
+
+    def test_no_metrics_flag_refused_before_the_call(self):
+        s = self.node.start_script
+        s.write_text(s.read_text().replace(" --metrics 127.0.0.1:9101", ""))
+        self.assertNotIn("--metrics", self.node.node_command())
+        p, lines = self.session()
+        self.assertObsFails("contract drift: no --metrics 127.0.0.1:<port> on the node command", p, lines, called=False)
+        self.assertNotIn("OBSCFG_ERR", p.stdout)   # nothing ran, so no stderr tail
+
+
+class PlanTests(BashCase):
+    """The dry run's step plan (no --yes): what steps 7-10 and 13 will do, and nothing executed."""
+
+    def test_plan_lists_the_coordinated_start_and_the_gates(self):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh")], env=self.env(BENCH_RUN_ID="rtest-plan"),
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120, universal_newlines=True,
+                           errors="replace")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("DRY RUN — re-run with --yes to execute.", p.stdout)
+        steps, cur = {}, None
+        for line in p.stdout.splitlines():
+            head = re.match(r"^ {2}([ 0-9]{2})  \S", line)
+            if head:
+                cur = int(head.group(1))
+            elif not line.startswith("     "):
+                cur = None
+            if cur is not None:
+                steps.setdefault(cur, []).append(line)
+        labels = [m.group(1) for m in (re.match(r"^ {21}(network-config|stage-only|pre-start config|start-all) ", l)
+                                       for l in steps[7]) if m]
+        self.assertEqual(labels, ["network-config", "stage-only", "pre-start config", "start-all"])
+        seven = "\n".join(steps[7])
+        self.assertIn("devnet-network-config.sh --yes", seven)
+        self.assertIn("devnet-finalize.sh --stage-only", seven)
+        self.assertIn("devnet-finalize.sh --start-all", seven)
+        self.assertIn("--print-prestart <instance>", seven)
+        self.assertIn("COORDINATED_START -> manifest.coordinated_start", seven)
+        eight = "\n".join(steps[8])
+        self.assertIn("--token-stdin", eight)
+        self.assertIn("restarted=none", eight)
+        self.assertIn("bench_fleet_ready 0", eight)
+        self.assertIn("verify only", "\n".join(steps[9]))
+        self.assertIn("bench_admission_gate", "\n".join(steps[10]))
+        self.assertIn("bench_fleet_ready", "\n".join(steps[13]))
+        # A dry run executes nothing and leaves no trace: no GCP call, no results directory.
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.bench / "results").exists())
+
+
+@unittest.skipUnless(subprocess.run(["python3", "-c", "import yaml"], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL).returncode == 0,
+                     "python3 has no PyYAML: deploy step 7's gate refuses to run")
+class Step7Tests(FleetCase):
+    """`benchmark-deploy.sh --yes --only 7`: network-config, stage-only, pre-start config on every
+    stopped node (the real script, run on its sandbox), start-all; repo-root scripts stubbed."""
+
+    NODE_UNIT = "inactive"
+    START = "COORDINATED_START due=1767225660 nodes=11 started=11 skipped_running=0 spread_secs=%d max_late_secs=1"
+
+    def setUp(self):
+        super().setUp()
+        for name in ("devnet-finalize.sh", "devnet-network-config.sh"):
+            install(self.root / "tree", name, "stub-%s" % name)
+
+    def node_args(self, inst):
+        return {}   # staged, not configured yet: the C8 start script as devnet-finalize.sh --stage-only left it
+
+    def deploy7(self, start=None, stage="", **env):
+        return self.deploy(7, STUB_STAGE_OUT=stage, STUB_START_OUT=start or self.START % 3, **env)
+
+    def sequence(self):
+        return [c.split(" CONFIG_FILE=")[0] if not c.startswith("gcloud ") else "ssh " + c.split()[3]
+                for c in self.calls() if not c.startswith("docker ")]
+
+    def test_one_coordinated_start_after_every_node_is_configured(self):
+        p = self.deploy7()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.sequence(), ["devnet-network-config.sh --yes", "devnet-finalize.sh --stage-only"]
+                         + ["ssh " + n for n in NODES] + ["devnet-finalize.sh --start-all"])
+        self.assertTrue(all(c.endswith("/benchmark/config.sh")
+                            for c in self.calls() if c.startswith("devnet-")), self.calls())
+        cs = self.m()["coordinated_start"]
+        self.assertRegex(cs.pop("ts"), ISO_RE)
+        self.assertEqual(cs, {"due": 1767225660, "nodes": 11, "started": 11, "skipped_running": 0, "spread_secs": 3,
+                              "max_late_secs": 1})
+        for inst, node in self.nodes.items():
+            self.assertIn("PRECFG_OK %s datadir=%s/var/lib/telcoin " % (inst, node.root), p.stdout)
+            self.assertEqual(node.node_command(), v2_cmdline(), inst)
+        logs = sorted(f.name.split("-")[1] for f in (self.run_dir / "logs").glob("finalize-*.log"))
+        self.assertEqual(logs, ["stage", "start"])
+        self.assertIn("step_7_done", self.m()["timestamps"])
+
+    def test_spread_over_ten_seconds_stops_after_recording_it(self):
+        p = self.deploy7(start=self.START % 12)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("the coordinated start spread 12 s > 10 s", p.stdout)
+        self.assertEqual(self.m()["coordinated_start"]["spread_secs"], 12)
+        self.assertNotIn("step_7_done", self.m()["timestamps"])
+
+    FIRST = {"due": 1767225000, "nodes": 11, "started": 11, "skipped_running": 0, "spread_secs": 2,
+             "max_late_secs": 1, "ts": "2026-01-01T00:00:00Z"}
+
+    def test_running_unit_before_any_coordinated_start_stops_step_7(self):
+        # A stage-only that failed after v2 finalize started the unit leaves it running alone; with no
+        # coordinated start yet, step 7 stops before any pre-start (the node must be stopped by hand).
+        self.nodes["bench-validator-04"].put("unit", "active")
+        p = self.deploy7(stage="STAGED bench-validator-01 state=inactive enabled=enabled\nRUNNING bench-validator-04")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        die = [l for l in p.stdout.splitlines() if "stage-only found running unit(s) before any coordinated start" in l]
+        self.assertEqual(len(die), 1, p.stdout)
+        self.assertIn("bench-validator-04", die[0])
+        self.assertIn("--from 7", die[0])
+        self.assertEqual(self.ssh_targets(), [])
+        self.assertNotIn("devnet-finalize.sh --start-all", self.sequence())
+        self.assertNotIn("coordinated_start", self.m())
+
+    def test_rerun_after_the_coordinated_start_keeps_it_and_records_the_late_start(self):
+        # The fleet started; one start-at failed. --from 7: stage-only reports the ten RUNNING, pre-start
+        # runs for the straggler only, start-all starts it late. The first start stays the record.
+        self.edit_manifest(coordinated_start=self.FIRST)
+        running = [n for n in NODES if n != "bench-validator-04"]
+        for inst in running:
+            self.nodes[inst].put("unit", "active")
+        late = "COORDINATED_START due=1767226000 nodes=11 started=1 skipped_running=10 spread_secs=0 max_late_secs=0"
+        p = self.deploy7(start=late, stage="\n".join("RUNNING " + n for n in running))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.ssh_targets(), ["bench-validator-04"])
+        for inst in running:
+            self.assertIn("%s: running — skipped" % inst, p.stdout)
+            self.assertEqual(self.nodes[inst].node_command(), v2_node_line()[1], inst)
+        self.assertEqual(self.nodes["bench-validator-04"].node_command(), v2_cmdline())
+        self.assertIn("devnet-finalize.sh --start-all", self.sequence())
+        m = self.m()
+        self.assertEqual(m["coordinated_start"], self.FIRST)
+        self.assertEqual([sorted(r) for r in m["coordinated_start_reruns"]], [["line", "ts"]])
+        self.assertEqual(m["coordinated_start_reruns"][0]["line"], late)
+        self.assertRegex(m["coordinated_start_reruns"][0]["ts"], ISO_RE)
+        self.assertIn("start-all started 1 node(s) on a re-run", p.stdout)
+
+    def test_rerun_that_starts_nobody_keeps_the_coordinated_start(self):
+        self.edit_manifest(coordinated_start=self.FIRST)
+        for node in self.nodes.values():
+            node.put("unit", "active")
+        none = "COORDINATED_START due=1767226000 nodes=11 started=0 skipped_running=11 spread_secs=0 max_late_secs=0"
+        p = self.deploy7(start=none, stage="\n".join("RUNNING " + n for n in NODES))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.ssh_targets(), [])
+        self.assertIn("start-all started nothing (11 already running): manifest.coordinated_start keeps the first "
+                      "start", p.stdout)
+        m = self.m()
+        self.assertEqual(m["coordinated_start"], self.FIRST)
+        self.assertEqual([r["line"] for r in m["coordinated_start_reruns"]], [none])
+        self.assertIn("step_7_done", m["timestamps"])
+
+    def test_pre_start_failure_stops_before_start_all(self):
+        self.nodes["bench-validator-05"].put("git-head", "0" * 40)
+        p = self.deploy7()
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("pre-start config failed on bench-validator-05", p.stdout)
+        self.assertEqual(self.ssh_targets(), NODES[:5])
+        self.assertNotIn("devnet-finalize.sh --start-all", self.sequence())
+        self.assertNotIn("coordinated_start", self.m())
 
 
 # --------------------------------------------------------------------------- deploy step 0 + blasters

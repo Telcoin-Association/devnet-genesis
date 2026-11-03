@@ -1,0 +1,2 @@
+{"event":"info","msg":"metrics: shipping to http://127.0.0.1:9/bench-hold"}
+{"event":"done","ok":true,"applied":["metrics:enabled"],"network":"devnet","msg":"observability updated"}

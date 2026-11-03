@@ -19,7 +19,8 @@
 #                        delays (max_header_delay < 1000 ms) on a build not subsecond-from-genesis.
 #                        Also the pinned :blast-v2-<sha> image, cloudbuild.yaml, config.bench.toml and
 #                        deployments-bench.json that the selected steps need
-#    0  preflight        auth + tools + no leftover bench-*/benchmark=1 resources + accounts file +
+#    0  preflight        auth + tools + python3 PyYAML + TN_NODE_SCRIPTS_REF a full 40-hex sha +
+#                        no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
 #                        MACHINE_TYPE in every fleet zone and the first blaster type in every validator
 #                        zone + a hyperdisk-* disk type offered in every fleet zone + quota headroom per
@@ -33,26 +34,49 @@
 #    4  firewall         benchmark-firewall.sh apply --yes
 #    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE)
 #    6  genesis          ../devnet-genesis-build.sh    (workspace benchmark/, chain 32286)
-#    7  finalize         ../devnet-finalize.sh
-#    8  observability    per node, ONE IAP session: setup-observability.sh --enable-metrics aimed at
-#                        a black-hole URL, then (same session) stop Alloy, wipe its WAL, set
-#                        TN_CHAIN=bench TN_NODE=<instance> + the real obs-devnet URL, start Alloy —
-#                        no sample labelled network="devnet" ever leaves a bench node. Never
-#                        create-obs-instance.sh, never devnet-observability.sh.
-#    9  post-config      per node, ONE IAP session each, serially: reth --http.addr 0.0.0.0,
-#                        assert the bench Alloy labels, restart (<=1 down at a time), wait for
-#                        eth_chainId on the internal IP + consensus progressing (blocks rose, or
-#                        subdag committed/quorum reached in its log — an idle chain stays at
-#                        block 0), check its boot lines (git sha, max/min header + max batch delay,
-#                        fork schedule) against manifest.json -> manifest.node_startup, install node-sampler
+#    7  finalize         ONE coordinated start; no node runs before every node is configured:
+#                        network-config    ../devnet-network-config.sh --yes (Closed admission on all
+#                                          nodes, rendered under benchmark/genesis/network-config/)
+#                        stage-only        ../devnet-finalize.sh --stage-only (stage + v2 finalize, then
+#                                          stop: unit enabled, inactive) -> logs/finalize-stage-<utc>.log
+#                        pre-start config  per node, ONE IAP session (bench_prestart_script, on stdin):
+#                                          --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>, the
+#                                          log filter, per-node parameters.yaml overrides; PRECFG_OK
+#                        start-all         ../devnet-finalize.sh --start-all (every unit at one due time)
+#                                          -> logs/finalize-start-<utc>.log; COORDINATED_START ->
+#                                          manifest.coordinated_start; stops when spread_secs > 10
+#                        A re-run (--from 7) converges: network-config is idempotent, stage-only skips
+#                        PRESTAGED/RUNNING nodes, pre-start skips nodes RUNNING since the coordinated start
+#                        and accepts flags already set, start-all skips RUNNING nodes and the first start
+#                        stays the record (later ones: manifest.coordinated_start_reruns). A unit RUNNING
+#                        before any coordinated start stops the step (stop it by hand, then re-run).
+#    8  observability    every validator CvvActive (bench_fleet_ready 0), then per node ONE IAP
+#                        session, no node restart: the ingest token on the session's stdin only ->
+#                        setup-observability.sh --json --enable-metrics --token-stdin aimed at a
+#                        black-hole URL (done ok:true, "Node already serves a metrics endpoint
+#                        (--metrics).", container StartedAt unchanged, NRestarts=0), then (same
+#                        session) stop Alloy, wipe its WAL, set TN_CHAIN=bench TN_NODE=<instance> +
+#                        the real obs-devnet URL, start Alloy — no sample labelled network="devnet"
+#                        ever leaves a bench node. Never create-obs-instance.sh, never devnet-observability.sh.
+#    9  post-config      per node, ONE IAP session each, verify only (no restart, no start-script
+#                        edit): the running container's args (--http.addr/--ws.addr 0.0.0.0, --metrics,
+#                        log filters), <DATA_DIR from .node-meta>/parameters.yaml, the bench Alloy
+#                        labels, eth_chainId on the internal IP + consensus progressing since the
+#                        coordinated start (blocks rose, or subdag committed/quorum reached in its log
+#                        — an idle chain stays at block 0), its boot lines (git sha, max/min header +
+#                        max batch delay, fork schedule) against manifest.json -> manifest.node_startup;
+#                        install node-sampler
 #   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id == 32286, Prometheus
 #                        min by (node)(tn_primary_round{network="bench"}) rising on all 11,
 #                        Prometheus: count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11
 #                        and no bench node has any series labelled network="devnet";
-#                        recovery-schedule.py: registry epoch duration == EPOCH_DURATION_SECS -> manifest.registry_probe
+#                        recovery-schedule.py: registry epoch duration == EPOCH_DURATION_SECS -> manifest.registry_probe;
+#                        bench_admission_gate: Closed admission (primary + worker), fallback 0 on every node
+#                        -> manifest.admission + fleet_modes
 #   11  contracts        (--with-contracts) tn-contracts worktree bench/<run> -> devnet-contracts.sh
 #   12  IAM + bucket     secretAccessor on the bench secrets for the compute SA; gs://<bucket>
-#   13  fund             benchmark-blast.sh fund --yes
+#   13  fund             every validator CvvActive (bench_fleet_ready, waits up to one epoch boundary
+#                        -> manifest.fleet_ready), then benchmark-blast.sh fund --yes
 #   14  blast            benchmark-blast.sh run --yes
 #   15  collect          benchmark-blast.sh collect --yes + tn-transaction-generator/bench/collect-gcp-metrics.py
 #   16  teardown         (--with-teardown) benchmark-teardown.sh --yes
@@ -70,12 +94,16 @@
 #       BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis|adiri-schedule|pre-subsecond
 #   A resumed run (--run) keeps the node image its gate pinned (manifest node_image_pinned); a
 #   BENCH_DOCKER_IMAGE naming any other image is refused.
+#   Review aids (print a remote script and exit; no GCP call):
+#   benchmark/benchmark-deploy.sh --print-prestart <instance>     # step 7's pre-start config script
+#   benchmark/benchmark-deploy.sh --print-obs-script <instance>   # step 8's session (token: PLACEHOLDER-TOKEN)
+#   benchmark/benchmark-deploy.sh --print-postconfig <instance>   # step 9's verify script
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
-CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""
+CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""; PRINT_PRESTART=""
 PROBE_ONLY=0; PROBE_REF=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -91,11 +119,12 @@ while [ $# -gt 0 ]; do
         --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
         --run=*) BENCH_RUN_ID="${1#*=}" ;;
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
+        --print-prestart) PRINT_PRESTART="${2:?--print-prestart needs an instance}"; shift ;;        # review aid: step 7's pre-start config script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF])" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-postconfig INST)" >&2; exit 1 ;;
     esac
     shift
 done
@@ -143,6 +172,10 @@ fi
 
 BOOTSTRAP_TIMEOUT_SECS=600
 BOOTSTRAP_POLL_SECS=15
+# Step 7: the widest start spread (max began - min began over the nodes start-all started) the run
+# accepts. A committee member that starts > gc_depth (50) rounds after quorum sits out the epoch
+# (lessons 2026-11-02); at the bench cadence 10 s is well inside that.
+START_SPREAD_MAX_SECS=10
 CHAIN_ID_HEX="$(printf '0x%x' "${CHAIN_ID}")"
 PROM_COUNT_QUERY="count(count by (node) (tn_engine_canonical_height{network=\"${BENCH_PROM_NETWORK_LABEL}\"}))"
 PROM_LEAK_QUERY='count(count by (node) (tn_engine_canonical_height{network="devnet", node=~"bench.*"}))'
@@ -153,8 +186,8 @@ DEVNET_TXGEN_MASTER="0x46c26b4fafffaab86437b11f5cdbd1b9f7ddc844"
 # run_expect <sha|forks|mhd|nhd|mbd|vt|thr> [<node-index>] — what this run's nodes must report at
 # boot: the manifest (node_git_sha, node_fork_schedule, consensus_parameters.*_ms, as the gate
 # recorded them) first, else this shell's node image probe / PARAMETERS_FILE. "" when neither has it.
-# With a node index, that node's BENCH_NODE_PARAM_OVERRIDES value of the key wins (step 9 writes it,
-# from this shell's knob, which the gate records as consensus_parameters.overrides). vt (vote_timeout)
+# With a node index, that node's BENCH_NODE_PARAM_OVERRIDES value of the key wins (step 7's pre-start
+# config writes it, from this shell's knob, which the gate records as consensus_parameters.overrides). vt (vote_timeout)
 # is only ever an override: the fleet file need not set it and older builds do not log it.
 run_expect() {
     local m v="" q="" g="" key="" ov=""
@@ -392,12 +425,29 @@ EOF
    Raise the quota (console: IAM & Admin > Quotas; or gcloud beta quotas preferences create), or move the zone (ZONES in benchmark/config.sh)."
 }
 
+# step7_local_problems — what would stop step 7 on this host, one line each (nothing printed: none):
+# python3 without PyYAML (devnet-network-config.sh renders and checks network-config with it, and
+# devnet-finalize.sh's readiness gate parses it), and a TN_NODE_SCRIPTS_REF that is not a full
+# lowercase 40-hex sha (as devnet-deploy.sh refuses it: the ref goes into every node's instance
+# metadata and a root git command there, and the pre-start config compares the node's checkout with it).
+step7_local_problems() {
+    python3 -c 'import yaml' >/dev/null 2>&1 \
+        || echo "python3 has no PyYAML (devnet-network-config.sh and devnet-finalize.sh parse YAML with it): sudo apt-get install python3-yaml, or python3 -m pip install --user pyyaml"
+    case "${TN_NODE_SCRIPTS_REF:-}" in
+        *[!0-9a-f]*|'') echo "TN_NODE_SCRIPTS_REF must be a full lowercase 40-hex commit sha (got '${TN_NODE_SCRIPTS_REF:-}')" ;;
+        *) [ "${#TN_NODE_SCRIPTS_REF}" -eq 40 ] || echo "TN_NODE_SCRIPTS_REF must be exactly 40 hex characters (got ${#TN_NODE_SCRIPTS_REF})" ;;
+    esac
+}
+
 # ================================ steps ==============================================
 step_0() {
     echo ">>> Step 0: preflight"
     echo "    fleet: ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), node image ${DOCKER_IMAGE} (git $(run_expect sha), forks $(run_expect forks); image probed at gate)"
     bench_require_tools gcloud cast jq python3 curl docker git openssl || bench_die "missing tools"
     [ "${WITH_CONTRACTS}" -eq 0 ] || bench_require_tools forge || bench_die "forge needed for --with-contracts"
+    local p7; p7="$(step7_local_problems)"
+    [ -z "${p7}" ] || bench_die "${p7}"
+    echo "    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF ${TN_NODE_SCRIPTS_REF} (step 7)"
     local acct; acct="$(gcloud config get-value account 2>/dev/null || true)"
     gcloud auth print-access-token >/dev/null || bench_die "gcloud auth failed — gcloud auth login"
     echo "    ✓ gcloud auth (${acct:-unknown account})"
@@ -525,10 +575,122 @@ step_3() {
 step_4()  { echo ">>> Step 4: bench firewall rules"; "${DIR}/benchmark-firewall.sh" apply --yes --run "${BENCH_RUN_ID}"; }
 step_5()  { echo ">>> Step 5: keygen";               "${REPO_ROOT}/devnet-keygen.sh"; }
 step_6()  { echo ">>> Step 6: genesis (chain ${CHAIN_ID}, workspace ${GENESIS_WORKSPACE})"; "${REPO_ROOT}/devnet-genesis-build.sh"; }
-step_7()  { echo ">>> Step 7: finalize (stage + start)"; "${REPO_ROOT}/devnet-finalize.sh"; }
 
-# obs_script <instance> <region> <token> — step 8's remote script for one node (piped to
-# `sudo bash -s`, so the ingest token never appears on a gcloud command line).
+# coordinated_start_record <COORDINATED_START line> — manifest.coordinated_start (C4b) from the marker
+# `devnet-finalize.sh --start-all` prints: "COORDINATED_START due=<unix> nodes=<n> started=<n>
+# skipped_running=<n> spread_secs=<n> max_late_secs=<n>", integers only; dies on any other shape.
+# The FIRST start is the run's record (step 9 measures progress from its due time; the analysis reads
+# its spread). A later start-all (a --from 7 re-run) never replaces it: its line is appended to
+# manifest.coordinated_start_reruns[] = {line, ts}, with a warning when it started nodes (they joined
+# after the fleet, so they sit out the epoch they started in).
+coordinated_start_record() {
+    local line="$1" w k v prev due="" nodes="" started="" skipped="" spread="" late=""
+    local -a words
+    read -r -a words <<EOF
+${line#COORDINATED_START }
+EOF
+    for w in "${words[@]}"; do
+        case "${w}" in *=*) ;; *) bench_die "malformed COORDINATED_START line (${w}): ${line}" ;; esac
+        k="${w%%=*}"; v="${w#*=}"
+        case "${v}" in ''|*[!0-9]*) bench_die "malformed COORDINATED_START line (${k} is not an integer): ${line}" ;; esac
+        case "${k}" in
+            due) due="${v}" ;;
+            nodes) nodes="${v}" ;;
+            started) started="${v}" ;;
+            skipped_running) skipped="${v}" ;;
+            spread_secs) spread="${v}" ;;
+            max_late_secs) late="${v}" ;;
+            *) bench_die "malformed COORDINATED_START line (unknown field ${k}): ${line}" ;;
+        esac
+    done
+    [ -n "${due}" ] && [ -n "${nodes}" ] && [ -n "${started}" ] && [ -n "${skipped}" ] && [ -n "${spread}" ] && [ -n "${late}" ] \
+        || bench_die "malformed COORDINATED_START line (a field is missing): ${line}"
+    prev="$(jq -c '.coordinated_start // empty' "$(bench_manifest)" 2>/dev/null || true)"
+    if [ -n "${prev}" ]; then
+        bench_manifest_jq --arg l "${line}" --arg ts "$(bench_now_iso)" \
+            '.coordinated_start_reruns = ((.coordinated_start_reruns // []) + [{line: $l, ts: $ts}])' \
+            || bench_die "could not record coordinated_start_reruns in $(bench_manifest)"
+        if [ "${started}" -eq 0 ]; then
+            echo "    · start-all started nothing (${skipped} already running): manifest.coordinated_start keeps the first start ${prev}"
+        else
+            bench_warn "start-all started ${started} node(s) on a re-run, after the fleet's coordinated start (${line}): they sit out the epoch they joined; manifest.coordinated_start keeps the first start, this one is in coordinated_start_reruns"
+        fi
+        return 0
+    fi
+    bench_manifest_jq --argjson due "${due}" --argjson nodes "${nodes}" --argjson started "${started}" \
+        --argjson skipped "${skipped}" --argjson spread "${spread}" --argjson late "${late}" --arg ts "$(bench_now_iso)" '
+        .coordinated_start = {due: $due, nodes: $nodes, started: $started, skipped_running: $skipped,
+                              spread_secs: $spread, max_late_secs: $late, ts: $ts}' \
+        || bench_die "could not record coordinated_start in $(bench_manifest)"
+    echo "    ✓ manifest.coordinated_start: due ${due}, ${started}/${nodes} started (${skipped} already running), spread ${spread} s, latest ${late} s after due"
+}
+
+# step_7 — the fleet's one coordinated start (D1: no validator runs while the committee is
+# incomplete; no node restarts after the start). Every node is configured while its unit is
+# stopped, then devnet-finalize.sh starts them all at one due time on the nodes' clocks:
+#   network-config    devnet-network-config.sh --yes: Closed admission on every node (nothing restarts)
+#   stage-only        devnet-finalize.sh --stage-only: stage + v2 finalize + stop; the unit stays enabled
+#   pre-start config  bench_prestart_script per node over one IAP session (PRECFG_OK required)
+#   start-all         devnet-finalize.sh --start-all: COORDINATED_START -> manifest.coordinated_start
+# The two finalize runs are also copied to results/<run>/logs/finalize-{stage,start}-<utc>.log.
+# A re-run (--from 7) converges: network-config is idempotent, stage-only skips PRESTAGED and RUNNING
+# nodes, pre-start is skipped for a node stage-only reported RUNNING after the coordinated start (it
+# was configured before it; step 8 refuses a node without it) and accepts flags that already hold their
+# value, and start-all skips RUNNING nodes. A unit RUNNING before any coordinated start ran alone: the
+# step stops and asks for it to be stopped first.
+step_7() {
+    local logs="${BENCH_RESULTS_DIR}/logs" log i inst out line rc running="" marker spread
+    echo ">>> Step 7: finalize — network-config, stage-only, pre-start config, start-all (one coordinated start)"
+    mkdir -p "${logs}"
+
+    echo "    network-config: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-network-config.sh --yes   (renders ${GENESIS_WORKSPACE}/genesis/network-config/)"
+    "${REPO_ROOT}/devnet-network-config.sh" --yes \
+        || bench_die "devnet-network-config.sh --yes failed — no node has been started; fix it and re-run with --from 7"
+
+    log="${logs}/finalize-stage-$(date -u +%Y%m%dT%H%M%SZ).log"
+    echo "    stage-only: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --stage-only   (copy: ${log})"
+    if ! "${REPO_ROOT}/devnet-finalize.sh" --stage-only 2>&1 | tee -a "${log}"; then
+        bench_die "devnet-finalize.sh --stage-only failed (${log}) — no node has been started by this step; re-run with --from 7 once fixed (staged nodes are skipped)"
+    fi
+    running="$(tr -d '\r' < "${log}" | sed -nE 's/^[[:space:]]*RUNNING[[:space:]]+([^[:space:]]+).*/\1/p' | sort -u | tr '\n' ' ')"
+    if [ -n "${running}" ] && [ -z "$(jq -c '.coordinated_start // empty' "$(bench_manifest)" 2>/dev/null || true)" ]; then
+        # No coordinated start yet: each of these ran alone (a stage-only that failed after v2 finalize
+        # started it), so no quorum formed and stopping it is safe. Left running it would skip its
+        # pre-start config and step 8 would refuse it after the start, when no restart is allowed.
+        bench_die "stage-only found running unit(s) before any coordinated start: ${running}— each ran alone (no quorum). On each: sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin — then re-run with --from 7"
+    fi
+    [ -z "${running}" ] || bench_warn "stage-only found these units already running after the coordinated start: ${running}— their pre-start config is not repeated (it ran before that start); step 8 refuses a node whose start script lacks it, and step 9 checks what each runs"
+
+    echo "    pre-start config: per node, one IAP session (bench_prestart_script; review: --print-prestart <instance>)"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        case " ${running}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; continue ;; esac
+        out="$(bench_prestart_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
+        printf '%s\n' "${out}" | grep -E 'PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
+        line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
+        [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
+    done
+
+    log="${logs}/finalize-start-$(date -u +%Y%m%dT%H%M%SZ).log"
+    echo "    start-all: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --start-all   (copy: ${log})"
+    rc=0
+    "${REPO_ROOT}/devnet-finalize.sh" --start-all 2>&1 | tee -a "${log}" || rc=$?
+    marker="$(tr -d '\r' < "${log}" | grep -E '^COORDINATED_START ' | tail -1 || true)"
+    [ -z "${marker}" ] || coordinated_start_record "${marker}"
+    [ "${rc}" -eq 0 ] || bench_die "devnet-finalize.sh --start-all exited ${rc} (${log}). Never restart a started node inside the epoch: read its START_AT and phase B lines, then re-run with --from 7 (running nodes are skipped) or tear down"
+    [ -n "${marker}" ] || bench_die "devnet-finalize.sh --start-all printed no COORDINATED_START line (${log})"
+    spread="$(printf '%s\n' "${marker}" | sed -nE 's/.* spread_secs=([0-9]+)( .*)?$/\1/p')"
+    if [ "${spread:-0}" -gt "${START_SPREAD_MAX_SECS}" ]; then
+        bench_die "the coordinated start spread ${spread} s > ${START_SPREAD_MAX_SECS} s (${marker}). A validator that starts > gc_depth (50) rounds after quorum sits out the epoch ('too new for max round 50'). Do not restart it inside the epoch: read the START_AT lines in ${log}, then wait for the next epoch boundary (step 8's fleet-ready check names who is out) or tear down"
+    fi
+    echo "    ✓ fleet started together: ${marker#COORDINATED_START }"
+}
+
+# obs_script <instance> <region> — step 8's remote script for one node. It holds no secret: the
+# ingest token is the one line on the session's stdin (step_8 pipes it in; tn_iap_ssh_cmd_stdin runs
+# the script with `sudo bash -c`, see obs_remote_cmd), read once into a plain shell variable (never
+# exported, never on a command line, no set -x), and handed to setup-observability.sh on ITS stdin
+# (--token-stdin) by the printf builtin, nowhere else.
 #
 # setup-observability.sh derives TN_CHAIN from the node's NETWORK=devnet (DEVNET_CHAIN_NAME is
 # readonly in tn-node-deployment), so left alone the node would remote-write
@@ -537,18 +699,69 @@ step_7()  { echo ">>> Step 7: finalize (stage + start)"; "${REPO_ROOT}/devnet-fi
 # then, in the same session and before anything can reach obs-devnet, Alloy is stopped, its WAL
 # (which holds the devnet-labelled samples) is wiped, the env gets TN_CHAIN/TN_NODE/the real URL,
 # and Alloy starts again. The first sample obs-devnet ever sees from a bench node is network=bench.
+#
+# No node restart (D1): step 7's pre-start config put `--metrics 127.0.0.1:<port>` on the node
+# command, so --enable-metrics finds it and changes nothing (tn-node-deployment
+# lib/observability.sh _obs_flags_apply prints "Node already serves a metrics endpoint
+# (--metrics)." and obs_ensure_reth_flags restarts only when a flag changed). The script refuses
+# before the call when the flag is missing or .node-meta enables log shipping (either would make
+# setup-observability.sh edit the start script and restart the node), and after it requires the
+# done event with "ok":true, that phrase (ANSI colour stripped), the container's StartedAt unchanged
+# and NRestarts=0. Anything else is OBSCFG_FAIL <instance> contract drift; there is no restart fallback.
+# The quorum guard the lib would consult before a restart reads DEVNET_RPC_URL: set to the black hole
+# (BENCH_GUARD_PUBLIC_RPC) so a bench node never asks the live devnet. Last line:
+#   OBSCFG_OK <instance> restarted=none <setup-observability.sh's done event>
 obs_script() {
-    local inst="$1" region="$2" token="$3" hold="http://127.0.0.1:9/bench-hold"
+    local inst="$1" region="$2" hold="http://127.0.0.1:9/bench-hold"
     cat <<EOS
 set -euo pipefail
-fail() { echo "OBSCFG_FAIL \$*"; exit 1; }
-TOKEN=$(printf '%q' "${token}")
-if ! OBS_PUSH_URL='${OBS_PUSH_URL}' OBS_METRICS_PUSH_URL='${hold}' \\
-    '${TN_NODE_SCRIPTS_DIR}/setup-observability.sh' --json --enable-metrics --region '${region}' \\
-    --token "\${TOKEN}" --push-url '${OBS_PUSH_URL}' --metrics-push-url '${hold}' > /tmp/bench-obs.json 2>/tmp/bench-obs.err; then
-    tail -5 /tmp/bench-obs.err; fail "setup-observability.sh failed"
-fi
+# ERRTAIL: the last lines of setup-observability.sh's stderr once it has run (each OBSCFG_ERR on a failure)
+ERRTAIL=""
+fail() { [ -z "\${ERRTAIL}" ] || printf '%s' "\${ERRTAIL}" | sed 's/^/OBSCFG_ERR ${inst} /'; echo "OBSCFG_FAIL ${inst} \$*"; exit 1; }
+# the ingest token: this session's one stdin line, into a plain variable; nothing else reads stdin
+TOKEN=""
+IFS= read -r TOKEN || [ -n "\${TOKEN}" ] || fail "no ingest token on stdin"
+TOKEN="\${TOKEN%\$'\\r'}"
+exec </dev/null
+[ -n "\${TOKEN}" ] || fail "empty ingest token on stdin"
+S=/usr/local/libexec/telcoin/tn-start-docker
+M=/etc/telcoin/.node-meta
+# before: the node runs since the coordinated start, and nothing here may restart it
+systemctl is-active --quiet telcoin || fail "telcoin is not active (step 7 start-all starts it)"
+T0="\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+[ -n "\${T0}" ] || fail "no running telcoin container"
+N0="\$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "\${N0}" = 0 ] || fail "telcoin NRestarts=\${N0:-?} before setup-observability.sh, expected 0"
+grep -v '^[[:space:]]*#' "\${S}" | grep -E -- '(^|[[:space:]])--metrics[[:space:]]+127\.0\.0\.1:[0-9]+' >/dev/null \\
+    || fail "contract drift: no --metrics 127.0.0.1:<port> on the node command in \${S} (step 7's pre-start config sets it); not calling setup-observability.sh, which would add it and restart the node"
+! grep -qx 'ENABLE_OBSERVABILITY=true' "\${M}" \\
+    || fail "contract drift: \${M} has ENABLE_OBSERVABILITY=true; log shipping would add JSON log flags and restart the node"
+rc=0
+printf '%s\\n' "\${TOKEN}" | DEVNET_RPC_URL='${BENCH_GUARD_PUBLIC_RPC}' OBS_PUSH_URL='${OBS_PUSH_URL}' OBS_METRICS_PUSH_URL='${hold}' \\
+    '${TN_NODE_SCRIPTS_DIR}/setup-observability.sh' --json --enable-metrics --region '${region}' --token-stdin \\
+    --push-url '${OBS_PUSH_URL}' --metrics-push-url '${hold}' > /tmp/bench-obs.json 2>/tmp/bench-obs.err || rc=\$?
+# its last 5 stderr lines (ANSI stripped) for a failure report; setup-observability.sh never prints the
+# token, and a line that held it anyway is withheld (a bash pattern match: the token is in no argv)
+while IFS= read -r l; do
+    case "\${l}" in *"\${TOKEN}"*) l="(line withheld: it holds the ingest token)" ;; esac
+    ERRTAIL="\${ERRTAIL}\${l}
+"
+done < <(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obs.err 2>/dev/null | tail -5 || true)
+TOKEN=""
 unset TOKEN
+# after: the done event says ok, the node command already had --metrics, and the node did not restart
+DONE="\$(grep -F '"event":"done"' /tmp/bench-obs.json 2>/dev/null | tail -1 || true)"
+case "\${DONE}" in
+    *'"ok":true'*) ;;
+    *) fail "setup-observability.sh rc \${rc}, done event: \${DONE:-none}" ;;
+esac
+[ "\${rc}" = 0 ] || fail "setup-observability.sh exited \${rc} after a done ok:true event (\${DONE})"
+T1="\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+N1="\$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "\${T1}" = "\${T0}" ] || fail "the node restarted: container StartedAt \${T0} -> \${T1:-none}"
+[ "\${N1}" = 0 ] || fail "telcoin NRestarts=\${N1:-?} after setup-observability.sh, expected 0"
+sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obs.err /tmp/bench-obs.json | grep -F 'Node already serves a metrics endpoint (--metrics).' >/dev/null \\
+    || fail "contract drift: setup-observability.sh did not report 'Node already serves a metrics endpoint (--metrics).' (no restart fallback; see /tmp/bench-obs.err on the node)"
 systemctl stop telcoin-alloy.service
 rm -rf /var/lib/telcoin-alloy/* 2>/dev/null || true
 E=/etc/telcoin/alloy/telcoin-alloy.env
@@ -559,89 +772,65 @@ grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${ins
     && grep -qx 'OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}' "\$E" || fail "alloy env not rewritten"
 systemctl start telcoin-alloy.service
 systemctl is-active --quiet telcoin-alloy.service || fail "telcoin-alloy not active"
-echo "OBSCFG_OK ${inst} \$(tail -1 /tmp/bench-obs.json 2>/dev/null)"
+echo "OBSCFG_OK ${inst} restarted=none \${DONE}"
 EOS
 }
 
+# obs_remote_cmd <instance> <region> — the remote command of step 8's session: obs_script, base64
+# (so no quote of it is parsed twice; lessons 2026-10-06), decoded on the node and run by
+# `sudo bash -c`, which inherits the session's stdin: the token line (tn_iap_ssh_cmd_stdin, -T).
+obs_remote_cmd() {
+    local b64
+    b64="$(obs_script "$1" "$2" | base64 | tr -d '\n')"
+    printf 'sudo bash -c "$(printf %%s %s | base64 -d)" bench-obs' "${b64}"
+}
+
+# obs_print <instance> — --print-obs-script: the session as step 8 runs it, the token replaced by
+# PLACEHOLDER-TOKEN (comments, then the script; `| bash -n` parses it).
+obs_print() {
+    local i
+    i="$(bench_index_of "$1")" || bench_die "$1 is not a bench instance"
+    cat <<EOH
+# step 8 session for $1 (--print-obs-script). Sent as:
+#   printf '%s\n' PLACEHOLDER-TOKEN | tn_iap_ssh_cmd_stdin $1 ${ZONES[$i]} 'sudo bash -c "\$(printf %s <base64 of the script below> | base64 -d)" bench-obs'
+# PLACEHOLDER-TOKEN stands for the ingest token: the session's only stdin line, read into TOKEN below
+# and piped to setup-observability.sh --token-stdin; it is never on a command line or in an environment.
+EOH
+    obs_script "$1" "$(tn_region_from_zone "${ZONES[$i]}")"
+}
+
 step_8() {
-    echo ">>> Step 8: per-node observability, metrics only -> ${OBS_METRICS_PUSH_URL}, labelled network=${BENCH_PROM_NETWORK_LABEL} before the first push"
+    echo ">>> Step 8: per-node observability, metrics only -> ${OBS_METRICS_PUSH_URL}, labelled network=${BENCH_PROM_NETWORK_LABEL} before the first push; no node restarts"
     # Never common/create-obs-instance.sh (and never --wipe-data): obs-devnet is devnet's.
     # Not devnet-observability.sh either: it cannot relabel inside the setup session (see obs_script).
-    local token i inst out
+    local token i inst out line
+    bench_fleet_ready 0 step8 \
+        || bench_die "step 8: not every validator is CvvActive (above; manifest.fleet_ready). A validator that started too late after the coordinated start sits out until the next epoch boundary, and no restart helps inside the epoch: resume with --from 8 after the boundary, or tear down"
     token="$(tn_secret "${OBS_SECRET_NAME}")" || true
     [ -n "${token}" ] || bench_die "obs ingest token (${OBS_SECRET_NAME}) is empty"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: setup-observability.sh --enable-metrics (token redacted) + same-session relabel"
-        out="$(obs_script "${inst}" "$(tn_region_from_zone "${ZONES[$i]}")" "${token}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 || true)"
-        printf '%s\n' "${out}" | grep -E 'OBSCFG_(OK|FAIL)' | cut -c1-200 | sed 's/^/      /' || true
-        [[ "${out}" == *"OBSCFG_OK ${inst}"* ]] || bench_die "observability failed on ${inst}"
+        echo "    ${inst}: setup-observability.sh --enable-metrics --token-stdin (token on stdin only) + same-session relabel; no restart"
+        out="$(printf '%s\n' "${token}" | tn_iap_ssh_cmd_stdin "${inst}" "${ZONES[$i]}" "$(obs_remote_cmd "${inst}" "$(tn_region_from_zone "${ZONES[$i]}")")" 2>&1 | tr -d '\r' || true)"
+        printf '%s\n' "${out}" | grep -E 'OBSCFG_(OK|FAIL|ERR)' | cut -c1-300 | sed 's/^/      /' || true
+        line="$(printf '%s\n' "${out}" | grep -F "OBSCFG_OK ${inst} restarted=none " | tail -1 || true)"
+        [ -n "${line}" ] || bench_die "observability failed on ${inst} (OBSCFG_FAIL above; the whole script: --print-obs-script ${inst})"
     done
     unset token
 }
 
-# postconfig_params <node-index> — step 9's per-node section, run before the restart: that node's
-# BENCH_NODE_PARAM_OVERRIDES into <datadir>/parameters.yaml (`setp <key> <value>` lines) and
-# BENCH_NODE_LOG_FILTER onto the telcoin command in the wrapper (the `F=` line; none when the knob is
-# empty). It also sets P, the parameters file the readback after the restart reads.
-postconfig_params() {
-    local kv
-    cat <<'EOS'
-# 2b. this node's parameters and log filter. The datadir is the --datadir argument of the wrapper's
-#     telcoin command; under docker that is the container path, so the host side of its
-#     `-v <host>:<datadir>` bind is where parameters.yaml really is.
-D="$(grep -v '^[[:space:]]*#' "$W" | sed -nE 's/.*--datadir[ =]([^[:space:]]+).*/\1/p' | head -1 || true)"
-[ -n "$D" ] || fail "no --datadir in $W"
-H="$(grep -v '^[[:space:]]*#' "$W" | sed -nE "s#.*-v[[:space:]]+([^[:space:]:]+):${D}([:[:space:]].*)?\$#\1#p" | head -1 || true)"
-P="${H:-$D}/parameters.yaml"
-[ -f "$P" ] || fail "no $P"
-# A file an earlier step 9 rewrote (it has '# bench-override' lines) is first restored from its .bak;
-# any other file becomes the .bak. Written through `cat >`, so owner, mode and inode stay.
-if grep -q '# bench-override$' "$P"; then
-    [ -f "$P.bak" ] || fail "$P has bench-override lines but no $P.bak"
-    cat "$P.bak" > "$P"
-else
-    cp -p "$P" "$P.bak"
-fi
-# setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
-setp() {
-    local t
-    t="$(mktemp)"
-    if ! awk -v k="$1" -v v="$2" '
-        index($0, k ":") == 1 { r = substr($0, length(k) + 2); sub(/^[ \t]+/, "", r); sub(/[ \t]*#.*$/, "", r)
-                                if (r == "") blk = 1
-                                if (!n++) print k ": " v "  # bench-override"
-                                next }
-        { print }
-        END { if (!n) print k ": " v "  # bench-override"; exit (blk ? 3 : 0) }' "$P" > "$t"; then
-        rm -f "$t"; fail "$1 is a block (secs/nanos) in $P; write it as <int>ms there"
-    fi
-    cat "$t" > "$P"; rm -f "$t"
-    [ "$(grep -c "^$1: $2  # bench-override\$" "$P" || true)" = 1 ] || fail "$1 not rewritten in $P"
-}
-EOS
-    bench_node_overrides "$1" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
-    [ -n "${BENCH_NODE_LOG_FILTER:-}" ] || return 0
-    printf "F='%s'; MF='%s'\n" "${BENCH_NODE_LOG_FILTER}" "${BENCH_NODE_LOG_MAX_FILES}"
-    cat <<'EOS'
-# the filter goes right after --datadir <dir>, once; copies an earlier run left are dropped first
-[ "$(grep -v '^[[:space:]]*#' "$W" | grep -c -- '--datadir' || true)" = 1 ] || fail "not exactly one --datadir line in $W"
-sed -i -E -e 's/ --log\.(stdout|file)\.filter [^[:space:]]+//g' -e 's/ --log\.file\.max-files [^[:space:]]+//g' "$W"
-sed -i -E "/^[[:space:]]*#/!s#(--datadir[ =][^[:space:]]+)#\1 --log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}#" "$W"
-grep -qF -- "--log.stdout.filter ${F} --log.file.filter ${F} --log.file.max-files ${MF}" "$W" || fail "log filter not set in $W"
-EOS
-}
-
-# postconfig_readback — step 9's readback after the restart, for the POSTCFG_OK line: pv <key> reads
-# a top-level value of the node's parameters.yaml (P, from postconfig_params), ms turns it into ms
-# (- when absent); rf / rff / rmf are the running container's --log.stdout.filter, --log.file.filter
-# and --log.file.max-files ("" when not set). The two filters must be the same.
+# postconfig_readback — step 9's readback for the POSTCFG_OK line: pv <key> reads a top-level value
+# of the node's parameters.yaml (P = <DATA_DIR from .node-meta>/parameters.yaml), ms turns it into ms
+# (- when absent); arg <flag-regex> reads a flag's value off the running container's command line
+# (docker inspect telcoin; "" when not set): rf / rff / rmf are its --log.stdout.filter,
+# --log.file.filter and --log.file.max-files. The two filters must be the same.
 postconfig_readback() {
     cat <<'EOS'
-# 3b. what the node now runs with: its parameters.yaml, and the container's command line
+# 3b. what the node runs with: its parameters.yaml, and the container's command line
 pv() { awk -v k="$1" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/["\047]/, "", v); print v; exit }' "$P"; }
 ms() { case "$1" in '') echo - ;; *ms) echo "${1%ms}" ;; *s) awk -v s="${1%s}" 'BEGIN { printf "%d\n", s * 1000 }' ;; *) echo "?" ;; esac; }
 CMDL="$(docker inspect -f '{{.Path}} {{join .Args " "}}' telcoin 2>/dev/null || true)"
+[ -n "$CMDL" ] || fail "docker inspect telcoin gave no command line"
 arg() { printf '%s\n' "$CMDL" | sed -nE "s/.* $1 ([^[:space:]]+).*/\1/p" | tail -1 || true; }
 rf="$(arg '--log\.stdout\.filter')"; rff="$(arg '--log\.file\.filter')"; rmf="$(arg '--log\.file\.max-files')"
 [ "$rff" = "$rf" ] || fail "running --log.file.filter '$rff' differs from --log.stdout.filter '$rf'"
@@ -650,64 +839,106 @@ EOS
 }
 
 # postconfig_script <instance> — step 9's remote script for one node (piped to `sudo bash -s`).
-# Everything that can fail transiently (the RPC while the node restarts) is polled with a
-# deadline and never trips set -e/pipefail; only the final assertions can fail the session.
+# Verify only: step 7 configured the node while its unit was stopped (pre-start config) and started
+# it with the fleet (start-all), so nothing here edits the start script, parameters.yaml or the unit,
+# and nothing restarts the node; it fails when the unit has restarted (NRestarts) or the container
+# changes while it runs. The RPC and the logs are polled with a deadline (POSTCFG_WAIT_SECS) and never
+# trip set -e/pipefail; only the assertions fail the session.
 # Its last line: POSTCFG_OK <inst> chain=<hex> block=<hex|?> ip=<ip> progress=<text with spaces>
 #   sha=<git sha> mhd=<ms|?> nhd=<ms|?> mbd=<ms|?> vt=<ms|?> forks=<label|?>
-#   max=<ms|-> min=<ms|-> batch=<ms|-> thr=<n|-> vote=<ms|-> filter=<filter|-> maxfiles=<n|->
-# where sha / mhd / nhd / mbd / vt / forks come from the restarted container's boot lines (the
-# `telcoin-network <ver> (<sha>) starting` line, "Max|Min header delay set to N ms", "Max batch
-# delay set to N ms", "... vote timeout set to N ms" when logged, the fork-schedule line labelled
-# by report/provenance.py's rules); max / min / batch / thr / vote are read back from the node's
-# parameters.yaml after the restart (- = not in the file) and filter / maxfiles from the running
-# container's command line (--log.stdout.filter, --log.file.max-files; - = not set). step_9 compares
-# them with the run's manifest and this node's overrides.
+#   max=<ms|-> min=<ms|-> batch=<ms|-> thr=<n|-> vote=<ms|-> filter=<filter|-> maxfiles=<n|-> back=-
+# where sha / mhd / nhd / mbd / vt / forks come from the running container's boot lines (`docker logs
+# --since` its StartedAt: the `telcoin-network <ver> (<sha>) starting` line, "Max|Min header delay set
+# to N ms", "Max batch delay set to N ms", "... vote timeout set to N ms" when logged, the
+# fork-schedule line labelled by report/provenance.py's rules); max / min / batch / thr / vote are read
+# from <DATA_DIR from /etc/telcoin/.node-meta>/parameters.yaml (- = not in the file), filter / maxfiles
+# from the running container's command line (- = not set), and back is "-" (no restart, so no
+# downtime to report). step_9 compares them with the run's manifest and this node's overrides.
 postconfig_script() {
-    local inst="$1" b64 idx
-    idx="$(bench_index_of "${inst}")" || bench_die "postconfig_script: ${inst} is not a bench instance"
+    local inst="$1" b64 t0 lf=""
+    bench_index_of "${inst}" >/dev/null || bench_die "postconfig_script: ${inst} is not a bench instance"
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
+    # Progress counts from the coordinated start (step 7's due time), else from the container's start.
+    t0="$(jq -r '.coordinated_start.due // empty' "$(bench_manifest)" 2>/dev/null || true)"
+    case "${t0}" in *[!0-9]*) t0="" ;; esac
+    [ -z "${BENCH_NODE_LOG_FILTER:-}" ] || lf="
+[ \"\$rf\" = '${BENCH_NODE_LOG_FILTER}' ] && [ \"\$rmf\" = '${BENCH_NODE_LOG_MAX_FILES}' ] \\
+    || fail \"running --log.stdout.filter/--log.file.filter '\$rf' --log.file.max-files '\$rmf', expected '${BENCH_NODE_LOG_FILTER}' / ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER; step 7 pre-start config)\""
     cat <<EOS
 set -euo pipefail
 fail() { echo "POSTCFG_FAIL \$*"; exit 1; }
-W=/opt/telcoin/start-telcoin.sh
-[ -f "\$W" ] || fail "no \$W (docker start wrapper)"
-# 1. reth RPC on all interfaces (blasters reach it on the internal IP; no public rule admits 8545)
-sed -i 's/--http\.addr 127\.0\.0\.1/--http.addr 0.0.0.0/' "\$W"
-grep -q -- '--http.addr 0.0.0.0' "\$W" || fail "http.addr not rewritten"
-# 2. alloy labels were set in step 8's session; assert they are still bench labels
+# 1. the node runs since the coordinated start: unit active and never restarted, one container
+M=/etc/telcoin/.node-meta
+[ -f "\$M" ] || fail "no \$M (not a tn-node-deployment v2 node)"
+meta() { [ "\$(grep -c -E "^\$1=" "\$M" || true)" = 1 ] || return 1; grep -E "^\$1=" "\$M" | sed -e 's/^[^=]*=//' -e 's/\r\$//'; }
+systemctl is-active --quiet telcoin || fail "telcoin is not active (step 7 start-all starts it)"
+NR="\$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "\$NR" = 0 ] || fail "telcoin NRestarts=\${NR:-?}, expected 0 (no restart after the coordinated start)"
+STARTED="\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+[ -n "\$STARTED" ] || fail "no running telcoin container"
+# 2. its datadir from .node-meta DATA_DIR (never from the start script); parameters.yaml there
+D="\$(meta DATA_DIR || true)"; D="\${D%/}"
+[ -n "\$D" ] || fail "no single DATA_DIR line in \$M"
+P="\$D/parameters.yaml"
+[ -f "\$P" ] || fail "no \$P"
+MP="\$(meta METRICS_PORT || true)"; MP="\${MP:-9101}"
+case "\$MP" in *[!0-9]*) fail "METRICS_PORT '\$MP' in \$M is not a port number" ;; esac
+MP=\$((10#\$MP))
+# the unit's append file (StandardOutput=append:): every container run since finalize, uncapped
+NL="\$(meta NODE_LOG_DIR || true)"; NL="\${NL:-/var/log/telcoin}"
+UF="\$(sed -n 's/^StandardOutput=append://p' /etc/systemd/system/telcoin.service 2>/dev/null | tail -1 || true)"
+UF="\${UF:-\$NL/telcoin.log}"
+# 3. alloy labels were set in step 8's session; assert they are still bench labels
 E=/etc/telcoin/alloy/telcoin-alloy.env
 grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" || fail "alloy env lacks bench labels (re-run step 8)"
-$(postconfig_params "${idx}")
-# 3. restart the node; wait until it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is
-#    progressing. An idle TN chain stays at block 0 (the engine skips empty non-epoch-closing
-#    consensus outputs), so progress = eth_blockNumber increased OR this node's own log shows
-#    consensus progress since the restart: validators log 'subdag committed' / 'quorum reached',
-#    an observer (follower) logs 'got new consensus' / 'catching up consensus blocks'.
-boot_ts=\$(date +%s)
-systemctl restart telcoin
-restart_ts=\$(date +%s)
+$(postconfig_readback)
+# 3c. what step 7's pre-start config put on the node command: RPC and WS on all interfaces
+#     (blasters reach 8545 on the internal IP; no public rule admits it), metrics on loopback
+[ "\$(arg '--http\.addr')" = 0.0.0.0 ] || fail "running --http.addr is '\$(arg '--http\.addr')', expected 0.0.0.0"
+[ "\$(arg '--ws\.addr')" = 0.0.0.0 ] || fail "running --ws.addr is '\$(arg '--ws\.addr')', expected 0.0.0.0"
+[ "\$(arg '--metrics')" = "127.0.0.1:\$MP" ] || fail "running --metrics is '\$(arg '--metrics')', expected 127.0.0.1:\$MP (.node-meta METRICS_PORT, default 9101)"${lf}
+# 4. it serves chain ${CHAIN_ID} on the INTERNAL IP and consensus is progressing. An idle TN chain
+#    stays at block 0 (the engine skips empty non-epoch-closing consensus outputs), so progress =
+#    eth_blockNumber increased OR this node's own log shows consensus progress since the coordinated
+#    start: validators log 'subdag committed' / 'quorum reached', an observer (follower) logs
+#    'got new consensus' / 'catching up consensus blocks'.
+T0='${t0}'
+[ -n "\$T0" ] || T0="\$(date -d "\$STARTED" +%s 2>/dev/null || date +%s)"
 IP=\$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
 [ -n "\$IP" ] || fail "no internal IP from the metadata server"
-# ECONNREFUSED right after the restart is expected: curl's failure is swallowed, empty = retry.
+# A refused or slow RPC is retried: curl's failure is swallowed, empty = retry.
 rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\$1\",\"params\":[]}" "http://\${IP}:8545" || true; } | sed -n 's/.*"result":"\([^"]*\)".*/\1/p' || true; }
-# consensus lines in the node's docker log since the restart (never older than 45 s)
+# consensus lines in the node's docker log in the last 45 s, never before the coordinated start
 commits() {
     local now since
-    now=\$(date +%s); since=\$(( now - 45 )); [ "\$since" -ge "\$restart_ts" ] || since="\$restart_ts"
+    now=\$(date +%s); since=\$(( now - 45 )); [ "\$since" -ge "\$T0" ] || since="\$T0"
     { docker logs telcoin --since "\$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached|got new consensus|catching up consensus blocks|skipping execution for empty|executing consensus output' || true
 }
-# the restarted binary's boot lines (logged once, at start): git sha, consensus delays, vote
-# timeout (later builds only), fork schedule — labelled as report/provenance.py does: a
-# "fork schedule (adiri)" line -> adiri-schedule; a "fork schedule:" line listing
-# subsecond_timestamp before "active from genesis" -> subsecond-from-genesis; any other
+# the running binary's boot lines (logged once, at start; read from the container's StartedAt): git
+# sha, consensus delays, vote timeout (later builds only), fork schedule — labelled as
+# report/provenance.py does: a "fork schedule (adiri)" line -> adiri-schedule; a "fork schedule:" line
+# listing subsecond_timestamp before "active from genesis" -> subsecond-from-genesis; any other
 # "fork schedule:" line -> pre-subsecond; none -> ?. Each pass fills only fields still empty,
 # so a later read (say a transient empty docker logs) never blanks what an earlier one found.
-sha=""; mhd=""; nhd=""; mbd=""; vt=""; forks=""
+# The container's json-file log is capped (50 MB x 3) and step 9 runs 30-55 min after the start, so
+# the boot block may have rotated out of it. Then the source is the unit's append file (UF), which
+# holds the stage-only run and then this one: its lines from the LAST 'starting' line on, so every
+# field comes from this container's run.
+sha=""; mhd=""; nhd=""; mbd=""; vt=""; forks=""; FB=""
 delay() { printf '%s\n' "\$1" | grep -ioE "\$2 set to [0-9]+ ?ms" | tail -1 | grep -oE '[0-9]+' | head -1 || true; }
 prov() {
     local L fl
-    L="\$({ docker logs telcoin --since "\$boot_ts" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' || true)"
-    [ -n "\$sha" ] || sha="\$(printf '%s\n' "\$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+    if [ -z "\$FB" ]; then
+        L="\$({ docker logs telcoin --since "\$STARTED" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' || true)"
+        [ -n "\$sha" ] || sha="\$(printf '%s\n' "\$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+        [ -n "\$sha" ] || FB=1   # rotated out: from now on every field comes from the unit file
+    fi
+    if [ -n "\$FB" ]; then
+        L="\$({ LC_ALL=C grep -aiE 'telcoin-network|delay set to|vote timeout set to|fork schedule' "\$UF" 2>/dev/null || true; } \\
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \\
+            | awk 'tolower(\$0) ~ /telcoin-network[ \t]+[^ \t]+[ \t]+\([^() \t]+\)[ \t]+starting/ { n = 0 } { b[++n] = \$0 } END { for (i = 1; i <= n; i++) print b[i] }' || true)"
+        [ -n "\$sha" ] || sha="\$(printf '%s\n' "\$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+    fi
     [ -n "\$mhd" ] || mhd="\$(delay "\$L" 'max header delay')"
     [ -n "\$nhd" ] || nhd="\$(delay "\$L" 'min header delay')"
     [ -n "\$mbd" ] || mbd="\$(delay "\$L" 'max batch delay')"
@@ -723,7 +954,7 @@ booted() { [ -n "\$sha" ] && [ -n "\$mhd" ] && [ -n "\$nhd" ] && [ -n "\$mbd" ];
 cid=""; b0=""; b=""; how=""; n=0
 deadline=\$(( \$(date +%s) + \${POSTCFG_WAIT_SECS:-300} ))
 while [ "\$(date +%s)" -lt "\$deadline" ]; do
-    if [ -z "\$how" ] && systemctl is-active --quiet telcoin; then
+    if [ -z "\$how" ]; then
         cid="\$(rpc eth_chainId)"
         if [ "\$cid" = "${CHAIN_ID_HEX}" ]; then
             b="\$(rpc eth_blockNumber)"
@@ -732,7 +963,7 @@ while [ "\$(date +%s)" -lt "\$deadline" ]; do
             fi
             if [ -z "\$how" ]; then
                 n="\$(commits)"
-                if [ "\${n:-0}" -ge 1 ]; then how="consensus log (\${n} subdag committed/quorum reached lines since restart)"; fi
+                if [ "\${n:-0}" -ge 1 ]; then how="consensus log (\${n} subdag committed/quorum reached lines in the last 45 s)"; fi
             fi
         fi
     fi
@@ -741,11 +972,12 @@ while [ "\$(date +%s)" -lt "\$deadline" ]; do
     sleep 5
 done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
-[ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the restart"
+[ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the coordinated start"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
-[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the restart"
-$(postconfig_readback)
-# 4. node sampler (systemd, root)
+[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF"
+# 5. still the same container and no restart while this ran
+[ "\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)" = "\$STARTED" ] || fail "the telcoin container restarted while step 9 ran"
+# 6. node sampler (systemd, root)
 echo '${b64}' | base64 -d > /usr/local/bin/bench-node-sampler.sh
 chmod 0755 /usr/local/bin/bench-node-sampler.sh
 cat > /etc/systemd/system/bench-node-sampler.service <<'UNIT'
@@ -763,7 +995,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
-echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--}"
+echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--} back=-"
 EOS
 }
 
@@ -802,7 +1034,7 @@ step9_node_check() {
                                       vote_timeout_ms: ($pvote|num)},
                              log_filter: ($lf|str), log_max_files: ($lmf|num)})' \
         || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
-    local stop="— stopping before any other node restarts"
+    local stop="— stopping step 9 (it restarts nothing; the node keeps running)"
     src="manifest consensus_parameters"
     [ -z "$(bench_node_overrides "${idx}")" ] || src="${src} + BENCH_NODE_PARAM_OVERRIDES"
     case "${sha}" in
@@ -830,7 +1062,7 @@ step9_node_check() {
 }
 
 step_9() {
-    echo ">>> Step 9: post-config, one IAP session per node, serially (<= 1 node down at a time)"
+    echo ">>> Step 9: post-config, verify only (no restart): one IAP session per node, serially"
     local i inst out line w_sha w_mhd w_nhd w_mbd w_forks
     w_sha="$(run_expect sha | tr 'ABCDEF' 'abcdef')"; w_forks="$(run_expect forks)"
     w_mhd="$(run_expect mhd)"; w_nhd="$(run_expect nhd)"; w_mbd="$(run_expect mbd)"
@@ -842,12 +1074,11 @@ step_9() {
     echo "    node log filter: ${BENCH_NODE_LOG_FILTER:-untouched (BENCH_NODE_LOG_FILTER is empty)}${BENCH_NODE_LOG_FILTER:+, --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}}"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: http.addr 0.0.0.0, assert alloy labels, parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ) + log filter, restart, chain-id ${CHAIN_ID_HEX} on internal IP, boot lines + readback, sampler"
-        bench_save_node_log "${i}" pre-step9 || bench_warn "${inst}: container log not saved before the step-9 restart — restarting anyway"
+        echo "    ${inst}: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ), alloy labels, chain-id ${CHAIN_ID_HEX} on internal IP, progress since the coordinated start, boot lines + readback, sampler"
         out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
         printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
         line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
-        [ -n "${line}" ] || bench_die "post-config failed on ${inst} — stopping before any other node restarts"
+        [ -n "${line}" ] || bench_die "post-config verification failed on ${inst} (POSTCFG_FAIL above; the whole script: --print-postconfig ${inst}) — stopping step 9; nothing was restarted"
         step9_node_check "${i}" "${line}" "${w_sha}" "${w_forks}"
     done
 }
@@ -927,6 +1158,10 @@ step_10() {
         [ "${leak}" = "0" ] || bench_die "${leak} bench node(s) have series labelled network=\"devnet\" in obs-devnet (${q})"
     done
     echo "    ✓ Prometheus: no network=\"devnet\" series from bench nodes"
+    # Admission: every node runs Closed (primary + worker networks) with fallback 0, read from its
+    # own /metrics over IAP (loopback only) -> manifest.admission[] + fleet_modes. It lists every
+    # node that is not Closed.
+    bench_admission_gate || bench_die "admission gate: not every node runs Closed admission (ADM_BAD lines above; manifest.admission)"
     bench_manifest_ts nodes_healthy
 }
 
@@ -975,7 +1210,17 @@ step_12() {
     bench_run gcloud storage buckets update "gs://${BENCH_BUCKET}" --update-labels="${BENCH_LABELS}"
 }
 
-step_13() { echo ">>> Step 13: fund senders"; "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}"; }
+# step_13 — fund the senders, once every validator is CvvActive (bench_fleet_ready -> manifest.fleet_ready).
+# A validator out of the committee's active set (a straggler from the coordinated start) gets up to
+# BENCH_FLEET_READY_MAX_WAIT_SECS (one epoch boundary + settle) to rejoin; funding a fleet with a
+# member missing would measure the wrong committee. The tunnel serves the boundary computation.
+step_13() {
+    echo ">>> Step 13: fund senders (every validator CvvActive first)"
+    bench_tunnel_up || bench_die "IAP tunnel failed"
+    bench_fleet_ready "${BENCH_FLEET_READY_MAX_WAIT_SECS}" step13 \
+        || bench_die "step 13: not every validator is CvvActive after waiting up to ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (above; manifest.fleet_ready) — nothing was funded"
+    "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}"
+}
 step_14() { echo ">>> Step 14: blast";        "${DIR}/benchmark-blast.sh" run --yes --run "${BENCH_RUN_ID}"; }
 
 step_15() {
@@ -1022,12 +1267,12 @@ plan_probe_line() {
 }
 
 # plan_node_params — the plan's "logs" line; with BENCH_NODE_PARAM_OVERRIDES set, one line per node:
-# the parameters step 9 leaves it with (the fleet file's, overrides applied); then every node whose
+# the parameters step 7 starts it with (the fleet file's, overrides applied); then every node whose
 # parameters the node would refuse at startup.
 plan_node_params() {
     local i ov vt
     if [ -n "${BENCH_NODE_LOG_FILTER}" ]; then
-        echo "  logs     --log.stdout.filter/--log.file.filter ${BENCH_NODE_LOG_FILTER} --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER, step 9)"
+        echo "  logs     --log.stdout.filter/--log.file.filter ${BENCH_NODE_LOG_FILTER} --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES} (BENCH_NODE_LOG_FILTER, step 7 pre-start config)"
     else
         echo "  logs     node command line untouched (BENCH_NODE_LOG_FILTER is empty)"
     fi
@@ -1044,14 +1289,17 @@ plan_node_params() {
     bench_node_params_problems | sed 's/^/    ✗ the node would refuse to start: /'
 }
 
-# plan_step9_lines — per node, the lines of its step-9 script that differ between nodes: the setp
-# (parameters.yaml) and F= (log filter) lines.
-plan_step9_lines() {
-    local i l
+# plan_prestart_lines — per node, what step 7's pre-start config sets on it that is not fleet-wide:
+# its BENCH_NODE_PARAM_OVERRIDES (into parameters.yaml); one line per node with any, else one line.
+plan_prestart_lines() {
+    local i l n=0
     for i in "${!INSTANCE_NAMES[@]}"; do
-        l="$(postconfig_params "${i}" | grep -E '^(setp |F=)' | paste -sd'|' - | sed 's/|/; /g')"
-        printf '                       %-20s %s\n' "${INSTANCE_NAMES[$i]}:" "${l:-(nothing: no override, BENCH_NODE_LOG_FILTER empty)}"
+        l="$(bench_node_overrides "${i}" | paste -sd, -)"
+        [ -n "${l}" ] || continue
+        printf '                                       %-20s parameters.yaml %s\n' "${INSTANCE_NAMES[$i]}:" "${l}"
+        n=$((n + 1))
     done
+    [ "${n}" -gt 0 ] || echo "                                       no per-node parameters (BENCH_NODE_PARAM_OVERRIDES is empty)"
 }
 
 # plan_harness — this checkout's HEAD, ",dirty" when tracked files differ from it (local git only).
@@ -1071,7 +1319,7 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
   chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
   probe    $(plan_probe_line)
   params   ${PARAMETERS_FILE}: max_header_delay $(bench_params_ms "${PARAMETERS_FILE}" max_header_delay) ms, min_header_delay $(bench_params_ms "${PARAMETERS_FILE}" min_header_delay) ms, max_batch_delay $(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay) ms
-  per-node ${BENCH_NODE_PARAM_OVERRIDES:-none} (BENCH_NODE_PARAM_OVERRIDES; step 9 writes them into that node's parameters.yaml)
+  per-node ${BENCH_NODE_PARAM_OVERRIDES:-none} (BENCH_NODE_PARAM_OVERRIDES; step 7's pre-start config writes them into that node's parameters.yaml)
 $(plan_node_params)
   harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
@@ -1109,25 +1357,43 @@ EOP
    4  firewall       benchmark/benchmark-firewall.sh apply --yes   (${BENCH_FIREWALL_RULES[*]} -> tag bench-node)
    5  keygen         ${REPO_ROOT}/devnet-keygen.sh           -> ${GENESIS_WORKSPACE}/genesis/{validators,observers}/
    6  genesis        ${REPO_ROOT}/devnet-genesis-build.sh    -> ${GENESIS_FILE}
-   7  finalize       ${REPO_ROOT}/devnet-finalize.sh
-   8  observability  per node, one IAP session: setup-observability.sh --enable-metrics -> black hole 127.0.0.1:9,
-                     stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy
-   9  post-config    per node, serial: bench_save_node_log <i> pre-step9 (container log -> /var/lib/bench-logs), then one IAP session: /opt/telcoin/start-telcoin.sh --http.addr 0.0.0.0; assert
-                     bench alloy labels; restart telcoin; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing
-                     (blocks rose OR docker logs 'subdag committed|quorum reached' since restart); boot lines (git sha, delays,
-                     fork schedule) == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service
-                     before each restart (the whole script: --print-postconfig <instance>):
-$(plan_step9_lines)
+   7  finalize       one coordinated start: every node is configured while stopped, then all start together
+                     network-config    CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/devnet-network-config.sh --yes
+                                       (Closed admission on all ${#INSTANCE_NAMES[@]}; rendered under ${GENESIS_WORKSPACE}/genesis/network-config/)
+                     stage-only        ${REPO_ROOT}/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
+                                       -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
+                     pre-start config  per node, one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
+                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }parameters.yaml overrides; PRECFG_OK <instance>
+$(plan_prestart_lines)
+                     start-all         ${REPO_ROOT}/devnet-finalize.sh --start-all (every unit at one due time, node clocks)
+                                       -> ${BENCH_RESULTS_DIR}/logs/finalize-start-<utc>.log; COORDINATED_START -> manifest.coordinated_start;
+                                       stop when spread_secs > ${START_SPREAD_MAX_SECS}
+                     re-run (--from 7) converges: PRESTAGED/RUNNING nodes are skipped, flags already set are accepted,
+                     the first start stays manifest.coordinated_start (later ones: coordinated_start_reruns);
+                     a unit RUNNING before any coordinated start stops the step (stop it by hand first)
+   8  observability  bench_fleet_ready 0: every validator CvvActive (manifest.fleet_ready), else stop; then per node, one IAP session, no restart:
+                     ingest token on stdin only -> setup-observability.sh --json --enable-metrics --token-stdin -> black hole 127.0.0.1:9;
+                     needs done ok:true + 'Node already serves a metrics endpoint (--metrics).' + container StartedAt unchanged + NRestarts=0;
+                     stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy;
+                     OBSCFG_OK <instance> restarted=none (the whole session: --print-obs-script <instance>)
+   9  post-config    per node, serial, one IAP session, verify only (no restart, no start-script edit): docker inspect telcoin args
+                     --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>${BENCH_NODE_LOG_FILTER:+, log filters == BENCH_NODE_LOG_FILTER}; <DATA_DIR from .node-meta>/parameters.yaml;
+                     bench alloy labels; NRestarts=0; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing since the coordinated
+                     start (blocks rose OR docker logs 'subdag committed|quorum reached'); boot lines (git sha, delays, fork schedule)
+                     == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service; POSTCFG_OK ... back=-
+                     (the whole script: --print-postconfig <instance>; step 7's pre-start script: --print-prestart <instance>)
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
                      cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
                      ${PROM_LEAK_QUERY} == 0 (and the same over every metric);
-                     python3 recovery-schedule.py --rpc-url ${RPC_URL}: registry epoch duration == ${EPOCH_DURATION_SECS} -> manifest.registry_probe
+                     python3 recovery-schedule.py --rpc-url ${RPC_URL}: registry epoch duration == ${EPOCH_DURATION_SECS} -> manifest.registry_probe;
+                     bench_admission_gate: every node admission Closed (primary + worker), fallback 0 -> manifest.admission, fleet_modes
   11  contracts      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "git worktree add ${BENCH_CONTRACTS_WORKTREE} -b ${BENCH_CONTRACTS_BRANCH} ${BENCH_CONTRACTS_BASE_BRANCH}" || echo "SKIPPED (pass --with-contracts)")
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
-  13  fund           benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
+  13  fund           bench_fleet_ready ${BENCH_FLEET_READY_MAX_WAIT_SECS}: every validator CvvActive, waiting up to one epoch boundary (manifest.fleet_ready)
+                     benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
   14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
   15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
                      tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
@@ -1142,6 +1408,9 @@ EOP
         echo "    ✓ accounts file funds the bench txgen master"; else echo "    ✗ accounts file lacks ${BENCH_TXGEN_MASTER_ADDRESS}"; ok=0; fi
     if [ -d "${BENCH_DIR}/genesis" ] && [ -n "$(ls -A "${BENCH_DIR}/genesis" 2>/dev/null)" ]; then
         echo "    ✗ ${BENCH_DIR}/genesis is not empty"; ok=0; else echo "    ✓ benchmark/genesis empty"; fi
+    local p7; p7="$(step7_local_problems)"
+    if [ -z "${p7}" ]; then echo "    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF ${TN_NODE_SCRIPTS_REF} (step 7)"
+    else printf '%s\n' "${p7}" | sed 's/^/    ✗ /'; ok=0; fi
     if ( bench_require_txgen_image ) 2>/dev/null; then echo "    ✓ image pinned: ${BENCH_TXGEN_IMAGE}"
     else echo "    ✗ image: ${BENCH_TXGEN_IMAGE_ERROR:-tag of '${BENCH_TXGEN_IMAGE}' is not blast-v2-<sha>}"; ok=0; fi
     [ -f "${BENCH_TXGEN_CLOUDBUILD}" ] && echo "    ✓ ${BENCH_TXGEN_CLOUDBUILD}" || { echo "    ✗ ${BENCH_TXGEN_CLOUDBUILD} missing (step 1)"; ok=0; }
@@ -1195,9 +1464,13 @@ if [ -n "${PRINT_POSTCONFIG}" ]; then
     postconfig_script "${PRINT_POSTCONFIG}"
     exit 0
 fi
+if [ -n "${PRINT_PRESTART}" ]; then
+    bench_index_of "${PRINT_PRESTART}" >/dev/null || bench_die "${PRINT_PRESTART} is not a bench instance"
+    bench_prestart_script "${PRINT_PRESTART}"
+    exit 0
+fi
 if [ -n "${PRINT_OBS}" ]; then
-    _i="$(bench_index_of "${PRINT_OBS}")" || bench_die "${PRINT_OBS} is not a bench instance"
-    obs_script "${PRINT_OBS}" "$(tn_region_from_zone "${ZONES[$_i]}")" "PLACEHOLDER-TOKEN"
+    obs_print "${PRINT_OBS}"
     exit 0
 fi
 if [ "${BENCH_APPLY}" = "1" ]; then deploy_log_start; fi
@@ -1230,6 +1503,16 @@ gate() {
             echo "    ✓ ${deps}"
         else
             echo "    ✗ missing ${deps} and step 11 will not produce it (pass --with-contracts with a range that includes 11)" >&2; bad=1
+        fi
+    fi
+    if in_range 7; then
+        local p7
+        p7="$(step7_local_problems)"
+        if [ -n "${p7}" ]; then
+            printf '%s\n' "${p7}" | sed 's/^/    ✗ /' >&2
+            bad=1
+        else
+            echo "    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF ${TN_NODE_SCRIPTS_REF} (step 7)"
         fi
     fi
     if in_range 7 || in_range 9; then
@@ -1353,14 +1636,12 @@ gate_manifest() {
     else
         echo "    · consensus_parameters not recorded yet (recorded when a range including step 7 runs)"
     fi
-    # The per-node part is applied by step 9, so it is recorded whenever step 9 runs (with step 7, above).
-    if ! in_range 7 && in_range 9; then
-        bench_node_params_manifest || bench_die "could not record the per-node parameters in ${m}"
-    fi
-    if in_range 7 || in_range 9; then
+    # The per-node part is applied by step 7's pre-start config, so it is recorded with step 7 (above);
+    # step 9 only verifies the nodes against this shell's knobs.
+    if in_range 7; then
         echo "    ✓ manifest: consensus_parameters.overrides $(jq -c '.consensus_parameters.overrides' "${m}"), node_startup[*].log_filter ${BENCH_NODE_LOG_FILTER:-null}"
     elif [ -f "${m}" ] && [ "$(jq -c '.consensus_parameters.overrides // {}' "${m}" 2>/dev/null || true)" != "$(bench_node_overrides_json)" ]; then
-        bench_warn "BENCH_NODE_PARAM_OVERRIDES differs from what step 9 applied ($(jq -c '.consensus_parameters.overrides // {}' "${m}")); it takes effect only when step 9 runs"
+        bench_warn "BENCH_NODE_PARAM_OVERRIDES differs from what step 7 applied ($(jq -c '.consensus_parameters.overrides // {}' "${m}")); it takes effect only when step 7 configures a fresh fleet, and step 9 will check the nodes against the new value"
     fi
 }
 

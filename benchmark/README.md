@@ -30,7 +30,10 @@ script points them at `benchmark/config.sh` through `CONFIG_FILE`.
 
 `benchmark/config.sh` only loads for an allowlist of callers: the `benchmark-*.sh` scripts
 and the shared drivers they run (`devnet-keygen.sh`, `devnet-genesis-build.sh`,
-`devnet-finalize.sh`, `devnet-contracts.sh`, `common/create-instances.sh`). Every other script
+`devnet-network-config.sh`, `devnet-finalize.sh`, `devnet-contracts.sh`,
+`common/create-instances.sh`). `devnet-network-config.sh` is there for step 7: it reads the fleet
+from the profile and installs a Closed-admission `network-config` on every bench node before any
+node starts, rendering the files under `benchmark/genesis/network-config/`. Every other script
 started with `CONFIG_FILE=benchmark/config.sh` exits before doing anything, including the
 devnet-only drivers, the wgvpn tools, and scripts added later. `devnet-observability.sh` is
 deliberately not on the list (see step 8). The profile also refuses to be sourced in an
@@ -39,8 +42,10 @@ interactive shell, because its exports would leak into a later devnet command.
 ## Before the first run
 
 - `gcloud auth login` as an account with Compute, Secret Manager, Storage and IAM rights in
-  `tn-devnet`. You also need `cast`, `jq`, `python3`, `docker` and `git` locally, plus
-  `forge` for `--with-contracts`. Docker must be running: the gate examines the node image
+  `tn-devnet`. You also need `cast`, `jq`, `python3` with PyYAML (`python3-yaml`; step 7's
+  drivers parse YAML with it), `docker` and `git` locally, plus `forge` for `--with-contracts`.
+  `TN_NODE_SCRIPTS_REF` (from `../config.sh`) must be a full 40-hex sha; step 0 and the gate for
+  step 7 refuse anything else. Docker must be running: the gate examines the node image
   with it, and that check has no skip switch.
 - The secrets `bench-txgen-master-key` (bare `0x<64 hex>`) and `bench-txgen-children-seed`
   (12 BIP-39 words) exist in Secret Manager. They never go into instance metadata or onto
@@ -145,18 +150,24 @@ startup: `min_header_delay` above `max_header_delay`, a threshold outside
 `1..max_header_num_of_batches`, or a `vote_timeout` (5 s when unset) below `max_header_delay` +
 250 ms or at 10 s or more. The plan prints every node's resulting values.
 
-Step 9 writes a node's overrides into `<datadir>/parameters.yaml` before restarting it. The
-datadir is the host side of the wrapper's `-v <host>:<--datadir>` bind. Each line is rewritten in
-place, or appended, and marked `# bench-override`; the staged file is kept as
-`parameters.yaml.bak`, and a later step 9 starts again from it. The gate records the overrides as
-`manifest.consensus_parameters.overrides` (`{"<instance>": {"<key>": "<value>"}}`) whenever step 7
-or 9 runs. The fork-schedule check uses the smallest `max_header_delay` of any node.
+Step 7's pre-start config writes a node's overrides into `<datadir>/parameters.yaml` while the
+node is stopped, before the coordinated start. The datadir is `DATA_DIR` in the node's
+`/etc/telcoin/.node-meta`, read once on the node; nothing parses it out of the start script (v2
+finalize copies `parameters.yaml` from the genesis dir into `DATA_DIR`, so edits there stay). Each
+line is rewritten in place, or appended, and marked `# bench-override`; a re-run rewrites the same
+lines, and the script fails when the number of marked lines differs from the node's overrides.
+Step 9 reads the file back from the same path. The gate records the overrides as
+`manifest.consensus_parameters.overrides` (`{"<instance>": {"<key>": "<value>"}}`) when step 7
+runs; a later range with a different `BENCH_NODE_PARAM_OVERRIDES` gets a warning, and step 9 then
+checks the nodes against the new value. The fork-schedule check uses the smallest
+`max_header_delay` of any node.
 
 ### Node log filter
 
 `BENCH_NODE_LOG_FILTER` (default
 `info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug`)
-goes onto each node's command line at step 9 as `--log.stdout.filter` and `--log.file.filter`,
+goes onto each node's command line at step 7 (pre-start config, with v2's `tn_launch_flag_set` on
+`/usr/local/libexec/telcoin/tn-start-docker`) as `--log.stdout.filter` and `--log.file.filter`,
 with `--log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}` (default 20). What each target gives:
 
 - `primary::certifier=debug`: each vote request and response per peer, so per-peer vote timing.
@@ -181,28 +192,39 @@ For a diagnostic run, append the heavy set to the default:
 BENCH_NODE_LOG_FILTER="info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info"
 ```
 
-Every container line lands on the node twice: in the docker json-file log, which has no size
-limit, and in the unit's append file `/var/log/telcoin/telcoin.log`, which duplicates it (the
-teardown pulls both, as `<node>-telcoin.log.gz` and `<node>-unit-stdout.log.gz`). The file log
-under `<datadir>/.cache/reth/logs/telcoin-network-logs/` is a third copy, but it rotates at
-200 MB per file. Bounding the json-file log (`--log-opt max-size`) is a follow-up, not done
-yet. `BENCH_NODE_LOG_FILTER=` (empty) leaves the command line as it is.
+Every container line lands on the node twice: in the docker json-file log and in the unit's
+append file `/var/log/telcoin/telcoin.log` (the teardown pulls both, as `<node>-telcoin.log.gz`
+and `<node>-unit-stdout.log.gz`). On v2 nodes the start script caps the json-file log at
+50 MB × 3 (`--log-opt max-size=50m --log-opt max-file=3`), so `docker logs` holds only the newest
+~150 MB. The unit file is the record: it is not capped, and it spans every container run since
+finalize (v2 finalize empties it before the node's first start), so it holds the stage-only run
+and then the coordinated one. Step 9 reads the boot lines 30-55 min after the start, by which time
+a busy filter may have rotated them out of `docker logs`. It then reads them from the unit file
+(the `StandardOutput=append:` path of the unit, else `<NODE_LOG_DIR>/telcoin.log`), taking every
+field from the last `starting` block, which is this container's run. The file log under
+`<datadir>/.cache/reth/logs/telcoin-network-logs/` is a third copy, but it rotates at 200 MB per
+file. `BENCH_NODE_LOG_FILTER=` (empty) leaves the command line as it is.
 `manifest.node_startup[<instance>]` records `log_filter` and `log_max_files`.
 
 ### What step 9 reports
 
-Each node's `POSTCFG_OK` line ends with the boot lines and then the readback:
+Step 9 restarts nothing. Each node's `POSTCFG_OK` line ends with the boot lines, then the
+readback, then `back=-` (no restart, so no downtime to report):
 
 ```
 POSTCFG_OK <inst> ... sha=<git> mhd=<ms> nhd=<ms> mbd=<ms> vt=<ms|?> forks=<label>
-    max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|-> filter=<filter|-> maxfiles=<n|->
+    max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|-> filter=<filter|-> maxfiles=<n|-> back=-
 ```
 
-`max`, `min`, `batch`, `thr` and `vote` are read from the node's `parameters.yaml` after the
-restart (`-` when the file lacks the key); `filter` and `maxfiles` from the running container's
-command line. Both the boot lines and the file must show that node's values (its override, else
-the manifest's), and the filter must be `BENCH_NODE_LOG_FILTER`, or the run stops before the next
-node restarts. They go into `manifest.node_startup[<instance>]` as `params` and `log_*`.
+The boot lines come from `docker logs --since` the container's `StartedAt`, or from the unit file
+when they have rotated out of the capped json-file log (see Node log filter). `max`, `min`,
+`batch`, `thr` and `vote` are read from `<DATA_DIR from .node-meta>/parameters.yaml` (`-` when
+the file lacks the key); `filter` and `maxfiles` from the running container's command line
+(`docker inspect telcoin`), which must also carry `--http.addr 0.0.0.0`, `--ws.addr 0.0.0.0` and
+`--metrics 127.0.0.1:<METRICS_PORT>`. Both the boot lines and the file must show that node's
+values (its override, else the manifest's), and the filter must be `BENCH_NODE_LOG_FILTER`, or
+step 9 stops at that node. The unit must report `NRestarts=0`. They go into
+`manifest.node_startup[<instance>]` as `params` and `log_*`.
 
 Changing parameters on a live fleet between sweep arms is `tools/params-apply.sh`'s job (one node
 restarted at a time, each arm recorded as `manifest.param_arms`; see `tools/README.md`, section
@@ -277,9 +299,15 @@ benchmark/benchmark-deploy.sh --probe-node-image
 # 1. Deploy, fund, blast, collect (steps 0-15). Add --with-teardown to finish with step 16.
 BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts
 
-# Resume after a failure, or re-run one step:
+# Resume after a failure, or re-run one step. Step 7 can be re-run as a whole (--from 7): staged
+# and running nodes are skipped (see "Step 7: one coordinated start").
 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9
 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15
+
+# Read a remote script before it runs (prints and exits; no GCP call):
+BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-prestart bench-validator-01    # step 7
+BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-obs-script bench-observer-11   # step 8, token shown as PLACEHOLDER-TOKEN
+BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-postconfig bench-validator-01  # step 9
 
 # Stop after a step (a sweep deploys the fleet with --to 12, then blasts per arm with --from 13 --to 15
 # under a new BENCH_RUN_INDEX each time):
@@ -318,16 +346,82 @@ up outside the repo once the teardown has finished.
 | 2 | Runs `common/create-instances.sh` on the bench profile, then asserts `tags == [bench-node]` and `labels.benchmark == 1` on every node, labels the boot disks and records `manifest.instances[]`. |
 | 3 | Waits for the `devnet-startup.sh complete` serial marker on each node. |
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
-| 5–7 | The devnet drivers, on the bench profile: keygen, genesis build (in `benchmark/`) and finalize. |
-| 8 | Metrics-only observability in one IAP session per node. `setup-observability.sh` would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. |
-| 9 | One IAP session per node, run serially. It rebinds reth `--http.addr` to 0.0.0.0, checks the bench Alloy labels, writes the node's `BENCH_NODE_PARAM_OVERRIDES` into its `parameters.yaml` and `BENCH_NODE_LOG_FILTER` onto its command line (see [Consensus timing](#consensus-timing)), restarts the node, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` since the restart; connection refusals while the node restarts are retried until the deadline), reads the node's boot lines, then installs `bench-node-sampler.service`. Serial order keeps at most one node down at a time. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`. `bench-validator-01` goes first, and the first mismatch stops the run before any other node restarts. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
-| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. |
+| 5–6 | The devnet drivers, on the bench profile: keygen and genesis build (in `benchmark/`). |
+| 7 | One coordinated start, in four parts (see [Step 7](#step-7-one-coordinated-start)): `network-config` (`devnet-network-config.sh --yes`, Closed admission on every node), `stage-only` (`devnet-finalize.sh --stage-only`: stage, v2 finalize, stop; the unit stays enabled), `pre-start config` (one IAP session per node, `bench_prestart_script` on stdin, `PRECFG_OK <inst>` required) and `start-all` (`devnet-finalize.sh --start-all`: every unit started at one due time on the nodes' clocks). The `COORDINATED_START` line goes into `manifest.coordinated_start`; a spread above 10 s stops the run. |
+| 8 | Metrics-only observability in one IAP session per node, with no node restart. First every validator must be `CvvActive` (`bench_fleet_ready 0`). The ingest token travels on the session's stdin only: the script reads it into a plain variable and pipes it to `setup-observability.sh --json --enable-metrics --token-stdin`. That script would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. The session requires the `done` event with `"ok":true`, the phrase `Node already serves a metrics endpoint (--metrics).` (step 7 put `--metrics` on the node command, so nothing changes) and the container's `StartedAt` unchanged with `NRestarts=0`; anything else is `OBSCFG_FAIL <inst> contract drift`, with no restart fallback. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. The last line is `OBSCFG_OK <inst> restarted=none <done event>`. |
+| 9 | One IAP session per node, run serially, verify only: no restart and no edit of the start script. It reads the running container's arguments (`docker inspect telcoin`: `--http.addr 0.0.0.0`, `--ws.addr 0.0.0.0`, `--metrics 127.0.0.1:<port>`, and the log filters and max-files when `BENCH_NODE_LOG_FILTER` is set), the node's `parameters.yaml` (path from `.node-meta` `DATA_DIR`) and the bench Alloy labels, requires `NRestarts=0`, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` in the last 45 s, never before the coordinated start), reads the node's boot lines from `docker logs --since` the container's start, then installs `bench-node-sampler.service`. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`; the first mismatch stops step 9. A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
+| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. Last, `bench_admission_gate` reads each node's own `/metrics` over IAP (loopback only): admission mode Closed on the primary and worker networks and fallback 0 on every node, recorded as `manifest.admission` and `manifest.fleet_modes`; it lists every node that is not Closed and stops the run. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
-| 13 | Fund: the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders, then is deleted. |
+| 13 | Fund. First every validator must be `CvvActive` (`bench_fleet_ready`, `manifest.fleet_ready`): one pass over the validators, and when one is not active, a wait until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS`, capped at `BENCH_FLEET_READY_MAX_WAIT_SECS`, then a second pass. Then the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders and is deleted. |
 | 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
 | 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. Then `analysis/block-rate.md` (and `analysis/cert-rate.md` once node logs are on disk), `INDEX.md` and `CHECKSUMS.sha256` are written into `results/<run>/`; a failure there is only a warning. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
+
+### Step 7: one coordinated start
+
+A committee member that starts more than `gc_depth` (50) rounds after the others reach quorum
+sits out the whole epoch (`too new for max round 50`, lessons 2026-11-02), and after the start no
+node may restart. So no node runs until every node is configured, and then all start together:
+
+1. `network-config`: `devnet-network-config.sh --yes` renders each node's `network-config`
+   (admission Closed, the committee peers, the hub/observer trusted and bootstrap peers) under
+   `benchmark/genesis/network-config/` and installs it. It restarts nothing.
+2. `stage-only`: `devnet-finalize.sh --stage-only` stages genesis, committee and
+   `PARAMETERS_FILE`, runs the v2 finalize (which starts the node once, alone), then stops the
+   unit and leaves it enabled. Nodes go one at a time, so no two run together. Its output is also
+   copied to `results/<run>/logs/finalize-stage-<UTC>.log`.
+3. `pre-start config`: one IAP session per node, the script on stdin (`bench_prestart_script`;
+   print it with `--print-prestart <instance>`). With the unit stopped it checks the node's
+   `tn-node-deployment` checkout against `TN_NODE_SCRIPTS_REF`, sets `--http.addr 0.0.0.0`,
+   `--ws.addr 0.0.0.0`, `--metrics 127.0.0.1:<METRICS_PORT>` and the log filter on
+   `/usr/local/libexec/telcoin/tn-start-docker` with v2's `tn_launch_flag_set`, and writes the
+   node's parameter overrides. Its last line, `PRECFG_OK <inst> datadir=… http=0.0.0.0 ws=0.0.0.0
+   metrics=127.0.0.1:<port> … unit=inactive`, is required.
+4. `start-all`: `devnet-finalize.sh --start-all` starts every unit at one due time (now + 60 s by
+   default, on each node's own clock), waits for them, and runs its post-checks. Its output is
+   copied to `results/<run>/logs/finalize-start-<UTC>.log`. The `COORDINATED_START due=…
+   nodes=… started=… skipped_running=… spread_secs=… max_late_secs=…` line goes into
+   `manifest.coordinated_start`. A spread above 10 s stops the run: read the `START_AT` lines in
+   that log and do not restart anything inside the epoch.
+
+Re-running step 7 (`--from 7`) converges. `network-config` is idempotent. `stage-only` skips a
+node whose unit is staged (`PRESTAGED`) or running (`RUNNING`). Pre-start accepts flags that
+already hold their value, and is not repeated on a node that has run since the coordinated start
+(it was configured before that start; if its start script lacks `--metrics`, step 8 refuses it).
+`start-all` skips running nodes. The first start stays `manifest.coordinated_start`; every later
+start-all appends `{line, ts}` to `manifest.coordinated_start_reruns`, and one that started nodes
+warns: they joined after the fleet and sit out the epoch they started in.
+
+A unit that is running before any coordinated start stops step 7. That happens when a stage-only
+fails after v2 finalize started the unit (a health timeout, `NRestarts` above 0, a failed stop).
+The node ran alone, so no quorum formed and stopping it is safe. On each named node run
+`sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin`, then re-run with `--from 7`.
+Left running, it would skip its pre-start config, and step 8 would refuse it after the start, when
+no restart is allowed.
+
+`devnet-finalize.sh` cannot finalize a node twice, so a post-check that failed on a transient
+ssh drop is re-checked, read-only, by hand (phase B only, A1-A5):
+
+```bash
+CONFIG_FILE=benchmark/config.sh BENCH_RUN_ID=r20260923-0100 \
+  BENCH_DOCKER_IMAGE=<manifest node_image_pinned> ./devnet-finalize.sh --verify [node]
+```
+
+`BENCH_DOCKER_IMAGE` must be the pinned `<repo>@sha256:` ref, because the checks compare the
+running image's digest with it.
+
+Fleet readiness. Step 8 requires every validator to report `tn_nodeMode` `CvvActive` in one pass
+(`bench_fleet_ready 0`); a validator that is not active stops it, and the fix is to wait for the
+next epoch boundary and resume with `--from 8`. Step 13 waits for the same condition, up to
+`BENCH_FLEET_READY_MAX_WAIT_SECS` (default `EPOCH_DURATION_SECS` + 300): when a validator is not
+active it sleeps until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS` (default 90),
+then polls each node again for up to `BENCH_NODE_BACK_SECS` (default 180). It never polls in a
+tight loop (IAP throttles). Both record `manifest.fleet_ready`.
+
+Every bench script that sources tn-node-deployment's library on a node first sets
+`DEVNET_RPC_URL` to `BENCH_GUARD_PUBLIC_RPC` (`http://127.0.0.1:9`, refused): the library's
+restart guard falls back to that URL, which otherwise is the live devnet's public RPC.
 
 ### Progress means consensus rounds, not blocks
 
@@ -512,7 +606,9 @@ repo once the teardown has finished.
   `<node>-unit-stdout.log.gz` (the unit's append file `/var/log/telcoin/telcoin.log`: the output
   of every container run since setup, so it also covers the seconds between a pre-kill log save
   and the kill), the container logs saved on the node before a restart or kill
-  (`<node>-telcoin-pre-step9-<UTC>.log.gz`, `-pre-kill-…`) and `<node>-recovery-<id>.*.tgz`.
+  (`<node>-telcoin-pre-kill-…`; runs before the coordinated start also have `-pre-step9-<UTC>`,
+  saved before step 9's restart) and `<node>-recovery-<id>.*.tgz`. Step 7's two finalize runs
+  are copied to `finalize-stage-<UTC>.log` and `finalize-start-<UTC>.log`.
   A validator below the certification threshold also has `<node>-telcoin-cert-fail-<UTC>.log.gz`
   (see Certification outcome). Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
   load VM creates of the current blast index (`create-<vm>.log`); an earlier index's creates are
@@ -553,8 +649,12 @@ The provenance fields record which bytes the run measured:
 | `node_version`, `node_git_sha`, `node_fork_schedule` | gate | the version and git sha from `telcoin -V` and `--version`, and the fork-schedule label from the contract strings |
 | `node_probe` | gate | `at`, `flags_ok` and `strings`, the count of each contract string in the binary |
 | `consensus_parameters` | gate | `file`, `sha256`, `max_header_delay_ms`, `min_header_delay_ms`, `max_batch_delay_ms` |
+| `coordinated_start` | step 7 | the first start: `due` (unix), `nodes`, `started`, `skipped_running`, `spread_secs`, `max_late_secs` from the `COORDINATED_START` line, and `ts` |
+| `coordinated_start_reruns[]` | step 7 re-runs | `{line, ts}`: each later `COORDINATED_START` line, verbatim, and when it was recorded (never replaces `coordinated_start`) |
+| `fleet_ready` | steps 8 and 13 | `label`, `ts`, `ok`, `waited_secs`, `passes` and each node's `modes` (`tn_nodeMode`) |
 | `node_startup[<inst>]` | step 9 | `sha`, `mhd`, `nhd`, `mbd`, `vt` and `forks` from the node's boot lines |
 | `registry_probe` | step 10 | the `recovery-schedule.py` reading: current epoch, its opening block and duration, and the drill it would schedule from that moment |
+| `admission[]`, `fleet_modes` | step 10 | per node the admission modes of the primary and worker networks, fallback, denied in/out and `tn_nodeMode`; `fleet_modes` maps each node to its mode |
 | `node_startup_check` | teardown | the saved logs checked against `node_git_sha` (informational) |
 
 ### Certification outcome

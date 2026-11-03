@@ -30,6 +30,9 @@ BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # benchmark/benchmark-*.sh plus exactly the shared drivers benchmark-deploy.sh invokes.
 # Everything else (the devnet-only drivers that manage DNS, the LB, the obs VM, the devnet
 # VPC rules, txgen-devnet, updates, wgvpn, ...) is refused, including scripts added later.
+# devnet-network-config.sh is allowed: deploy step 7 runs it first, so every bench node holds
+# a Closed-admission network-config (rendered under GENESIS_WORKSPACE, i.e. benchmark/genesis/)
+# before any node starts; it reads the fleet from this file and touches nothing else.
 # devnet-observability.sh is deliberately NOT allowed: step 8 relabels Alloy in the same
 # session as setup-observability.sh, which the devnet driver cannot do (it would ship
 # bench metrics labelled network="devnet" to obs-devnet).
@@ -43,8 +46,8 @@ esac
 _bench_caller="$(basename -- "${0:-}")"
 case "${_bench_caller}" in
     benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\
-    devnet-keygen.sh|devnet-genesis-build.sh|devnet-finalize.sh|devnet-contracts.sh|\
-    create-instances.sh|genesis.sh|copy-committee.sh|params-apply.sh) ;;
+    devnet-keygen.sh|devnet-genesis-build.sh|devnet-network-config.sh|devnet-finalize.sh|\
+    devnet-contracts.sh|create-instances.sh|genesis.sh|copy-committee.sh|params-apply.sh) ;;
     *)
         echo "❌ '${_bench_caller}' is not allowed to run with CONFIG_FILE=benchmark/config.sh." >&2
         echo "   The benchmark profile is driven only by benchmark/benchmark-*.sh (and the shared drivers they call)." >&2
@@ -211,6 +214,19 @@ export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"
 # bench-validator-01:8545 that benchmark-deploy.sh opens on this local port.
 export BENCH_TUNNEL_PORT=18545
 export RPC_URL="http://localhost:${BENCH_TUNNEL_PORT}"
+# The quorum guard in tn-node-deployment's lib falls back to DEVNET_RPC_URL, the LIVE devnet's
+# public RPC, read once when the lib is sourced. Every bench script that sources that lib on a
+# node exports DEVNET_RPC_URL to this black hole first (port 9, refused), so a bench node can
+# never ask the devnet whether it may restart.
+export BENCH_GUARD_PUBLIC_RPC="http://127.0.0.1:9"
+# Fleet readiness (bench_fleet_ready, deploy steps 8 and 13): every validator must report
+# tn_nodeMode CvvActive. A validator that is not active waits for the next epoch boundary plus
+# BENCH_FLEET_READY_SETTLE_SECS, never longer than the caller's cap; step 13 caps it at one epoch
+# plus 5 min, so a straggler from the coordinated start has a whole boundary to rejoin. Each node
+# then gets BENCH_NODE_BACK_SECS to answer. Sparse polls only (IAP throttles tight loops).
+export BENCH_FLEET_READY_SETTLE_SECS="${BENCH_FLEET_READY_SETTLE_SECS:-90}"
+export BENCH_FLEET_READY_MAX_WAIT_SECS="${BENCH_FLEET_READY_MAX_WAIT_SECS:-$((EPOCH_DURATION_SECS + 300))}"
+export BENCH_NODE_BACK_SECS="${BENCH_NODE_BACK_SECS:-180}"
 
 # Load generator (COS blasters). BENCH_TXGEN_IMAGE, not TXGEN_IMAGE: devnet-txgen.sh
 # reads ${TXGEN_IMAGE:-...} as its VM OS image, so exporting that name here would leak.
@@ -410,7 +426,7 @@ for _bench_knob in BENCH_CHAOS BENCH_LAG_INJECT; do
         *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
     esac
 done
-for _bench_knob in BENCH_LAG_IDX BENCH_LAG_AT_SECS; do
+for _bench_knob in BENCH_LAG_IDX BENCH_LAG_AT_SECS BENCH_FLEET_READY_SETTLE_SECS BENCH_FLEET_READY_MAX_WAIT_SECS BENCH_NODE_BACK_SECS; do
     case "${!_bench_knob}" in
         ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be a non-negative integer." >&2; exit 1 ;;
     esac
