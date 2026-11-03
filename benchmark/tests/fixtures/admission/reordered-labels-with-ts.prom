@@ -1,0 +1,30 @@
+# TYPE tn_network_closed_admission_denied_total counter
+tn_network_closed_admission_denied_total{direction="in",network="primary",instance="127.0.0.1:9101"}  2.0  1793724125123
+tn_network_closed_admission_denied_total{direction="out",instance="127.0.0.1:9101",network="worker-0"}	0.0	1793724125123
+tn_network_closed_admission_denied_total{instance="127.0.0.1:9101",direction="in",network="worker-0"} 1.0   1793724125123   
+tn_network_closed_admission_denied_total{direction="out",network="primary",instance="127.0.0.1:9101"}    1.0 1793724125123
+
+# TYPE tn_network_source_admission_denied_total counter
+tn_network_source_admission_denied_total{direction="in",reason="peer_full",network="primary",instance="127.0.0.1:9101"}  7.0  1793724125123
+tn_network_source_admission_denied_total{direction="in",reason="peer_full",network="worker-0",instance="127.0.0.1:9101"}  2.0  1793724125123
+
+# HELP tn_network_admission_resolved_current Resolved current-committee records, including the local identity.
+# TYPE tn_network_admission_resolved_current gauge
+tn_network_admission_resolved_current{instance="127.0.0.1:9101",network="primary"}  11.0  1793724125123
+tn_network_admission_resolved_current{instance="127.0.0.1:9101",network="worker-0"}  11.0  1793724125123
+
+# HELP tn_network_admission_mode Effective admission mode: Open = 0, Grace = 1, Closed = 2.
+# TYPE tn_network_admission_mode gauge
+tn_network_admission_mode{instance="127.0.0.1:9101",network="primary"}   2.0   1793724125123
+tn_network_admission_mode{instance="127.0.0.1:9101",network="worker-0"}	2.0	1793724125123  
+
+# HELP tn_network_admission_fallback Fallback: healthy = 0, missing = 1, stale = 2, contradictory = 3, unresolved = 4.
+# TYPE tn_network_admission_fallback gauge
+tn_network_admission_fallback{instance="127.0.0.1:9101",network="worker-0"}  0.0  1793724125123
+tn_network_admission_fallback{instance="127.0.0.1:9101",network="primary"}	0.0 1793724125123
+
+# HELP tn_network_connected_peers Currently connected peers.
+# TYPE tn_network_connected_peers gauge
+tn_network_connected_peers{instance="127.0.0.1:9101",network="primary"}  10.0  1793724125123
+
+NODE_MODE=CvvActive

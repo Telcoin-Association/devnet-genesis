@@ -1,0 +1,12 @@
+HOST_SERVICE_USER=telcoin
+HOST_SERVICE_GROUP=telcoin
+INSTALL_METHOD=docker
+PASSPHRASE_METHOD=credential
+NETWORK=devnet
+DATA_DIR=/var/lib/telcoin
+RPC_PORT=8545
+WS_PORT=8546
+METRICS_PORT=9101
+DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:d43daf0a9c8c7c78e3c50b2d791672b53b8f5bd0f4debaa2f62419242519b67a
+DOCKER_IMAGE_DIGEST=sha256:d43daf0a9c8c7c78e3c50b2d791672b53b8f5bd0f4debaa2f62419242519b67a
+NODE_LOG_DIR=/var/log/telcoin

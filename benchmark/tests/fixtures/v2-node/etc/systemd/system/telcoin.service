@@ -1,0 +1,30 @@
+[Unit]
+Description=Telcoin Network Node (devnet) [Docker]
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+LoadCredentialEncrypted=bls-passphrase:/etc/telcoin/bls-passphrase.cred
+EnvironmentFile=-/etc/telcoin/node.env
+UnsetEnvironment=TN_BLS_PASSPHRASE
+ExecStartPre=-/usr/bin/docker stop -t 80 telcoin
+ExecStartPre=-/usr/bin/docker rm -f telcoin
+ExecStart=/usr/local/libexec/telcoin/tn-start-docker
+ExecStop=/usr/bin/docker stop -t 80 telcoin
+TimeoutStopSec=100
+Restart=on-failure
+RestartSec=10
+LimitCORE=0
+StandardOutput=append:/var/log/telcoin/telcoin.log
+StandardError=append:/var/log/telcoin/telcoin-error.log
+SyslogIdentifier=telcoin
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

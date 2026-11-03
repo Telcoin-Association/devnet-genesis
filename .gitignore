@@ -1,5 +1,7 @@
 # binary
 telcoin
+# ... but not the bench test fixtures that mirror a node's /etc/telcoin and /usr/local/libexec/telcoin
+!benchmark/tests/fixtures/**/telcoin
 
 # validator configs
 telcoin-network.yaml

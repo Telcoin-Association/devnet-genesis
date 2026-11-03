@@ -1,0 +1,20 @@
+# TYPE tn_network_source_admission_denied_total counter
+tn_network_source_admission_denied_total{network="primary",direction="in",reason="peer_full"} 1
+
+# TYPE tn_network_closed_admission_denied_total counter
+tn_network_closed_admission_denied_total{network="primary",direction="out"} 0
+tn_network_closed_admission_denied_total{network="primary",direction="in"} 0
+
+# HELP tn_network_admission_mode Effective admission mode: Open = 0, Grace = 1, Closed = 2.
+# TYPE tn_network_admission_mode gauge
+tn_network_admission_mode{network="primary"} 2
+
+# HELP tn_network_connected_peers Currently connected peers.
+# TYPE tn_network_connected_peers gauge
+tn_network_connected_peers{network="primary"} 10
+
+# HELP tn_network_admission_fallback Fallback: healthy = 0, missing = 1, stale = 2, contradictory = 3, unresolved = 4.
+# TYPE tn_network_admission_fallback gauge
+tn_network_admission_fallback{network="primary"} 0
+
+NODE_MODE=Observer

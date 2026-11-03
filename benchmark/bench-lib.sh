@@ -1001,7 +1001,8 @@ bench_txgen_cli_probe() {
 # fleet exists. Fixed here, not knobs. The strings the binary must carry: node-image-contract.txt.
 BENCH_NODE_CONTRACT_FILE="${BENCH_LIB_DIR}/node-image-contract.txt"
 BENCH_NODE_BIN="/usr/local/bin/telcoin"
-# --log.* filter flags: deploy step 9 puts BENCH_NODE_LOG_FILTER / BENCH_NODE_LOG_MAX_FILES on the command line.
+# --log.* filter flags: the pre-start script (deploy step 7) puts BENCH_NODE_LOG_FILTER /
+# BENCH_NODE_LOG_MAX_FILES on the command line.
 BENCH_NODE_FLAGS_NODE="--datadir --log.stdout.format --log.stdout.filter --log.file.filter --log.file.max-files --http --http.addr --ws --ws.addr --healthcheck --metrics"
 BENCH_NODE_FLAGS_GENESIS="--datadir --chain-id --bls-passphrase-source --accounts --epoch-duration-in-secs --min-header-delay-ms --max-header-delay-ms"
 BENCH_NODE_FLAGS_KEYTOOL="--datadir --address --external-primary-addr --external-worker-addrs"
@@ -1277,9 +1278,10 @@ bench_consensus_params_manifest() {
 
 # --- per-node consensus parameters and node log filter ------------------------------------------
 # BENCH_NODE_PARAM_OVERRIDES (config.sh checks its syntax and keys) puts per-node values on top of
-# PARAMETERS_FILE; deploy step 9 writes them into each node's <datadir>/parameters.yaml before its
-# restart, and BENCH_NODE_LOG_FILTER onto its command line. Live changes between sweep arms are
-# tools/params-apply.sh's (it records manifest.param_arms), not these helpers'.
+# PARAMETERS_FILE; the pre-start script of deploy step 7 (bench_prestart_script) writes them into each
+# node's <datadir>/parameters.yaml, and BENCH_NODE_LOG_FILTER onto its command line, while the unit is
+# stopped, before the coordinated start; step 9 only reads them back (it restarts nothing). Live changes
+# between sweep arms are tools/params-apply.sh's (it records manifest.param_arms), not these helpers'.
 
 # bench_node_overrides <node-index> — that node's overrides, one "<key>=<value>" per line (none: no output).
 bench_node_overrides() {
@@ -1310,8 +1312,8 @@ bench_params_raw() {
         gsub(/^["\047]|["\047]$/, "", v); print v; exit }' "$1"
 }
 
-# bench_node_param_ms <node-index> <key> — what step 9 leaves node <node-index> with for a duration
-# key, in ms: its override, else PARAMETERS_FILE's value ("" when the file lacks the key).
+# bench_node_param_ms <node-index> <key> — what the pre-start script leaves node <node-index> with for a
+# duration key, in ms: its override, else PARAMETERS_FILE's value ("" when the file lacks the key).
 bench_node_param_ms() {
     local ov
     ov="$(bench_node_override "$1" "$2")"
@@ -1364,11 +1366,11 @@ bench_node_overrides_json() {
     done | jq -c -R -s 'split("\n") | map(select(length > 0) | split("\t")) | reduce .[] as $r ({}; .[$r[0]][$r[1]] = $r[2])'
 }
 
-# bench_node_params_manifest — record what step 9 applies per node: consensus_parameters.overrides
-# = {<instance>: {<key>: "<value>"}} (nodes with overrides only; {} when none), and
+# bench_node_params_manifest — record what the pre-start script (deploy step 7) applies per node:
+# consensus_parameters.overrides = {<instance>: {<key>: "<value>"}} (nodes with overrides only; {} when none), and
 # node_startup[<instance>].log_filter / .log_max_files (null when BENCH_NODE_LOG_FILTER is empty:
-# the node's command line is left as it is). Step 9 overwrites both log fields with what it reads
-# back from the running node.
+# the node's command line is left as it is). Step 9 (verify only) overwrites both log fields with what
+# it reads back from the running node.
 bench_node_params_manifest() {
     local ov insts mf=""
     ov="$(bench_node_overrides_json)" || return 1
@@ -1435,7 +1437,7 @@ _bench_index_kind() {
         logs/*-telcoin-cert-fail-*.log.gz) echo "16|logs/<node>-telcoin-cert-fail-<UTC>.log.gz|container log of a validator below the certification threshold, saved when the outcome was recorded (listed in manifest.cert_failures[].logs; the local gate requires it)|bench_cert_failures_snapshot (collect, teardown before the local gate)" ;;
         logs/*-unit-stdout*.log.gz|logs/*-unit-stderr*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.log.gz|the unit's append files /var/log/telcoin/telcoin{,-error}.log: every container run's output since setup|teardown log gate (bench_pull_node_logs)" ;;
         logs/*-telcoin.log.gz|logs/*-telcoin-[0-9]*Z.log.gz) echo "15|logs/<node>-telcoin.log.gz|the current container's log at the pull|teardown log gate (bench_pull_node_logs)" ;;
-        logs/*.log.gz) echo "16|logs/<node>-<saved>.log.gz|container logs saved on the node before a restart, kill or pause (pre-step9, pre-kill, ...)|bench_save_node_log (deploy step 9, blast chaos); pulled by the teardown" ;;
+        logs/*.log.gz) echo "16|logs/<node>-<saved>.log.gz|container logs saved on the node before a restart, kill or pause (pre-kill, ...; runs before the coordinated start also pre-step9)|bench_save_node_log (blast chaos; deploy step 9 in runs before the coordinated start); pulled by the teardown" ;;
         logs/deploy-*.log) echo "17|logs/deploy-*.log|benchmark-deploy.sh output, one file per invocation|benchmark-deploy.sh" ;;
         logs/blast-*.log) echo "18|logs/blast-<action>-*.log|benchmark-blast.sh output, one file per invocation|benchmark-blast.sh" ;;
         logs/create-*.log) echo "19|logs/create-<vm>.log|load VM create output (current blast index)|benchmark-blast.sh fund/run" ;;
@@ -1894,4 +1896,529 @@ bench_obs_mem_pct() {
     id="$(gcloud compute instances describe "${OBS_INSTANCE_NAME}" --zone="${OBS_ZONE}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null)" || true
     [ -n "${id}" ] || return 0
     bench_monitoring_max "metric.type=\"agent.googleapis.com/memory/percent_used\" AND metric.labels.state=\"used\" AND resource.labels.instance_id=\"${id}\""
+}
+
+# --- v2 nodes: pre-start config, node mode, fleet readiness, admission -------------------------
+# Bench 3 runs the nodes on the tn-node-deployment v2 scripts: unit `telcoin`, start script
+# /usr/local/libexec/telcoin/tn-start-docker (one `docker run` line, rendered by the v2 lib), node
+# metadata /etc/telcoin/.node-meta (root 0600, KEY=VALUE) and the scripts' root-owned checkout at
+# TN_NODE_SCRIPTS_DIR. Nothing here edits the start script with sed: launch flags go through the
+# lib's own tn_launch_flag_set, which the lib's other writers respect. Every node read is one IAP
+# session. A caller that loops over the fleet retries a failed read once, a few seconds later (one
+# failed ssh is never evidence about the node), and never polls tightly (IAP throttles that).
+
+# bench_remote_lib_preamble — the shell text every bench remote script that sources the v2 lib
+# starts with. SD is the scripts' checkout on the node. tnlib <fn> <args...> runs one v2 lib
+# function in a subshell, with DEVNET_RPC_URL set to BENCH_GUARD_PUBLIC_RPC first: lib/common.sh
+# reads that name once, readonly, as the quorum guard's public fallback, which must never be the
+# real devnet's RPC. lib/common.sh switches on `set -euo pipefail` where it is sourced, so call it
+# as `tnlib f ... || rc=$?` or `v="$(tnlib f ...)" || rc=$?`. meta <KEY> prints one value of
+# /etc/telcoin/.node-meta the way v2's meta_get reads it (the text after the first '=', a trailing
+# CR dropped): rc 1 when the key is absent or the file unreadable, rc 2 (nothing printed) when the
+# key is set more than once.
+bench_remote_lib_preamble() {
+    printf 'SD=%q\n' "${TN_NODE_SCRIPTS_DIR:-/opt/telcoin-node-scripts}"
+    # shellcheck disable=SC2016  # $SD and $@ are the remote shell's
+    printf 'tnlib(){ ( export DEVNET_RPC_URL=%q; . "$SD/lib/common.sh"; "$@" ); }\n' "${BENCH_GUARD_PUBLIC_RPC:-http://127.0.0.1:9}"
+    cat <<'EOS'
+meta(){ [ -r /etc/telcoin/.node-meta ] || return 1; awk -v k="$1" 'index($0, k "=") == 1 { n++; v = substr($0, length(k) + 2) } END { sub(/\r$/, "", v); if (n == 1) print v; exit (n == 1 ? 0 : (n ? 2 : 1)) }' /etc/telcoin/.node-meta; }
+EOS
+}
+
+# bench_prestart_script <inst> — the pre-start remote script of one node: deploy step 7 runs it
+# between `devnet-finalize.sh --stage-only` and `--start-all`, as root
+# (`bench_prestart_script <inst> | tn_iap_ssh_stdin <inst> <zone>`). The unit is stopped, so what
+# it changes is what the coordinated start runs, and nothing restarts. In order:
+#   1. the checkout at SD is TN_NODE_SCRIPTS_REF
+#   2. `systemctl is-active telcoin` = inactive
+#   3. D = DATA_DIR from .node-meta, read once
+#   4. S (the start script) mounts D at the container's /home/nonroot
+#   5. MP = METRICS_PORT from .node-meta (9101 when absent or empty, as obs_metrics_port; 1-65535)
+#   6. tn_launch_flag_set S: --http.addr 0.0.0.0, --ws.addr 0.0.0.0, --metrics 127.0.0.1:<MP> (byte for
+#      byte what setup-observability.sh --enable-metrics renders, so step 8 finds it on the node command
+#      and restarts nothing) and, when BENCH_NODE_LOG_FILTER is set, --log.stdout.filter <F>,
+#      --log.file.filter <F>, --log.file.max-files <BENCH_NODE_LOG_MAX_FILES>. rc 1 (the flag already
+#      reads that value) is accepted, so a re-run converges; any other rc fails, naming it.
+#   7. this node's BENCH_NODE_PARAM_OVERRIDES into <D>/parameters.yaml with setp, the rewrite the old step 9
+#      used (lines marked `# bench-override`; a re-run rewrites the same lines). No .bak: the file is fresh
+#      from the stage.
+#      The file must then hold exactly one marked line per override, so a marked line an earlier run
+#      left for an override this run no longer has fails instead of lingering.
+#   8. every flag of 6 read back with tn_launch_flag_get
+#   9. S is root:root 755 and passes bash -n
+#  10. the unit is still inactive
+# Last line (contract C5b):
+#   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
+#     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive
+# Any failure prints `PRECFG_FAIL <inst> <reason>` and exits 1. Prints the script only (no GCP call);
+# non-zero and nothing printed for an instance outside the fleet or a TN_NODE_SCRIPTS_REF that is
+# not 40 lower-case hex.
+bench_prestart_script() {
+    local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov
+    idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
+    case "${ref}" in
+        *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
+    esac
+    [ "${#ref}" -eq 40 ] || { echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1; }
+    nov="$(bench_node_overrides "${idx}" | grep -c . || true)"
+    echo 'set -euo pipefail'
+    printf 'fail(){ echo "PRECFG_FAIL %s $*"; exit 1; }\n' "${inst}"
+    bench_remote_lib_preamble
+    printf "REF='%s'; NOV=%s\n" "${ref}" "${nov}"
+    if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
+        printf "F='%s'; MF='%s'\n" "${BENCH_NODE_LOG_FILTER}" "${BENCH_NODE_LOG_MAX_FILES}"
+    else
+        echo "F=''; MF=''   # BENCH_NODE_LOG_FILTER is empty: the node's log flags stay as they are"
+    fi
+    cat <<'EOS'
+# 1. the v2 scripts' checkout is the pinned commit
+h="$(git -C "$SD" rev-parse HEAD 2>/dev/null || true)"
+[ "$h" = "$REF" ] || fail "$SD is at '${h:-?}', want $REF"
+# 2. the unit is stopped (devnet-finalize.sh --stage-only): nothing below starts or restarts it
+u="$(systemctl is-active telcoin 2>/dev/null || true)"
+[ "$u" = inactive ] || fail "unit telcoin is '${u:-?}', want inactive"
+# 3. the datadir, read once
+r=0; D="$(meta DATA_DIR)" || r=$?
+[ "$r" = 0 ] || fail "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
+case "$D" in /?*) ;; *) fail "DATA_DIR '$D' in /etc/telcoin/.node-meta is not an absolute path" ;; esac
+# 4. the start script, which must mount the datadir at the container's home
+S=/usr/local/libexec/telcoin/tn-start-docker
+[ -f "$S" ] || fail "no $S"
+grep -qF " -v $D:/home/nonroot " "$S" || fail "$S does not mount $D at /home/nonroot"
+# 5. the metrics port as obs_metrics_port reads it: METRICS_PORT, 9101 when absent or empty
+r=0; MP="$(meta METRICS_PORT)" || r=$?
+case "$r" in 0|1) ;; *) fail "METRICS_PORT is set more than once in /etc/telcoin/.node-meta" ;; esac
+[ -n "$MP" ] || MP=9101
+case "$MP" in *[!0-9]*|??????*) fail "METRICS_PORT '$MP' is not a port number" ;; esac
+MP=$((10#$MP))
+[ "$MP" -ge 1 ] && [ "$MP" -le 65535 ] || fail "METRICS_PORT $MP is not a port number (1-65535)"
+# 6. launch flags: rc 0 = set, rc 1 = already that value; anything else fails
+setf(){ local rc=0; tnlib tn_launch_flag_set "$S" "$1" "$2" || rc=$?; case "$rc" in 0|1) ;; *) fail "tn_launch_flag_set $1 $2: rc $rc" ;; esac; }
+getf(){ local v rc=0; v="$(tnlib tn_launch_flag_get "$S" "$1")" || rc=$?; [ "$rc" = 0 ] || fail "tn_launch_flag_get $1: rc $rc"; [ "$v" = "$2" ] || fail "$1 reads '$v' in $S, want '$2'"; }
+setf --http.addr 0.0.0.0
+setf --ws.addr 0.0.0.0
+setf --metrics "127.0.0.1:$MP"
+EOS
+    if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
+        cat <<'EOS'
+setf --log.stdout.filter "$F"
+setf --log.file.filter "$F"
+setf --log.file.max-files "$MF"
+EOS
+    fi
+    cat <<'EOS'
+# 7. this node's consensus parameter overrides (setp), marked `# bench-override`
+P="$D/parameters.yaml"
+[ -f "$P" ] || fail "no $P"
+# setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
+setp() {
+    local t
+    t="$(mktemp)"
+    if ! awk -v k="$1" -v v="$2" '
+        index($0, k ":") == 1 { r = substr($0, length(k) + 2); sub(/^[ \t]+/, "", r); sub(/[ \t]*#.*$/, "", r)
+                                if (r == "") blk = 1
+                                if (!n++) print k ": " v "  # bench-override"
+                                next }
+        { print }
+        END { if (!n) print k ": " v "  # bench-override"; exit (blk ? 3 : 0) }' "$P" > "$t"; then
+        rm -f "$t"; fail "$1 is a block (secs/nanos) in $P; write it as <int>ms there"
+    fi
+    cat "$t" > "$P"; rm -f "$t"
+    [ "$(grep -c "^$1: $2  # bench-override\$" "$P" || true)" = 1 ] || fail "$1 not rewritten in $P"
+}
+EOS
+    bench_node_overrides "${idx}" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
+    cat <<'EOS'
+m="$(grep -c '  # bench-override$' "$P" || true)"
+[ "$m" = "$NOV" ] || fail "$P has $m '# bench-override' line(s), this node has $NOV override(s) (a marked line from an earlier run?)"
+# 8. read every flag back
+getf --http.addr 0.0.0.0
+getf --ws.addr 0.0.0.0
+getf --metrics "127.0.0.1:$MP"
+EOS
+    if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
+        cat <<'EOS'
+getf --log.stdout.filter "$F"
+getf --log.file.filter "$F"
+getf --log.file.max-files "$MF"
+EOS
+    fi
+    cat <<'EOS'
+# 9. the start script is still root:root 755 and parses
+o="$(stat -c '%U:%G %a' "$S" 2>/dev/null || true)"
+[ "$o" = "root:root 755" ] || fail "$S is '${o:-?}', want root:root 755"
+bash -n "$S" || fail "$S does not parse (bash -n)"
+# 10. still stopped
+u="$(systemctl is-active telcoin 2>/dev/null || true)"
+[ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
+EOS
+    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u"\n' "${inst}"
+}
+
+# _bench_node_mode_cmd — the remote command bench_node_mode runs (one tn_iap_ssh, no sudo): the
+# node's raw tn_nodeMode answer from its RPC on 127.0.0.1:8545; never non-zero on the node.
+_bench_node_mode_cmd() {
+    printf '%s' "curl -s --max-time 10 -H 'content-type: application/json' --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tn_nodeMode\",\"params\":[]}' http://127.0.0.1:8545 || true"
+}
+
+# _bench_node_idx_zone <caller> <node-index> — "<inst> <zone>" of INSTANCE_NAMES[<node-index>];
+# non-zero with a message on stderr for a bad index.
+_bench_node_idx_zone() {
+    local inst zone
+    case "${2:-}" in ''|*[!0-9]*) echo "❌ $1: bad node index '${2:-}'" >&2; return 1 ;; esac
+    inst="${INSTANCE_NAMES[$2]:-}"; zone="${ZONES[$2]:-}"
+    [ -n "${inst}" ] && [ -n "${zone}" ] || { echo "❌ $1: no node at index $2" >&2; return 1; }
+    printf '%s %s\n' "${inst}" "${zone}"
+}
+
+# bench_node_mode <node-index> — the node's tn_nodeMode (CvvActive, CvvInactive or Observer), read
+# with one ssh (_bench_node_mode_cmd). Empty and rc 1 when it cannot be read: ssh failed, the RPC
+# did not answer, or the answer carries no result string.
+bench_node_mode() {
+    local iz out mode
+    iz="$(_bench_node_idx_zone bench_node_mode "${1:-}")" || return 1
+    out="$(tn_iap_ssh "${iz% *}" "${iz#* }" "$(_bench_node_mode_cmd)" </dev/null)" || return 1
+    mode="$(printf '%s\n' "${out}" | tr -d '\r' | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_]\{1,40\}\)".*/\1/p' | head -1)"
+    [ -n "${mode}" ] || return 1
+    printf '%s\n' "${mode}"
+}
+
+# _bench_ro_retry <fn> <args...> — run a read-only node read; when it fails, run it once more
+# BENCH_RO_RETRY_SECS (default 5) later. Its output and status are the last attempt's.
+_bench_ro_retry() {
+    local s="${BENCH_RO_RETRY_SECS:-5}"
+    case "${s}" in ''|*[!0-9]*) s=5 ;; esac
+    "$@" && return 0
+    sleep "${s}"
+    "$@"
+}
+
+# _bench_next_boundary — the unix time of the next epoch boundary after now: the ConsensusRegistry's
+# current epoch opened at epoch_start_unix and lasts duration_secs (recovery-schedule.py over the
+# RPC tunnel at RPC_URL, as deploy step 10's registry probe; 120 s alarm). Non-zero and nothing
+# printed when the registry cannot be read.
+_bench_next_boundary() {
+    local now out
+    now="$(bench_now_unix)"
+    out="$(perl -e 'alarm shift; exec @ARGV' 120 python3 "${BENCH_LIB_DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" \
+        --earliest-kill "${now}" </dev/null 2>/dev/null)" || return 1
+    printf '%s' "${out}" | jq -er --argjson now "${now}" '
+        (.epoch_start_unix | numbers) as $s | (.duration_secs | numbers) as $d | select($d > 0)
+        | if $s > $now then $s else $s + $d * (((($now - $s) / $d) | floor) + 1) end' 2>/dev/null
+}
+
+# bench_fleet_ready <max-wait-secs> <label> — rc 0 when every validator (NODE_ROLES) reports
+# tn_nodeMode CvvActive. At most two sparse passes over the validators, no tight polling (IAP):
+# pass 1 reads each once (a failed read once more, BENCH_RO_RETRY_SECS later). If any is not
+# CvvActive and <max-wait-secs> > 0, it sleeps until the next epoch boundary (a pending validator
+# joins there; _bench_next_boundary) plus BENCH_FLEET_READY_SETTLE_SECS, never past <max-wait-secs>
+# after the start (the whole cap when the registry cannot be read), then pass 2 reads every
+# validator again and gives the ones still not CvvActive one more read BENCH_NODE_BACK_SECS after
+# pass 2 began. Records manifest.fleet_ready = {label, ts, ok, waited_secs (the seconds slept between
+# reads), passes, modes: {<inst>: <mode>|null (unreadable)}} and merges the readable modes into
+# manifest.fleet_modes (an unreadable node's entry is dropped). rc 1 lists every validator not
+# CvvActive on stderr.
+bench_fleet_ready() {
+    local max="${1:-}" label="${2:-}" settle="${BENCH_FLEET_READY_SETTLE_SECS:-90}" back="${BENCH_NODE_BACK_SECS:-180}"
+    local t0 now i m fm passes=1 waited=0 s b p2 notready="" nval=0 modes ok=false
+    case "${max}" in ''|*[!0-9]*) echo "❌ bench_fleet_ready <max-wait-secs> <label>: bad max-wait '${max}'" >&2; return 1 ;; esac
+    [ -n "${label}" ] || { echo "❌ bench_fleet_ready <max-wait-secs> <label>: no label" >&2; return 1; }
+    case "${settle}" in ''|*[!0-9]*) settle=90 ;; esac
+    case "${back}" in ''|*[!0-9]*) back=180 ;; esac
+    t0="$(bench_now_unix)"
+    fm=()
+    echo "    fleet ready (${label}): every validator CvvActive (max wait ${max}s)"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        [ "${NODE_ROLES[$i]:-}" = "validator" ] || continue
+        nval=$((nval + 1))
+        m="$(_bench_ro_retry bench_node_mode "${i}")" || m=""
+        fm[$i]="${m}"
+        [ "${m}" = "CvvActive" ] || notready="${notready} ${INSTANCE_NAMES[$i]}=${m:-unreadable}"
+    done
+    if [ -n "${notready}" ] && [ "${max}" -gt 0 ]; then
+        passes=2
+        now="$(bench_now_unix)"
+        if b="$(_bench_next_boundary)" && [ -n "${b}" ]; then
+            s=$((b + settle - now))
+            echo "      not CvvActive:${notready}; next epoch boundary $(bench_iso_from_unix "${b}") + ${settle}s settle"
+        else
+            s="${max}"
+            bench_warn "fleet ready (${label}): the registry (${RPC_URL:-no RPC_URL}) cannot be read; waiting the whole cap"
+            echo "      not CvvActive:${notready}"
+        fi
+        [ "${s}" -le $((t0 + max - now)) ] || s=$((t0 + max - now))
+        [ "${s}" -ge 0 ] || s=0
+        echo "      waiting ${s}s, then one more pass"
+        sleep "${s}"; waited=$((waited + s))
+        p2="$(bench_now_unix)"; notready=""
+        for i in "${!INSTANCE_NAMES[@]}"; do
+            [ "${NODE_ROLES[$i]:-}" = "validator" ] || continue
+            m="$(_bench_ro_retry bench_node_mode "${i}")" || m=""
+            fm[$i]="${m}"
+            [ "${m}" = "CvvActive" ] || notready="${notready} ${i}"
+        done
+        if [ -n "${notready}" ] && [ "${back}" -gt 0 ]; then
+            now="$(bench_now_unix)"; s=$((p2 + back - now)); [ "${s}" -ge 0 ] || s=0
+            echo "      still not CvvActive:$(for i in ${notready}; do printf ' %s' "${INSTANCE_NAMES[$i]}"; done); one more read in ${s}s"
+            sleep "${s}"; waited=$((waited + s))
+            for i in ${notready}; do
+                m="$(_bench_ro_retry bench_node_mode "${i}")" || m=""
+                fm[$i]="${m}"
+            done
+        fi
+        notready=""
+        for i in "${!INSTANCE_NAMES[@]}"; do
+            [ "${NODE_ROLES[$i]:-}" = "validator" ] || continue
+            [ "${fm[$i]:-}" = "CvvActive" ] || notready="${notready} ${INSTANCE_NAMES[$i]}=${fm[$i]:-unreadable}"
+        done
+    fi
+    [ -n "${notready}" ] || ok=true
+    modes="$(for i in "${!INSTANCE_NAMES[@]}"; do
+        [ "${NODE_ROLES[$i]:-}" = "validator" ] || continue
+        printf '%s\t%s\n' "${INSTANCE_NAMES[$i]}" "${fm[$i]:-}"
+    done | jq -c -R -s 'split("\n") | map(select(length > 0) | split("\t")) | map({key: .[0], value: (if (.[1] // "") == "" then null else .[1] end)}) | from_entries')" || modes=""
+    [ -n "${modes}" ] || modes='{}'
+    bench_manifest_jq --arg label "${label}" --arg ts "$(bench_now_iso)" --argjson ok "${ok}" \
+        --argjson w "${waited}" --argjson p "${passes}" --argjson modes "${modes}" '
+        .fleet_ready = {label: $label, ts: $ts, ok: $ok, waited_secs: $w, passes: $p, modes: $modes}
+        | .fleet_modes = (((.fleet_modes // {}) + $modes) | with_entries(select(.value | type == "string")))' \
+        || bench_warn "fleet ready (${label}): could not record fleet_ready in $(bench_manifest)"
+    if [ "${ok}" = true ]; then
+        echo "    ✓ fleet ready (${label}): ${nval}/${nval} validators CvvActive (passes ${passes}, waited ${waited}s)"
+        return 0
+    fi
+    echo "    ✗ fleet not ready (${label}) after ${passes} pass(es), waited ${waited}s; not CvvActive:${notready}" >&2
+    return 1
+}
+
+# _bench_admission_read_script — the remote script of bench_admission_read (root, on stdin): the
+# three admission families from the node's metrics endpoint (METRICS_PORT from .node-meta, 9101
+# when absent or empty, as obs_metrics_port), then NODE_MODE=<tn_nodeMode|->. Never non-zero.
+_bench_admission_read_script() {
+    echo 'set -u'
+    bench_remote_lib_preamble
+    cat <<'EOS'
+r=0; P="$(meta METRICS_PORT)" || r=$?
+[ "$r" -le 1 ] || echo "METRICS_PORT is set more than once in /etc/telcoin/.node-meta; reading 9101" >&2
+[ -n "$P" ] || P=9101
+case "$P" in
+    *[!0-9]*|??????*) echo "METRICS_PORT '$P' is not a port number; no metrics read" >&2 ;;
+    *) curl -s --max-time 10 "http://127.0.0.1:$((10#$P))/metrics" 2>/dev/null \
+           | grep -E '^tn_network_(admission_mode|admission_fallback|closed_admission_denied_total)[{ ]' || true ;;
+esac
+m="$(curl -s --max-time 10 -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"tn_nodeMode","params":[]}' http://127.0.0.1:8545 2>/dev/null \
+    | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_]\{1,40\}\)".*/\1/p' | head -1 || true)"
+echo "NODE_MODE=${m:--}"
+EOS
+}
+
+# bench_admission_read <node-index> — one IAP session (_bench_admission_read_script on stdin, run as
+# root): the node's /metrics lines matching
+#   ^tn_network_(admission_mode|admission_fallback|closed_admission_denied_total)[{ ]
+# then one line NODE_MODE=<tn_nodeMode|->. A node that serves no metrics prints only the NODE_MODE
+# line. rc 1 when the session failed or did not reach its NODE_MODE line.
+bench_admission_read() {
+    local iz out
+    iz="$(_bench_node_idx_zone bench_admission_read "${1:-}")" || return 1
+    out="$(_bench_admission_read_script | tn_iap_ssh_stdin "${iz% *}" "${iz#* }")" || return 1
+    out="$(printf '%s\n' "${out}" | tr -d '\r')"
+    printf '%s\n' "${out}" | grep -q '^NODE_MODE=' || return 1
+    printf '%s\n' "${out}" | grep -E '^tn_network_(admission_mode|admission_fallback|closed_admission_denied_total)[{ ]' || true
+    printf '%s\n' "${out}" | grep '^NODE_MODE=' | tail -1
+}
+
+# bench_admission_parse — Prometheus text (bench_admission_read's output, or a whole /metrics body
+# plus its NODE_MODE line) on stdin -> these k=v lines on stdout, in this order:
+#   mode_primary=<int|->  tn_network_admission_mode with network="primary"
+#   mode_worker=<int|->   tn_network_admission_mode whose network label starts with "worker"
+#   fallback=<int|->      the highest tn_network_admission_fallback over all its series
+#   fallback_n=<n>        how many tn_network_admission_fallback series there are
+#   denied_in=<n>         sum of tn_network_closed_admission_denied_total whose direction starts with "in"
+#   denied_out=<n>        sum of the other series of that counter (any other direction, or none)
+#   node_mode=<str|->     the NODE_MODE= line
+# Exact family names only (a decoy such as tn_network_source_admission_denied_total never counts);
+# labels in any order, extra labels ignored; a value may be written 2 or 2.0 and may be followed by a
+# timestamp; spaces and tabs between fields. A mode or fallback written as something other than a
+# whole number makes that key "-". Several series of one mode (e.g. two workers): the lowest wins, so
+# one worker that is not Closed shows. "-" = no such series.
+bench_admission_parse() {
+    awk '
+        BEGIN { ABSENT = "\001" }
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        function isnum(v) { return v ~ /^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$/ }
+        function isint(v) { return isnum(v) && (v + 0 == int(v + 0)) }
+        # lab(s, key) — the value of label <key> in the label text <s> ("a=\"x\",b=\"y\""); ABSENT if none.
+        function lab(s, key,    rest, k, v, c, i, n) {
+            rest = s
+            while (1) {
+                sub(/^[ \t,]+/, "", rest)
+                if (!match(rest, /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*"/)) return ABSENT
+                k = substr(rest, 1, RLENGTH); sub(/[ \t]*=.*$/, "", k)
+                rest = substr(rest, RLENGTH + 1)
+                v = ""; n = length(rest)
+                for (i = 1; i <= n; i++) {
+                    c = substr(rest, i, 1)
+                    if (c == "\\") { i++; v = v substr(rest, i, 1); continue }
+                    if (c == "\"") break
+                    v = v c
+                }
+                if (i > n) return ABSENT
+                rest = substr(rest, i + 1)
+                if (k == key) return v
+            }
+        }
+        function take(w, v) {
+            if (!isint(v)) { bad[w] = 1; return }
+            if (!(w in m) || v + 0 < m[w]) m[w] = v + 0
+        }
+        { sub(/\r$/, "") }
+        /^NODE_MODE=/ { nm = trim(substr($0, 11)); next }
+        /^[ \t]*(#|$)/ { next }
+        {
+            line = $0; b = index(line, "{")
+            if (b) {
+                e = 0
+                for (i = length(line); i > b; i--) if (substr(line, i, 1) == "}") { e = i; break }
+                if (!e) next
+                name = trim(substr(line, 1, b - 1)); lbl = substr(line, b + 1, e - b - 1); rest = substr(line, e + 1)
+            } else {
+                if (!match(line, /^[^ \t]+/)) next
+                name = substr(line, 1, RLENGTH); lbl = ""; rest = substr(line, RLENGTH + 1)
+            }
+            if (split(trim(rest), f, "[ \t]+") < 1) next
+            v = f[1]
+            if (name == "tn_network_admission_mode") {
+                net = lab(lbl, "network")
+                if (net == "primary") take("p", v)
+                else if (net != ABSENT && substr(net, 1, 6) == "worker") take("w", v)
+            } else if (name == "tn_network_admission_fallback") {
+                fn++
+                if (!isint(v)) fbad = 1
+                else if (!fseen || v + 0 > fb) { fb = v + 0; fseen = 1 }
+            } else if (name == "tn_network_closed_admission_denied_total") {
+                if (!isnum(v)) next
+                d = lab(lbl, "direction")
+                if (d != ABSENT && substr(d, 1, 2) == "in") din += v; else dout += v
+            }
+        }
+        END {
+            printf "mode_primary=%s\n", (("p" in m) && !bad["p"]) ? sprintf("%d", m["p"]) : "-"
+            printf "mode_worker=%s\n", (("w" in m) && !bad["w"]) ? sprintf("%d", m["w"]) : "-"
+            printf "fallback=%s\n", (fseen && !fbad) ? sprintf("%d", fb) : "-"
+            printf "fallback_n=%d\n", fn
+            printf "denied_in=%.0f\n", din
+            printf "denied_out=%.0f\n", dout
+            printf "node_mode=%s\n", (nm == "") ? "-" : nm
+        }'
+}
+
+# _bench_adm_kv <key> <parsed-text> — the value of <key> in bench_admission_parse output ("" if none).
+_bench_adm_kv() { printf '%s\n' "$2" | sed -n "s/^$1=//p" | tail -1; }
+
+# _bench_adm_closed <mode> — 0 when an admission mode value is Closed (2). Mutation anchor M1: keep verbatim.
+_bench_adm_closed(){ [ "${1:-}" = 2 ]; }
+
+# _bench_adm_mode_name / _bench_adm_fallback_name <n> — the node's names for those values
+# (telcoin-network crates/network-libp2p/src/metrics.rs at 3f9b0709).
+_bench_adm_mode_name() { case "$1" in 0) echo Open ;; 1) echo Grace ;; 2) echo Closed ;; *) echo unknown ;; esac; }
+_bench_adm_fallback_name() { case "$1" in 0) echo healthy ;; 1) echo missing ;; 2) echo stale ;; 3) echo contradictory ;; 4) echo unresolved ;; *) echo unknown ;; esac; }
+
+# bench_admission_verdict <inst> <parsed-text> — judge bench_admission_parse output. Closed = primary
+# and worker mode both Closed (_bench_adm_closed) and at least one fallback series, all 0. Prints
+#   ADM_OK <inst> primary=2 worker=2 fallback=0 denied_in=<n> denied_out=<n> mode=<node_mode>     rc 0
+#   ADM_BAD <inst> <reason>[; <reason>...] [primary=<p> worker=<w> fallback=<f> fallback_n=<n> mode=<m>]   rc 1
+bench_admission_verdict() {
+    local inst="${1:-}" p="${2:-}" mp mw fb fn di dout nm why=""
+    mp="$(_bench_adm_kv mode_primary "${p}")"; mw="$(_bench_adm_kv mode_worker "${p}")"
+    fb="$(_bench_adm_kv fallback "${p}")"; fn="$(_bench_adm_kv fallback_n "${p}")"
+    di="$(_bench_adm_kv denied_in "${p}")"; dout="$(_bench_adm_kv denied_out "${p}")"
+    nm="$(_bench_adm_kv node_mode "${p}")"
+    case "${mp:--}" in
+        -) why="no primary series" ;;
+        *) _bench_adm_closed "${mp}" || why="primary mode ${mp} ($(_bench_adm_mode_name "${mp}")), not 2" ;;
+    esac
+    case "${mw:--}" in
+        -) why="${why:+${why}; }no worker series" ;;
+        *) _bench_adm_closed "${mw}" || why="${why:+${why}; }worker mode ${mw} ($(_bench_adm_mode_name "${mw}")), not 2" ;;
+    esac
+    case "${fn:-0}" in
+        ''|*[!0-9]*|0) why="${why:+${why}; }no fallback series" ;;
+        *) case "${fb:--}" in
+               0) ;;
+               -) why="${why:+${why}; }fallback unreadable" ;;
+               *) why="${why:+${why}; }fallback ${fb} ($(_bench_adm_fallback_name "${fb}")), not 0" ;;
+           esac ;;
+    esac
+    if [ -z "${why}" ]; then
+        echo "ADM_OK ${inst} primary=${mp} worker=${mw} fallback=${fb} denied_in=${di:-0} denied_out=${dout:-0} mode=${nm:--}"
+        return 0
+    fi
+    echo "ADM_BAD ${inst} ${why} [primary=${mp:--} worker=${mw:--} fallback=${fb:--} fallback_n=${fn:-0} mode=${nm:--}]"
+    return 1
+}
+
+# _bench_adm_only_fallback <parsed-text> — 0 when the one defect is a non-zero fallback (both modes
+# Closed, fallback series present). The node sets the mode gauge before the fallback gauge, so a
+# node returning to Closed can be scraped for a moment with mode 2 and fallback 1.
+_bench_adm_only_fallback() {
+    local fb
+    _bench_adm_closed "$(_bench_adm_kv mode_primary "$1")" && _bench_adm_closed "$(_bench_adm_kv mode_worker "$1")" || return 1
+    case "$(_bench_adm_kv fallback_n "$1")" in ''|*[!0-9]*|0) return 1 ;; esac
+    fb="$(_bench_adm_kv fallback "$1")"
+    case "${fb}" in ''|-|0) return 1 ;; esac
+    return 0
+}
+
+# bench_admission_gate — every node of INSTANCE_NAMES must be Closed (bench_admission_verdict). Per
+# node: bench_admission_read (a failed session once more, BENCH_RO_RETRY_SECS later), parsed and
+# judged; a node whose only defect is a non-zero fallback is read once more ~10 s later (the node
+# sets the mode gauge before the fallback gauge, so a node returning to Closed can be scraped for a
+# moment with mode 2 and fallback 1), then judged on that read. Prints every ADM_OK / ADM_BAD line
+# (a node that could not be read: `ADM_BAD <inst> ssh failed (2 attempts) [...]`). Records
+# manifest.admission[] = {inst, mode_primary, mode_worker, fallback (int|null), denied_in,
+# denied_out (int), node_mode (str|null), ts}, one entry per node, replacing that node's earlier
+# entry, and merges the readable node modes into manifest.fleet_modes. Then dies listing every node
+# that is not Closed.
+bench_admission_gate() {
+    local i inst raw parsed line entries="" bad="" rc
+    echo "    admission: every node Closed (primary and worker mode 2), fallback 0"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        rc=0; raw="$(_bench_ro_retry bench_admission_read "${i}")" || rc=$?
+        if [ "${rc}" -ne 0 ]; then raw=""; fi
+        parsed="$(printf '%s\n' "${raw}" | bench_admission_parse)"
+        if [ "${rc}" -eq 0 ] && _bench_adm_only_fallback "${parsed}"; then
+            echo "      ${inst}: fallback $(_bench_adm_kv fallback "${parsed}") with both modes Closed; reading again in 10 s"
+            sleep 10
+            rc=0; raw="$(_bench_ro_retry bench_admission_read "${i}")" || rc=$?
+            if [ "${rc}" -ne 0 ]; then raw=""; fi
+            parsed="$(printf '%s\n' "${raw}" | bench_admission_parse)"
+        fi
+        if [ "${rc}" -ne 0 ]; then
+            line="ADM_BAD ${inst} ssh failed (2 attempts) [primary=- worker=- fallback=- fallback_n=0 mode=-]"
+        else
+            line="$(bench_admission_verdict "${inst}" "${parsed}")" || true
+        fi
+        printf '%s\n' "${line}"
+        case "${line}" in ADM_OK\ *) ;; *) bad="${bad} ${inst}" ;; esac
+        entries="${entries}$(jq -cn --arg inst "${inst}" --arg ts "$(bench_now_iso)" \
+            --arg mp "$(_bench_adm_kv mode_primary "${parsed}")" --arg mw "$(_bench_adm_kv mode_worker "${parsed}")" \
+            --arg fb "$(_bench_adm_kv fallback "${parsed}")" --arg di "$(_bench_adm_kv denied_in "${parsed}")" \
+            --arg dout "$(_bench_adm_kv denied_out "${parsed}")" --arg nm "$(_bench_adm_kv node_mode "${parsed}")" '
+            def int_or_null: if . == "" or . == "-" then null else tonumber end;
+            {inst: $inst, mode_primary: ($mp | int_or_null), mode_worker: ($mw | int_or_null),
+             fallback: ($fb | int_or_null), denied_in: (($di | int_or_null) // 0),
+             denied_out: (($dout | int_or_null) // 0),
+             node_mode: (if $nm == "" or $nm == "-" then null else $nm end), ts: $ts}')"$'\n'
+    done
+    if ! printf '%s' "${entries}" | jq -s -e 'length > 0' >/dev/null 2>&1 \
+        || ! bench_manifest_jq --argjson new "$(printf '%s' "${entries}" | jq -s -c .)" '
+            ($new | map(.inst)) as $ni
+            | .admission = ([(.admission // [])[] | select(if type == "object" then (.inst as $i | any($ni[]; . == $i) | not) else true end)] + $new)
+            | .fleet_modes = (((.fleet_modes // {}) + ($new | map({key: .inst, value: .node_mode}) | from_entries))
+                              | with_entries(select(.value | type == "string")))'; then
+        bench_warn "admission: could not record admission[] / fleet_modes in $(bench_manifest)"
+    fi
+    [ -z "${bad}" ] || bench_die "admission is not Closed on:${bad}"
+    echo "    ✓ admission: all ${#INSTANCE_NAMES[@]} nodes Closed, fallback 0 (manifest.admission)"
 }
