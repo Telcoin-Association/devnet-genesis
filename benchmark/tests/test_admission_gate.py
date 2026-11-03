@@ -314,7 +314,8 @@ class Sandbox(unittest.TestCase):
                "BENCH_RUN_ID": RUN_ID, "BENCH_APPLY": "0", "BENCH_PARAMETERS_FILE": str(self.params),
                "FAKE_STATE": str(self.state), "FAKE_PLAN": str(self.plan_file),
                "FAKE_NODEBIN": str(self.nodebin), "FAKE_FIXTURES": str(FIX),
-               "SLEEP_LOG": str(self.sleep_log)}
+               "SLEEP_LOG": str(self.sleep_log),
+               "TN_IAP_RETRIES": "0"}   # the lib's transport retry is off: ssh attempts are counted exactly
         env.update(extra)
         return env
 

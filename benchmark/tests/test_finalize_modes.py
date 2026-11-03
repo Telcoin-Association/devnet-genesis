@@ -47,7 +47,10 @@ WRITES = ("scp", "stage", "finalize", "stop", "start-at")
 FAST = {"FINALIZE_STABLE_SECS": "0", "FINALIZE_STABLE_POLL_SECS": "1", "FINALIZE_RO_RETRY_SECS": "1",
         "FINALIZE_START_LEAD_SECS": "2", "FINALIZE_START_LAUNCH_GAP_SECS": "0",
         "FINALIZE_START_TIMEOUT_SECS": "20", "FINALIZE_START_SPREAD_WARN_SECS": "10",
-        "HEALTH_TIMEOUT_SECS": "3", "HEALTH_POLL_SECS": "1"}
+        "HEALTH_TIMEOUT_SECS": "3", "HEALTH_POLL_SECS": "1",
+        # devnet-lib.sh's own transport retry is off here: these tests model the script's retry logic
+        # and count ssh attempts exactly (the lib retry has its own proof, see tasks/lessons.md 2026-11-03).
+        "TN_IAP_RETRIES": "0"}
 MODES = ("--stage-only", "--start-all", "--defer-start", "--verify")
 
 MARKER_RE = re.compile(r"^COORDINATED_START due=(\d+) nodes=(\d+) started=(\d+) skipped_running=(\d+)"

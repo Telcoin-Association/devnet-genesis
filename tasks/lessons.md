@@ -1265,3 +1265,23 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - `docker buildx build --load` of main+PR 1715 (893 crates) took 477 s on the default builder, not the
   40-80 min cold estimate: the cache mount keeps compiled deps across image tags. `tn-builder`
   (docker-container driver) would be cold. Estimate from `docker buildx du` before quoting a time.
+
+## 2026-11-03 — transport faults are per-session, so every driver ssh needs the retry, not just the finalize probes
+- Bench 3 attempts 4-8: in ~70 IAP sessions over 50 minutes, one ssh rc 255 mid-keygen (bench08), two
+  `gcloud crashed (ReadTimeout)` against compute.googleapis.com (bench09, rc 1 — not 255, so the finalize's
+  own rc-255 retry would not have covered it) and one rc 255 in the network-config read (bench05): ~4 % per
+  session. Each fault ended a 10-minute step and, for keygen, left a node keyed with no node-info pulled.
+  With ~150 sessions in a deploy, a fault-free run had ~2 % odds.
+- Rule: the retry lives in `devnet-lib.sh`'s IAP wrappers (`_tn_iap_retry`: rc 255 or "gcloud crashed" on
+  stderr → TN_IAP_RETRIES (2) more attempts, TN_IAP_RETRY_SECS (5) apart; stdin buffered in a variable, never a
+  file or argv), so every driver gets it. Per-driver retries only model the driver's own logic. Tests that count
+  ssh attempts pin `TN_IAP_RETRIES=0`. Keygen still needs an "already keyed → pull node-info only" path.
+
+## 2026-11-03 — a Monitor pipeline must end with a line-buffered stage, and the zone list needs a stockout fallback
+- Two 30-minute Monitors on the live deploy delivered nothing: `… | grep --line-buffered | cut -c1-220` — `cut`
+  block-buffers to a pipe, so the ❌ and RC= lines never reached the notifier. A polling loop (grep the file
+  every 30 s, print new matches) is more robust than tail -F pipelines.
+- `c3-highcpu-8` stocked out in BOTH Montreal zones that offer it (ZONE_RESOURCE_POOL_EXHAUSTED, three attempts
+  over 45 min); validator-05 moved to us-east4-b. Rule: before a fleet run, probe each zone for the machine type
+  AND accept that availability ≠ stock; keep a same-continent fallback zone per index written down, and record
+  any move as a comparability caveat (the latency matrices lack the new zone).

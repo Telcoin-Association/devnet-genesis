@@ -57,6 +57,43 @@ _tn_require_cmd() {
     return 1
 }
 
+# IAP transport faults are retried. TN_IAP_RETRIES (default 2) extra attempts when a
+# gcloud call fails with ssh rc 255 (IAP refused the tunnel, or the session dropped) or
+# crashes (rc 1 with "gcloud crashed" on stderr: a compute API ReadTimeout), with
+# TN_IAP_RETRY_SECS (5) between attempts; 0 disables (the pre-2026-11-03 behaviour).
+# Everything the drivers send is idempotent or self-guarding (v2 keygen and finalize
+# refuse over an existing install; finalize's start-at probe records its first start;
+# installs, reads and systemctl stop/start repeat harmlessly), so re-sending a command
+# after a drop cannot do more than the first attempt did. stderr is buffered per attempt
+# so the crash can be recognised, and replayed to the caller's stderr after each attempt.
+# The caller's stdin, when forwarded, is buffered in a shell variable (never a file or
+# argv) so every attempt receives the same bytes. bench 3, 2026-11-03: three faults in
+# ~70 sessions, each ending a 10-minute step.
+_tn_iap_retry() {   # _tn_iap_retry <label> <stdin: 0|1> <gcloud args...>
+    local label="$1" use_stdin="$2" rc attempt=0 errf data=""
+    shift 2
+    if [ "${use_stdin}" = 1 ]; then data="$(cat; printf x)"; data="${data%x}"; fi
+    errf="$(mktemp)" || return 1
+    while :; do
+        if [ "${use_stdin}" = 1 ]; then
+            printf '%s' "${data}" | gcloud "$@" 2>"${errf}"; rc=$?
+        else
+            gcloud "$@" 2>"${errf}" </dev/null; rc=$?
+        fi
+        cat "${errf}" >&2
+        if [ "${rc}" -eq 0 ] || [ "${attempt}" -ge "${TN_IAP_RETRIES:-2}" ]; then break; fi
+        if [ "${rc}" -eq 255 ] || grep -q 'gcloud crashed' "${errf}"; then
+            attempt=$((attempt + 1))
+            echo "⚠️  ${label}: transport fault (rc ${rc}) — retry ${attempt}/${TN_IAP_RETRIES:-2} in ${TN_IAP_RETRY_SECS:-5} s" >&2
+            sleep "${TN_IAP_RETRY_SECS:-5}"
+            continue
+        fi
+        break
+    done
+    rm -f "${errf}"
+    return "${rc}"
+}
+
 # tn_iap_ssh <instance> <zone> <remote-command-string>
 # Runs one command on the node over IAP. The command string is passed verbatim to
 # the remote shell; callers that need sudo should include it in the string. An empty
@@ -67,7 +104,7 @@ tn_iap_ssh() {
     if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
         tn_ssh "${inst}" "${cmd}"
     else
-        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+        _tn_iap_retry "tn_iap_ssh ${inst}" 0 compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
             "${TN_SSH_FLAGS[@]}" --command="${cmd}"
     fi
 }
@@ -80,7 +117,7 @@ tn_iap_ssh_stdin() {
         # tn_ssh forwards stdin when a command is given, so the `... <<EOF` piping pattern works.
         tn_ssh "${inst}" "sudo bash -s"
     else
-        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+        _tn_iap_retry "tn_iap_ssh_stdin ${inst}" 1 compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
             "${TN_SSH_FLAGS[@]}" --ssh-flag="-T" --command="sudo bash -s"
     fi
 }
@@ -107,7 +144,7 @@ tn_iap_ssh_cmd_stdin() {
     if [ "${TN_SSH_TRANSPORT}" = "overlay" ]; then
         tn_ssh "${inst}" "${cmd}"
     else
-        gcloud compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
+        _tn_iap_retry "tn_iap_ssh_cmd_stdin ${inst}" 1 compute ssh "${inst}" --zone="${zone}" --project="${PROJECT_ID}" \
             "${TN_SSH_FLAGS[@]}" --ssh-flag="-T" --command="${cmd}"
     fi
 }
@@ -119,7 +156,7 @@ tn_iap_scp() {
         # tn_scp rewrites the "NAME:path" token to tnadmin@<overlay-ip>:path; src stays local.
         tn_scp "${inst}" "${src}" "${inst}:${dest}"
     else
-        gcloud compute scp "${src}" "${inst}:${dest}" --zone="${zone}" --project="${PROJECT_ID}" \
+        _tn_iap_retry "tn_iap_scp ${inst}" 0 compute scp "${src}" "${inst}:${dest}" --zone="${zone}" --project="${PROJECT_ID}" \
             --tunnel-through-iap --scp-flag="-o ConnectTimeout=20"
     fi
 }

@@ -130,6 +130,7 @@ class BashCase(unittest.TestCase):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(self.root), "TMPDIR": str(self.tmpdir),
                "BENCH_RUN_ID": "rtest-node-image", "BENCH_APPLY": "0", "BENCH_TXGEN_SHA": "abcdef1",
+               "TN_IAP_RETRIES": "0",   # the lib's transport retry is off: ssh attempts are counted exactly
                "BENCH_PARAMETERS_FILE": str(self.params), "STUB_LOG": str(self.log),
                "STUB_IMAGE_DIR": str(self.image), "STUB_DIGEST": DIGEST}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
@@ -1388,7 +1389,7 @@ case "$*" in
 esac
 """
 FLEET_REGIONS = ["asia-east2", "asia-northeast1", "asia-northeast3", "asia-south1", "asia-southeast1",
-                 "australia-southeast1", "europe-west2", "europe-west4", "northamerica-northeast1", "us-west2"]
+                 "australia-southeast1", "europe-west2", "europe-west4", "us-east4", "us-west2"]
 PREFLIGHT_FNS = ("fleet_zones", "validator_zones", "fleet_regions", "disk_type_check", "machine_type_check",
                  "machine_vcpus", "region_needs", "hdb_headroom", "quota_check")
 
