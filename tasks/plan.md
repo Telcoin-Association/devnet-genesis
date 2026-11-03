@@ -1,3 +1,66 @@
+# Plan: bench 3 — benchmark v0.2.0-devnet on v2 nodes with Closed admission (2026-11-03)
+
+Source: the approved "benchmark the v0.2.0-devnet release on v2 nodes with Closed admission" plan
+(written 2026-11-03 from the 2026-11-02 exploration). Facts and contracts: `tasks/checkpoint-bench3-
+{gap,provenance,publish-map,design}.md` (design holds the FROZEN contracts C1-C8, M0-M2). Supersedes
+the launch-1 plan below (complete; the devnet is live). No Claude attribution on any commit or PR.
+User decisions: 10 validators + 1 observer in ten regions; chaos ON, 40-min mixed blast, ≥ 10 min idle
+first; bundle committed AND pushed to tn-benchmarks main; launch automatically once the harness is green.
+
+## Wave 0 (orchestrator)
+- [x] project-context files applied: devnet-genesis `.claude/project-context.md` (7 edits, f31559b), new
+      `../tn-benchmarks/.claude/project-context.md`, new `tn-node-deployment/.claude/project-context.md`
+- [x] lessons 2026-11-02 (start spread / gc_depth, rc 255 retry + `--verify`, restarted-member "after" check) appended
+- [x] checkpoints bench3-{gap,provenance,publish-map,design} written; contracts frozen
+- [x] preflight: gcloud token OK (grant@telcoin.org), no bench-*/lat-* VMs, 270 GB free, docker/PyYAML/shellcheck present
+- [x] txgen image `blast-v2-3911723` built (attempt 1 failed: vendor/tn-contracts submodule not initialised in the upload
+      context; attempt 2 after `git submodule update --init` → SUCCESS, digest sha256:75d38442…c157)
+- [ ] BENCH_RUN_ID chosen at Wave 3 launch (pending) (deviation: manifest must be born after the harness commits)
+
+## Wave 1 (parallel, opus, one writer per file; checkpoints tasks/checkpoint-bench3-<unit>.md)
+- [x] U-fin `devnet-finalize.sh`: `--stage-only` / `--start-all` / `--defer-start` / `--verify`, 5 FINALIZE_* knobs,
+      rc-255 retry on read-only probes, COORDINATED_START + START_AT markers, `_defer_stop` (C1, C2, M2)
+- [x] U-lib `benchmark/bench-lib.sh`: bench_remote_lib_preamble, bench_prestart_script, bench_node_mode, bench_fleet_ready,
+      bench_admission_{read,parse,verdict,gate}, `_bench_adm_closed` (C3, C4a, C5b, M1)
+- [x] U-dep `benchmark/benchmark-deploy.sh` + `config.sh` + `README.md`: step 7 = network-config → stage-only → pre-start →
+      start-all; step 8 token-stdin + no-restart assertion; step 9 verify-only; step 10 admission gate; step 13 fleet-ready;
+      step 0 PyYAML + TN_NODE_SCRIPTS_REF; `--print-prestart` (C4b, C5a, C6, C7; keeps M0)
+- [x] U-params `tools/params-apply.sh` v2 paths + tests + tools/README (not on the critical path)
+- [x] U-test-v2 `tests/test_v2_launch_edit.py` + `fixtures/v2-node/**` (C8)
+- [x] U-test-adm §1 `fixtures/admission/**` (closed, grace-worker, fallback-active, missing-worker, reordered-labels-with-ts)
+## Wave 1b/1c
+- [x] U-test-fin `tests/test_finalize_modes.py` + `fixtures/finalize/**` (fake gcloud, unit-state model)
+- [x] U-test-adm §2 `tests/test_admission_gate.py`
+- [x] U-test-img `tests/test_node_image.py` v2 rewrite (RemoteScriptTests, Step9Tests, PreStartScriptTests, ObsScriptTests, PlanTests) + `fixtures/node-image/**`
+- [x] U-test-ci `tests/check_mutations.py` (+M1, M2 entries; module→file map) + `.github/workflows/recovery-checks.yml`
+
+## Wave 2 (serial)
+- [x] freeze (18:31Z, hashes in the design checkpoint) → V-off #1 29/29 PASS (18:45Z) (bash -n, shellcheck -S warning, check-bash32, py_compile + 3.9 grammar, unittest, mutations,
+      dry-run step-7 text, --print-prestart|--print-obs-script | bash -n, finalize --bogus → 2, --verify --stage-only → 2,
+      finalize diff additive-only)
+- [x] U-review: R1 BLOCKING (step-9 boot lines from the capped docker log) + R2-R5 MINOR + R6 INFO; verdict safe after R1
+- [ ] owner fixes (U-dep R1/R2/R3/R5/R6, U-fin R4, U-lib/U-params comments) → test updates (U-test-img, U-test-fin) → V-off #2
+- [ ] commits per unit group (no attribution) → dry run `benchmark-deploy.sh --with-contracts` and read the step-7 plan text
+
+## Wave 3 (live; checkpoint tasks/checkpoint-bench3-live.md)
+- [ ] preflight (token refresh, no bench-*/lat-*, docker) → `--yes --with-contracts --to 12 </dev/null`
+- [ ] gates: image probe by digest; COORDINATED_START spread ≤ 10 s (target ≤ 5); step 8 "already serves" ×11, restarted=none;
+      admission 11× mode 2/2 fallback 0; fleet-ready 10× CvvActive
+- [ ] idle ≥ 10 min after POSTCFG_OK ×11 → `--from 13 --to 15` (fund, 40-min blast + chaos, collect)
+- [ ] teardown `--run R --yes` (logs first, delete last; exit 0, archive.kind local, both log files per node) → `--reindex`
+
+## Wave 4 (analysis, read-only on results/<R>; write under benchmark/private/bench3-<R>/<unit>/)
+- [ ] A1 KPIs · A2 certification + vote path (V1Lazy attribution vs 0316) · A3 chaos/recovery/boundary ·
+      A4n node-side bottleneck census · A4o operational friction · P-backfill §1 (provenance.py --json)
+- [ ] A5 report `tasks/bench3-report-<R>.md` + `benchmark/private/followups.md` section
+
+## Wave 5 (publish)
+- [ ] P-backfill §2 → P-bundle (make_bundle, no `<<`, build.py --check, scrub.py, site unittest, eyeball dist)
+- [ ] tn-benchmarks: `git add runs/<R>` (never -A), commit `Publish <R>: …`, push main, HTTP 200
+- [ ] devnet-genesis commits (harness, backfill, tasks, lessons); memory + MEMORY.md; final summary (report path + run URL)
+
+---
+
 # Plan: launch 1 — execute the reset (2026-10-31)
 
 Source: the approved "Devnet launch 1 (execute the reset now) + launch 2 design" plan. Supersedes
