@@ -1,4 +1,4 @@
-"""Reject eight broken code paths in checked temporary copies of the source.
+"""Reject eleven broken code paths in checked temporary copies of the source.
 
 Each case copies the files its test module needs into a temporary tree laid out like the repo
 (<tmp>/<tree>/config.sh, <tmp>/<tree>/benchmark/...), since the tests find their scripts and
@@ -24,7 +24,18 @@ suites = {
     # test_node_image.TREE (copied from the repo root into each sandbox) plus its fixtures.
     "test_node_image": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
                         "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
-                        "benchmark/node-image-contract.txt", "benchmark/tests/fixtures/node-image"),
+                        "benchmark/node-image-contract.txt", "benchmark/tests/fixtures/node-image",
+                        "benchmark/tests/fixtures/v2-node", "benchmark/consensus-parameters.yaml",
+                        "benchmark/benchmark-blast.sh"),
+    "test_admission_gate": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+                            "benchmark/report/scrub.py", "benchmark/tests/fixtures/admission"),
+    "test_finalize_modes": ("devnet-finalize.sh", "devnet-lib.sh", "devnet-network-config.py",
+                            "benchmark/tests/fixtures/finalize"),
+    # The library comes from the submodule's working tree; without it the module skips itself.
+    "test_v2_launch_edit": ("benchmark/tests/fixtures/v2-node", "tn-node-deployment/lib"),
+    # --from-config sources benchmark/config.sh, which sources the root config.sh.
+    "test_params_apply": ("benchmark/tools/params-apply.sh", "benchmark/tests/fixtures/params-apply",
+                          "benchmark/consensus-parameters.yaml", "benchmark/config.sh", "config.sh"),
 }
 cases = [
     ("benchmark/recovery-schedule.py",
@@ -50,6 +61,17 @@ cases = [
     # A line found in two files of a node counts twice.
     ("benchmark/tools/propose-latency.py", "if key in self._seen:", "if False:",
      "test_propose_latency.ProposeLatencyTests.test_one_node_over_overlapping_files_counts_each_event_once"),
+    # Any admission mode reads as Closed, not just 2.
+    ("benchmark/bench-lib.sh", '_bench_adm_closed(){ [ "${1:-}" = 2 ]; }', '_bench_adm_closed(){ [ -n "${1:-}" ]; }',
+     "test_admission_gate.VerdictTests.test_grace_worker_is_not_closed"),
+    # --stage-only no longer stops a node after finalize (the literal only: the line stays valid bash).
+    ("devnet-finalize.sh", '_defer_stop "${inst}" "${zone}"', "true",
+     "test_finalize_modes.StageOnlyTests.test_stage_only_stops_each_node_after_finalize"),
+    # The legacy wrapper wins over the v2 start script when a node has both.
+    ("benchmark/tools/params-apply.sh",
+     'if [ -f "$START" ]; then L="$START"; elif [ -f "$LEGACY" ]; then L="$LEGACY"; fi',
+     'if [ -f "$LEGACY" ]; then L="$LEGACY"; elif [ -f "$START" ]; then L="$START"; fi',
+     "test_params_apply.LayoutTests.test_the_v2_start_script_is_read_when_both_launch_files_exist"),
 ]
 
 
