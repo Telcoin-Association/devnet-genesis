@@ -826,9 +826,29 @@ bench_tunnel_up() {
         "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${PROJECT_ID}"
     if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
     mkdir -p "${BENCH_RESULTS_DIR}"
-    nohup gcloud compute start-iap-tunnel "${INSTANCE_NAMES[0]}" 8545 \
-        --local-host-port="localhost:${BENCH_TUNNEL_PORT}" --zone="${ZONES[0]}" --project="${PROJECT_ID}" \
-        > "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    if [ "${BENCH_TUNNEL_MODE:-ssh}" = "ssh" ]; then
+        # One IAP ssh session carrying a local port-forward, shared by every RPC request. The
+        # websocket-per-connection `start-iap-tunnel` lost about 1 connection in 50 on 2026-11-03
+        # (SSL WRONG_VERSION_NUMBER on the websocket handshake); each loss reset one client
+        # request and aborted a forge deploy script. A supervisor restarts the session when it
+        # drops; the pidfile holds the supervisor, a session leader, so bench_tunnel_down can
+        # kill the whole group. BENCH_TUNNEL_MODE=websocket restores the old transport.
+        nohup setsid bash -c '
+            while :; do
+                gcloud compute ssh "$1" --zone="$2" --project="$3" --tunnel-through-iap \
+                    --ssh-flag="-N" --ssh-flag="-L" --ssh-flag="localhost:$4:127.0.0.1:8545" \
+                    --ssh-flag="-o ServerAliveInterval=15" --ssh-flag="-o ServerAliveCountMax=3" \
+                    --ssh-flag="-o ExitOnForwardFailure=yes" --ssh-flag="-o StrictHostKeyChecking=accept-new" \
+                    </dev/null
+                echo "tunnel: ssh forward exited rc $? at $(date -u +%Y-%m-%dT%H:%M:%SZ); restarting in 3 s"
+                sleep 3
+            done' _ "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" \
+            > "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    else
+        nohup gcloud compute start-iap-tunnel "${INSTANCE_NAMES[0]}" 8545 \
+            --local-host-port="localhost:${BENCH_TUNNEL_PORT}" --zone="${ZONES[0]}" --project="${PROJECT_ID}" \
+            > "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    fi
     pid=$!
     echo "${pid}" > "${pidf}"
     while [ "${waited}" -lt 45 ]; do
@@ -846,7 +866,8 @@ bench_tunnel_down() {
     local pidf p; pidf="$(bench_tunnel_pidfile)"
     if [ -f "${pidf}" ]; then
         p="$(cat "${pidf}")"
-        kill "${p}" 2>/dev/null && echo "    stopped tunnel pid ${p}"
+        # the ssh-mode supervisor is a session leader: kill its whole group (supervisor + gcloud + ssh)
+        { kill -- -"${p}" 2>/dev/null || kill "${p}" 2>/dev/null; } && echo "    stopped tunnel pid ${p}"
         rm -f "${pidf}"
     fi
 }
