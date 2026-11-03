@@ -71,12 +71,19 @@ GENESIS_WS="${GENESIS_WORKSPACE:-${REPO_ROOT}}"
 # Node 5 joins the committee after genesis by staking 1,000,000 TEL from its own address,
 # so that address must be funded at genesis: testnet_accounts.yaml keys are checksummed
 # (mixed case) while config.sh stores lower case, hence the case-insensitive grep.
-node5_addr="${EXECUTION_ADDRESSES[4]:-}"
-if [ -z "${node5_addr}" ] || ! grep -qi "^\"${node5_addr}\":" "${GENESIS_WS}/testnet_accounts.yaml" 2>/dev/null; then
-    echo "❌ node 5 address '${node5_addr}' (EXECUTION_ADDRESSES[4]) is not a funded key in ${GENESIS_WS}/testnet_accounts.yaml; add it with 1,000,100 TEL before the build (runbook §3)" >&2
-    exit 1
+# The benchmark profile (TN_PROFILE=benchmark, benchmark/config.sh) has no post-genesis
+# staking node: its ten validators are all in the genesis committee and index 4 is one of
+# them, so the check below does not apply there (2026-11-03, bench 3).
+if [ "${TN_PROFILE:-}" = "benchmark" ]; then
+    echo "    benchmark profile: no post-genesis staking node, the node-5 funding check does not apply"
+else
+    node5_addr="${EXECUTION_ADDRESSES[4]:-}"
+    if [ -z "${node5_addr}" ] || ! grep -qi "^\"${node5_addr}\":" "${GENESIS_WS}/testnet_accounts.yaml" 2>/dev/null; then
+        echo "❌ node 5 address '${node5_addr}' (EXECUTION_ADDRESSES[4]) is not a funded key in ${GENESIS_WS}/testnet_accounts.yaml; add it with 1,000,100 TEL before the build (runbook §3)" >&2
+        exit 1
+    fi
+    echo "    node 5 ${node5_addr} is funded in testnet_accounts.yaml"
 fi
-echo "    node 5 ${node5_addr} is funded in testnet_accounts.yaml"
 echo ">>> step 0: cd ${GENESIS_WS}"
 cd "${GENESIS_WS}"
 
