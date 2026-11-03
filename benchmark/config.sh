@@ -88,11 +88,13 @@ export BENCH_RUN_ID
 # asia-southeast2 (Jakarta) offers it in no zone, so validator-07 runs in Singapore
 # (asia-southeast1-b); asia-south1 (Mumbai) offers it only in zone c. Alternates checked there:
 # asia-northeast1-c (v04), asia-east1-a (v08), asia-northeast3-b (v09).
+# 2026-11-03: northamerica-northeast1-b stocked out of c3-highcpu-8 twice in a row (ZONE_RESOURCE_POOL_EXHAUSTED),
+# so validator-05 moved to zone c of the same region (c3-highcpu-8 + hyperdisk-balanced offered; zone a has no c3).
 # Spelled out (bash 3.2 has no brace-expansion-with-padding worth trusting in an array literal).
 #
 export INSTANCE_NAMES=("bench-validator-01" "bench-validator-02" "bench-validator-03" "bench-validator-04" "bench-validator-05" "bench-validator-06" "bench-validator-07" "bench-validator-08" "bench-validator-09" "bench-validator-10" "bench-observer-11")
 export NODE_ROLES=("validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "validator" "observer")
-export ZONES=("us-west2-a" "europe-west2-b" "australia-southeast1-c" "asia-northeast1-b" "northamerica-northeast1-b" "europe-west4-a" "asia-southeast1-b" "asia-east2-a" "asia-northeast3-a" "asia-south1-c" "us-west2-a")
+export ZONES=("us-west2-a" "europe-west2-b" "australia-southeast1-c" "asia-northeast1-b" "northamerica-northeast1-c" "europe-west4-a" "asia-southeast1-b" "asia-east2-a" "asia-northeast3-a" "asia-south1-c" "us-west2-a")
 export NODE_NAMES=("bench01" "bench02" "bench03" "bench04" "bench05" "bench06" "bench07" "bench08" "bench09" "bench10" "bench11")
 # From benchmark/.secrets/exec-keys.json (gitignored); validators 01-10, then observer 11.
 export EXECUTION_ADDRESSES=("0xc7d975abd962345e9a6024aab692f6bf19140f03" "0x92862b13608e00925551233f21b6f44f6acc7f91" "0x3205c561e8183aae91ef1ab26a1db3fea83bb120" "0x213aff13862c86b3159a9552cc2424b92f8cfcfc" "0x31faf1673f324c688fff60172099f944171d6ab3" "0xe47fbdfdedadd35501eb7c3f38884238bf251103" "0x58114823ab8b21c4162cc28472ff2a6810e123e2" "0x8e7abe6740a452ade8f02a1f005002976e77fb0a" "0xc2f61840713de91b60e5b5c404350d705877911e" "0x52791a4607b5944ec0da0828d0ee78205b208ef1" "0xe88cc26183754978af15a67c1597324eec9ec806")
