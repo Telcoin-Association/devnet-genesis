@@ -2,8 +2,9 @@
 """Fake gcloud for tests/test_params_apply.py.
 
 `gcloud compute ssh <node> ... --command=...` runs the stdin script with bash on a fake node: the
-directory $PA_NODES/<node>, with /opt/telcoin/ and /var/lib/bench-logs moved into it and the node
-stubs ($PA_NODE_BIN: docker, systemctl, curl, date, sleep) first on PATH. A file
+directory $PA_NODES/<node>, with /usr/local/libexec/telcoin/, /etc/telcoin/, /opt/telcoin/ and
+/var/lib/bench-logs moved into it and the node stubs ($PA_NODE_BIN: docker, systemctl, curl, date,
+sleep) first on PATH. A file
 <node>/iap-refuse-once makes the first call fail the way IAP refuses a tunnel (4033). Every call
 appends {"argv", "stdin", "node", "start", "end", "rc"} as one JSON line to $PA_SHIM_LOG.
 Any other gcloud command fails (params-apply.sh needs none).
@@ -29,7 +30,9 @@ if args[:2] == ["compute", "ssh"] and len(args) > 2:
         os.unlink(refuse)
         err, rc = "ERROR: (gcloud.compute.start-iap-tunnel) Error while connecting [4033: 'not authorized'].\n", 255
     else:
-        script = data.replace("/opt/telcoin/", nd + "/opt/telcoin/").replace("/var/lib/bench-logs", nd + "/var/lib/bench-logs")
+        script = data
+        for root in ("/usr/local/libexec/telcoin/", "/etc/telcoin/", "/opt/telcoin/", "/var/lib/bench-logs"):
+            script = script.replace(root, nd + root)
         env = dict(os.environ)
         env["PATH"] = os.environ["PA_NODE_BIN"] + os.pathsep + env.get("PATH", "")
         env["STUB_NODE_DIR"] = nd

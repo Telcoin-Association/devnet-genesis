@@ -200,8 +200,9 @@ and the probe traffic (about 100 KB per pair) is negligible against inter-region
 `params-apply.sh` changes consensus parameters (`max_header_delay`, `min_header_delay`,
 `vote_timeout`, ...) on a running fleet, between the arms of a parameter sweep. It restarts one node
 at a time, waits until that node is back in consensus before it touches the next, and records each
-arm so the report can tell which values ran when. Deploy step 9's `BENCH_NODE_PARAM_OVERRIDES` sets
-values at deploy time; this tool changes them afterwards.
+arm so the report can tell which values ran when. `BENCH_NODE_PARAM_OVERRIDES` sets values at
+deploy time (step 7's pre-start config writes them, before the coordinated start); this tool
+changes them afterwards.
 
 ```
 params-apply.sh (--nodes <file> | --from-config) --set <all|node>:<key>=<value>[,...] [--set ...] --arm <name>
@@ -216,9 +217,19 @@ contacts nothing.
 
 1. **Phase A, read-only.** One IAP SSH session per node, up to five at once. Each reads where the
    node's `parameters.yaml` is, its content and SHA-256, whether the `telcoin` container runs, and
-   the chain id on `127.0.0.1:8545`. The file sits in the host side of the wrapper's
-   `-v <host>:<datadir>` bind for `--datadir` in `/opt/telcoin/start-telcoin.sh` (deploy step 9's
-   rule), or in the nodes file's `hostdatadir`. If any node fails here, nothing is changed.
+   the chain id on `127.0.0.1:8545`. The file is `<datadir>/parameters.yaml`, and the first of
+   these gives the datadir:
+   - the nodes file's `hostdatadir`;
+   - `DATA_DIR` in `/etc/telcoin/.node-meta` (v2 nodes; `KEY=VALUE` lines, root 0600). A
+     `DATA_DIR` set more than once has no single value and fails the node, and so does a
+     `hostdatadir` that is not the `DATA_DIR` there;
+   - the host side of the `-v <host>:<path>` bind for `--datadir <path>` in the node's launch file
+     (the rule pre-v2 deploys used; deploy step 7 itself reads only `.node-meta`):
+     `/usr/local/libexec/telcoin/tn-start-docker`, or the pre-v2 wrapper
+     `/opt/telcoin/start-telcoin.sh` on a node without the v2 start script.
+
+   The tool only reads the launch file; it never edits it. Each node's phase A summary names the
+   launch file found and where its datadir came from. If any node fails here, nothing is changed.
 2. **Validation, local.** Each node's resulting values (its current file plus the `--set` values)
    must pass the rules the node checks at startup: `min_header_delay <= max_header_delay`;
    `1 <= header_num_of_batches_threshold <= max_header_num_of_batches`; `vote_timeout` (5 s when
@@ -232,8 +243,15 @@ contacts nothing.
    `parameters.yaml.bak-<UTC>`, rewrite each key in place as `key: value  # bench-override`,
    `systemctl restart telcoin`, then wait up to 180 s for the node to come back (see PARAMS_OK
    below). The file is rewritten through `cat >`, so owner, mode and inode stay. A file without
-   `# bench-override` lines is first copied to `parameters.yaml.bak`, the copy a later deploy step 9
-   restores from. Phase B also refuses a file whose SHA-256 changed since phase A.
+   `# bench-override` lines is first copied to `parameters.yaml.bak` (the unmarked original). A file
+   with `# bench-override` lines but no `.bak` is refused before any restart; deploy step 7 leaves
+   exactly that on a node with `BENCH_NODE_PARAM_OVERRIDES`. Phase B also refuses a file whose
+   SHA-256 changed since phase A.
+
+The restart is a plain `systemctl restart telcoin` (unit and container `telcoin`, on v2 and pre-v2
+nodes alike). No quorum guard is consulted, v2's own restart guard included. The tool keeps at most
+one node down at a time; whether the rest of the committee holds quorum meanwhile is the
+operator's responsibility.
 
 Arms are cumulative: each one starts from the node's current file, so a key an arm does not set
 keeps the value the last arm gave it.
@@ -247,7 +265,7 @@ rollback. Nodes after it are untouched.
 
 One node per line: `name zone project role [hostdatadir]`. Role is `validator` or `observer`.
 Project `-` takes `--project`. `hostdatadir` is the host directory that holds `parameters.yaml`;
-leave it out and the wrapper decides. `#` starts a comment. The devnet, by hand:
+leave it out and the node's `.node-meta` or launch file decides (phase A above). `#` starts a comment. The devnet, by hand:
 
 ```
 # name               zone                        project     role
@@ -262,7 +280,8 @@ On a four-validator committee one node down leaves no fault margin; make sure th
 in consensus before an arm starts.
 
 `--from-config` reads the bench fleet from `benchmark/config.sh` (it needs `BENCH_RUN_ID`), writes
-it to `results/<run>/nodes.txt`, and records into `results/<run>/manifest.json`. With `--nodes`,
+it to `results/<run>/nodes.txt` with every node's `hostdatadir` set to the config's
+`VALIDATOR_DATA_DIR`, and records into `results/<run>/manifest.json`. With `--nodes`,
 nothing from the devnet or bench config is loaded. `--validators-only` leaves observers out;
 otherwise `all:` reaches them too.
 

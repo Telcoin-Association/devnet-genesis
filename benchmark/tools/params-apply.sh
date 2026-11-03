@@ -5,9 +5,12 @@
 #
 # Phase A (read-only, every node of the list, up to 5 at once): where the node's parameters.yaml
 #   is, its content and sha256, whether the telcoin container runs, its chain id. Any node failing
-#   here stops the run before anything changes.
+#   here stops the run before anything changes. The datadir: the nodes file's hostdatadir, else
+#   DATA_DIR in /etc/telcoin/.node-meta (v2), else the bind mount of the node's launch file
+#   (/usr/local/libexec/telcoin/tn-start-docker; /opt/telcoin/start-telcoin.sh only when a
+#   pre-v2 node has no v2 start script). The output names the launch file and the datadir's source.
 # Validation (local, before any restart): every node's RESULTING values against the node's own
-#   startup rules (the same as deploy step 9's, bench-lib.sh bench_node_params_problems), then the
+#   startup rules (the same as the deploy gate's, bench-lib.sh bench_node_params_problems), then the
 #   plan: per node, key old -> new.
 # Phase B (serial; never more than one node down): save the container log as
 #   /var/lib/bench-logs/telcoin-pre-arm-<arm>-<UTC>.log.gz (the harness pull collects it), keep
@@ -16,7 +19,9 @@
 #   before the restart, read the file back and print
 #     PARAMS_OK <node> max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|->
 #   The first node that does not come back stops the run: non-zero exit, and the gcloud command to
-#   inspect it. Only nodes whose values change are restarted; observers go first.
+#   inspect it. Only nodes whose values change are restarted; observers go first. The restart is a
+#   raw `systemctl restart telcoin`: no quorum guard is consulted (v2's restart guard included);
+#   whether the committee keeps quorum with one node down is the operator's call.
 # Nothing to change (every node already has the values): nothing restarts, and the arm is still
 #   recorded (begin = now, no_restart: true) once every node of the arm passes the readback check
 #   on the file phase A read and its telcoin container runs.
@@ -35,7 +40,11 @@ readonly SSH_PARALLEL=5
 readonly PHASE_A_SECS=120
 # Phase B: the log save (gzip of the whole container log), the restart and the health wait.
 readonly PHASE_B_SECS=1200
-readonly REMOTE_WRAPPER=/opt/telcoin/start-telcoin.sh
+# The node's launch file, only read (for the datadir): v2's start script (tn-node-deployment
+# lib/common.sh tn_start_script_path docker); the wrapper pre-v2 nodes ran only when that is absent.
+readonly REMOTE_START=/usr/local/libexec/telcoin/tn-start-docker
+readonly REMOTE_LEGACY_WRAPPER=/opt/telcoin/start-telcoin.sh
+readonly REMOTE_NODE_META=/etc/telcoin/.node-meta
 readonly REMOTE_LOG_DIR=/var/lib/bench-logs
 # <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. The node's
 # Parameters at ba43a1f0e (crates/config/src/node.rs). Keep in step with benchmark/config.sh
@@ -55,14 +64,19 @@ Changes consensus parameters on running nodes, one node at a time: read every no
 validate every node's resulting values, then per node save its container log, rewrite
 <datadir>/parameters.yaml, restart telcoin and wait until it is back in consensus. Records the
 change as an arm in <results-dir>/manifest.json (param_arms), else in param-arms.json beside the
-nodes file.
+nodes file. The restart is a plain `systemctl restart telcoin` with no quorum guard: keeping the
+committee above quorum while one node is down is the operator's responsibility.
 
 Nodes:
   --nodes <file>        lines "name zone project role [hostdatadir]" (# comments allowed);
                         role validator|observer; project '-' = --project; hostdatadir = the HOST
-                        directory holding parameters.yaml (default: from the node's wrapper)
+                        directory holding parameters.yaml (default: DATA_DIR in the node's
+                        /etc/telcoin/.node-meta, else the bind mount of its launch file
+                        /usr/local/libexec/telcoin/tn-start-docker, or of
+                        /opt/telcoin/start-telcoin.sh on a node without the v2 one)
   --from-config         the benchmark fleet of benchmark/config.sh (needs BENCH_RUN_ID); writes
-                        results/<run>/nodes.txt and records into results/<run>/manifest.json
+                        results/<run>/nodes.txt (hostdatadir = VALIDATOR_DATA_DIR) and records
+                        into results/<run>/manifest.json
   --validators-only     leave observers out (default: observers are changed too)
   --project <id>        project for nodes-file lines whose project is '-' (with --from-config:
                         instead of the config's PROJECT_ID)
@@ -171,7 +185,7 @@ if [ "${FROM_CONFIG}" = 1 ]; then
     cfg_out="$(
         # shellcheck source=/dev/null
         { source "${REPO_ROOT}/benchmark/config.sh"; } >&2
-        printf 'RESULTS=%s\nPROJECT=%s\n' "${BENCH_RESULTS_DIR}" "${PROJECT_ID}"
+        printf 'RESULTS=%s\nPROJECT=%s\nDATADIR=%s\n' "${BENCH_RESULTS_DIR}" "${PROJECT_ID}" "${VALIDATOR_DATA_DIR:-}"
         for i in "${!INSTANCE_NAMES[@]}"; do
             printf 'NODE=%s %s %s\n' "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}" "${NODE_ROLES[$i]}"
         done
@@ -179,6 +193,9 @@ if [ "${FROM_CONFIG}" = 1 ]; then
     [ -n "${RESULTS_DIR}" ] || RESULTS_DIR="$(printf '%s\n' "${cfg_out}" | sed -n 's/^RESULTS=//p')"
     [ -n "${PROJECT}" ] || PROJECT="$(printf '%s\n' "${cfg_out}" | sed -n 's/^PROJECT=//p')"
     case "${PROJECT}" in ''|*[!a-z0-9.:-]*) die "benchmark/config.sh PROJECT_ID '${PROJECT}' is not a project id" ;; esac
+    # Every role's datadir (devnet-lib.sh tn_data_dir_for_role); the nodes-file parse checks the path.
+    cfg_dd="$(printf '%s\n' "${cfg_out}" | sed -n 's/^DATADIR=//p')"
+    [ -n "${cfg_dd}" ] || die "benchmark/config.sh exports no VALIDATOR_DATA_DIR"
     if [ "${DRY}" = 1 ]; then
         NODES_FILE="${WORK}/nodes.txt"
     else
@@ -187,7 +204,7 @@ if [ "${FROM_CONFIG}" = 1 ]; then
     fi
     {
         echo "# name zone project role [hostdatadir] — written by params-apply.sh --from-config for ${BENCH_RUN_ID}"
-        printf '%s\n' "${cfg_out}" | sed -n 's/^NODE=//p' | while read -r n z r; do echo "${n} ${z} ${PROJECT} ${r}"; done
+        printf '%s\n' "${cfg_out}" | sed -n 's/^NODE=//p' | while read -r n z r; do echo "${n} ${z} ${PROJECT} ${r} ${cfg_dd}"; done
     } > "${NODES_FILE}"
     log "nodes from benchmark/config.sh (${BENCH_RUN_ID}) -> ${NODES_FILE}"
 fi
@@ -503,29 +520,57 @@ last_error() { { grep -v '^[[:space:]]*$' "$1" 2>/dev/null || true; } | tail -n 
 # remote_head <phase> <node-index> — the script's first lines: which node, its datadir override.
 remote_head() {
     printf '# params-apply phase %s on %s\n' "$1" "${N_NAME[$2]}"
-    printf 'set -euo pipefail\nNODE=%q\nHD=%q\nROLE=%q\nW=%q\nLOGDIR=%q\n' \
-        "${N_NAME[$2]}" "${N_HD[$2]}" "${N_ROLE[$2]}" "${REMOTE_WRAPPER}" "${REMOTE_LOG_DIR}"
+    printf 'set -euo pipefail\nNODE=%q\nHD=%q\nROLE=%q\nSTART=%q\nLEGACY=%q\nMETA=%q\nLOGDIR=%q\n' \
+        "${N_NAME[$2]}" "${N_HD[$2]}" "${N_ROLE[$2]}" "${REMOTE_START}" "${REMOTE_LEGACY_WRAPPER}" \
+        "${REMOTE_NODE_META}" "${REMOTE_LOG_DIR}"
 }
 
-# remote_common — both phases: P (the parameters file) and small helpers. The datadir rule is
-# deploy step 9's (benchmark-deploy.sh postconfig_params): the wrapper's telcoin command has
-# --datadir <container path>; the host side of its `-v <host>:<that path>` bind holds the file
-# (no bind: a native install, the path itself). The nodes file's hostdatadir wins over both.
+# remote_common — both phases: P (the parameters file) and small helpers. The datadir, first
+# found wins: the nodes file's hostdatadir; DATA_DIR in .node-meta (v2 writes it root 0600 as
+# KEY=VALUE; the value is everything after the first '=', CR dropped, as the v2 library reads it;
+# a key set twice has no single value and is refused, as there; deploy step 7's pre-start config,
+# bench-lib.sh bench_prestart_script, reads the datadir only from there); the launch file's bind
+# (the rule pre-v2 deploys used): its telcoin command has --datadir <container path>, the host side
+# of its `-v <host>:<that path>` holds the file (no bind: a native install, the path itself). The
+# launch file is v2's start script, else the legacy wrapper. A
+# hostdatadir that disagrees with .node-meta is refused (the nodes file is then wrong).
 remote_common() {
     cat <<'REMOTE'
 TAG="${TAG:-PARAMS_FAIL}"
 fail() { echo "${TAG} ${NODE} $*"; exit 1; }
 note() { echo "PA_NOTE ${NODE} $*"; }
-if [ -n "$HD" ]; then
-    P="$HD/parameters.yaml"
-else
-    [ -f "$W" ] || fail "no $W (docker start wrapper) and no hostdatadir in the nodes file"
-    D="$(grep -v '^[[:space:]]*#' "$W" | sed -nE 's/.*--datadir[ =]([^[:space:]]+).*/\1/p' | head -1 || true)"
-    [ -n "$D" ] || fail "no --datadir in $W"
-    H="$(grep -v '^[[:space:]]*#' "$W" | sed -nE "s#.*-v[[:space:]]+([^[:space:]:]+):${D}([:[:space:]].*)?\$#\1#p" | head -1 || true)"
-    P="${H:-$D}/parameters.yaml"
+L=""
+if [ -f "$START" ]; then L="$START"; elif [ -f "$LEGACY" ]; then L="$LEGACY"; fi
+MD=""
+if [ -f "$META" ]; then
+    MC="$(grep -c '^DATA_DIR=' "$META" || true)"
+    [ "$MC" -le 1 ] || fail "DATA_DIR is set $MC times in $META (no single value); remove the extra lines first"
+    if [ "$MC" = 1 ]; then
+        MD="$(sed -n 's/^DATA_DIR=//p' "$META" | tr -d '\r')"
+        case "$MD" in
+            /*[!A-Za-z0-9._/+-]*|*..*) fail "DATA_DIR '$MD' in $META has unusual characters" ;;
+            /?*) MD="${MD%/}" ;;
+            *) fail "DATA_DIR '$MD' in $META is not an absolute path" ;;
+        esac
+    fi
 fi
-[ -f "$P" ] || fail "no $P"
+if [ -n "$HD" ]; then
+    [ -z "$MD" ] || [ "$MD" = "${HD%/}" ] || fail "the nodes file's hostdatadir $HD is not DATA_DIR $MD of $META"
+    D="$HD" SRC="the nodes file"
+elif [ -n "$MD" ]; then
+    D="$MD" SRC="$META"
+else
+    [ -n "$L" ] || fail "no $START or $LEGACY (start script), no DATA_DIR in $META and no hostdatadir in the nodes file"
+    C="$(grep -v '^[[:space:]]*#' "$L" | sed -nE 's/.*--datadir[ =]([^[:space:]]+).*/\1/p' | head -1 || true)"
+    [ -n "$C" ] || fail "no --datadir in $L"
+    H="$(grep -v '^[[:space:]]*#' "$L" | sed -nE "s#.*-v[[:space:]]+([^[:space:]:]+):${C}([:[:space:]].*)?\$#\1#p" | head -1 || true)"
+    D="${H:-$C}" SRC="the bind mount in $L"
+    [ -n "$H" ] || SRC="--datadir in $L (no bind: a native install)"
+fi
+P="$D/parameters.yaml"
+echo "PA_LAUNCH ${L:-none}"
+echo "PA_DATADIR $D (from ${SRC})"
+[ -f "$P" ] || fail "no $P (datadir from ${SRC})"
 sha256() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | awk '{ print $1 }'; }
 # rpc <method> — the node's JSON-RPC result ("" while it does not answer)
 rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":[]}" http://127.0.0.1:8545 || true; } | sed -n 's/.*"result":"\([^"]*\)".*/\1/p' || true; }
@@ -610,14 +655,16 @@ fi
 echo "PA_PRE ${pre:--}"
 
 # 2. parameters.yaml, rewritten in place (cat >: owner, mode and inode stay). A copy per change;
-#    a file no step 9 or arm has marked yet becomes the .bak deploy step 9 restores from.
+#    a file without `# bench-override` lines is also kept as the .bak (the unmarked original). A file
+#    with marked lines and no .bak never gets here: validation refuses it (and deploy step 7 writes its
+#    overrides marked, without a .bak).
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 cp -p "$P" "$P.bak-$STAMP" || fail "cannot copy $P to $P.bak-$STAMP"
 echo "PA_BACKUP $P.bak-$STAMP"
 grep -q '# bench-override$' "$P" || cp -p "$P" "$P.bak" || fail "cannot copy $P to $P.bak"
 rfail() { cat "$P.bak-$STAMP" > "$P"; fail "$* (file restored, node not restarted)"; }
-# setp <key> <value> — rewrite the top-level `key:` line (append it when absent), marked. From
-# benchmark-deploy.sh postconfig_params.
+# setp <key> <value> — rewrite the top-level `key:` line (append it when absent), marked. The
+# rules of bench-lib.sh bench_prestart_script's setp (deploy step 7), plus a restore on failure.
 setp() {
     local t
     t="$(mktemp)"
@@ -724,6 +771,7 @@ if [ "${DRY}" = 0 ]; then
         printf '  %-24s %-9s %s  container %s  chain %s  %s bench-override line(s), .bak %s\n' "${n}" "${N_ROLE[$i]}" \
             "$(a_field "${n}" PARAMS)" "$([ "$(a_field "${n}" RUNNING)" = 1 ] && echo running || echo 'NOT running')" \
             "$(a_field "${n}" CHAIN)" "$(a_field "${n}" MARKERS)" "$([ "$(a_field "${n}" BAK)" = 1 ] && echo yes || echo no)"
+        printf '  %-24s launch file %s; datadir %s\n' "" "$(a_field "${n}" LAUNCH)" "$(a_field "${n}" DATADIR)"
     done
     [ "${bad}" = 0 ] || fatal "phase A failed on the node(s) above; nothing was changed"
 fi
