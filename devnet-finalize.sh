@@ -52,6 +52,52 @@
 #      TN_BLS_PASSPHRASE in /proc/<pid>/environ of the container's process (docker
 #      inspect .State.Pid) or of any `telcoin node` process on the host.
 #
+# Read-only probes (the readiness gate, A1, A3, A4, A5, every .node-meta read) and the
+# --stage-only stop, which is safe to run twice, retry ONCE, FINALIZE_RO_RETRY_SECS (5)
+# later, when ssh returns 255: one IAP drop is never evidence about the node (lessons
+# 2026-11-02). A second 255 fails as before; FINALIZE_RO_RETRY_SECS=0 turns the retry off.
+#
+# Modes: at most one flag, anywhere among the targets. Without one the run is the above.
+# Genesis validators must start within ~50 rounds of each other or a late one sits out the
+# whole epoch (lessons 2026-11-02), so the fleet can be finalized with every unit left
+# stopped, then started at one moment:
+#   --stage-only   phase A as above, then per node: require ActiveState=active and
+#                  NRestarts=0, stop the unit (systemctl stop, then systemctl reset-failed:
+#                  the docker-wrapped unit can end `failed` once the docker client exits 143
+#                  on SIGTERM; the unit stays enabled) and require ActiveState=inactive,
+#                  UnitFileState=enabled and no running container. Prints
+#                  `STAGED <inst> state=inactive enabled=enabled`. The readiness probe decides
+#                  first: a unit installed, inactive and enabled prints `PRESTAGED <inst>`
+#                  and the node is skipped; an active one prints `RUNNING <inst>` and a
+#                  warning (a quorum may have formed) and is skipped, never stopped. Any other
+#                  installed unit fails the gate as above. No phase B. Each node runs alone,
+#                  from its finalize to its stop, so no quorum forms; a node that fails after
+#                  finalize started it is left as it is (exit 1).
+#   --start-all    every target must have the unit installed and enabled: inactive ones are
+#                  started, an active one prints `RUNNING <inst>` and is skipped; any other
+#                  state, or no answer, stops the run (exit 1) before any start. due = now +
+#                  FINALIZE_START_LEAD_SECS (60). One background ssh per node, launched
+#                  FINALIZE_START_LAUNCH_GAP_SECS (1) apart, sleeps on the NODE clock until
+#                  due, runs `systemctl start` and prints
+#                  `START_AT <inst> due=<unix> began=<unix> late_secs=<began-due>`. The probe
+#                  is idempotent: the attempt that starts records began in
+#                  /run/tn-start-at.<due>, and a later attempt prints that record and starts
+#                  nothing; an attempt that reaches the node after due +
+#                  FINALIZE_START_SPREAD_WARN_SECS starts nothing (start_rc=late, the node
+#                  fails). An ssh rc 255 with no answer is retried, up to 3 attempts, only
+#                  while now < due - 10. The wait ends at due + FINALIZE_START_TIMEOUT_SECS
+#                  (120); a probe still running then is killed and its node fails. Then
+#                  wait_healthy per started node, then one
+#                  stdout line, integers only:
+#                  `COORDINATED_START due=<unix> nodes=<targets> started=<n> skipped_running=<n> spread_secs=<max-min began> max_late_secs=<max began-due>`
+#                  (both 0 when nothing started), a warning on stderr when spread_secs >
+#                  FINALIZE_START_SPREAD_WARN_SECS (10), then phase B on every node that is up
+#                  (A4 reads what came after the start check).
+#   --defer-start  --stage-only, then --start-all on the same targets in the same run, only
+#                  when every target is STAGED or PRESTAGED (else nothing starts, exit 1).
+#   --verify       phase B only, on nodes with an installed unit (A4 has no gate record: it
+#                  reads the whole log files and this boot's journal).
+#
 # Release-signature gate (config.sh RELEASE_TAG; empty skips it and changes nothing else).
 # Runs after the local artifact + digest checks and before the PyYAML check and any
 # gcloud/ssh: ./devnet-release-sign.sh verify checks releases/<tag>/SHA256SUMS.asc with
@@ -72,10 +118,23 @@
 #   ./devnet-finalize.sh node1 node3        # subset by NODE_NAME
 #   ./devnet-finalize.sh observer-5-devnet  # subset by INSTANCE_NAME
 #   ./devnet-finalize.sh 0 4                # subset by index (0-based)
-# An unknown target stops the run before any node is touched.
+#   ./devnet-finalize.sh --stage-only       # finalize every node, leave each stopped + enabled
+#   ./devnet-finalize.sh --start-all        # then: one coordinated start, then A1-A5
+#   ./devnet-finalize.sh --defer-start      # both, in one run
+#   ./devnet-finalize.sh --verify node4     # A1-A5 only (e.g. after a transient ssh drop)
+# An unknown target stops the run before any node is touched; so do an unknown --option and
+# a second mode flag (usage on stderr).
+# Knobs (env, whole seconds): FINALIZE_STABLE_SECS (60), FINALIZE_STABLE_POLL_SECS (10),
+# FINALIZE_RO_RETRY_SECS (5), FINALIZE_START_LEAD_SECS (60), FINALIZE_START_LAUNCH_GAP_SECS
+# (1), FINALIZE_START_TIMEOUT_SECS (120), FINALIZE_START_SPREAD_WARN_SECS (10).
 # Exit: 0 every targeted node finalized and passed A1-A5; 1 a node failed, or a local
 # check did (a failed release-signature verification included); 2 bad target; 3 release
 # signature pending (RELEASE_SIG_PENDING), no node touched.
+# With a mode: 0 means --stage-only every target STAGED, PRESTAGED or RUNNING (RUNNING is
+# reported, not failed); --start-all / --defer-start every target started or already
+# running, and passed A1-A5; --verify every target passed A1-A5. 1 any other outcome
+# (--defer-start: also a RUNNING node, which stops the start). 2 also a bad option, two mode
+# flags, or a knob that is not whole seconds.
 
 set -euo pipefail
 
@@ -89,6 +148,21 @@ case "${FINALIZE_STABLE_SECS}${FINALIZE_STABLE_POLL_SECS}" in
     *[!0123456789]*) echo "❌ FINALIZE_STABLE_SECS / FINALIZE_STABLE_POLL_SECS must be whole seconds" >&2; exit 2 ;;
 esac
 if [ "${FINALIZE_STABLE_POLL_SECS}" -lt 1 ]; then FINALIZE_STABLE_POLL_SECS=1; fi
+# The read-only retry and the mode knobs (see the header), whole seconds like the two above.
+FINALIZE_RO_RETRY_SECS="${FINALIZE_RO_RETRY_SECS:-5}"
+FINALIZE_START_LEAD_SECS="${FINALIZE_START_LEAD_SECS:-60}"
+FINALIZE_START_LAUNCH_GAP_SECS="${FINALIZE_START_LAUNCH_GAP_SECS:-1}"
+FINALIZE_START_TIMEOUT_SECS="${FINALIZE_START_TIMEOUT_SECS:-120}"
+FINALIZE_START_SPREAD_WARN_SECS="${FINALIZE_START_SPREAD_WARN_SECS:-10}"
+case "${FINALIZE_RO_RETRY_SECS}${FINALIZE_START_LEAD_SECS}${FINALIZE_START_LAUNCH_GAP_SECS}${FINALIZE_START_TIMEOUT_SECS}${FINALIZE_START_SPREAD_WARN_SECS}" in
+    *[!0123456789]*) echo "❌ FINALIZE_RO_RETRY_SECS / FINALIZE_START_{LEAD,LAUNCH_GAP,TIMEOUT,SPREAD_WARN}_SECS must be whole seconds" >&2; exit 2 ;;
+esac
+# Base 10 (08 is not octal) before they reach $(( )).
+FINALIZE_RO_RETRY_SECS=$((10#${FINALIZE_RO_RETRY_SECS}))
+FINALIZE_START_LEAD_SECS=$((10#${FINALIZE_START_LEAD_SECS}))
+FINALIZE_START_LAUNCH_GAP_SECS=$((10#${FINALIZE_START_LAUNCH_GAP_SECS}))
+FINALIZE_START_TIMEOUT_SECS=$((10#${FINALIZE_START_TIMEOUT_SECS}))
+FINALIZE_START_SPREAD_WARN_SECS=$((10#${FINALIZE_START_SPREAD_WARN_SECS}))
 
 # Same selector as devnet-network-config.sh: no args → all nodes; args may be an index
 # (0-based), an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once. An
@@ -114,6 +188,38 @@ tn_select_indices() {
     done
     printf '%s\n' "${out[@]}"
 }
+
+_usage() {
+    cat >&2 <<'EOF'
+usage: ./devnet-finalize.sh [--stage-only | --start-all | --defer-start | --verify] [target ...]
+  (no mode)      stage, finalize and start each node in turn, then assert A1-A5
+  --stage-only   finalize each node, then leave it stopped and enabled (STAGED / PRESTAGED / RUNNING)
+  --start-all    start every staged node at one moment (START_AT, COORDINATED_START), then A1-A5
+  --defer-start  --stage-only, then --start-all on the same targets, in one run
+  --verify       A1-A5 only, on nodes with an installed unit
+  target         an index (0-based), an INSTANCE_NAME or a NODE_NAME; none = every node
+At most one mode flag, anywhere among the targets. Knobs: see the header of this script.
+EOF
+}
+
+# The mode flag comes out of the arguments here; the rest are targets. An unknown --option
+# or a second mode flag stops the run (usage, exit 2) before any gcloud or ssh call.
+FINALIZE_MODE=""
+_targets=()
+for _a in "$@"; do
+    case "${_a}" in
+        --stage-only|--start-all|--defer-start|--verify)
+            if [ -n "${FINALIZE_MODE}" ]; then
+                echo "❌ one mode flag at most: --${FINALIZE_MODE} and ${_a}" >&2
+                _usage; exit 2
+            fi
+            FINALIZE_MODE="${_a#--}" ;;
+        --*) echo "❌ unknown option: ${_a}" >&2; _usage; exit 2 ;;
+        *) _targets+=("${_a}") ;;
+    esac
+done
+set -- ${_targets[@]+"${_targets[@]}"}
+unset _a _targets
 
 # Resolve the targets first: an unknown one stops the run (exit 2) before anything else.
 if ! SELECTION="$(tn_select_indices "$@")"; then exit 2; fi
@@ -253,6 +359,8 @@ echo "jcursor=$(journalctl -n 1 --no-pager --show-cursor -o cat 2>/dev/null | se
 nc="${data:-$3}/network-config"
 echo "nc=$nc"
 EOF
+    # A mode's skip rules (PRESTAGED / RUNNING) read the unit's state from this probe.
+    if [ -n "${FINALIZE_MODE}" ]; then _rs_unit_lines; fi
     _rs_nc_lines
     _rs_done
 }
@@ -356,6 +464,104 @@ EOF
     _rs_done
 }
 
+# The unit's state in ONE systemctl call, as KEY=value lines (ActiveState=, SubState=,
+# UnitFileState=, NRestarts=, Result=); needs $svc. A unit systemd does not know shows
+# ActiveState=inactive with an empty UnitFileState.
+_rs_unit_lines() {
+    cat <<'EOF'
+systemctl show -p ActiveState,SubState,UnitFileState,NRestarts,Result "$svc" 2>/dev/null
+EOF
+}
+
+# unit: $1 service.
+_rs_unit() {
+    cat <<'EOF'
+# tn-probe: unit
+svc="$1"
+EOF
+    _rs_unit_lines
+    _rs_done
+}
+
+# stop (--stage-only): $1 service. `systemctl stop` runs the unit's ExecStop (docker stop);
+# the docker client then exits 143 and the unit can sit in `failed`, so reset-failed follows.
+# The unit stays enabled. Reports both rcs, the state after, and whether a container named
+# $1 still runs (container=true|false, empty when there is none).
+_rs_stop() {
+    cat <<'EOF'
+# tn-probe: stop
+svc="$1"
+systemctl stop "$svc"; echo "stop_rc=$?"
+systemctl reset-failed "$svc" >/dev/null 2>&1; echo "reset_rc=$?"
+EOF
+    _rs_unit_lines
+    cat <<'EOF'
+echo "container=$(docker inspect -f "{{.State.Running}}" "$svc" 2>/dev/null)"
+EOF
+    _rs_done
+}
+
+# start-check (--start-all): $1 service, $2 v2 log dir. The unit's state, plus the gate's
+# logmark= / jcursor= lines, so A4 reads only what the coordinated start produced.
+_rs_startcheck() {
+    cat <<'EOF'
+# tn-probe: start-check
+svc="$1"; meta=/etc/telcoin/.node-meta
+EOF
+    _rs_unit_lines
+    cat <<'EOF'
+nodelog=$(sed -n "s/^NODE_LOG_DIR=//p" "$meta" 2>/dev/null | tr -d "\r" | tail -n 1)
+for f in "$2/$svc.log" "$2/$svc-error.log" ${nodelog:+"$nodelog/telcoin.log"}; do
+    if [ -f "$f" ]; then ck=$(cksum < "$f"); echo "logmark=${ck#* }:${ck%% *}:$f"; else echo "logmark=0:-:$f"; fi
+done
+echo "jcursor=$(journalctl -n 1 --no-pager --show-cursor -o cat 2>/dev/null | sed -n "s/^-- cursor: //p" | tail -n 1)"
+EOF
+    _rs_done
+}
+
+# start-at (--start-all): $1 service, $2 due (unix seconds), $3 instance, $4 late window
+# (FINALIZE_START_SPREAD_WARN_SECS). Idempotent, so the driver can retry it: the attempt
+# that starts the unit first records began (and the instance) in /run/tn-start-at.<due>,
+# created atomically (ln of a complete temp file), then appends start_rc. An attempt that
+# finds that file starts nothing: it waits up to 10 s for the recorded start_rc and prints
+# the RECORDED began (start_attempt=repeat). With no file and the node clock past due +
+# window, it starts nothing and prints start_rc=late (a late member sits out the epoch).
+# Otherwise it waits on the NODE clock until due (whole seconds, then 50 ms steps). Prints
+# start_rc= and the START_AT line; the node never starts before due.
+_rs_start_at() {
+    cat <<'EOF'
+# tn-probe: start-at
+svc="$1"; due="$2"; inst="$3"; window="$4"; mark="/run/tn-start-at.$due"; now=$(date +%s)
+if [ ! -e "$mark" ] && [ "$now" -gt $((due + window)) ]; then
+    echo "start_rc=late"
+    echo "START_AT $inst due=$due began=$now late_secs=$((now - due))"
+else
+    won=""
+    if [ ! -e "$mark" ]; then
+        if [ $((due - now)) -gt 1 ]; then sleep $((due - now - 1)); fi
+        while [ "$(date +%s)" -lt "$due" ]; do sleep 0.05; done
+        tmp=$(mktemp /run/tn-start-at-tmp.XXXXXX)
+        printf "inst=%s\nbegan=%s\n" "$inst" "$(date +%s)" > "$tmp"
+        if ln "$tmp" "$mark" 2>/dev/null; then won=1; fi
+        rm -f "$tmp"
+    fi
+    if [ -n "$won" ]; then
+        systemctl start "$svc"; echo "start_rc=$?" >> "$mark"
+        echo "start_attempt=first"
+    else
+        n=0
+        while ! grep -q "^start_rc=" "$mark" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+        echo "start_attempt=repeat"
+    fi
+    began=$(sed -n "s/^began=//p" "$mark" | tail -n 1)
+    rc=$(sed -n "s/^start_rc=//p" "$mark" | tail -n 1)
+    echo "start_rc=${rc:-unknown}"
+    echo "START_AT $inst due=$due began=$began late_secs=$((began - due))"
+fi
+EOF
+    _rs_done
+}
+
 # _tn_probe <instance> <zone> <script> [args...] — run one probe; print its output (CR
 # stripped). rc 1, with the reason on stdout, when ssh failed or the sentinel is missing.
 _tn_probe() {
@@ -373,6 +579,33 @@ _tn_probe() {
         *__tn_probe_done*) printf '%s\n' "${out}" ;;
         *) echo "no answer from ${inst} (ssh rc ${rc})"; return 1 ;;
     esac
+}
+
+# _ro <fn> [args...] — the read-only retry. Runs <fn> (_tn_probe with a probe that changes
+# nothing, or one that is safe to run twice; tn_node_meta_get) in a subshell whose
+# tn_iap_ssh, when ssh returns 255, waits FINALIZE_RO_RETRY_SECS and runs the same ssh ONCE
+# more. Only the last attempt's stdout reaches <fn>; a second 255 fails as without _ro.
+# The retry note goes to the caller's stderr. Never wrap a probe that must not run twice.
+# _tn_iap_ssh_once is devnet-lib.sh's tn_iap_ssh, copied under that name.
+eval "_tn_iap_ssh_once() $(declare -f tn_iap_ssh | sed 1d)"
+_ro() {
+    (
+        exec 4>&2
+        # shellcheck disable=SC2329  # invoked indirectly: _tn_probe / tn_node_meta_get call it
+        tn_iap_ssh() {
+            local out rc=0
+            out="$(_tn_iap_ssh_once "$@")" || rc=$?
+            if [ "${rc}" -eq 255 ] && [ "${FINALIZE_RO_RETRY_SECS}" -gt 0 ]; then
+                echo "    … ssh rc 255 from ${1}; one retry in ${FINALIZE_RO_RETRY_SECS}s" >&4
+                sleep "${FINALIZE_RO_RETRY_SECS}"
+                rc=0
+                out="$(_tn_iap_ssh_once "$@")" || rc=$?
+            fi
+            printf '%s\n' "${out}"
+            return "${rc}"
+        }
+        "$@"
+    )
 }
 
 # _kv <probe-output> <key> — the value of the last "key=" line ("" when absent).
@@ -439,7 +672,7 @@ assert_service() {
     local inst="$1" zone="$2" node="$3" svc="$4" script out st="" en="" nr="" waited=0 polls=0 bad=""
     script="$(_rs_service)"
     while :; do
-        if ! out="$(_tn_probe "${inst}" "${zone}" "${script}" "${svc}")"; then
+        if ! out="$(_ro _tn_probe "${inst}" "${zone}" "${script}" "${svc}")"; then
             bad="${out} at ${waited}s"; break
         fi
         st="$(_kv "${out}" active)"; en="$(_kv "${out}" enabled)"; nr="$(_kv "${out}" nrestarts)"
@@ -463,10 +696,10 @@ META_DATA_DIR=""
 META_NODE_LOG_DIR=""
 assert_meta() {
     local inst="$1" zone="$2" node="$3" net dig rc_net=0 rc_dig=0 rc_nl=0 bad=""
-    net="$(tn_node_meta_get "${inst}" "${zone}" NETWORK)" || rc_net=$?
-    dig="$(tn_node_meta_get "${inst}" "${zone}" DOCKER_IMAGE_DIGEST)" || rc_dig=$?
-    META_DATA_DIR="$(tn_node_meta_get "${inst}" "${zone}" DATA_DIR)" || META_DATA_DIR=""
-    META_NODE_LOG_DIR="$(tn_node_meta_get "${inst}" "${zone}" NODE_LOG_DIR 2>/dev/null)" || rc_nl=$?
+    net="$(_ro tn_node_meta_get "${inst}" "${zone}" NETWORK)" || rc_net=$?
+    dig="$(_ro tn_node_meta_get "${inst}" "${zone}" DOCKER_IMAGE_DIGEST)" || rc_dig=$?
+    META_DATA_DIR="$(_ro tn_node_meta_get "${inst}" "${zone}" DATA_DIR)" || META_DATA_DIR=""
+    META_NODE_LOG_DIR="$(_ro tn_node_meta_get "${inst}" "${zone}" NODE_LOG_DIR 2>/dev/null)" || rc_nl=$?
     if [ "${rc_nl}" -ne 0 ]; then META_NODE_LOG_DIR=""; fi
     if [ "${rc_net}" -ne 0 ]; then net="<unread rc ${rc_net}>"; fi
     if [ "${rc_dig}" -ne 0 ]; then dig="<unread rc ${rc_dig}>"; fi
@@ -482,7 +715,7 @@ assert_meta() {
 # A3 <inst> <zone> <node> <data-dir>
 assert_network_config() {
     local inst="$1" zone="$2" node="$3" nc="$4/network-config" out obs
-    if ! out="$(_tn_probe "${inst}" "${zone}" "$(_rs_nc)" "${nc}")"; then
+    if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_nc)" "${nc}")"; then
         _report "${node}" 1 "A3 network-config" "${out}"; return 1
     fi
     if obs="$(_nc_verdict "${node}" "$(_kv "${out}" nc_present)" "$(_kv "${out}" nc_b64)")"; then
@@ -497,7 +730,7 @@ assert_network_config() {
 assert_logs() {
     local inst="$1" zone="$2" node="$3" svc="$4" nodelog="$5" marks="$6" cursor="$7" out line rest n pat first
     local summary="" firsts="" bad="" lines files journal jrc
-    if ! out="$(_tn_probe "${inst}" "${zone}" "$(_rs_logs)" "${svc}" "${nodelog}" "${marks}" "${cursor}")"; then
+    if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_logs)" "${svc}" "${nodelog}" "${marks}" "${cursor}")"; then
         _report "${node}" 1 "A4 logs" "${out}"; return 1
     fi
     files="$(_kv "${out}" files)"; lines="$(_num "$(_kv "${out}" lines)")"; jrc="$(_kv "${out}" journal_rc)"
@@ -525,7 +758,7 @@ assert_logs() {
 # A5 <inst> <zone> <node> <svc>
 assert_runtime() {
     local inst="$1" zone="$2" node="$3" svc="$4" out exe pull ro cont running rofs cimg pids hits obs bad=""
-    if ! out="$(_tn_probe "${inst}" "${zone}" "$(_rs_runtime)" "${svc}")"; then
+    if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_runtime)" "${svc}")"; then
         _report "${node}" 1 "A5 runtime" "${out}"; return 1
     fi
     exe="$(_kv "${out}" execstart)"; pull="$(_kv "${out}" launch_pull)"; ro="$(_kv "${out}" launch_ro)"
@@ -546,7 +779,178 @@ assert_runtime() {
     _report "${node}" 0 "A5 runtime" "${obs}"
 }
 
+# --- modes: the stop (--stage-only) and the coordinated start (--start-all) -------------
+
+# _defer_stop <inst> <zone> <service> — the --stage-only stop (_rs_stop; safe to run twice,
+# so it goes through _ro). Requires ActiveState=inactive, UnitFileState=enabled and no
+# running container afterwards. Prints "state=inactive enabled=enabled" (rc 0), or what it
+# saw (rc 1).
+_defer_stop() {
+    local inst="$1" zone="$2" svc="$3" out st en cont
+    if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_stop)" "${svc}")"; then
+        echo "${out}"; return 1
+    fi
+    st="$(_kv "${out}" ActiveState)"; en="$(_kv "${out}" UnitFileState)"; cont="$(_kv "${out}" container)"
+    if [ "${st}" != "inactive" ] || [ "${en}" != "enabled" ] || [ "${cont}" = "true" ]; then
+        echo "after stop: ActiveState=${st:-?} SubState=$(_kv "${out}" SubState) Result=$(_kv "${out}" Result) UnitFileState=${en:-?} container-running=${cont:-none} (stop rc $(_kv "${out}" stop_rc), reset-failed rc $(_kv "${out}" reset_rc))"
+        return 1
+    fi
+    echo "state=${st} enabled=${en}"
+}
+
+# _kill_tree <pid> — SIGTERM <pid> and every LOCAL process below it (the start-at probe's
+# subshells, gcloud and ssh), so a probe still running at the deadline cannot report later.
+# It does not stop a remote script that already connected (no pty, so no SIGHUP; it dies
+# on its first write, after its systemctl start). What keeps a late connect from starting
+# its node is the remote's own check: no start past due + FINALIZE_START_SPREAD_WARN_SECS.
+_kill_tree() {
+    local kids c
+    kids="$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }')"
+    kill "$1" 2>/dev/null || true
+    for c in ${kids}; do _kill_tree "${c}"; done
+}
+
+# _start_all <index>... — the coordinated start (--start-all, and --defer-start once every
+# target is staged). First a start check per node (read-only): any node that is not
+# installed + enabled + (inactive | active) refuses the whole start (rc 1, nothing
+# started). Then one background start-at probe per inactive node, the bounded wait, the
+# START_AT lines, wait_healthy, the COORDINATED_START marker and the spread warning.
+# Appends to finalized (nodes up: started and healthy, or RUNNING) and failed; records
+# LOG_MARKS / JOURNAL_CURSORS from the start check, for A4.
+_start_all() {
+    local i inst zone node service out st en refused="" script due deadline k n f rc_s line began late
+    local todo pids healthy nrun=0 started=0 bmin="" bmax="" maxlate="" spread=0 up=" "
+    todo=(); pids=(); healthy=()
+    echo ""
+    echo ">>> coordinated start: checking ${#} node(s) (unit installed and enabled; inactive to start)"
+    for i in "$@"; do
+        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"; node="${NODE_NAMES[$i]}"
+        service="$(tn_service_for_role "$(tn_node_role "$i")")"
+        if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_startcheck)" "${service}" "${TN_LOG_DIR}")"; then
+            echo "❌ [${node}] start check: ${out}"
+            failed+=("${node}: start check (no answer)"); refused="${refused} ${node}"; continue
+        fi
+        st="$(_kv "${out}" ActiveState)"; en="$(_kv "${out}" UnitFileState)"
+        LOG_MARKS[i]="$(printf '%s\n' "${out}" | sed -n 's/^logmark=//p' | tr '\n' ' ')"
+        JOURNAL_CURSORS[i]="$(_kv "${out}" jcursor)"
+        if [ "${en}" = "enabled" ] && [ "${st}" = "inactive" ]; then
+            echo ">>> [${node}] ${service} on ${inst}: installed, enabled, inactive: will start"
+            todo+=("${i}")
+        elif [ "${en}" = "enabled" ] && [ "${st}" = "active" ]; then
+            echo "RUNNING ${inst}"
+            echo "⚠️  [${node}] ${service} on ${inst} is already running: not started again (skipped_running)" >&2
+            nrun=$((nrun + 1)); up="${up}${i} "
+        else
+            echo "❌ [${node}] ${service} on ${inst}: ActiveState=${st:-?} SubState=$(_kv "${out}" SubState) Result=$(_kv "${out}" Result) UnitFileState=${en:-none} (want an installed, enabled unit, inactive or active)"
+            failed+=("${node}: start check (${st:-?}/${en:-none})"); refused="${refused} ${node}"
+        fi
+    done
+    if [ -n "${refused}" ]; then
+        echo "❌ coordinated start refused, nothing was started:${refused}"
+        return 1
+    fi
+
+    due=$(( $(date +%s) + FINALIZE_START_LEAD_SECS ))
+    if [ "${#todo[@]}" -gt 0 ]; then
+        echo ">>> coordinated start of ${#todo[@]} node(s): due=${due} (now + ${FINALIZE_START_LEAD_SECS}s, on each node's clock), one ssh per node ${FINALIZE_START_LAUNCH_GAP_SECS}s apart"
+        if [ $(( (${#todo[@]} - 1) * FINALIZE_START_LAUNCH_GAP_SECS )) -ge "${FINALIZE_START_LEAD_SECS}" ]; then
+            echo "⚠️  the last start-at ssh launches at or after due (FINALIZE_START_LEAD_SECS=${FINALIZE_START_LEAD_SECS}, ${#todo[@]} nodes x FINALIZE_START_LAUNCH_GAP_SECS=${FINALIZE_START_LAUNCH_GAP_SECS}): expect late starts" >&2
+        fi
+        script="$(_rs_start_at)"
+        k=0
+        for i in "${todo[@]}"; do
+            if [ "${k}" -gt 0 ] && [ "${FINALIZE_START_LAUNCH_GAP_SECS}" -gt 0 ]; then sleep "${FINALIZE_START_LAUNCH_GAP_SECS}"; fi
+            k=$((k + 1))
+            inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
+            service="$(tn_service_for_role "$(tn_node_role "$i")")"
+            f="${WORK}/start-${i}"
+            # The start-at probe is idempotent (/run/tn-start-at.<due>), so an ssh that
+            # returned 255 with no answer is retried: at most 3 attempts in all, 1 s apart,
+            # and only while the local clock is before due - 10. Nothing else is retried.
+            (
+                att=0
+                while :; do
+                    att=$((att + 1)); rc_s=0
+                    out="$(_tn_probe "${inst}" "${zone}" "${script}" "${service}" "${due}" "${inst}" "${FINALIZE_START_SPREAD_WARN_SECS}")" || rc_s=$?
+                    case "${rc_s}:${out}" in 1:*"(ssh rc 255)") ;; *) break ;; esac
+                    if [ "${att}" -ge 3 ] || [ "$(date +%s)" -ge $((due - 10)) ]; then break; fi
+                    echo "ssh rc 255 on start-at attempt ${att} at $(date +%s) (due ${due}); retrying" >> "${f}.log"
+                    sleep 1
+                done
+                echo "start-at attempts: ${att}" >> "${f}.log"
+                printf '%s\n' "${out}" > "${f}.out"
+                echo "${rc_s}" > "${f}.rc"
+            ) &
+            pids+=("$!")
+        done
+        # Bounded wait: at due + FINALIZE_START_TIMEOUT_SECS a probe still running is killed.
+        deadline=$((due + FINALIZE_START_TIMEOUT_SECS))
+        while :; do
+            n=0
+            for k in "${pids[@]}"; do if kill -0 "${k}" 2>/dev/null; then n=$((n + 1)); fi; done
+            if [ "${n}" -eq 0 ] || [ "$(date +%s)" -ge "${deadline}" ]; then break; fi
+            sleep 1
+        done
+        for k in "${pids[@]}"; do
+            if kill -0 "${k}" 2>/dev/null; then _kill_tree "${k}"; fi
+            wait "${k}" 2>/dev/null || true
+        done
+
+        for i in "${todo[@]}"; do
+            inst="${INSTANCE_NAMES[$i]}"; node="${NODE_NAMES[$i]}"
+            f="${WORK}/start-${i}"
+            if [ ! -f "${f}.rc" ]; then
+                echo "❌ [${node}] start-at on ${inst}: no answer by due + ${FINALIZE_START_TIMEOUT_SECS}s (probe killed)"
+                failed+=("${node}: start (no answer by the deadline)"); continue
+            fi
+            sed -n "s/^ssh rc 255/    … [${node}] ssh rc 255/p" "${f}.log" 2>/dev/null || true
+            out="$(cat "${f}.out" 2>/dev/null || true)"
+            line="$(printf '%s\n' "${out}" | sed -n '/^START_AT /p' | tail -n 1)"
+            began="${line##* began=}"; began="${began%% *}"
+            if [ "$(_kv "${out}" start_rc)" = "late" ]; then
+                echo "❌ [${node}] start-at on ${inst}: reached the node after due + ${FINALIZE_START_SPREAD_WARN_SECS}s; NOT started (a late member sits out the epoch) (${line#START_AT })"
+                failed+=("${node}: start (late, not started)"); continue
+            fi
+            if [ "$(cat "${f}.rc")" != "0" ] || [ "$(_kv "${out}" start_rc)" != "0" ] || [ -z "${line}" ] \
+                || [ "$(_num "${began}")" != "${began}" ]; then
+                echo "❌ [${node}] start-at on ${inst}: $(printf '%s\n' "${out}" | sed -n -e '/^start_rc=/p' -e '/^no answer /p' | tr '\n' ' ')${line:+(${line#START_AT })} ($(sed -n 's/^start-at attempts: /attempts /p' "${f}.log" 2>/dev/null))"
+                failed+=("${node}: start"); continue
+            fi
+            if [ "$(_kv "${out}" start_attempt)" = "repeat" ]; then
+                echo "    … [${node}] an earlier attempt had started the unit; began is the one it recorded"
+            fi
+            echo "${line}"
+            started=$((started + 1))
+            late=$((began - due))
+            if [ -z "${bmin}" ] || [ "${began}" -lt "${bmin}" ]; then bmin="${began}"; fi
+            if [ -z "${bmax}" ] || [ "${began}" -gt "${bmax}" ]; then bmax="${began}"; fi
+            if [ -z "${maxlate}" ] || [ "${late}" -gt "${maxlate}" ]; then maxlate="${late}"; fi
+            healthy+=("${i}")
+        done
+        for i in ${healthy[@]+"${healthy[@]}"}; do
+            inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"; node="${NODE_NAMES[$i]}"
+            service="$(tn_service_for_role "$(tn_node_role "$i")")"
+            if wait_healthy "${inst}" "${zone}" "${service}"; then
+                up="${up}${i} "
+            else
+                echo "❌ [${node}] not healthy after the coordinated start"
+                failed+=("${node}: health"); continue
+            fi
+        done
+    fi
+    if [ "${started}" -gt 0 ]; then spread=$((bmax - bmin)); fi
+    echo "COORDINATED_START due=${due} nodes=${#} started=${started} skipped_running=${nrun} spread_secs=${spread} max_late_secs=${maxlate:-0}"
+    if [ "${spread}" -gt "${FINALIZE_START_SPREAD_WARN_SECS}" ]; then
+        echo "⚠️  coordinated start spread ${spread}s > FINALIZE_START_SPREAD_WARN_SECS=${FINALIZE_START_SPREAD_WARN_SECS}s: a committee member that starts more than gc_depth (50) rounds after the others reach quorum sits out the whole epoch. Look for \"too new for max round 50\" in the late node's log and tn_nodeMode CvvInactive; a restart cannot help inside the epoch (lessons 2026-11-02)." >&2
+    fi
+    # Phase B runs on every node that is up, in target order.
+    for i in "$@"; do
+        case "${up}" in *" ${i} "*) finalized+=("${i}") ;; esac
+    done
+}
+
 echo ">>> finalize targets: ${#INDICES[@]} node(s) — ${INDICES[*]}"
+if [ -n "${FINALIZE_MODE}" ]; then echo ">>> mode --${FINALIZE_MODE}"; fi
 echo ">>> image ${DOCKER_IMAGE}"
 
 finalized=()   # "index" of nodes that passed phase A
@@ -554,9 +958,33 @@ LOG_MARKS=()        # by index: the gate's logmark values, for A4
 JOURNAL_CURSORS=()  # by index: the gate's journal cursor, for A4
 verified=()
 failed=()
+STAGED_IDX=()      # --stage-only / --defer-start: by index, finalized then stopped
+PRESTAGED_IDX=()   #   unit already installed, inactive and enabled: skipped
+RUNNING_IDX=()     #   unit already active: skipped, never stopped
+
+# --verify: no phase A; phase B runs on every target with an installed unit.
+if [ "${FINALIZE_MODE}" = "verify" ]; then
+    for i in "${INDICES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"; node="${NODE_NAMES[$i]}"
+        service="$(tn_service_for_role "$(tn_node_role "$i")")"
+        if ! unit_out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_unit)" "${service}")"; then
+            echo "❌ [${node}] unit check: ${unit_out}"
+            failed+=("${node}: unit check (no answer)"); continue
+        fi
+        if [ -z "$(_kv "${unit_out}" UnitFileState)" ]; then
+            echo "❌ [${node}] no ${service} unit installed on ${inst}: nothing to verify"
+            failed+=("${node}: no ${service} unit"); continue
+        fi
+        finalized+=("${i}")
+    done
+fi
+
+# Phase A visits every target, except in --start-all and --verify (none).
+PHASE_A=()
+case "${FINALIZE_MODE}" in start-all|verify) ;; *) PHASE_A=("${INDICES[@]}") ;; esac
 
 # --- phase A: gate, stage, finalize, health ------------------------------------------
-for i in "${INDICES[@]}"; do
+for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
     node="${NODE_NAMES[$i]}"
@@ -582,10 +1010,27 @@ for i in "${INDICES[@]}"; do
     fi
 
     # --- Step 1: readiness gate ----------------------------------------------------
-    if ! gate="$(_tn_probe "${inst}" "${zone}" "$(_rs_ready)" "${setup}" "${service}" "${ddir}" "${TN_LOG_DIR}")"; then
+    if ! gate="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_ready)" "${setup}" "${service}" "${ddir}" "${TN_LOG_DIR}")"; then
         echo "❌ [${node}] readiness gate: ${gate}"
         failed+=("${node}: readiness gate (no answer)"); continue
     fi
+    # --stage-only / --defer-start skip rules, decided by this probe before anything else.
+    case "${FINALIZE_MODE}" in
+        stage-only|defer-start)
+            if [ "$(_kv "${gate}" installed)" = "1" ]; then
+                unit_st="$(_kv "${gate}" ActiveState)"; unit_en="$(_kv "${gate}" UnitFileState)"
+                if [ "${unit_st}" = "inactive" ] && [ "${unit_en}" = "enabled" ]; then
+                    echo "PRESTAGED ${inst}"
+                    PRESTAGED_IDX+=("${i}"); continue
+                fi
+                if [ "${unit_st}" = "active" ]; then
+                    echo "RUNNING ${inst}"
+                    echo "⚠️  [${node}] ${service} is already running on ${inst} (UnitFileState=${unit_en:-?}): not staged and NOT stopped; if other committee members run too, a quorum may have formed" >&2
+                    RUNNING_IDX+=("${i}"); continue
+                fi
+                echo ">>> [${node}] ${service} unit installed with ActiveState=${unit_st:-?} UnitFileState=${unit_en:-?}: neither PRESTAGED nor RUNNING"
+            fi ;;
+    esac
     gate_bad=""
     if [ "$(_kv "${gate}" setup)" != "1" ]; then gate_bad="${gate_bad} ${setup} missing (fetch the node scripts);"; fi
     if [ "$(_kv "${gate}" keygen)" != "1" ]; then gate_bad="${gate_bad} no keygen record in /etc/telcoin/.node-meta (run ./devnet-keygen.sh);"; fi
@@ -696,8 +1141,43 @@ for i in "${INDICES[@]}"; do
         echo "❌ [${node}] not healthy after finalize"
         failed+=("${node}: health"); continue
     fi
+    # --stage-only / --defer-start: the node ran alone long enough to prove it starts; leave
+    # it stopped and enabled for the coordinated start.
+    case "${FINALIZE_MODE}" in
+        stage-only|defer-start)
+            if ! unit_out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_unit)" "${service}")"; then
+                echo "❌ [${node}] unit state before the stop: ${unit_out}"
+                failed+=("${node}: unit state (no answer)"); continue
+            fi
+            if [ "$(_kv "${unit_out}" ActiveState)" != "active" ] || [ "$(_kv "${unit_out}" NRestarts)" != "0" ]; then
+                echo "❌ [${node}] after finalize: ActiveState=$(_kv "${unit_out}" ActiveState) NRestarts=$(_kv "${unit_out}" NRestarts) (want active, 0); not stopped"
+                failed+=("${node}: not stable after finalize"); continue
+            fi
+            if ! stop_obs="$(_defer_stop "${inst}" "${zone}" "${service}")"; then
+                echo "❌ [${node}] stop: ${stop_obs}"
+                failed+=("${node}: stop"); continue
+            fi
+            echo "STAGED ${inst} ${stop_obs}"
+            STAGED_IDX+=("${i}"); continue ;;
+    esac
     finalized+=("${i}")
 done
+
+# --- coordinated start (--start-all; --defer-start once every target is staged) ---------
+STAGE_SUMMARY=""
+case "${FINALIZE_MODE}" in
+    stage-only) STAGE_SUMMARY=1 ;;
+    start-all) _start_all "${INDICES[@]}" || true ;;
+    defer-start)
+        if [ $(( ${#STAGED_IDX[@]} + ${#PRESTAGED_IDX[@]} )) -eq "${#INDICES[@]}" ]; then
+            _start_all "${INDICES[@]}" || true
+        else
+            echo ""
+            echo "❌ --defer-start: not every target is STAGED or PRESTAGED; nothing was started"
+            failed+=("coordinated start not attempted (${#RUNNING_IDX[@]} RUNNING, $(( ${#INDICES[@]} - ${#STAGED_IDX[@]} - ${#PRESTAGED_IDX[@]} - ${#RUNNING_IDX[@]} )) failed)")
+            STAGE_SUMMARY=1
+        fi ;;
+esac
 
 # --- phase B: post-finalize assertions -----------------------------------------------
 if [ "${#finalized[@]}" -gt 0 ]; then
@@ -725,9 +1205,36 @@ for i in ${finalized[@]+"${finalized[@]}"}; do
     fi
 done
 
+# _list_idx <index>... — one "  - NODE_NAME (INSTANCE_NAME)" line per index.
+_list_idx() { local i; for i in "$@"; do echo "  - ${NODE_NAMES[$i]} (${INSTANCE_NAMES[$i]})"; done; }
+if [ -n "${STAGE_SUMMARY}" ]; then
+    echo ""
+    echo "========================================="
+    echo "finalize --${FINALIZE_MODE} summary"
+    echo "========================================="
+    echo "staged: finalized, then stopped, enabled (${#STAGED_IDX[@]}):"
+    _list_idx ${STAGED_IDX[@]+"${STAGED_IDX[@]}"}
+    echo "prestaged, skipped (${#PRESTAGED_IDX[@]}):"
+    _list_idx ${PRESTAGED_IDX[@]+"${PRESTAGED_IDX[@]}"}
+    echo "running, skipped, NOT stopped (${#RUNNING_IDX[@]}):"
+    _list_idx ${RUNNING_IDX[@]+"${RUNNING_IDX[@]}"}
+    if [ "${#failed[@]}" -gt 0 ]; then
+        echo "failed (${#failed[@]}):"
+        for n in "${failed[@]}"; do echo "  - ${n}"; done
+        exit 1
+    fi
+    if [ "${#RUNNING_IDX[@]}" -gt 0 ]; then
+        echo "⚠️  ${#RUNNING_IDX[@]} node(s) were already running and were left as they are; every other target is staged (stopped, enabled)."
+    else
+        echo "every targeted node is staged (stopped, enabled) or was already; start them with --start-all."
+    fi
+    exit 0
+fi
+
 echo ""
 echo "========================================="
 echo "finalize summary"
+if [ -n "${FINALIZE_MODE}" ]; then echo "mode: --${FINALIZE_MODE}"; fi
 echo "========================================="
 echo "finalized + verified (${#verified[@]}):"
 for n in ${verified[@]+"${verified[@]}"}; do echo "  - ${n}"; done

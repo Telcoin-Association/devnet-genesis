@@ -1,0 +1,2 @@
+# test_finalize_modes: only its presence is checked; the fake gcloud's scp copies nothing.
+max_header_delay: 1000ms

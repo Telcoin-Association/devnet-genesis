@@ -1,0 +1,5 @@
+admission:
+  mode: Closed
+committee_peers:
+  - peer_id: 12D3KooWFakePeerNodeTwo
+    address: /dns4/node2.example.invalid/udp/49590/quic-v1

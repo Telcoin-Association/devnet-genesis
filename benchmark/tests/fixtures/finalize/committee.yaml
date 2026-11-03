@@ -1,0 +1,3 @@
+# test_finalize_modes: only its presence is checked; the fake gcloud's scp copies nothing.
+# The test copies it into <sandbox>/workspace/genesis/.
+epoch: 0
