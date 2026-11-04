@@ -1270,8 +1270,9 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Bench 3 attempts 4-8: in ~70 IAP sessions over 50 minutes, one ssh rc 255 mid-keygen (bench08), two
   `gcloud crashed (ReadTimeout)` against compute.googleapis.com (bench09, rc 1 — not 255, so the finalize's
   own rc-255 retry would not have covered it) and one rc 255 in the network-config read (bench05): ~4 % per
-  session. Each fault ended a 10-minute step and, for keygen, left a node keyed with no node-info pulled.
-  With ~150 sessions in a deploy, a fault-free run had ~2 % odds.
+  session as first estimated; the friction census (A4o) counted ≥ 669 IAP sessions in the deploy logs, so the
+  rate was 0.6-0.9 % per session — but a deploy opens 700-850 sessions, so a fault-free run still had ~1 % odds.
+  Each fault ended a 10-minute step and, for keygen, left a node keyed with no node-info pulled.
 - Rule: the retry lives in `devnet-lib.sh`'s IAP wrappers (`_tn_iap_retry`: rc 255 or "gcloud crashed" on
   stderr → TN_IAP_RETRIES (2) more attempts, TN_IAP_RETRY_SECS (5) apart; stdin buffered in a variable, never a
   file or argv), so every driver gets it. Per-driver retries only model the driver's own logic. Tests that count
@@ -1285,3 +1286,16 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   over 45 min); validator-05 moved to us-east4-b. Rule: before a fleet run, probe each zone for the machine type
   AND accept that availability ≠ stock; keep a same-continent fallback zone per index written down, and record
   any move as a comparability caveat (the latency matrices lack the new zone).
+
+## 2026-11-04 — the unit's append log is not the complete record: logrotate cuts it at 100 MB / midnight UTC
+- Bench 3's teardown pulled each node's current `/var/log/telcoin/telcoin.log` and the capped docker json-file
+  log (50m×3). v2 installs `/etc/logrotate.d/telcoin` (size 100M, rotate 5, delaycompress, copytruncate), and the
+  daily cron at 00:00 UTC rotated every node's unit file (≈ 300 MB of debug logging) to `telcoin.log.1`; the docker
+  log held only the last ~35 min. The pull therefore covered ≈ 23:50 → 00:29Z of a run that started 22:26Z. Four
+  nodes (04, 08, 09, 10) were deleted before this was noticed; the other seven had `telcoin.log.1` rescued by
+  hand after killing the teardown mid-delete.
+- Rule: the teardown pulls `/var/log/telcoin/telcoin.log` AND every `telcoin.log.[1-9]*` (plus `telcoin-error.log*`),
+  names them `<inst>-unit-stdout.rotated-N.log.gz`, and its local gate counts them; before a run that will cross
+  00:00 UTC or log more than 100 MB per node, either raise the logrotate size on bench nodes (pre-start config) or
+  accept the rotation and pull all generations. Never let the delete phase start until `zcat <first unit file> |
+  head -1` shows a timestamp at or before the coordinated start.

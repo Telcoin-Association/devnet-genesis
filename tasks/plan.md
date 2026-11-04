@@ -39,24 +39,28 @@ first; bundle committed AND pushed to tn-benchmarks main; launch automatically o
       dry-run step-7 text, --print-prestart|--print-obs-script | bash -n, finalize --bogus → 2, --verify --stage-only → 2,
       finalize diff additive-only)
 - [x] U-review: R1 BLOCKING (step-9 boot lines from the capped docker log) + R2-R5 MINOR + R6 INFO; verdict safe after R1
-- [ ] owner fixes (U-dep R1/R2/R3/R5/R6, U-fin R4, U-lib/U-params comments) → test updates (U-test-img, U-test-fin) → V-off #2
-- [ ] commits per unit group (no attribution) → dry run `benchmark-deploy.sh --with-contracts` and read the step-7 plan text
+- [x] owner fixes applied (R1-R6) + test updates → V-off #2 29/29 PASS (480 tests, only the environmental failure) 19:45Z
+- [x] 6 commits 4faf66e..5269ae2 (nothing pushed) → dry run rc 0 with the registry txgen image, step-7 block in order
 
 ## Wave 3 (live; checkpoint tasks/checkpoint-bench3-live.md)
-- [ ] preflight (token refresh, no bench-*/lat-*, docker) → `--yes --with-contracts --to 12 </dev/null`
-- [ ] gates: image probe by digest; COORDINATED_START spread ≤ 10 s (target ≤ 5); step 8 "already serves" ×11, restarted=none;
-      admission 11× mode 2/2 fallback 0; fleet-ready 10× CvvActive
-- [ ] idle ≥ 10 min after POSTCFG_OK ×11 → `--from 13 --to 15` (fund, 40-min blast + chaos, collect)
-- [ ] teardown `--run R --yes` (logs first, delete last; exit 0, archive.kind local, both log files per node) → `--reindex`
+- [x] preflight green 19:21Z → R=r20261103-1922, segment 1 `--yes --with-contracts --to 12` launched 19:22Z (detached driver; deviation: main orchestrator drives, no fork)
+- [x] gates: image probe by digest ✓; COORDINATED_START 11/11 started, spread 0 s, late 0 s (22:26:08Z); OBSCFG_OK ×11 restarted=none;
+      POSTCFG_OK ×11; ADM_OK ×11 (mode 2/2, fallback 0); registry epoch 2 duration 1200 s. Fleet work-arounds on the way: Montreal
+      c3 stockout → v05 in us-east4-b; bench08 keygen ssh drop (node-info pulled by hand); genesis-build node-5 check made devnet-only;
+      2× gcloud API ReadTimeout + 2× ssh 255 → retry added to devnet-lib.sh (6ed9429); step 11 reset by one IAP websocket error → --from 11
+- [x] segment 1 complete 23:21Z (contracts on the new ssh-forward tunnel after 3 websocket resets); idle 23:00-23:22Z → segment 2 `--from 13 --to 15` launched 23:22Z
+- [x] segment 2 complete ~00:30Z (blast 10/10 rc 0, chaos crossed the epoch-5 boundary, collect OK)
+- [x] teardown: first run interrupted at 00:35Z after the local gate (pulled logs covered only ≈ 23:50→00:29Z: docker cap + midnight logrotate) → rotated unit logs rescued from the 7 surviving nodes (04/08/09/10 lost their first 90 min) → resumed with trusted markers, rc 0 at 00:48Z, archive local 254 files / 643 MB; orphaned tunnel supervisor killed + teardown patched → `--reindex` pending
 
 ## Wave 4 (analysis, read-only on results/<R>; write under benchmark/private/bench3-<R>/<unit>/)
-- [ ] A1 KPIs · A2 certification + vote path (V1Lazy attribution vs 0316) · A3 chaos/recovery/boundary ·
-      A4n node-side bottleneck census · A4o operational friction · P-backfill §1 (provenance.py --json)
-- [ ] A5 report `tasks/bench3-report-<R>.md` + `benchmark/private/followups.md` section
+- [x] A1 KPIs (4037 tx/s, −25.7 % vs 0316) · A2 certification + vote path (every vote = 2.02×RTT; London/NL 5 % idle; V1Lazy cherry-pick quantified) ·
+      A3 chaos/recovery (promote/demote rejoin loop, 36 min; boundaries on time; 26-s 5→6 execution backlog) · A4o friction (12 launches, 5 h 26 m; D19 log coverage) ·
+      P-backfill §1 provenance.json (3f9b0709, subsecond-from-genesis, 1000/350/250/5000) — A4n census and the backfill draft in progress
+- [x] A4n census (execution ~100 % busy, persist 0.97→1.60 s/output, disk at the 800 MB/s ceiling; observer = the denied peer) · A5 report tasks/bench3-report-r20261103-1922.md (812 lines, F1-F10) + followups.md section
 
 ## Wave 5 (publish)
-- [ ] P-backfill §2 → P-bundle (make_bundle, no `<<`, build.py --check, scrub.py, site unittest, eyeball dist)
-- [ ] tn-benchmarks: `git add runs/<R>` (never -A), commit `Publish <R>: …`, push main, HTTP 200
+- [x] P-backfill (15 methodology, 17 caveats, scrubbers clean) → kpis.recovery()/provenance regex/REGION_LABELS fixes + tests → make_bundle OK 28.5 s (13 KPIs, 26 caveats, upstream verified, recovery from the log, 0 placeholders), scrub 0/0, build --check ok, site tests 113 OK, dist eyeballed
+- [x] tn-benchmarks 6bacaf0 `Publish r20261103-1922: …` pushed to main (2c5211e..6bacaf0); HTTP 200 check running
 - [ ] devnet-genesis commits (harness, backfill, tasks, lessons); memory + MEMORY.md; final summary (report path + run URL)
 
 ---

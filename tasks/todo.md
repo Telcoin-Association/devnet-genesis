@@ -1429,3 +1429,20 @@ base fee after more boundaries) is appended to the verification file when the wa
   joiner that is already an admitted, connected peer has its records everywhere before it is drawn. Only
   `connected_current` moved (node 5: 4→3, node 4: 3→4). Reword §7 to the "next"-window behaviour and keep the
   fallback dip as the cold-join case (launch 2's join rehearsal).
+
+## Review: bench 3 (r20261103-1922), 2026-11-03/04
+- Done: harness moved to tn-node-deployment v2 with Closed admission (7 units + 4 test units, review R1-R6 fixed,
+  480+ tests, 11 mutation cases); live run r20261103-1922 (10 validators + observer, ten regions, one coordinated
+  start, chaos on); teardown; five analysis units; report tasks/bench3-report-r20261103-1922.md; bundle published
+  at https://benchmark.telcoin.network/runs/r20261103-1922/ (tn-benchmarks 6bacaf0).
+- Headline: 4,037 tx/s all-generators (0316 with V1Lazy 5,434; 0458 without it 3,890). Findings: every vote = 2×RTT
+  (strict V1; London/NL certify 5 % idle) → cherry-pick b0838dd38; restarted validator loops promote/demote for
+  36 min → rejoin rule fix; execution ~100 % busy with a growing per-output persist (~1 GB/output, disk at the
+  800 MB/s ceiling) → background persist; idle round 451 ms not 350 → round floor; NL vote stall; boundary backlog.
+- Run friction: 12 deploy launches (Montreal c3 stockout → us-east4-b; keygen ssh drop; devnet-only genesis check;
+  2 API ReadTimeouts + 2 ssh 255 → fleet-wide retry; websocket tunnel resets → ssh-forward tunnel); teardown pulled
+  only the current unit file (logrotate at midnight) → rotated logs rescued from 7 nodes, 04/08/09/10 lost their
+  first 90 min (D19, fix before the next run). Wall-clock 19:22Z → 00:48Z.
+- Not done / follow-ups: params-apply vs pre-start marker convention; teardown pulls rotated logs + coverage gate;
+  stockout fallback zone per index; keygen "already keyed" path; network-config fast path; retry unit test;
+  tunnel supervisor give-up; V1Lazy cherry-pick branch (on request); next runs (a)-(e) in the report §6.
