@@ -293,7 +293,11 @@ echo ">>> disk candidates (${#CAND_DISK[@]}; boot disks auto-delete with their i
 for c in "${CAND_DISK[@]+"${CAND_DISK[@]}"}"; do read -r dz dn dl <<< "${c}"; echo "    - ${dn} (${dz}): $(disk_fate "${dl}")"; done
 
 # --- local / git / IAM ------------------------------------------------------------------------
-TUNNEL_PIDS="$(pgrep -f "start-iap-tunnel.*${BENCH_TUNNEL_PORT}" 2>/dev/null | tr '\n' ' ' || true)"
+# Both tunnel transports (bench_tunnel_up): the ssh-forward supervisor (its $0, which restarts the
+# session when it drops, so it must die first), its gcloud/ssh child (the expanded -L spec), and the
+# old websocket tunnel.
+TUNNEL_PAT="tn-bench-tunnel-supervisor|localhost:${BENCH_TUNNEL_PORT}:127\.0\.0\.1:8545|start-iap-tunnel.*${BENCH_TUNNEL_PORT}"
+TUNNEL_PIDS="$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | tr '\n' ' ' || true)"
 echo ">>> IAP tunnel pids: ${TUNNEL_PIDS:-none}"
 WT_PRESENT=0; [ -e "${BENCH_CONTRACTS_WORKTREE}" ] && WT_PRESENT=1
 BENCH_BRANCHES=()
@@ -599,6 +603,8 @@ fi
 echo ""
 echo ">>> plan / execution"
 if [ -n "${TUNNEL_PIDS}" ]; then
+    # the pidfile's process group first (supervisor + child together), then whatever is left
+    [ "${BENCH_APPLY}" = "1" ] && bench_tunnel_down
     # shellcheck disable=SC2086  # pid list
     bench_run kill ${TUNNEL_PIDS} || true
 fi
@@ -754,7 +760,7 @@ chk "firewall rules ^bench- or targeting bench-node" "$(gcloud compute firewall-
 chk "buckets labelled benchmark=1 / named tn-devnet-bench-*" "$(bench_bucket_names | grep -c . || true)" "${LEFT_BKT[*]:+(backup failed, left: ${LEFT_BKT[*]})}"
 chk "disks of run ${BENCH_RUN_ID} (labelled benchmark=1 / named bench-*)" "$(list_disks | awk -v r="${BENCH_RUN_ID}" '$3 == r' | grep -c . || true)"
 list_disks | awk -v r="${BENCH_RUN_ID}" '$3 != r' | while read -r dz dn dl du; do echo "    ⚠ disk ${dn} (${dz}) left: $(disk_fate "${dl}")"; done
-chk "local IAP tunnels on :${BENCH_TUNNEL_PORT}" "$(pgrep -f "start-iap-tunnel.*${BENCH_TUNNEL_PORT}" 2>/dev/null | grep -c . || true)"
+chk "local IAP tunnels on :${BENCH_TUNNEL_PORT} (supervisor, ssh forward or websocket)" "$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | grep -c . || true)"
 chk "contracts worktree" "$([ -e "${BENCH_CONTRACTS_WORKTREE}" ] && echo 1 || echo 0)" "${BENCH_CONTRACTS_WORKTREE}"
 chk "bench/r* branches" "$(git -C "${BENCH_CONTRACTS_SRC_DIR}" for-each-ref --format=x 'refs/heads/bench/r*' 2>/dev/null | grep -c . || true)"
 acc=0
