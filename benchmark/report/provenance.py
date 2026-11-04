@@ -108,12 +108,13 @@ _CANDIDATE_MARKERS = (b"starting", b"et to", b"ET TO", b"chedule", b"CHEDULE")
 
 # Node log file names (bench-lib.sh). The instance part is greedy (the last "-telcoin" /
 # "-unit-" starts the suffix), so an instance name containing "-telcoin" still parses; a saved
-# log's label is always followed by a UTC stamp.
+# log's label is always followed by a UTC stamp. A unit log rotated on the node and rescued at
+# teardown keeps its rotation number: <inst>-unit-<stream>.rotated-<N>.log.gz.
 _STAMP = r"\d{8}T\d{6}Z"
 _NODE_LOG_RE = re.compile(
     r"^(?P<inst>[A-Za-z0-9][A-Za-z0-9._-]*)-"
     r"(?:telcoin(?:-[a-z0-9-]+?-" + _STAMP + r")?(?:-" + _STAMP + r")*"
-    r"|unit-[a-z]+(?:-" + _STAMP + r")*)"
+    r"|unit-[a-z]+(?:-" + _STAMP + r")*(?:\.rotated-[0-9]+)?)"
     r"\.log(?:\.gz)?$"
 )
 
@@ -123,8 +124,9 @@ _NODE_LOG_RE = re.compile(
 
 def node_log_files(run_dir: str) -> List[str]:
     """Sorted paths of the node logs in <run_dir>/logs: *.log.gz and *.log files named like a
-    node log (<inst>-telcoin*.log[.gz], <inst>-unit-<stream>*.log[.gz]). Non-node logs in the
-    same directory (deploy-*, blast-*, create-*) and dot-named temp files are left out."""
+    node log (<inst>-telcoin*.log[.gz], <inst>-unit-<stream>*[.rotated-<N>].log[.gz]). Non-node
+    logs in the same directory (deploy-*, blast-*, create-*, rescue-*) and dot-named temp files
+    are left out."""
     logs = os.path.join(run_dir, "logs")
     paths = glob.glob(os.path.join(logs, "*.log.gz")) + glob.glob(os.path.join(logs, "*.log"))
     return sorted(p for p in paths if os.path.isfile(p) and _NODE_LOG_RE.match(os.path.basename(p)))

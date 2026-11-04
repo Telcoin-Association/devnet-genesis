@@ -27,8 +27,8 @@ healthy validators are val-1 and val-2. Hand-computed expectations:
   psi io max             val-2 7.25 at exactly T0+700 (inclusive bound),
                          val-1 12.5; 90/95 spikes outside the window       [7.3, 12.5]
   recovery (val-3)       tn_node_mode reads 1 from T0+285 to T0+390 (and a stale 1 at T0+45,
-                         before the kill); seal-failure rate 0.5/s on 14 samples from T0+270 to
-                         rejoin + 60 s = T0+465 at a 15-s step -> 105
+                         before the kill), then 0 to the window's end at T0+690; failed_reports
+                         is the seal-failure counter's rise over the window, count[val-3] -> 42
 """
 import copy
 import importlib.util
@@ -81,7 +81,7 @@ EXPECTED_RECOVERY = {
     "demoted_utc": "2026-01-01T00:04:45Z",
     "rejoined_utc": "2026-01-01T00:06:45Z",
     "catch_up_secs": 120,
-    "failed_reports": 105,
+    "failed_reports": 42,
 }
 
 
@@ -159,12 +159,6 @@ class HelperTests(unittest.TestCase):
         self.assertIsInstance(out[3]["value"], int)
         self.assertEqual(out[4]["value"], 1.01)  # unknown ids get 2 decimals
         self.assertIsNone(out[5]["value"])
-
-    def test_rate_window_secs(self):
-        self.assertEqual(kpis._rate_window_secs("rate(x[1m])"), 60)
-        self.assertEqual(kpis._rate_window_secs("rate(x[45s])"), 45)
-        self.assertEqual(kpis._rate_window_secs("rate(x[2h])"), 7200)
-        self.assertEqual(kpis._rate_window_secs(None), 60)
 
     def test_headline_id(self):
         self.assertEqual(kpis.headline_id([{"id": "landed_total"}, {"id": kpis.HEADLINE_ID}]), kpis.HEADLINE_ID)
@@ -327,7 +321,10 @@ class RecoveryTests(Fixture):
     def test_recovery_fields(self):
         out = self.compute()
         self.assertEqual(out["recovery"], EXPECTED_RECOVERY)
-        self.assertTrue(any("over the whole metrics window" in c and "rose by 42" in c for c in out["caveats"]))
+        self.assertIn("recovery: failed_reports is the rise of the batch-seal failure counter on val-3 over the "
+                      "whole metrics window (metrics.prometheus.series.tn_batch_builder_seal_failures_total.count), "
+                      "outage or not", out["caveats"])
+        self.assertFalse(any("promoted" in c or "still rejoining" in c for c in out["caveats"]))
 
     def test_no_recovery_without_chaos_target(self):
         out = self.compute(targets=())
@@ -352,9 +349,7 @@ class RecoveryTests(Fixture):
         caveats = []
         rec = kpis.recovery(metrics, self.manifest, "val-3", caveats)
         self.assertEqual((rec["demoted_utc"], rec["rejoined_utc"], rec["catch_up_secs"]), (None, None, None))
-        # no rejoin: integrate from the kill to the end, 14*0.5*15 + 2*2.0*15
-        self.assertEqual(rec["failed_reports"], 165)
-        self.assertTrue(any("is a lower bound" in c for c in caveats))
+        self.assertEqual(rec["failed_reports"], 42)  # the counter does not depend on the mode series
         self.assertTrue(any("demoted / rejoined / catch-up unavailable" in c for c in caveats))
 
     def test_recovery_never_rejoins(self):
@@ -368,20 +363,19 @@ class RecoveryTests(Fixture):
         self.assertEqual(rec["demoted_utc"], "2026-01-01T00:04:45Z")
         self.assertIsNone(rec["rejoined_utc"])
         self.assertIsNone(rec["catch_up_secs"])
-        self.assertEqual(rec["failed_reports"], 165)
-        self.assertIn("recovery: val-3 did not leave catch-up mode inside the metrics window", caveats)
+        self.assertEqual(rec["failed_reports"], 42)
+        self.assertIn("recovery: the metrics window ended while val-3 was still rejoining (inactive at its last "
+                      "sample, 2026-01-01T00:11:30Z); rejoined and catch-up unavailable", caveats)
 
     def test_recovery_never_demoted(self):
         metrics = copy.deepcopy(self.metrics)
         for p in metrics["prometheus"]["series"]["tn_node_mode"]["by_node"]["val-3"]["max"]:
             p[1] = 0.0
-        seal = metrics["prometheus"]["series"]["tn_batch_builder_seal_failures_total"]["queries"]
-        seal["rate"] = seal["rate"].replace("[1m]", "[45s]")  # the tail after the rejoin follows the query
         rec = kpis.recovery(metrics, self.manifest, "val-3", [])
         self.assertIsNone(rec["demoted_utc"])
         self.assertEqual(rec["rejoined_utc"], "2026-01-01T00:04:30Z")  # first sample after the restart
         self.assertIsNone(rec["catch_up_secs"])  # no demotion sample: length unknown, not zero
-        self.assertEqual(rec["failed_reports"], 30)  # T0+270 .. rejoin + 45 s = T0+315: 4 * 0.5 * 15
+        self.assertEqual(rec["failed_reports"], 42)
 
     def test_recovery_without_restart_or_seal_series(self):
         manifest = copy.deepcopy(self.manifest)
@@ -394,6 +388,66 @@ class RecoveryTests(Fixture):
         self.assertEqual(rec["catch_up_secs"], 120)  # measured from the kill instead
         self.assertIsNone(rec["failed_reports"])
         self.assertTrue(any("failed_reports unavailable" in c for c in caveats))
+
+    # A small tn_node_mode series of its own after the restart at T0+260: (offset from T0, cvv_inactive).
+    def _mode(self, samples):
+        metrics = copy.deepcopy(self.metrics)
+        metrics["prometheus"]["series"]["tn_node_mode"]["by_node"]["val-3"]["max"] = \
+            [[T0 + dt, float(v)] for dt, v in samples]
+        caveats = []
+        return kpis.recovery(metrics, self.manifest, "val-3", caveats), caveats
+
+    def test_transient_promotion_then_inactive_is_not_a_rejoin(self):
+        rec, caveats = self._mode([(270, 0), (285, 1), (300, 1), (315, 0), (330, 1), (345, 1)])
+        self.assertEqual(rec["demoted_utc"], "2026-01-01T00:04:45Z")
+        self.assertIsNone(rec["rejoined_utc"])  # null, so a backfill can fill it
+        self.assertIsNone(rec["catch_up_secs"])
+        self.assertIn("recovery: the metrics window ended while val-3 was still rejoining (inactive at its last "
+                      "sample, 2026-01-01T00:05:45Z); rejoined and catch-up unavailable", caveats)
+        self.assertIn("recovery: the 15-s samples show val-3 promoted 1 time(s) (2026-01-01T00:05:15Z to "
+                      "2026-01-01T00:05:15Z) and inactive again at a later sample each time; a rejoin counts "
+                      "only once the node stays active to the end of the metrics window", caveats)
+
+    def test_promotion_sustained_to_the_end_is_the_rejoin(self):
+        # Two transient promotions (T0+315, T0+360), then active from T0+405 to the last sample.
+        rec, caveats = self._mode([(270, 0), (285, 1), (300, 1), (315, 0), (330, 1), (345, 1), (360, 0),
+                                   (375, 1), (390, 1), (405, 0), (420, 0), (435, 0)])
+        self.assertEqual(rec["demoted_utc"], "2026-01-01T00:04:45Z")
+        self.assertEqual(rec["rejoined_utc"], "2026-01-01T00:06:45Z")
+        self.assertEqual(rec["catch_up_secs"], 120)
+        self.assertIn("recovery: the 15-s samples show val-3 promoted 2 time(s) (2026-01-01T00:05:15Z to "
+                      "2026-01-01T00:06:00Z) and inactive again at a later sample each time; a rejoin counts "
+                      "only once the node stays active to the end of the metrics window", caveats)
+        self.assertFalse(any("still rejoining" in c for c in caveats))
+
+    def test_promotion_at_the_last_sample_is_the_rejoin(self):
+        rec, caveats = self._mode([(270, 0), (285, 1), (300, 1), (315, 0)])
+        self.assertEqual((rec["rejoined_utc"], rec["catch_up_secs"]), ("2026-01-01T00:05:15Z", 30))
+        self.assertFalse(any("promoted" in c or "still rejoining" in c for c in caveats))
+
+    def test_no_mode_sample_after_the_restart(self):
+        rec, caveats = self._mode([(45, 1), (60, 0)])
+        self.assertEqual((rec["demoted_utc"], rec["rejoined_utc"], rec["catch_up_secs"]), (None, None, None))
+        self.assertIn("recovery: no tn_node_mode sample for val-3 after the restart; "
+                      "demoted / rejoined / catch-up unavailable", caveats)
+
+    def test_failed_reports_is_the_counter_delta(self):
+        metrics = copy.deepcopy(self.metrics)
+        seal = metrics["prometheus"]["series"]["tn_batch_builder_seal_failures_total"]
+        del seal["by_node"]  # the rate series plays no part
+        seal["count"] = {"val-1": 3, "val-3": 2}
+        caveats = []
+        self.assertEqual(kpis.recovery(metrics, self.manifest, "val-3", caveats)["failed_reports"], 2)
+        self.assertIn("recovery: failed_reports is the rise of the batch-seal failure counter on val-3 over the "
+                      "whole metrics window (metrics.prometheus.series.tn_batch_builder_seal_failures_total.count), "
+                      "outage or not", caveats)
+        seal["count"] = {"val-1": 3}  # a series on other nodes only: val-3 has no count
+        caveats = []
+        self.assertIsNone(kpis.recovery(metrics, self.manifest, "val-3", caveats)["failed_reports"])
+        self.assertIn("recovery: no tn_batch_builder_seal_failures_total count for val-3; failed_reports "
+                      "unavailable", caveats)
+        del seal["count"]  # a collector without counts
+        self.assertIsNone(kpis.recovery(metrics, self.manifest, "val-3", [])["failed_reports"])
 
 
 if __name__ == "__main__":

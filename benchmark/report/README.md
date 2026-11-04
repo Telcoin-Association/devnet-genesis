@@ -112,10 +112,14 @@ uses. Values are rounded half-up to a fixed number of decimals per KPI.
 A KPI whose inputs are missing is left out and a caveat says why.
 
 Recovery covers one chaos target. Killed and restarted come from `manifest.chaos`. Demoted and
-rejoined come from `tn_node_mode{mode="cvv_inactive"}`, at 15-second resolution, and
-`catch_up_secs` is the time between them. `failed_reports` integrates the rate of
-`tn_batch_builder_seal_failures_total{reason="failed_to_report"}` from the kill to one rate
-window after the rejoin. Runs without those series get killed and restarted times only.
+rejoined come from `tn_node_mode{mode="cvv_inactive"}`, at 15-second resolution: the rejoin is
+the first active sample after the node's LAST inactive sample, so it must stay active to the end
+of the metrics window (a promotion followed by another inactive sample is a transient, counted in
+a caveat, not a rejoin); when the last sample is still inactive, rejoined and `catch_up_secs` are
+null and the backfill supplies them from the node log. `catch_up_secs` is demoted to rejoined.
+`failed_reports` is the collector's window count of
+`tn_batch_builder_seal_failures_total{reason="failed_to_report"}` for the target (the counter's
+rise over the window). Runs without those series get killed and restarted times only.
 
 ### scrub.py
 

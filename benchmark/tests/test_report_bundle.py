@@ -684,7 +684,8 @@ class AssembleHelperTests(unittest.TestCase):
                  "asia-south1": "Mumbai"}
         alternates = {"asia-southeast2": "Jakarta", "asia-east1": "Taiwan", "asia-northeast2": "Osaka",
                       "australia-southeast2": "Melbourne", "europe-west3": "Frankfurt",
-                      "southamerica-east1": "São Paulo", "me-west1": "Tel Aviv"}
+                      "southamerica-east1": "São Paulo", "me-west1": "Tel Aviv",
+                      "us-east4": "Ashburn"}  # validator-05 in bench 3 (r20261103-1922): Montréal had no c3
         for region, city in list(fleet.items()) + list(alternates.items()):
             self.assertEqual(mb.region_label(region), "%s (%s)" % (region, city))
         self.assertEqual(mb.region_label("xx-nowhere9"), "xx-nowhere9")

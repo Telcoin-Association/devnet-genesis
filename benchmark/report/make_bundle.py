@@ -836,7 +836,7 @@ def _region(zone):
 # The city (or area) of each GCP region a bench fleet has run in or may move to, so fleet.regions
 # reads "asia-northeast1 (Tokyo)". A region missing here is published as its bare id.
 REGION_LABELS = {
-    "us-west2": "Los Angeles", "us-east1": "South Carolina", "us-central1": "Iowa",
+    "us-west2": "Los Angeles", "us-east1": "South Carolina", "us-east4": "Ashburn", "us-central1": "Iowa",
     "northamerica-northeast1": "Montréal", "southamerica-east1": "São Paulo",
     "europe-west2": "London", "europe-west3": "Frankfurt", "europe-west4": "Netherlands",
     "me-west1": "Tel Aviv", "asia-south1": "Mumbai", "asia-southeast1": "Singapore",

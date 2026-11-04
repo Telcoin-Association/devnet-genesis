@@ -423,23 +423,19 @@ def _resource_kpis(metrics: dict, sampler: dict, healthy: List[str], windows: di
 
 # ---------------------------------------------------------------- recovery
 
-_RATE_WINDOW_RE = re.compile(r"\[(\d+)([smh])\]")
-
-
-def _rate_window_secs(query: Optional[str]) -> int:
-    m = _RATE_WINDOW_RE.search(query or "")
-    return int(m.group(1)) * {"s": 1, "m": 60, "h": 3600}[m.group(2)] if m else 60
-
-
 def recovery(metrics: dict, manifest: dict, target: str, caveats: List[str]) -> dict:
     """Outage and catch-up of one chaos target from manifest.chaos and the Prometheus series.
 
     killed/restarted: the target's first down event and the next up event in manifest.chaos.
-    demoted/rejoined: first tn_node_mode{mode="cvv_inactive"} sample at or after the restart that
-    reads 1, then the first sample after it that reads 0 (15-s resolution). catch_up_secs is
-    rejoined - demoted, the time the node spent in catch-up mode. failed_reports integrates the
-    per-second rate of tn_batch_builder_seal_failures_total{reason="failed_to_report"} over the
-    samples from the kill to one rate window after the rejoin.
+    demoted: the first tn_node_mode{mode="cvv_inactive"} sample at or after the restart that reads 1.
+    rejoined: the first sample after it from which the series reads 0 to the end of the metrics window
+    (15-s resolution); a promotion followed by another inactive sample is not a rejoin. When the
+    node is still inactive at the window's last sample, the window ended while it was rejoining and
+    rejoined / catch_up_secs are null. catch_up_secs is rejoined - demoted, the time the node spent
+    in catch-up mode. failed_reports is the rise of
+    tn_batch_builder_seal_failures_total{reason="failed_to_report"} on the target over the metrics
+    window (metrics.prometheus.series.<name>.count: the last value minus the first, a series created
+    inside the window counting from 0, a drop read as a restart).
     """
     rec = {"node": target, "killed_utc": None, "restarted_utc": None, "demoted_utc": None,
            "rejoined_utc": None, "catch_up_secs": None, "failed_reports": None}
@@ -455,46 +451,45 @@ def recovery(metrics: dict, manifest: dict, target: str, caveats: List[str]) -> 
 
     mode = sorted(_prom_points(metrics, "tn_node_mode", "max", target))
     q = (_prom(metrics, "tn_node_mode").get("queries") or {}).get("max") or ""
-    demoted = rejoined = None
     if not mode or "cvv_inactive" not in q:
         caveats.append(f"recovery: no tn_node_mode{{mode=\"cvv_inactive\"}} series for {target}; "
                        "demoted / rejoined / catch-up unavailable")
     else:
         after = [(t, v) for t, v in mode if t >= since]
         demoted = next((t for t, v in after if v >= 0.5), None)
-        if demoted is not None:
-            rejoined = next((t for t, v in after if t > demoted and v < 0.5), None)
-        else:
-            rejoined = next((t for t, v in after if v < 0.5), None)
+        last_inactive = max((t for t, v in after if v >= 0.5), default=None)
+        # Every sample after the last inactive one is active: the first of them is the rejoin.
+        rejoined = next((t for t, v in after if last_inactive is None or t > last_inactive), None)
+        # Promotions the node fell back from: an active sample right after an inactive one, before the last.
+        transient = [t for (_, v0), (t, v) in zip(after, after[1:])
+                     if v0 >= 0.5 and v < 0.5 and last_inactive is not None and t < last_inactive]
         rec["demoted_utc"] = unix_to_iso(demoted)
         rec["rejoined_utc"] = unix_to_iso(rejoined)
         if rejoined is not None:
             # No demotion sample at all means the catch-up length is unknown, not zero.
             rec["catch_up_secs"] = rejoined - demoted if demoted is not None else None
+        elif last_inactive is None:
+            caveats.append(f"recovery: no tn_node_mode sample for {target} after the restart; "
+                           "demoted / rejoined / catch-up unavailable")
         else:
-            caveats.append(f"recovery: {target} did not leave catch-up mode inside the metrics window")
+            caveats.append(f"recovery: the metrics window ended while {target} was still rejoining (inactive at "
+                           f"its last sample, {unix_to_iso(last_inactive)}); rejoined and catch-up unavailable")
+        if transient:
+            caveats.append(f"recovery: the 15-s samples show {target} promoted {len(transient)} time(s) "
+                           f"({unix_to_iso(transient[0])} to {unix_to_iso(transient[-1])}) and inactive again "
+                           "at a later sample each time; a rejoin counts only once the node stays active to the "
+                           "end of the metrics window")
         caveats.append("recovery: demoted / rejoined are the first 15-s Prometheus samples showing the change, "
                        "so they trail the node's own log times by up to a scrape interval plus one step")
 
     name = "tn_batch_builder_seal_failures_total"
-    sf = _prom(metrics, name)
-    rate = sorted(_prom_points(metrics, name, "rate", target))
-    step = ((metrics or {}).get("prometheus") or {}).get("step")
-    if not rate or not step:
-        caveats.append(f"recovery: no {name} rate series for {target}; failed_reports unavailable")
+    whole = (_prom(metrics, name).get("count") or {}).get(target)
+    if whole is None:
+        caveats.append(f"recovery: no {name} count for {target}; failed_reports unavailable")
     else:
-        hi = rejoined + _rate_window_secs((sf.get("queries") or {}).get("rate")) if rejoined is not None else None
-        n = sum(v * step for t, v in rate if t >= down["ts_unix"] and (hi is None or t <= hi))
-        rec["failed_reports"] = int(round(n))
-        if hi is None:
-            caveats.append(f"recovery: failed_reports for {target} runs to the end of the metrics window "
-                           "(no rejoin seen) and is a lower bound")
-        caveats.append(f"recovery: failed_reports integrates the 1-m rate at the {step}-s step, which misses the "
-                       "increment that creates the counter series and so can read a few low")
-        whole = (sf.get("count") or {}).get(target)
-        if whole is not None and whole >= 2:
-            caveats.append(f"recovery: over the whole metrics window the batch-seal failure counter on {target} "
-                           f"rose by {whole} in total (metrics.prometheus.series.{name}.count), outage or not")
+        rec["failed_reports"] = int(round(whole))
+        caveats.append(f"recovery: failed_reports is the rise of the batch-seal failure counter on {target} over "
+                       f"the whole metrics window (metrics.prometheus.series.{name}.count), outage or not")
     return rec
 
 

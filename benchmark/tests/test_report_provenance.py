@@ -151,6 +151,7 @@ class ParseTests(unittest.TestCase):
             "bench-validator-02-telcoin-pre-step9-20261005T010203Z.log": "bench-validator-02",
             "bench-observer-11-unit-stdout.log.gz": "bench-observer-11",
             "bench-observer-11-unit-stderr-20260929T181157Z.log.gz": "bench-observer-11",
+            "bench-validator-01-unit-stdout.rotated-1.log.gz": "bench-validator-01",
             "bench-telcoin-x-telcoin.log.gz": "bench-telcoin-x",
         }
         for name, want in cases.items():
@@ -183,6 +184,22 @@ class ScanTests(RunDirCase):
         scan = P.scan_run(str(run))
         self.assertEqual(len(scan["starts"]), 2)
         self.assertEqual((scan["params"], scan["fork_schedule"]), ({}, None))
+
+    def test_rotated_unit_log_is_a_node_log(self):
+        # The teardown rescue saves a unit log the node rotated as <inst>-unit-<stream>.rotated-<N>.log.gz,
+        # next to a rescue-rotated-<stamp>.log of its own, which is not a node log.
+        run = self.make_run({
+            "bench-validator-01-unit-stdout.rotated-1.log.gz": ("node-log-validator-unit-stdout.txt", True),
+            "bench-validator-01-unit-stdout.rotated-12.log": ("node-log-validator-unit-stdout.txt", False),
+            "rescue-rotated-20260101T000000Z.log": ("deploy-output.txt", False),
+            "bench-validator-01-unit-stdout.rotated-x.log.gz": ("node-log-validator-unit-stdout.txt", True),
+            "bench-validator-01-telcoin.rotated-1.log.gz": ("node-log-validator-unit-stdout.txt", True),
+        })
+        self.assertEqual([os.path.basename(f) for f in P.node_log_files(str(run))], [
+            "bench-validator-01-unit-stdout.rotated-1.log.gz", "bench-validator-01-unit-stdout.rotated-12.log"])
+        scan = P.scan_run(str(run))
+        self.assertEqual(scan["instances"], ["bench-validator-01"])
+        self.assertEqual(len(scan["starts"]), 2)  # both rotated copies hold the same two starts: counted once
 
     def test_truncated_gzip_is_reported_unreadable(self):
         run = self.make_run({"bench-validator-01-telcoin.log.gz": ("node-log-validator-container.txt", True)})
