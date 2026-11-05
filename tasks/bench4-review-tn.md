@@ -1,0 +1,55 @@
+# bench4 review: telcoin-network observability patch set
+
+- Scope: `git -C /home/drtnarg/coding/telcoin/telcoin-network-bench diff e6d85bd68..1374afa17`, the eight commits U-TN8, 1, 2, 4, 5, 3, 6, 7 (20 `.rs` files, +2534/-136). PR 1783 is excluded.
+- Date: 2026-11-04. Line numbers are at 1374afa17.
+- Method: tn-review skill. Every changed file was read at HEAD, plus the callers and helpers it touches. The skill's `findings-verifier` subagent was not available here, so each finding was checked by hand against the code at the cited lines. Nothing was built; the build and test result comes from the orchestrator's workspace nextest/clippy run.
+
+## Counts
+
+| BLOCKING | SHOULD | NIT |
+|---|---|---|
+| 0 | 2 | 8 |
+
+## Findings
+
+| # | Severity | file:line @1374afa17 | Problem | Concrete fix |
+|---|---|---|---|---|
+| S1 | SHOULD (decide before the image build) | crates/consensus/primary/src/metrics.rs:206-209; crates/engine/src/metrics.rs:52; crates/tn-metrics/src/recorder.rs:18-19,142 | Every `*_seconds` histogram gets `SECONDS_BUCKETS`, whose lowest bound is 5 ms. Several `tn_primary_vote_stage_seconds` stages normally finish under 5 ms (`lock`, `validate`, `vote_store`, `persist`, and `parents` when nothing is fetched), and so does `tn_engine_queue_wait_seconds`. For those, `histogram_quantile(0.5/0.95, ...)` interpolates inside [0, 5 ms] and reports about 2.5 / 4.75 ms whatever the real values are. Q1's per-stage p50/p95 from Prometheus would be wrong for exactly those stages. | Option (a), code: in `install_recorder` add `.set_buckets_for_metric(Matcher::Full("tn_primary_vote_stage_seconds".into()), FINE)` and the same for `tn_engine_queue_wait_seconds`, with `FINE = [0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]`. metrics-exporter-prometheus 0.18.1 sorts matchers so `Full` comes before `Suffix`, and it matches on the sanitized name, so this override wins. recorder.rs is outside every unit's file list, so someone has to own it. Option (b), no code: D6 takes per-stage quantiles from the per-request `vote path timing` `*_ms` fields and uses the histograms only above 5 ms. |
+| S2 | SHOULD (before the upstream PR; no action for the bench image) | crates/consensus/worker/src/metrics.rs:252-257,272-287; crates/consensus/worker/src/network/handle.rs:339,348 | `tn_worker_batch_requests_{denied,failed}_total{peer}` labels any connected worker peer, and `request_batches` asks every `connected_peers()`, which includes the public tier outside closed admission. The handle's map is dropped each epoch, but the Prometheus registry never prunes series. On a public network the label set therefore grows with peer churn for the life of the node. Under the bench's closed admission it is bounded by the 10 validators. | Label committee members by key and fold everyone else into `peer="other"`. Or cap the map at the committee size and send overflow to `"other"`. |
+| N1 | NIT | crates/consensus/primary/src/proposer.rs:858-861 | The `last_consensus_header().borrow()` temporary in the `reproposing header` `warn!` lives until the end of the statement. The watch's read guard is therefore held across the synchronous stdout write, and a slow log sink would stall `send_last_consensus_header_if_newer` writers. The path is rare (restart repropose). | Bind `let newest_round = app.last_consensus_header().borrow().as_ref().map_or(0, \|h\| h.sub_dag.leader_round());` before the `warn!`. subscriber.rs already copies out this way. |
+| N2 | NIT | crates/consensus/primary/src/metrics.rs:121-169 (used at handler.rs:1800); crates/consensus/executor/src/subscriber.rs:908-950 (used at :348) | `COUNT` is maintained by hand and `index()` is `self as usize`. Adding a variant without bumping `COUNT` still compiles, and the first vote request or rejoin check in that stage then panics on `stages[7]` / `blocked_counters[5]`, both hot paths. | Add `const _: () = assert!(VoteStage::Persist as usize + 1 == VoteStage::COUNT);` and the same for `RejoinBlocker::RoundGap`. Either change makes the mistake a compile error. |
+| N3 | NIT | crates/consensus/primary/src/state_sync/header_validator.rs:191-202 | The new `header batch sync abandoned reason=sync_failed` line is an unthrottled WARN. It also fires on the certificate path (cert_validator.rs:188), so in production at `info` a degraded worker produces one WARN per failing header or certificate. | Use `debug!` for `sync_failed`; the bench still selects it through `primary=debug`. Or keep `warn!` only for `too_old`. |
+| N4 | NIT | crates/consensus/primary/src/network/handler.rs:258,641,802; header_validator.rs:198,233; subscriber.rs:369; worker/src/network/mod.rs:397 | These static-label fields pass a bare `&str` (`outcome = outcome.as_str()`, `reason = "too_old"`, `tier = tier_label(..)`). Under the terminal formatter they print quoted (`outcome="created"`), because tracing-subscriber 0.3.23 `DefaultVisitor::record_str` falls back to Debug. Bench nodes write logfmt, which leaves them bare, so the bench is unaffected. U-TN8 uses `%` (`class = %class.label()`), so the units are inconsistent with each other. | Use the `%` sigil (`outcome = %outcome.as_str()`, ...) so the values print the same in every format. |
+| N5 | NIT | crates/consensus/primary/src/consensus/bullshark.rs:318-333 | `record_scheduled_leaders` logs one debug line per even round in (committed_round, leader_round]. After a long stall inside an epoch, the first commit prints a burst of lines. There is no new complexity: `order_leaders` already walks the same range. | None required. Optionally, past about 2×gc_depth rounds, log one summary line instead of one per round; the counters stay per round. |
+| N6 | NIT | crates/consensus/worker/src/metrics.rs:252-257 | `batch_request_counters` clones two Arc-backed counters on every denied or failed request. | Increment under the lock instead: `self.batch_requests.lock().entry(*peer).or_insert_with(..).denied.increment(1)`. |
+| N7 | NIT | crates/engine/src/lib.rs:178 | `busy_milliseconds_total` truncates each task to whole milliseconds. At steady state that is under 0.5% of the busy fraction. During catch-up replay of tiny outputs, sub-millisecond tasks count as 0, so the busy fraction reads low. | No code change; the name is in the design list. Note in the analysis that busy fraction during replay is a lower bound. |
+| N8 | NIT (harness check) | crates/network-libp2p/src/consensus.rs:1265,2078,2265 (plus handler.rs:636, certifier.rs per vote) | Rough estimate under the bench filter: three `network::reqres` lines per request on both the primary and worker swarms (ReportBatch is about 9 requests per sealed batch; votes are about 27 lines per round), plus the per-vote primary lines. That comes to roughly 300-500 lines/s/node, about 0.5 GB/h/node of logfmt at 10 validators and about 4k tx/s. The writes are synchronous stdout on the swarm task. | No code change. Before the run, confirm that `BENCH_LOGROTATE_SIZE` and the disk budget cover it, and that the unit-stdout files sit on a different disk from the datadir, so log writes don't skew Q4's persist timings. |
+
+## Checked and clean (by priority)
+
+1. **No behaviour change found.**
+   - `send_modify` → `send_replace` (state.rs:627,691): in tokio 1.53.1, `send_replace` is `send_modify(|old| mem::swap(old, &mut value))` (watch.rs:1229-1233), so receivers are notified exactly as before.
+   - Timeout `match` (handler.rs:786-808): it produces the same `Err(elapsed.into())` as the old `unwrap_or_else`.
+   - TooNew `if`: tn_types `ensure!` expands to `if !(cond) { return Err(e); }` (types/src/error.rs:11-17), which is equivalent to `if round > max_round { return Err(..) }`. `committed_round` is still read once.
+   - Engine `VecDeque<(Instant, _)>`: still FIFO, the capacity guard (`len() < MAX_QUEUED_OUTPUTS`) and the gauge are unchanged, and all 8 uses were updated.
+   - Subscriber: it now copies the newest header out of the watch, so the guard is held for less time than before. `TimestampMs::elapsed` saturates.
+   - Proposer: `map_err(Box::new)?` is the same as before.
+   - Bullshark: `leader_with_swap` returns the same authority as `swap(..).unwrap_or(leader)`. `record_scheduled_leaders` is read-only and runs before `state.update`. A `ScheduleChanged` retry does not double count, because its range starts at the new committed round. `Bullshark::new` is called only at node/src/primary.rs:88, once per epoch.
+   - Network: the class is captured before the request moves, and `resolve_outbound` still removes and forwards the same way.
+   - PR 1783's tests (error.rs, tests/network_tests.rs) are untouched.
+2. **Hot path.** Every handle used per request is resolved once: `VoteStageHandles` per `RequestHandler` (per epoch), `LeaderMetrics` per `Bullshark`, the rejoin counters per catch-up loop, the swarm's 2×6 histograms, and the worker's tier counters. Per-call macros appear only in persist (at the commit rate), mode transitions and epoch quorum. No new lock is held across `.await`. The per-peer worker map is locked only on the denied and failed paths.
+3. **Panics.** There is no `unwrap`/`expect` in non-test code. Every `as_millis` goes through `u64::try_from(..).unwrap_or(u64::MAX)`. The leader-round arithmetic saturates, and `& !1` keeps the `leader_with_swap` assert satisfied. Indexing is bounded today; N2 covers future edits.
+4. **Metrics.** Every series in the D2 list exists with its documented labels; the outbound duration series also carries `network`, as already recorded. Only seconds histograms end in `_seconds`, and the label sets are bounded except S2.
+5. **Logs.**
+   - Every new line has an explicit target that the bench filter selects.
+   - Message text and field names match the analysis contract, apart from the deviations already recorded in wave1: the proposal-lock target, the `subdag committed` and "we are behind" targets, and the extra `epoch_hash`/`error` fields.
+   - No untargeted `debug!` remains in handler.rs. Only a pre-existing `warn!` at :1212 is untargeted, and `info` selects it, so dropping `tn_primary::network::handler=debug` is safe.
+   - Debug blobs that contain spaces (`?vote`, `?header`, `?error`) always come after the contract fields, and the Debug output of Vote, Header and AuthorityIdentifier contains no `=`. A last-wins `(\w+)=(\S+)` parse therefore cannot collide with a contract field.
+   - No secrets are logged; only public BLS keys, AuthorityIdentifiers and PeerIds appear.
+6. **Determinism.**
+   - `missing_signers` walks the committee `Vec`.
+   - `PersistedCounts` only sums `HashMap` lengths, so iteration order doesn't matter.
+   - `LeaderMetrics` is a `BTreeMap`.
+   - No consensus decision reads any new state.
+7. **Tests.** All are inline and deterministic: synthetic `Instant`s, seeded keys, paused time, in-memory streams and a mock command channel. None uses the network.
+8. **Docs, scoping and dependencies.** Every new item has `///` docs. Everything is `pub(crate)` except `PrimaryMetrics::record_rejoin_transition`, which the executor needs. No `Cargo.toml` or `Cargo.lock` changed.

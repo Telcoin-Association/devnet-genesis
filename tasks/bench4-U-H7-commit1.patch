@@ -1,0 +1,120 @@
+diff --git a/benchmark/tests/fixtures/finalize/gcloud.py b/benchmark/tests/fixtures/finalize/gcloud.py
+index 817c972..b0830cd 100644
+--- a/benchmark/tests/fixtures/finalize/gcloud.py
++++ b/benchmark/tests/fixtures/finalize/gcloud.py
+@@ -9,6 +9,9 @@ Installed as <sandbox>/bin/gcloud. Every node lives in $FIN_SB:
+                        node scripts fetched, keygen done, no unit.
+   faults/<inst>.json   what this node does wrong (all optional):
+                        "fail255": {"<kind>": N}     the next N calls of that kind exit 255, no output
++                       "describe_fails": {"internal"|"external": N}  the next N describes of
++                                                    that IP exit 1 with an API error on stderr
++                                                    (not a transport fault: never retried)
+                        "finalize_fails": true       setup-node.sh's done event says ok:false (rc 1)
+                        "nrestarts_after_finalize": N  the unit finalize starts reports NRestarts=N
+                        "stop_leaves_failed": true   `systemctl stop` leaves ActiveState=failed (the
+@@ -27,7 +30,7 @@ Installed as <sandbox>/bin/gcloud. Every node lives in $FIN_SB:
+   calls.jsonl          one JSON object per call, written when the call begins: seq, t, argv,
+                        stdin, inst, kind, cmd (the ssh --command), pargs (a probe's arguments),
+                        key (a .node-meta read), injected255, drop (connect | drop_after_send |
+-                       drop_after_due | "")
++                       drop_after_due | api-rc1 | "")
+   node.jsonl           one JSON object (seq, t, inst, argv) per `systemctl` the start-at text runs
+   transitions.jsonl    one JSON object per change of a unit's state: seq, t, inst, kind, before,
+                        after (each {"active", "enabled", "installed"})
+@@ -291,7 +294,11 @@ def main():
+ 
+     with Locked():
+         faults = load("faults", inst, {}) if inst else {}
+-        if faults.get("fail255", {}).get(kind, 0) > 0:
++        which = ("external" if "natIP" in " ".join(args) else "internal") if kind == "describe" else ""
++        if faults.get("describe_fails", {}).get(which, 0) > 0:
++            faults["describe_fails"][which] -= 1
++            record["drop"] = "api-rc1"
++        elif faults.get("fail255", {}).get(kind, 0) > 0:
+             faults["fail255"][kind] -= 1
+             record["drop"] = "connect"
+         elif kind == "start-at":
+@@ -302,8 +309,12 @@ def main():
+                     break
+         if record["drop"]:
+             save("faults", inst, faults)
+-            record["injected255"] = True
++            record["injected255"] = record["drop"] != "api-rc1"
+         append("calls.jsonl", record)
++    if record["drop"] == "api-rc1":
++        sys.stderr.write("ERROR: (gcloud.compute.instances.describe) Could not fetch resource:\n"
++                         " - fake API fault for %s\n" % inst)
++        return 1
+     if record["drop"] == "connect":
+         sys.stderr.write("ssh: connection to %s closed by remote host (fake 255)\n" % inst)
+         return 255
+diff --git a/benchmark/tests/test_finalize_modes.py b/benchmark/tests/test_finalize_modes.py
+index 4d86ab4..4e5422e 100644
+--- a/benchmark/tests/test_finalize_modes.py
++++ b/benchmark/tests/test_finalize_modes.py
+@@ -334,6 +334,17 @@ class DefaultModeTests(FinalizeCase):
+         self.assertEqual(self.pairs(), per_node(PHASE_A, INSTS[1:2])
+                          + per_node(PHASE_B[:6] + PHASE_B[5:], INSTS[1:2]))
+ 
++    def test_unresolvable_external_ip_fails_that_node_only(self):
++        # D4: an API fault on node1's external-IP describe fails node1; the run goes on.
++        self.fault(0, describe_fails={"external": 1})
++        p = self.finalize()
++        self.assertEqual(self.pairs(), per_node(PHASE_A[:7], INSTS[:1]) + per_node(PHASE_A, INSTS[1:])
++                         + per_node(PHASE_B, INSTS[1:]), "the run stopped at node1's describe" + self.why())
++        self.assertExit(1)
++        self.assertIn("❌ [node1] could not resolve external IP for the advertised multiaddrs", p.stdout)
++        self.assertIn("failed (1):\n  - node1: external IP\n", p.stdout)
++        self.assertEqual(self.unit(0), (False, "inactive", ""))
++
+ 
+ class StageOnlyTests(FinalizeCase):
+     """--stage-only: phase A, then the stop; PRESTAGED / RUNNING skips; no phase B."""
+@@ -470,6 +481,25 @@ class StageOnlyTests(FinalizeCase):
+                          + per_node(STAGE, INSTS[2:]))
+         self.assertIn("  - node2: finalize", p.stdout)
+ 
++    def test_unresolvable_internal_ip_fails_that_node_only(self):
++        # U-H7 mutation anchor (D4): `intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""`.
++        # Without the `|| intIP=""`, node2's describe (rc 1, an API error, not a transport
++        # fault) ends the whole run under `set -e`: node3 is never staged and no summary prints.
++        self.fault(1, describe_fails={"internal": 1})
++        p = self.finalize("--stage-only")
++        self.assertEqual([c["kind"] for c in self.calls(inst=INSTS[2])], list(STAGE),
++                         "node3 was not staged after node2's describe failed" + self.why())
++        self.assertExit(1)
++        self.assertIn("❌ [node2] could not resolve internal IP for listener multiaddrs", p.stdout)
++        self.assertIn("Could not fetch resource", p.stderr)
++        self.assertEqual(self.pairs(), per_node(STAGE, INSTS[:1]) + per_node(PHASE_A[:6], INSTS[1:2])
++                         + per_node(STAGE, INSTS[2:]))
++        self.assertEqual([c["drop"] for c in self.calls("describe", INSTS[1])], ["api-rc1"])
++        self.assertEqual(self.lines("STAGED"), ["STAGED %s state=inactive enabled=enabled" % i
++                                                for i in (INSTS[0], INSTS[2])])
++        self.assertEqual(self.unit(1), (False, "inactive", ""))
++        self.assertIn("failed (1):\n  - node2: internal IP\n", p.stdout)
++
+ 
+ class StartAllTests(FinalizeCase):
+     """--start-all: start check, one start-at per node with one due, the C2 marker, phase B.
+diff --git a/devnet-finalize.sh b/devnet-finalize.sh
+index 86eae93..1c332b4 100755
+--- a/devnet-finalize.sh
++++ b/devnet-finalize.sh
+@@ -1072,7 +1072,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
+     # The node binds its P2P listeners to the INTERNAL IP (mirrors devnet-keygen.sh's
+     # --listener-*). v2 writes them to /etc/telcoin/node.env, and finalize refuses to run
+     # without both (an empty one would start a node with no listener).
+-    intIP="$(tn_node_int_ip "${inst}" "${zone}")"
++    intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""
+     if [ -z "${intIP}" ]; then
+         echo "❌ [${node}] could not resolve internal IP for listener multiaddrs"
+         failed+=("${node}: internal IP"); continue
+@@ -1080,7 +1080,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
+     # Finalize rewrites PUBLIC_IP / EXTERNAL_PRIMARY_ADDR / EXTERNAL_WORKER_ADDR in
+     # .node-meta from its OWN flags (keygen does not keep them), so pass the same values
+     # keygen passed or the fields stay empty for the UI and update tooling.
+-    extIP="$(tn_node_ext_ip "${inst}" "${zone}")"
++    extIP="$(tn_node_ext_ip "${inst}" "${zone}")" || extIP=""
+     if [ -z "${extIP}" ]; then
+         echo "❌ [${node}] could not resolve external IP for the advertised multiaddrs"
+         failed+=("${node}: external IP"); continue

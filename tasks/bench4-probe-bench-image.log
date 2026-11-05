@@ -1,0 +1,8 @@
+    probing node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ node image digest: sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ pinned ref: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ version 0.1.0, git sha 496ebefb52627fcf20f4074b58d7b3309b8b4bb8
+    ✓ flags ok: node, genesis, keytool generate validator --help carry every contract flag
+    ✓ fork schedule: subsecond-from-genesis
+    ✓ 12 contract strings checked (10 required, all present)
+pinned=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a sha=496ebefb52627fcf20f4074b58d7b3309b8b4bb8 forks=subsecond-from-genesis

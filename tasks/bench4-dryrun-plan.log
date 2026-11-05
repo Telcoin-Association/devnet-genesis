@@ -1,0 +1,139 @@
+==========================================
+benchmark deploy — run r20261104-2359, project tn-devnet, chain 32286
+==========================================
+PLAN for run r20261104-2359 (nothing below has been executed):
+
+  fleet    11 x c3-highcpu-8, 100 GB hyperdisk-balanced (provisioned 20000 IOPS, 800 MiB/s), tag bench-node, labels benchmark=1,network=bench,bench-run=r20261104-2359
+  chain    32286 (0x7e1e), epoch 1200s, image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a (BENCH_DOCKER_IMAGE)
+  probe    us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a: digest, telcoin -V sha, flag + string contract (node-image-contract.txt), EXPECT_* env (BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a BENCH_NODE_EXPECT_SHA=496ebefb52627fcf20f4074b58d7b3309b8b4bb8 BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis); at the gate when steps 0/5/6/7 run
+  params   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/consensus-parameters.yaml: max_header_delay 1000 ms, min_header_delay 350 ms, max_batch_delay 250 ms
+  per-node none (BENCH_NODE_PARAM_OVERRIDES; step 7's pre-start config writes them into that node's parameters.yaml)
+  logs     --log.stdout.filter/--log.file.filter info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info --log.file.max-files 20 (BENCH_NODE_LOG_FILTER, step 7 pre-start config)
+  harness  c0f3ca1d8c68896e0879c6f5fdea966a865a04da,dirty
+  genesis  workspace /home/drtnarg/coding/telcoin/devnet-genesis/benchmark, accounts /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/testnet_accounts.yaml
+  metrics  -> https://obs.devnet.telcoin.network/api/v1/write as network="bench" (obs-devnet, metrics only)
+  load     , COS blasters x 600 senders on e2-standard-2 -> n2-standard-2 -> n2d-standard-2 (next type on a zone stockout), bucket gs://tn-devnet-bench-r20261104-2359
+  results  /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359
+    bench-validator-01   validator  us-west2-a                 bench01 0xc7d975abd962345e9a6024aab692f6bf19140f03
+    bench-validator-02   validator  europe-west2-b             bench02 0x92862b13608e00925551233f21b6f44f6acc7f91
+    bench-validator-03   validator  australia-southeast1-c     bench03 0x3205c561e8183aae91ef1ab26a1db3fea83bb120
+    bench-validator-04   validator  asia-northeast1-b          bench04 0x213aff13862c86b3159a9552cc2424b92f8cfcfc
+    bench-validator-05   validator  us-east4-b                 bench05 0x31faf1673f324c688fff60172099f944171d6ab3
+    bench-validator-06   validator  europe-west4-a             bench06 0xe47fbdfdedadd35501eb7c3f38884238bf251103
+    bench-validator-07   validator  asia-southeast1-b          bench07 0x58114823ab8b21c4162cc28472ff2a6810e123e2
+    bench-validator-08   validator  asia-east2-a               bench08 0x8e7abe6740a452ade8f02a1f005002976e77fb0a
+    bench-validator-09   validator  asia-northeast3-a          bench09 0xc2f61840713de91b60e5b5c404350d705877911e
+    bench-validator-10   validator  asia-south1-c              bench10 0x52791a4607b5944ec0da0828d0ee78205b208ef1
+    bench-observer-11    observer   us-west2-a                 bench11 0xe88cc26183754978af15a67c1597324eec9ec806
+    11 instances in 10 zones, 10 regions
+
+   -  gate           (--yes, before any step) node image probe + pin (when steps 0/5/6/7 run; see "probe" above),
+                     manifest.json (+ node_* probe fields, consensus_parameters), pinned txgen image,
+                     /home/drtnarg/coding/telcoin/tn-transaction-generator/cloudbuild.yaml, /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml, deployments-bench.json
+   0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
+                     bench-node tag hygiene, obs-devnet df over IAP (< 70%),
+                     machine types, disk type and quota headroom (below; every failure listed in one die),
+                     pre-snapshots -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/pre-{instances,firewall}.json, manifest.json
+                     c3-highcpu-8 must exist in every zone it is created in (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+                     + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe c3-highcpu-8 --zone=<each zone> --project=tn-devnet --format='value(name)'
+                       (dry run — not executed)
+                     e2-standard-2 must exist in every zone it is created in (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+                     + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe e2-standard-2 --zone=<each zone> --project=tn-devnet --format='value(name)'
+                       (dry run — not executed)
+                     zone fallbacks 3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b: c3-highcpu-8 should exist in asia-east1-a asia-northeast1-c asia-northeast3-b us-east4-a us-east4-c (warning only)
+                     + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe c3-highcpu-8 --zone=<each fallback zone> --project=tn-devnet --format='value(name)'
+                       (dry run — not executed)
+                     hyperdisk-balanced must be offered in every fleet zone (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+                     + perl -e alarm\ shift\;\ exec\ @ARGV 120 gcloud compute disk-types list --project=tn-devnet --filter=name=hyperdisk-balanced\ AND\ zone:\(asia-east2-a\ asia-northeast1-b\ asia-northeast3-a\ asia-south1-c\ asia-southeast1-b\ australia-southeast1-c\ europe-west2-b\ europe-west4-a\ us-east4-b\ us-west2-a\) --format=value\(zone.basename\(\)\)
+                       (dry run — not executed)
+                     quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator:
+                       asia-east2: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       asia-northeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       asia-northeast3: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       asia-southeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       australia-southeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       europe-west2: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       europe-west4: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       us-east4: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+                       us-west2: C3_CPUS 16, CPUS 2, IN_USE_ADDRESSES 3, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 20
+                     + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe <each region> --project=tn-devnet --format=json
+                     + perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe HDB-TOTAL-<GB|IOPS|THROUGHPUT>-per-project-region --service=compute.googleapis.com --project=tn-devnet --format=json
+                     + perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project=tn-devnet --format=json
+                       (dry run — not executed)
+   1  image          <unresolved: /home/drtnarg/coding/telcoin/tn-transaction-generator has uncommitted changes; commit them or set BENCH_TXGEN_SHA>
+                     if absent: gcloud builds submit --config=/home/drtnarg/coding/telcoin/tn-transaction-generator/cloudbuild.yaml --substitutions=_IMAGE=us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator,_TAG=blast-v2-<sha>,_GIT_SHA=<sha> /home/drtnarg/coding/telcoin/tn-transaction-generator
+                     then docker run --rm --platform linux/amd64 <image> blast --help must list: --nodes --senders --sender-start --window --warmup-secs --duration-secs --cooldown-secs --receipts --deployments-path --label --run-id --out --stdout-json --prepare --fund-tel
+   2  instances      CONFIG_FILE=benchmark/config.sh /home/drtnarg/coding/telcoin/devnet-genesis/common/create-instances.sh -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/logs/create-instances-<utc>.log
+                     stockout: that node moves to its next zone of BENCH_ZONE_FALLBACKS (3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b), zones.env,
+                     create again (existing nodes skipped; at most 3 rounds); any other failure stops; manifest.zones_used
+                     assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=benchmark=1,network=bench,bench-run=r20261104-2359,tn-role=<role>
+   3  bootstrap      serial marker 'devnet-startup.sh complete' (600s/node)
+   4  firewall       benchmark/benchmark-firewall.sh apply --yes   (bench-allow-consensus bench-allow-iap-rpc -> tag bench-node)
+   5  keygen         /home/drtnarg/coding/telcoin/devnet-genesis/devnet-keygen.sh           -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis/{validators,observers}/
+                     (-> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/logs/keygen-<utc>.log; KEYGEN_DONE lines -> manifest.keygen_timing, node_info_rpc)
+   6  genesis        /home/drtnarg/coding/telcoin/devnet-genesis/devnet-genesis-build.sh    -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis/genesis.yaml
+   7  finalize       one coordinated start: every node is configured while stopped, then all start together
+                     network-config    CONFIG_FILE=benchmark/config.sh /home/drtnarg/coding/telcoin/devnet-genesis/devnet-network-config.sh --yes
+                                       (Closed admission on all 11; rendered under /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis/network-config/)
+                     stage-only        /home/drtnarg/coding/telcoin/devnet-genesis/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
+                                       -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/logs/finalize-stage-<utc>.log
+                     pre-start config  per node (BENCH_NODE_JOBS=4 at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
+                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, log filter + max-files, parameters.yaml overrides; PRECFG_OK <instance>
+                                       no per-node parameters (BENCH_NODE_PARAM_OVERRIDES is empty)
+                     start-all         /home/drtnarg/coding/telcoin/devnet-genesis/devnet-finalize.sh --start-all (every unit at one due time, node clocks)
+                                       -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/logs/finalize-start-<utc>.log; COORDINATED_START -> manifest.coordinated_start;
+                                       stop when spread_secs > 10
+                     re-run (--from 7) converges: PRESTAGED/RUNNING nodes are skipped, flags already set are accepted,
+                     the first start stays manifest.coordinated_start (later ones: coordinated_start_reruns);
+                     a unit RUNNING before any coordinated start stops the step (stop it by hand first)
+   8  observability  bench_fleet_ready 0: every validator CvvActive (manifest.fleet_ready), else stop; then per node, one IAP session, no restart:
+                     ingest token on stdin only -> setup-observability.sh --json --enable-metrics --token-stdin -> black hole 127.0.0.1:9;
+                     needs done ok:true + 'Node already serves a metrics endpoint (--metrics).' + container StartedAt unchanged + NRestarts=0;
+                     stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=bench TN_NODE=<instance> OBS_METRICS_PUSH_URL=https://obs.devnet.telcoin.network/api/v1/write, start alloy;
+                     OBSCFG_OK <instance> restarted=none (the whole session: --print-obs-script <instance>)
+   9  post-config    per node (BENCH_NODE_JOBS=4 at a time), one IAP session, verify only (no restart, no start-script edit): docker inspect telcoin args
+                     --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>, log filters == BENCH_NODE_LOG_FILTER; <DATA_DIR from .node-meta>/parameters.yaml;
+                     bench alloy labels; NRestarts=0; eth_chainId == 0x7e1e on the internal IP + consensus progressing since the coordinated
+                     start (blocks rose OR docker logs 'subdag committed|quorum reached'); boot lines (git sha, delays, fork schedule)
+                     == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service; POSTCFG_OK ... back=-
+                     (the whole script: --print-postconfig <instance>; step 7's pre-start script: --print-prestart <instance>)
+  10  health gate    wait_healthy x11; RPC tunnel to http://localhost:18545:
+                     gcloud compute ssh bench-validator-01 --zone=us-west2-a --tunnel-through-iap -- -N -L localhost:18545:127.0.0.1:8545 (BENCH_TUNNEL_MODE=ssh: one IAP ssh port-forward, restarted by its supervisor, which gives up after 5 consecutive failures; tunnel.log)
+                     cast chain-id == 32286; Prometheus count(count by (node) (tn_engine_canonical_height{network="bench"})) == 11;
+                     min by (node)(tn_primary_round{network="bench"}) rises on every node (samples 30 s apart);
+                     count(count by (node) (tn_engine_canonical_height{network="devnet", node=~"bench.*"})) == 0 (and the same over every metric);
+                     python3 recovery-schedule.py --rpc-url http://localhost:18545: registry epoch duration == 1200 -> manifest.registry_probe;
+                     bench_admission_gate: every node admission Closed (primary + worker), fallback 0 -> manifest.admission, fleet_modes
+  11  contracts      git worktree add /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts -b bench/r20261104-2359 deploy/devnet-relaunch
+                     devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=32286) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/deployments-bench.json
+  12  IAM + bucket   gcloud secrets add-iam-policy-binding bench-txgen-master-key|bench-txgen-children-seed --member=serviceAccount:1095385745561-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+                     gcloud storage buckets create gs://tn-devnet-bench-r20261104-2359 --location=us-west2; update --update-labels=benchmark=1,network=bench,bench-run=r20261104-2359
+  13  fund           bench_fleet_ready 1500: every validator CvvActive, waiting up to one epoch boundary (manifest.fleet_ready)
+                     benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare 6000 senders from 0)
+  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+300s, 2400s mixed, chaos on v05 + observer)
+  15  collect        benchmark/benchmark-blast.sh collect --yes; python3 /home/drtnarg/coding/telcoin/tn-transaction-generator/bench/collect-gcp-metrics.py --manifest /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/manifest.json --out /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261104-2359/metrics.json
+                     after a landed chaos kill: bench_fleet_ready + the killed node still CvvActive 180 s later, within 1500 s (warn only), then --start <manifest window start> --end <then> (manifest.prom_window)
+                     tools/cert-rate.py + tools/block-rate.py -> results/r20261104-2359/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
+  16  teardown       SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)
+
+Scope: steps 0..16
+Local checks (no GCP calls):
+    ✓ gcloud
+    ✓ cast
+    ✓ jq
+    ✓ python3
+    ✓ curl
+    ✓ docker
+    ✓ git
+    ✓ accounts file funds the bench txgen master
+    ✓ benchmark/genesis empty
+    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF d9446f720026fa5ce8b64fce9074e56b05b3f4eb (step 7)
+    ✗ image: /home/drtnarg/coding/telcoin/tn-transaction-generator has uncommitted changes; commit them or set BENCH_TXGEN_SHA
+    ✓ /home/drtnarg/coding/telcoin/tn-transaction-generator/cloudbuild.yaml
+    ✓ /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml
+    ✓ /home/drtnarg/coding/telcoin/tn-transaction-generator/bench/collect-gcp-metrics.py
+    (fix the ✗ items before --yes)
+
+DRY RUN — re-run with --yes to execute.
+DRY_RC=0

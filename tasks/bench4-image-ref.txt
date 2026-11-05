@@ -1,0 +1,1 @@
+us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a

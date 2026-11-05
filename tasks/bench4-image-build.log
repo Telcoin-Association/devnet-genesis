@@ -1,0 +1,52 @@
+head=496ebefb52627fcf20f4074b58d7b3309b8b4bb8 tag=us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104
+Login Succeeded
+#13 639.1    Compiling tn-network-libp2p v0.1.0 (/usr/src/telcoin-network/crates/network-libp2p)
+#13 643.9    Compiling reth-rpc v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 655.3    Compiling reth-rpc-builder v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 657.4    Compiling tn-worker v0.1.0 (/usr/src/telcoin-network/crates/consensus/worker)
+#13 657.4    Compiling tn-primary v0.1.0 (/usr/src/telcoin-network/crates/consensus/primary)
+#13 658.0    Compiling reth-node-builder v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 668.2    Compiling reth-cli-commands v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 668.2    Compiling reth-node-ethereum v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 674.3    Compiling state-sync v0.1.0 (/usr/src/telcoin-network/crates/state-sync)
+#13 681.2    Compiling tn-executor v0.1.0 (/usr/src/telcoin-network/crates/consensus/executor)
+#13 683.2    Compiling reth-ethereum-cli v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 688.4    Compiling reth v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+#13 689.4    Compiling tn-reth v0.1.0 (/usr/src/telcoin-network/crates/tn-reth)
+#13 712.8    Compiling tn-rpc v0.1.0 (/usr/src/telcoin-network/crates/execution/tn-rpc)
+#13 712.8    Compiling tn-exex v0.1.0 (/usr/src/telcoin-network/crates/exex)
+#13 712.8    Compiling tn-batch-builder v0.1.0 (/usr/src/telcoin-network/crates/batch-builder)
+#13 712.8    Compiling tn-engine v0.1.0 (/usr/src/telcoin-network/crates/engine)
+#13 712.8    Compiling tn-batch-validator v0.1.0 (/usr/src/telcoin-network/crates/batch-validator)
+#13 720.2    Compiling tn-node v0.1.0 (/usr/src/telcoin-network/crates/node)
+#13 769.3    Compiling telcoin-network v0.1.0 (/usr/src/telcoin-network/bin/telcoin-network)
+#13 903.5     Finished `release` profile [optimized] target(s) in 15m 03s
+
+#14 [stage-1 4/4] COPY --from=builder /tmp/telcoin-network /usr/local/bin/telcoin
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 3.1s done
+#15 exporting manifest sha256:b73abd059741f55cf3d88a7fe21833f87c7fe001b0df574ee08b81e2d974a63f done
+#15 exporting config sha256:dd4b6d30fd1ff8077ec4f5594114541d7b89a21e4e81ffd82c241969393b99a3 done
+#15 exporting attestation manifest sha256:ad0c16b6309175090b26d977009d2ee55d2f1fa4144c971e46298fd149e2f793 done
+#15 exporting manifest list sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a done
+#15 naming to us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104 done
+#15 pushing layers
+
+#16 [auth] telcoin-network/tn-public/adiri:pull,push token for us-docker.pkg.dev
+
+#15 exporting to image
+#15 pushing layers 8.5s done
+#15 pushing manifest for us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+#15 pushing manifest for us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a 2.0s done
+BUILD_RC=0 secs=973
+== imagetools ==
+Name:      us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+           
+Manifests: 
+  Name:        us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-v1lazy-obs-20261104@sha256:b73abd059741f55cf3d88a7fe21833f87c7fe001b0df574ee08b81e2d974a63f
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/amd64
