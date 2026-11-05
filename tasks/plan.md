@@ -45,7 +45,7 @@ tn-transaction-generator:
 - [x] Reviews: tn-review 0 BLOCKING (S1 buckets fixed in 496ebefb5); review-A 1 BLOCKING (finalize NC_CTX trust flag) fixed; review-B 1 BLOCKING (teardown ok=- gate) fixed; all SHOULDs fixed
 - [x] Final harness suite 704 OK (tasks/bench4-final-suite.log); offline checks clean; dry-run plan DRY_RC=0 (tasks/bench4-dryrun-plan.log)
 - [x] Commits: devnet-genesis 9 of 11 groups (5be1e62..e5b35ab); txgen 6f2aae6; telcoin-network 9 commits pushed (496ebefb5)
-- [ ] Finalize commits 1+2 after the baseline-fixture fix; tasks commit
+- [x] Finalize commits d096387 + 917d52f; tasks commit acad590 (13 commits on main, unpushed)
 - [x] Image adiri:bench-main-v1lazy-obs-20261104 @sha256:f6922184… built, pushed, probed (12/12, subsecond-from-genesis)
 - [x] V-off: cargo nextest workspace, fmt, clippy; bash -n + shellcheck; check-bash32; unittest; check_mutations; txgen tests
 - [x] tn-review on the telcoin-network branch (diff vs origin/main minus PR 1783)
@@ -56,7 +56,9 @@ tn-transaction-generator:
 - [x] Dry-run deploy plan text (`--with-contracts`, no `--yes`), `--print-prestart`
 
 ## Wave 3 — live run (D5)
-- [ ] preflight → deploy `--to 12` → idle ≥ 10 min → `--from 13 --to 15` → teardown → `--reindex`
+- [x] preflight clean; run id r20261105-0036
+- [ ] BLOCKED at step 0 (00:37Z): obs-devnet data disk 73 % ≥ 70 % gate — cause = live devnet nodes shipping DEBUG to Loki at ≈ 4 GB/h since 2026-11-02 (not the bench). Relaunch with BENCH_OBS_DISK_MAX_PCT=85 was permission-denied → user decision; resume command in tasks/checkpoint-bench4-live.md
+- [ ] deploy `--to 12` → idle ≥ 10 min → `--from 13 --to 15` → teardown → `--reindex`
 
 ## Wave 4 — analysis (A1, A2, A3, A4n, A4o, P-backfill, A5 report)
 - [ ] `tasks/bench4-report-<run>.md` + `benchmark/private/followups.md ## <run>`

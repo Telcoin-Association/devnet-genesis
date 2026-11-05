@@ -1299,3 +1299,28 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   00:00 UTC or log more than 100 MB per node, either raise the logrotate size on bench nodes (pre-start config) or
   accept the rotation and pull all generations. Never let the delete phase start until `zcat <first unit file> |
   head -1` shows a timestamp at or before the coordinated start.
+
+## 2026-11-05 — the obs-devnet disk gate measures the devnet's own log volume, so check it before the launch window
+- Bench 4's step 0 refused at 73 % (gate 70 %): obs-devnet's 295 G data disk held 204 G of Loki chunks, growing 87-88 G/day since the
+  2026-11-02 devnet redeploy because the live devnet nodes ship DEBUG logs (338 MiB per 5 min across validator-1..4 and observer-5 on
+  v0.2.0-devnet). Bench nodes ship only metrics. Raising BENCH_OBS_DISK_MAX_PCT was then refused by the session's permission layer as
+  interference with a shared workload, so the run stopped with nothing created.
+- Rule: in the run's preflight (before the image build, not after), read `df /mnt/obs-data` on obs-devnet and the per-day Loki chunk growth
+  (`find … -newermt`, or `sum by (node)(bytes_over_time({node=~".+"}[5m]))` through `docker exec loki wget`); if the devnet itself is the
+  writer, raise it with the operator first. Treat a gate override as the operator's call, never the orchestrator's.
+
+## 2026-11-05 — a knob that changes what one driver writes must reach every driver that validates it
+- NETCFG_TRUST_OBSERVERS_EVERYWHERE made network-config install trust-everywhere files, but finalize's readiness gate and A3 still
+  validated with the hub-only context, so step 7 would have refused 10 of 11 nodes; the finalize tests could not see it because the
+  validator was a shim. A reviewer running the real validator on the rendered files caught it before the live run.
+- Rule: when a knob changes rendered artefacts, grep every driver for the validate/compare call and give it the same context; test
+  through the real validator at least once per context.
+
+## 2026-11-05 — orchestration: unit worktrees, a shared cargo target dir, and the tn-rust-engineer agent
+- Eight Rust units editing the same crates in one worktree would have broken each other's builds mid-edit; one worktree per unit
+  (`git worktree add … <base>`, `tn-contracts` via `--reference` to the main checkout's module) with one shared CARGO_TARGET_DIR kept
+  builds warm (cold workspace test build 400 s on xerxes); the units were cherry-picked onto the integration branch in dependency order.
+- The `tn-rust-engineer` agent definition forbids tests and cargo, so self-contained units ran as general-purpose opus agents loading
+  tn-rust-skills. The session scratchpad is shared by every agent: use unique subdirectories or another agent's run deletes your tree.
+- A committed collector change moved the txgen HEAD, which is where BENCH_TXGEN_SHA defaults from: pin BENCH_TXGEN_SHA to the existing
+  blaster image when the txgen change does not touch the blaster.

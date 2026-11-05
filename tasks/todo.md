@@ -1446,3 +1446,13 @@ base fee after more boundaries) is appended to the verification file when the wa
 - Not done / follow-ups: params-apply vs pre-start marker convention; teardown pulls rotated logs + coverage gate;
   stockout fallback zone per index; keygen "already keyed" path; network-config fast path; retry unit test;
   tunnel supervisor give-up; V1Lazy cherry-pick branch (on request); next runs (a)-(e) in the report §6.
+
+## Review — bench 4 build-out (2026-11-04/05), run blocked at step 0
+- telcoin-network `bench/main-v1lazy-obs-2026-11` (pushed, 496ebefb5): main a0d6e6e26 + PR 1783 + 9 observability commits (U-TN1-8 + review
+  fixes); workspace fmt/clippy clean, nextest 3884 passed; tn-review 0 blocking. Image adiri:bench-main-v1lazy-obs-20261104
+  @sha256:f6922184… probed 12/12, subsecond-from-genesis.
+- devnet-genesis: 13 commits on main (unpushed): all 12 harness units + task records; suite 704 OK; 28/28 mutation anchors killed;
+  two blocking review findings fixed before launch (finalize trust context; teardown ok=- gate). Root drivers byte-identical with knobs
+  unset (HEAD baselines committed). txgen 6f2aae6 (unpushed): 46 optional series + --start/--end precedence.
+- Live run r20261105-0036 stopped at the step-0 obs-disk gate (devnet DEBUG shipping fills obs-devnet at ≈ 4 GB/h); resume command and the
+  user decision are in tasks/checkpoint-bench4-live.md. Remaining after the run: analysis (A1-A5), report, backfill, publish, pushes, draft PR.
