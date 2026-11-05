@@ -39,7 +39,7 @@ FIX = TESTS / "fixtures" / "admission"
 SCRUB_PY = BENCH / "report" / "scrub.py"
 
 # Scripts the bash under test sources, relative to the repo root.
-TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh")
+TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/obs-lib.sh")
 # bench-lib.sh sources benchmark/pull-lib.sh (unit U-H1) and refuses to run without it. No admission
 # path calls a function of it, so a checkout where it has not landed yet gets a placeholder file.
 PULL_LIB = "benchmark/pull-lib.sh"

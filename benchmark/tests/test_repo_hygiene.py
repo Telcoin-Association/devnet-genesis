@@ -65,7 +65,14 @@ MUST_NOT_BE_IGNORED = ("benchmark/consensus-parameters.yaml", "benchmark/node-im
                        "benchmark/tests/test_iap_retry.py", "benchmark/tests/test_keygen.py",
                        "benchmark/tests/test_network_config.py", "benchmark/tests/fixtures/pull/x",
                        "benchmark/tests/fixtures/tunnel/x", "benchmark/tests/fixtures/iap-retry/x",
-                       "benchmark/tests/fixtures/keygen/x", "benchmark/tests/fixtures/network-config/x")
+                       "benchmark/tests/fixtures/keygen/x", "benchmark/tests/fixtures/network-config/x",
+                       # bench 4 obs wave: the bench-obs library and bundle, the log-filter driver, their tests
+                       "benchmark/obs-lib.sh", "benchmark/obs/docker-compose.yml", "benchmark/obs/prometheus.yml",
+                       "benchmark/obs/grafana/provisioning/datasources/prometheus.yaml",
+                       "benchmark/obs/grafana/provisioning/dashboards/provider.yaml", "devnet-log-filter.sh",
+                       "benchmark/tests/test_obs.py", "benchmark/tests/test_log_filter.py",
+                       "benchmark/tests/fixtures/obs/x", "benchmark/tests/fixtures/log-filter/x",
+                       "benchmark/tests/fixtures/tunnel/baseline-28c7623.sh")
 
 
 def git(*args, **kwargs):

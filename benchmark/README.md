@@ -5,7 +5,8 @@ the live devnet and removed afterwards. Ten validators and one observer run chai
 (devnet is 32285) with 20-minute epochs. Each node is a `c3-highcpu-8` with a 100 GB
 `hyperdisk-balanced` boot disk unless you pick another shape (see [Fleet shape](#fleet-shape)).
 One COS blaster VM per validator drives `tn-transaction-generator blast` at it, while a sampler
-on every node and obs-devnet's Prometheus record what the nodes do.
+on every node and the run's own Prometheus (on `bench-obs`, a VM the run creates and deletes)
+record what the nodes do.
 
 Everything here is additive. The devnet scripts behave exactly as before unless a benchmark
 script points them at `benchmark/config.sh` through `CONFIG_FILE`.
@@ -22,9 +23,11 @@ script points them at `benchmark/config.sh` through `CONFIG_FILE`.
   and after every apply it diffs `devnet-allow-consensus` against its earlier state.
 - DNS, certificates, Caddy, the RPC load balancer, dashboards, Uptime Kuma and the WireGuard
   overlay. `BASE_DOMAIN` is `bench.invalid` and the nodes never join the overlay.
-- The obs VM itself. The bench ships **metrics only** to obs-devnet, labelled
-  `network="bench"`. It never runs `create-obs-instance.sh` (and so never `--wipe-data`),
-  and it ships no logs into devnet's Loki.
+- `obs-devnet`, devnet's obs VM. The bench neither reads nor writes it: no metrics, no logs,
+  no secret, no disk check. It never runs `create-obs-instance.sh` (and so never `--wipe-data`)
+  or `devnet-observability.sh`. The run's metrics go to a VM of its own, `bench-obs`, which
+  deploy step 2 creates and the teardown deletes (see [The obs VM](#the-obs-vm-bench-obs)). The
+  nodes ship it **metrics only**, labelled `network="bench"`, and no logs at all.
 - The devnet tn-contracts checkout. Contracts deploy from a disposable worktree on a
   `bench/<run>` branch, which is never committed to.
 
@@ -59,6 +62,16 @@ interactive shell, because its exports would leak into a later devnet command.
   old `:blast` tag predates the blast-v2 CLI and is never used. Step 1 builds the image with
   Cloud Build if the tag is missing, then runs `blast --help` from it and checks every flag
   the blasters use. The manifest records the image, so a resumed run keeps using it.
+- The `common` submodule is checked out. `bench-obs` boots from its
+  `observability/obs-vm/startup-obs.sh` and its Grafana serves the dashboards under
+  `observability/obs-vm/grafana/dashboards`; step 2 stops when the startup script is missing.
+- Nothing on obs-devnet: no Grafana secret, no ingest token, no free disk. `bench-obs` takes no
+  ingest auth (step 8's token is a throwaway from `openssl rand -hex 16`), and step 0 no longer
+  looks at obs-devnet's `/mnt/obs-data`. Step 0's quota check counts `bench-obs` in its own
+  region (`BENCH_OBS_ZONE`'s): the vCPUs of `BENCH_OBS_MACHINE_TYPE` (4 of `CPUS` for
+  `e2-standard-4`), one `IN_USE_ADDRESSES` and `SSD_TOTAL_GB` for its 20 GB boot disk plus its
+  `BENCH_OBS_DISK_GB` data disk (70 GB by default). A region holding `bench-obs` and no node is
+  checked for those alone.
 - A `--yes` run checks all of this before its first step: the image, `cloudbuild.yaml`,
   `config.bench.toml` and `results/<run>/deployments-bench.json` (unless step 11 will make it).
   When a selected step deploys the node image, it also probes that image and pins the run to
@@ -155,6 +168,59 @@ Unless `BENCH_FLEET` overrides it, the label follows the shape:
 | anything else | the machine type |
 
 So `BENCH_MACHINE_TYPE=e2-custom-4-8192 BENCH_NODE_DISK_TYPE=pd-ssd` reproduces fleet A.
+
+### The obs VM (`bench-obs`)
+
+The run's metrics live on a VM of their own, which goes with the fleet. Deploy step 2 creates it
+(`bench_obs_create` in `benchmark/obs-lib.sh`), step 8 brings it up, and the teardown pulls a
+Prometheus snapshot from it before deleting it.
+
+- `bench-obs` in `us-west2-a`, an `e2-standard-4` running debian-12 on a 20 GB `pd-balanced` boot
+  disk, plus a `pd-ssd` data disk `bench-obs-data` of 50 GB with device name `obs-data`, which the
+  startup script formats and mounts at `/mnt/obs-data`. Both disks auto-delete with the VM.
+- Tag `bench-obs` only (not `bench-node`, so no bench firewall rule selects it), and the run's
+  labels plus `tn-role=obs` (`benchmark=1,network=bench,bench-run=<run>,tn-role=obs`) on the VM
+  and on both disks. It gets the nodes' service account and scopes and an ephemeral external IP.
+- The startup script is `common/observability/obs-vm/startup-obs.sh` (Docker, the Ops Agent, the
+  data disk). Step 8 then copies the bundle in `benchmark/obs/` to `/opt/obs` with the dashboards
+  from `common/observability/obs-vm/grafana/dashboards`, and starts it with `docker compose`:
+  Prometheus `v3.1.0` (remote-write receiver, admin API on, retention `BENCH_PROM_RETENTION`) on
+  port 9090 of the VM's internal IP and of loopback, and Grafana `11.4.0` on loopback port 3000
+  with anonymous Viewer access and one Prometheus datasource (uid `prometheus`). `/opt/obs/.env`
+  holds the bind IP, the retention and a random Grafana admin password; it is written once, mode
+  600.
+- Metrics only. No Loki, no DNS name, no Caddy or TLS, no static IP, no Secret Manager secret and
+  no firewall rule. The nodes push to its VPC internal IP over `default-allow-internal`, and the
+  operator reaches it only through two IAP ssh forwards on localhost (see
+  [The RPC tunnel](#the-rpc-tunnel)).
+- A `bench-obs` that already exists is kept only when it is this run's: exactly the tag
+  `bench-obs`, `benchmark=1` and this run's `bench-run`. Any other stops step 2, so the bench
+  never adopts a VM it did not create.
+
+`manifest.obs` records `instance`, `zone`, `machine_type`, `disk_gb`, `created_at`, `internal_ip`
+and `instance_id` (step 2), `ready_at`, `prom_local_port`, `grafana_local_port` and
+`ship_logs: false` (step 8), and `prom_snapshot` (the teardown). The report's scrubber drops
+`internal_ip`, `instance_id` and every `grafana_url`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BENCH_OBS_INSTANCE` | `bench-obs` | The VM's name. It must start with `bench-`, which keeps it among the teardown's candidates; the data disk is `<name>-data`. |
+| `BENCH_OBS_ZONE` | `us-west2-a` | Its zone. Step 0 checks the machine type there and counts the VM's quota in its region. |
+| `BENCH_OBS_MACHINE_TYPE` | `e2-standard-4` | |
+| `BENCH_OBS_DISK_GB` | `50` | The `pd-ssd` data disk, in GB. |
+| `BENCH_OBS_BOOT_TIMEOUT_SECS` | `600` | How long step 8 waits for the startup script's `[obs-startup] … done` on the serial console. |
+| `BENCH_OBS_PROM_LOCAL_PORT` | `19090` | Local end of the Prometheus forward. |
+| `BENCH_OBS_GRAFANA_LOCAL_PORT` | `13000` | Local end of the Grafana forward. |
+| `BENCH_PROM_URL` | `http://127.0.0.1:19090/api/v1` | What every Prometheus read of the run queries, built from the local port. |
+| `BENCH_GRAFANA_URL` | `http://127.0.0.1:13000` | Grafana through its forward; recorded as `manifest.prometheus.grafana_url`. |
+| `BENCH_PROM_AUTH` | `0` | `0`: queries go straight to Prometheus on the forward, with no credentials. `1`: the path from before `bench-obs`, through the Grafana datasource proxy at `BENCH_GRAFANA_URL` with the admin password from Secret Manager (`OBS_GRAFANA_SECRET_NAME`) on curl's stdin. |
+| `BENCH_PROM_RETENTION` | `7d` | Prometheus's retention on the VM: a number and one of `s m h d w y`. |
+| `BENCH_OBS_DISK_MAX_PCT` | `70` | `bench_obs_require` warns when the data disk is at least this full. It never stops a run. |
+| `BENCH_OBS_PULL_PROM` | `1` | `0`: the teardown pulls no Prometheus snapshot. |
+| `BENCH_OBS_INTERNAL_IP` | unset | Read from `manifest.obs.internal_ip`. Set it only to override, such as for `--print-obs-script`; without either, dry runs and print modes show the placeholder host `bench-obs-internal-ip.invalid`. |
+
+`BENCH_OBS_BUNDLE_DIR`, `BENCH_OBS_DASHBOARDS_DIR` and `BENCH_OBS_STARTUP_SCRIPT` point at the
+bundle, the dashboards and the startup script above.
 
 ## Consensus timing
 
@@ -374,6 +440,7 @@ benchmark/benchmark-deploy.sh --run r20260923-0100 --note "v05 restarted by hand
 # Read a remote script before it runs (prints and exits; no GCP call):
 BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-prestart bench-validator-01    # step 7
 BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-obs-script bench-observer-11   # step 8, token shown as PLACEHOLDER-TOKEN
+BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-obs-bringup                    # step 8, the bench-obs bring-up
 BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-postconfig bench-validator-01  # step 9
 
 # Stop after a step (a sweep deploys the fleet with --to 12, then blasts per arm with --from 13 --to 15
@@ -408,22 +475,27 @@ up outside the repo once the teardown has finished.
 | Step | What happens |
 |---|---|
 | gate | `--yes` only, before any step. Checks what the selected steps need: the `:blast-v2-<sha>` image, `cloudbuild.yaml`, `config.bench.toml` and `deployments-bench.json`. When step 0, 5, 6 or 7 is selected and the run has no pinned image yet, it probes the node image and pins it (see [Node image](#node-image)). It then creates `manifest.json`, or keeps it on a resume, and records the probe (`node_*`) and `consensus_parameters`. |
-| 0 | Preflight checks: auth, tools, accounts file, empty `genesis/`, no foreign rule selecting `bench-node`, obs-devnet `/mnt/obs-data` below 70 %. Then the fleet's footprint: the node machine type in every fleet zone and the first blaster type in every validator zone (one `machine-types describe` per zone), a hyperdisk type offered in every fleet zone, and quota headroom per region against what that region's nodes and blasters need. Node vCPUs count against their family's quota metric (`C3_CPUS` for c3) and the blasters' e2 vCPUs against `CPUS`; addresses against `IN_USE_ADDRESSES`; blaster boot disks against `SSD_TOTAL_GB`; hyperdisk-balanced against the `HDB-TOTAL-{GB,IOPS,THROUGHPUT}` quotas, read from the Cloud Quotas API (`gcloud beta quotas info describe`) because `regions describe` does not list them. Each check lists every failing zone or region in one error. A quota it cannot read is a warning, not a failure. Writes the pre-snapshots. |
+| 0 | Preflight checks: auth, tools, accounts file, empty `genesis/`, no foreign rule selecting `bench-node`; obs-devnet is not read. Then the fleet's footprint: the node machine type in every fleet zone, the first blaster type in every validator zone and `BENCH_OBS_MACHINE_TYPE` in `BENCH_OBS_ZONE` (one `machine-types describe` per zone and type), a hyperdisk type offered in every fleet zone, and quota headroom per region against what that region's nodes and blasters need, plus `bench-obs` in its own region (its vCPUs, one address, its boot and data disks against `SSD_TOTAL_GB`). Node vCPUs count against their family's quota metric (`C3_CPUS` for c3) and the blasters' e2 vCPUs against `CPUS`; addresses against `IN_USE_ADDRESSES`; blaster boot disks against `SSD_TOTAL_GB`; hyperdisk-balanced against the `HDB-TOTAL-{GB,IOPS,THROUGHPUT}` quotas, read from the Cloud Quotas API (`gcloud beta quotas info describe`) because `regions describe` does not list them. Each check lists every failing zone or region in one error. A quota it cannot read is a warning, not a failure. Writes the pre-snapshots. |
 | 1 | Asserts the `:blast-v2-<sha>` tag, builds it with Cloud Build if missing, and probes `blast --help` for the CLI contract flags (when docker is available). |
-| 2 | Runs `common/create-instances.sh` on the bench profile, its output copied to `logs/create-instances-<UTC>.log` (one per round). A node whose zone is out of the machine type moves to its next `BENCH_ZONE_FALLBACKS` zone and the create runs again, at most 3 rounds; any other create failure stops the step (see [Fleet shape](#fleet-shape)). Then it asserts `tags == [bench-node]` and `labels.benchmark == 1` on every node, labels the boot disks and records `manifest.instances[]` and `manifest.zones_used`. |
+| 2 | Runs `common/create-instances.sh` on the bench profile, its output copied to `logs/create-instances-<UTC>.log` (one per round). A node whose zone is out of the machine type moves to its next `BENCH_ZONE_FALLBACKS` zone and the create runs again, at most 3 rounds; any other create failure stops the step (see [Fleet shape](#fleet-shape)). Then it asserts `tags == [bench-node]` and `labels.benchmark == 1` on every node, labels the boot disks and records `manifest.instances[]` and `manifest.zones_used`. Then `bench_obs_create` makes the run's `bench-obs` VM (see [The obs VM](#the-obs-vm-bench-obs)), or keeps it when this run already has one; a `bench-obs` of another run stops the step. It labels both disks, records `manifest.obs` and prints `OBS_CREATE inst=<i> zone=<z> ip=<ip> id=<id> existing=<0|1>`. |
 | 3 | Waits for the `devnet-startup.sh complete` serial marker on each node. |
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
 | 5–6 | The devnet drivers, on the bench profile: keygen and genesis build (in `benchmark/`). Keygen's output is copied to `logs/keygen-<UTC>.log`. Its `KEYGEN_DONE` lines go into `manifest.keygen_timing` (`{<inst>: {secs, reused}}`) and, from the nodes whose keygen succeeded, `manifest.node_info_rpc` (`{<inst>: {http, ws}}`, the RPC URLs `node-info.yaml` advertises). With the bench knobs keygen runs 4 nodes at a time, reuses a node already keyed for its address and advertises each node's internal-IP RPC (see [Before the first run](#before-the-first-run)). |
 | 7 | One coordinated start, in four parts (see [Step 7](#step-7-one-coordinated-start)): `network-config` (`devnet-network-config.sh --yes`, Closed admission on every node), `stage-only` (`devnet-finalize.sh --stage-only`: stage, v2 finalize, stop; the unit stays enabled), `pre-start config` (one IAP session per node, `BENCH_NODE_JOBS` at a time, `bench_prestart_script` on stdin, `PRECFG_OK <inst>` required) and `start-all` (`devnet-finalize.sh --start-all`: every unit started at one due time on the nodes' clocks). The `COORDINATED_START` line goes into `manifest.coordinated_start`; a spread above 10 s stops the run. |
-| 8 | Metrics-only observability in one IAP session per node, with no node restart. First every validator must be `CvvActive` (`bench_fleet_ready 0`). The ingest token travels on the session's stdin only: the script reads it into a plain variable and pipes it to `setup-observability.sh --json --enable-metrics --token-stdin`. That script would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole metrics URL. The session requires the `done` event with `"ok":true`, the phrase `Node already serves a metrics endpoint (--metrics).` (step 7 put `--metrics` on the node command, so nothing changes) and the container's `StartedAt` unchanged with `NRestarts=0`; anything else is `OBSCFG_FAIL <inst> contract drift`, with no restart fallback. In the same session Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and the real obs-devnet URL, and Alloy started again. No devnet-labelled sample leaves a bench node. The last line is `OBSCFG_OK <inst> restarted=none <done event>`. |
+| 8 | First `bench_obs_ensure` brings `bench-obs` up. It creates the VM if it is missing (a `--from 8` after it was lost), waits for the startup script's `[obs-startup] … done` on the serial console (`OBS_BOOT`), copies the bundle and starts Prometheus and Grafana in one root IAP session whose last line must be `OBS_STACK_OK` (`--print-obs-bringup` prints that script), opens the two local forwards (see [The RPC tunnel](#the-rpc-tunnel)), records `manifest.obs.ready_at` and prints `OBS_READY inst=<i> ip=<ip> secs=<n>`. Each part keeps what is already in place. Then metrics-only observability in one IAP session per node, with no node restart. First every validator must be `CvvActive` (`bench_fleet_ready 0`). `bench-obs` takes no ingest auth, but `setup-observability.sh` requires a token, so the step makes a throwaway one (`openssl rand -hex 16`). It travels on the session's stdin only: the script reads it into a plain variable and pipes it to `setup-observability.sh --json --enable-metrics --token-stdin`. That script would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole URL (`127.0.0.1:9`) for both its metrics and its log push. The session requires the `done` event with `"ok":true`, the phrase `Node already serves a metrics endpoint (--metrics).` (step 7 put `--metrics` on the node command, so nothing changes) and the container's `StartedAt` unchanged with `NRestarts=0`; anything else is `OBSCFG_FAIL <inst> contract drift`, with no restart fallback. In the same session `bench-obs` must answer `curl http://<bench-obs internal IP>:9090/-/ready` from the node, or the session ends with `OBSCFG_FAIL <inst> bench-obs unreachable` and Alloy stays on the black hole. Then Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and `OBS_METRICS_PUSH_URL=http://<bench-obs internal IP>:9090/api/v1/write`, and Alloy started again. No devnet-labelled sample leaves a bench node, and obs-devnet is never written to. The last line is `OBSCFG_OK <inst> restarted=none <done event>`. |
 | 9 | One IAP session per node, `BENCH_NODE_JOBS` (4) at a time, verify only: no restart and no edit of the start script. It reads the running container's arguments (`docker inspect telcoin`: `--http.addr 0.0.0.0`, `--ws.addr 0.0.0.0`, `--metrics 127.0.0.1:<port>`, and the log filters and max-files when `BENCH_NODE_LOG_FILTER` is set), the node's `parameters.yaml` (path from `.node-meta` `DATA_DIR`) and the bench Alloy labels, requires `NRestarts=0`, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` in the last 45 s, never before the coordinated start), reads the node's boot lines from `docker logs --since` the container's start, then installs `bench-node-sampler.service`. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`; a mismatch fails that node and stops step 9 once the nodes running with it have ended (with `BENCH_NODE_JOBS=1`, at the first mismatch). A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
-| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. Last, `bench_admission_gate` reads each node's own `/metrics` over IAP (loopback only): admission mode Closed on the primary and worker networks and fallback 0 on every node, recorded as `manifest.admission` and `manifest.fleet_modes`; it lists every node that is not Closed and stops the run. When `BENCH_ADMISSION_DENIED_MAX` is a whole number (the bench profile sets `0` when `NETCFG_TRUST_OBSERVERS_EVERYWHERE=1`, since every node then trusts every other; unset or empty: no check), every node whose closed-admission denials in or out exceed it gets an `ADM_WARN <inst> denied_in=<n> denied_out=<n> max=<max>` line, and `manifest.admission_denied_check` records `{max, over: [<inst>…], ts}`. That check only warns: a node redialling a peer that does not trust it is counted there, not refused. |
+| 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; `bench_obs_require` finds `bench-obs` (gone: the run stops with "resume with --from 8", which recreates it and re-points every node's Alloy), its forwards up and its Prometheus answering, and warns when its data disk is `BENCH_OBS_DISK_MAX_PCT` % full or more; its Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. Last, `bench_admission_gate` reads each node's own `/metrics` over IAP (loopback only): admission mode Closed on the primary and worker networks and fallback 0 on every node, recorded as `manifest.admission` and `manifest.fleet_modes`; it lists every node that is not Closed and stops the run. When `BENCH_ADMISSION_DENIED_MAX` is a whole number (the bench profile sets `0` when `NETCFG_TRUST_OBSERVERS_EVERYWHERE=1`, since every node then trusts every other; unset or empty: no check), every node whose closed-admission denials in or out exceed it gets an `ADM_WARN <inst> denied_in=<n> denied_out=<n> max=<max>` line, and `manifest.admission_denied_check` records `{max, over: [<inst>…], ts}`. That check only warns: a node redialling a peer that does not trust it is counted there, not refused. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
-| 13 | Fund. First every validator must be `CvvActive` (`bench_fleet_ready`, `manifest.fleet_ready`): one pass over the validators, and when one is not active, a wait until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS`, capped at `BENCH_FLEET_READY_MAX_WAIT_SECS`, then a second pass. Then the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders and is deleted. |
+| 13 | Fund. First `bench_obs_require` (as in step 10), then every validator must be `CvvActive` (`bench_fleet_ready`, `manifest.fleet_ready`): one pass over the validators, and when one is not active, a wait until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS`, capped at `BENCH_FLEET_READY_MAX_WAIT_SECS`, then a second pass. Then the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders and is deleted. |
 | 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
-| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, then `tn-transaction-generator/bench/collect-gcp-metrics.py`. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. Then `analysis/block-rate.md` (and `analysis/cert-rate.md` once node logs are on disk), `INDEX.md` and `CHECKSUMS.sha256` are written into `results/<run>/`; a failure there is only a warning. The collector's own window, taken from the manifest's timestamps and phases, ends at the latest of `timestamps.blast_end`, `timestamps.collect_start` and the phases' ends; in bench 3 that was before the chaos target rejoined. So with `BENCH_COLLECT_WAIT_REJOIN=1` (default) and a chaos kill that landed (a kill in `manifest.chaos[]` with rc 0), step 15 first waits until every validator is `CvvActive` again (`bench_fleet_ready`) and each killed node still reads `CvvActive` `BENCH_NODE_BACK_SECS` later: bench 3's target was promoted and demoted again 11 times, so one reading is not a rejoin, and a target that falls back starts the wait over. The whole wait is capped at `BENCH_FLEET_READY_MAX_WAIT_SECS` (still not ready is a warning), and then step 15 passes the collector `--start <manifest window start> --end <then>`. `manifest.prom_window` records `{start, end, end_reason, waited_secs, confirm_secs}`, `end_reason` being `fleet_ready`, `max_wait`, `no_chaos` or `knob_off`; in the last two nothing is passed and the collector keeps the manifest's window. |
+| 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, `bench_obs_require` (as in step 10), then `tn-transaction-generator/bench/collect-gcp-metrics.py`, which with `BENCH_PROM_AUTH=0` gets `--prom-url ${BENCH_PROM_URL} --prom-no-auth` and reads `bench-obs`'s Prometheus straight through its forward. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. Then `analysis/block-rate.md` (and `analysis/cert-rate.md` once node logs are on disk), `INDEX.md` and `CHECKSUMS.sha256` are written into `results/<run>/`; a failure there is only a warning. The collector's own window, taken from the manifest's timestamps and phases, ends at the latest of `timestamps.blast_end`, `timestamps.collect_start` and the phases' ends; in bench 3 that was before the chaos target rejoined. So with `BENCH_COLLECT_WAIT_REJOIN=1` (default) and a chaos kill that landed (a kill in `manifest.chaos[]` with rc 0), step 15 first waits until every validator is `CvvActive` again (`bench_fleet_ready`) and each killed node still reads `CvvActive` `BENCH_NODE_BACK_SECS` later: bench 3's target was promoted and demoted again 11 times, so one reading is not a rejoin, and a target that falls back starts the wait over. The whole wait is capped at `BENCH_FLEET_READY_MAX_WAIT_SECS` (still not ready is a warning), and then step 15 passes the collector `--start <manifest window start> --end <then>`. `manifest.prom_window` records `{start, end, end_reason, waited_secs, confirm_secs}`, `end_reason` being `fleet_ready`, `max_wait`, `no_chaos` or `knob_off`; in the last two nothing is passed and the collector keeps the manifest's window. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
+
+A resume finds `bench-obs` where the run left it. `--from 2` or earlier creates it, or keeps this
+run's; `--from 8` brings it up again, recreating a lost one and re-pointing every node's Alloy at
+it; from step 10 on, the steps that read Prometheus (10, 13, 15) require it and stop when it is
+gone.
 
 The last line an applied deploy (`--yes`) prints is its outcome, on its own stdout once the log
 has drained:
@@ -552,6 +624,23 @@ connection in 50 was lost on 2026-11-03), and logs the same `tunnel: start` line
 names the command of the mode in use. `bench_tunnel_up` then waits up to 45 s for `cast chain-id`
 through the tunnel. The teardown stops the supervisor with the tunnel. Read `tunnel.log` first
 when an RPC call failed mid-run.
+
+`bench-obs` gets two more forwards of the same kind, always in ssh mode and each under its own
+supervisor (`bench_obs_tunnel_up`, from step 8 on; steps 10, 13 and 15, the blast's `run` and
+the teardown open them again when they are down):
+
+| Local end | Target | Pid file | Probe |
+|---|---|---|---|
+| `127.0.0.1:19090` (`BENCH_OBS_PROM_LOCAL_PORT`) | `bench-obs:9090`, Prometheus | `results/<run>/tunnel-obs-prom.pid` | `curl -sf ${BENCH_PROM_URL}/query?query=up` |
+| `127.0.0.1:13000` (`BENCH_OBS_GRAFANA_LOCAL_PORT`) | `bench-obs:3000`, Grafana | `results/<run>/tunnel-obs-grafana.pid` | `curl -sf ${BENCH_GRAFANA_URL}/api/health` |
+
+Their starts and exits go to the same `tunnel.log`
+(`tunnel: start <ISO> mode=ssh target=bench-obs:9090 local=19090 pid=<ssh pid>`, and
+`target=bench-obs:3000 local=13000` for Grafana). Every Prometheus read of the run goes through
+the first (`BENCH_PROM_URL`, no credentials while `BENCH_PROM_AUTH=0`). Grafana answers at
+`http://127.0.0.1:13000` with anonymous Viewer access and the dashboards from `common`; its
+admin password is only in `/opt/obs/.env` on the VM. `bench_tunnel_down` and the teardown stop
+every `tunnel*.pid` supervisor.
 
 ### IAP sessions and retries
 
@@ -704,15 +793,17 @@ never came back). Set `BENCH_CHAOS=0` to skip the schedule, or move it with
 
 The run watchers poll every `BENCH_POLL_SECS` (240 s minimum; sustained IAP polling gets
 throttled, see `tasks/lessons.md`). They read each node's `BENCH_STATUS` serial line, which
-`node-sampler.sh` writes every two minutes, and obs-devnet memory from Cloud Monitoring, so
-the loop itself makes no SSH calls. The first rule to trip sets `manifest.abort`, stops every
+`node-sampler.sh` writes every two minutes, and `bench-obs` memory from Cloud Monitoring, so
+the loop itself makes no SSH calls. Before any blaster exists, `run --yes` requires `bench-obs`
+(`bench_obs_require`: the VM exists and its Prometheus answers on the forward), since the round,
+health and commit checks read it. The first rule to trip sets `manifest.abort`, stops every
 blaster (`docker stop txgen`) and allows 10 minutes for the results to upload. A poll that
 would start within `BENCH_CHAOS_GUARD_SECS` of a chaos action waits until the action has run.
 
 | Reason | Trigger |
 |---|---|
 | `disk-full` | a bench node's root disk is above 85 % |
-| `obs-memory` | obs-devnet memory is above 85 % |
+| `obs-memory` | `bench-obs` (`BENCH_OBS_INSTANCE`) memory is above `BENCH_ABORT_OBS_MEM_PCT` (85 %) |
 | `batch-cache-cliff` | `FatalDBFailure` shows up in a node's `docker logs telcoin`. This is the batch-cache defect, **not** a hardware limit, and the report must say so. |
 | `quorum-lost` | two consecutive polls in which no node's `max by (node)(tn_primary_round{network="bench"})` advanced. A failed Prometheus query counts as unknown, never as stalled. |
 | `node-stalled` | one validator's epoch/round stays unchanged for two consecutive polls while peers advance. Planned outages and pauses are exempt. Observers and missing metrics are not counted; an unknown poll resets the comparison. The victim's log is saved before aborting. |
@@ -784,6 +875,13 @@ repo once the teardown has finished.
   (see Certification outcome). Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
   load VM creates of the current blast index (`create-<vm>.log`); an earlier index's creates are
   in `blast-<index>-<UTC>/logs/`.
+- `logs/bench-obs-prometheus-<UTC>.tar.gz`: the teardown's snapshot of `bench-obs`'s Prometheus
+  TSDB (admin API), every series of the run, pulled before the VM is deleted
+  (`manifest.obs.prom_snapshot`). To read it, untar it and start a Prometheus with
+  `--storage.tsdb.path` on the extracted directory.
+- `tunnel.log` and `tunnel*.pid`: the local forwards' supervisor log and pid files, among them
+  `tunnel-obs-prom.pid` and `tunnel-obs-grafana.pid` for `bench-obs` (see The RPC tunnel). The
+  teardown removes the pid files once it has stopped the forwards.
 - `last-deploy.status`: how the last applied deploy invocation ended, or how far a running one
   has got (`rc`, `last_step`,
   `first_error`, `started`, `ended`, `scope`, `log`; see What the deploy does)
@@ -828,6 +926,8 @@ The provenance fields record which bytes the run measured:
 | `coordinated_start` | step 7 | the first start: `due` (unix), `nodes`, `started`, `skipped_running`, `spread_secs`, `max_late_secs` from the `COORDINATED_START` line, and `ts` |
 | `coordinated_start_reruns[]` | step 7 re-runs | `{line, ts}`: each later `COORDINATED_START` line, verbatim, and when it was recorded (never replaces `coordinated_start`) |
 | `fleet_ready` | steps 8 and 13 | `label`, `ts`, `ok`, `waited_secs`, `passes` and each node's `modes` (`tn_nodeMode`) |
+| `obs` | steps 2 and 8, teardown | the run's `bench-obs` VM: `instance`, `zone`, `machine_type`, `disk_gb`, `created_at`, `internal_ip`, `instance_id` (step 2); `ready_at`, `prom_local_port`, `grafana_local_port`, `ship_logs` (`false`; step 8); `prom_snapshot` `{name, file, bytes, at}` (teardown). The publishing scrub drops `internal_ip` and `instance_id`. |
+| `prometheus` | manifest creation | `grafana_url` (`BENCH_GRAFANA_URL`, the local forward; dropped by the publishing scrub), `datasource_uid`, `network_label` |
 | `zones_used`, `zone_fallbacks[]` | step 2 | the zone each node was created in, and each stockout move: `{inst, from, to, reason: "stockout", ts}` |
 | `keygen_timing`, `node_info_rpc` | step 5 | per node, from its `KEYGEN_DONE` line: `{secs, reused}`, and the `{http, ws}` RPC URLs its `node-info.yaml` advertises (successful keygens only) |
 | `node_startup[<inst>]` | steps 7 and 9 | `logrotate_size` (`"20G"` or null) and `params_bak` (`written`, `kept` or null) from the `PRECFG_OK` line; `sha`, `mhd`, `nhd`, `mbd`, `vt` and `forks` from the node's boot lines |
@@ -887,8 +987,8 @@ for byte, so it gets the caveat only.
 
 ## Teardown guarantees
 
-`benchmark-teardown.sh` collects its candidates first: bench instances, bench firewall rules,
-buckets labelled `benchmark=1` or named `tn-devnet-bench-*` (copied into
+`benchmark-teardown.sh` collects its candidates first: bench instances (`bench-obs` among them),
+bench firewall rules, buckets labelled `benchmark=1` or named `tn-devnet-bench-*` (copied into
 `results/<run>/bucket/` first; a non-empty bucket whose copy fails is left in place), orphaned bench
 disks, the compute SA's bindings on the bench secrets, the contracts worktree, `bench/r*`
 branches with no commits of their own, and local IAP tunnels. It deletes nothing if any single
@@ -950,6 +1050,33 @@ Nothing is deleted until five gates pass, in this order:
    files missing: it warns, sets `manifest.archive.skipped_gate` and adds a `manifest.notes`
    entry. `BENCH_TEARDOWN_SKIP_LOGS=1` does not relax this gate; a node it abandoned needs this
    override too.
+
+`bench-obs` holds the run's metrics, so the teardown reads it before anything is deleted and
+deletes it with the fleet:
+
+- **Forwards.** When the VM exists and is a candidate (labelled `benchmark=1`, in
+  `BENCH_OBS_ZONE`), its two local forwards come up first (`bench_obs_urls`,
+  `bench_obs_tunnel_up`), so the health table and the snapshot read its Prometheus. With no
+  `bench-obs` the teardown warns and pulls no snapshot. One that is listed but that `instances
+  describe` does not answer for stops a `--yes` teardown with nothing pulled or deleted. One
+  without `benchmark=1` is not this run's: it is neither read nor deleted.
+- **Snapshot.** After the certification snapshots, and so before the coverage and local gates,
+  `bench_obs_prom_snapshot_pull` asks Prometheus for a TSDB snapshot (admin API) and streams it
+  into `logs/bench-obs-prometheus-<UTC>.tar.gz`. It prints
+  `OBS_SNAPSHOT inst=<i> name=<snapshot> bytes=<n> file=<path>` and records
+  `manifest.obs.prom_snapshot`, and the local gate indexes and checksums the file. The pull only
+  warns: a failed one leaves no snapshot and the teardown goes on. `BENCH_OBS_PULL_PROM=0` skips
+  it. Neither gate requires it.
+- **Delete.** After the local gate and every Prometheus read, `bench-obs` gets a `GATE_IDS` row
+  and the same id re-check and `--async` delete as every other instance. Its boot and data disks
+  auto-delete with it; one left behind is an orphan disk labelled `bench-run=<run>`, which the
+  orphan-disk step deletes. The left-nothing checks count `bench-obs`, the disks labelled
+  `bench-run=<run>` whatever their name, and the local forwards on 18545, 19090 and 13000.
+- **obs-devnet** stays on the denylist, and the left-nothing checks confirm it is still present
+  with the other devnet instances.
+
+The dry run lists `bench-obs` with the other instances, prints the two forwards' plan lines and
+the snapshot's argv, and deletes nothing.
 
 Each instance is deleted with `--quiet --async` right after its id is re-checked. One loop then
 describes every instance still deleting, every 10 s, until each is gone or

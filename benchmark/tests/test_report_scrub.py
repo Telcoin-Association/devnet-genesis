@@ -224,6 +224,33 @@ class ScrubManifestTests(unittest.TestCase):
         text = json.dumps(self.out, indent=1)
         self.assertEqual(scrub.scan_text(text, "manifest.json", manifest=self.raw), [])
 
+    def test_bench_obs_section_loses_its_host_keys(self):
+        # bench-obs, the run's own metrics VM: obs-lib.sh records its address and id, the forwarded
+        # Grafana sits under prometheus.grafana_url; the rest of manifest.obs is run shape and stays.
+        raw = synthetic_manifest()
+        snapshot = {"name": "20260101T015500Z-0123456789abcdef",
+                    "file": "logs/bench-obs-prometheus-20260101T015500Z.tar.gz", "bytes": 52428800,
+                    "at": "2026-01-01T01:56:00Z"}
+        raw["obs"] = {"instance": "bench-obs", "zone": "us-west2-a", "machine_type": "e2-standard-4",
+                      "disk_gb": 50, "created_at": "2026-01-01T00:01:00Z", "internal_ip": ip(10, 0, 2, 3),
+                      "instance_id": "88" + "1234567890123405", "grafana_url": "http://%s:13000" % ip(127, 0, 0, 1),
+                      "ready_at": "2026-01-01T00:05:00Z", "prom_local_port": 19090, "grafana_local_port": 13000,
+                      "ship_logs": False, "prom_snapshot": snapshot}
+        raw["prometheus"]["grafana_url"] = "http://%s:13000" % ip(127, 0, 0, 1)
+        before = copy.deepcopy(raw)
+        ipmap = scrub.ip_label_map(raw)
+        ctx = scrub._Ctx(ipmap, [raw["project"]])
+        out = scrub.scrub_manifest(raw, ipmap, ctx=ctx)
+        for key in ("manifest.obs.internal_ip", "manifest.obs.instance_id", "manifest.obs.grafana_url",
+                    "manifest.prometheus.grafana_url"):
+            self.assertIn(key, ctx.dropped)
+        self.assertEqual(out["obs"], {k: v for k, v in raw["obs"].items()
+                                      if k not in ("internal_ip", "instance_id", "grafana_url")})
+        self.assertEqual(out["obs"]["prom_snapshot"], snapshot)
+        self.assertEqual(out["prometheus"], {"datasource_uid": "prom1", "network_label": "bench"})
+        self.assertEqual(raw, before)
+        self.assertEqual(scrub.scan_text(json.dumps(out, indent=1), "manifest.json", manifest=raw), [])
+
 
 class ScrubMetricsTests(unittest.TestCase):
     def test_drops_project_instance_id_and_prometheus_url(self):

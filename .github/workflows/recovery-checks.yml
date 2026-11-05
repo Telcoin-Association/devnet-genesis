@@ -6,7 +6,7 @@ on:
   pull_request:
     paths: ["benchmark/**", ".github/workflows/recovery-checks.yml", "devnet-finalize.sh",
             "devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh", "devnet-keygen.sh",
-            "config.sh", ".gitignore", "tasks/check-bash-portability.sh"]
+            "devnet-log-filter.sh", "config.sh", ".gitignore", "tasks/check-bash-portability.sh"]
   workflow_dispatch:
 
 permissions:
@@ -19,10 +19,10 @@ jobs:
     env:
       BENCH_SHELL_SCRIPTS: >-
         benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
-        benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/pull-lib.sh benchmark/benchmark-deploy.sh
-        benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
+        benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/pull-lib.sh benchmark/obs-lib.sh
+        benchmark/benchmark-deploy.sh benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
         benchmark/tools/latency-probe.sh benchmark/tools/params-apply.sh
-        devnet-finalize.sh devnet-network-config.sh devnet-lib.sh devnet-keygen.sh
+        devnet-finalize.sh devnet-network-config.sh devnet-lib.sh devnet-keygen.sh devnet-log-filter.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install shell lint tool

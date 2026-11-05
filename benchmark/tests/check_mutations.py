@@ -1,4 +1,4 @@
-"""Reject twenty-eight broken code paths in checked temporary copies of the source.
+"""Reject thirty-four broken code paths in checked temporary copies of the source.
 
 Each case copies the files its test module needs into a fresh temporary tree laid out like the repo
 (<tmp>/<tree>/config.sh, <tmp>/<tree>/benchmark/...), since the tests find their scripts and
@@ -21,9 +21,13 @@ import sys
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
+SUBMODULES = ("common/", "tn-node-deployment/")
 
-# What each test module reads besides itself, relative to the repo root (directories recurse).
-# bench-lib.sh sources benchmark/pull-lib.sh, so every suite that copies the one copies the other.
+# What each test module reads besides itself, relative to the repo root (directories recurse). A path
+# inside a submodule (SUBMODULES) is copied when it is there and skipped when the submodule is not
+# checked out (CI's checkout fetches none); the tests that read one skip or fall back without it.
+# bench-lib.sh sources benchmark/pull-lib.sh and benchmark/obs-lib.sh (it refuses to load without either),
+# so every suite that copies it copies both.
 suites = {
     "test_recovery": ("benchmark/recovery-schedule.py", "benchmark/recovery-lib.sh",
                       "benchmark/node-sampler.sh", "benchmark/benchmark-blast.sh",
@@ -34,13 +38,16 @@ suites = {
     "test_propose_latency": ("benchmark/tools/propose-latency.py",),
     # test_node_image.TREE (copied from the repo root into each sandbox) plus its fixtures.
     "test_node_image": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
-                        "benchmark/pull-lib.sh",
+                        "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
                         "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
                         "benchmark/node-image-contract.txt", "benchmark/tests/fixtures/node-image",
                         "benchmark/tests/fixtures/v2-node", "benchmark/consensus-parameters.yaml",
-                        "benchmark/benchmark-blast.sh"),
+                        "benchmark/benchmark-blast.sh",
+                        # test_node_image.OBS_BUNDLE: the bench-obs bundle; the startup script and the
+                        # dashboards come from fixtures/node-image (no submodule needed)
+                        "benchmark/obs"),
     "test_admission_gate": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
-                            "benchmark/pull-lib.sh",
+                            "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
                             "benchmark/report/scrub.py", "benchmark/tests/fixtures/admission"),
     # The gate's real validator (devnet-network-config.py) runs on U-H9's fleet in TrustEverywhereTests.
     "test_finalize_modes": ("devnet-finalize.sh", "devnet-lib.sh", "devnet-network-config.py",
@@ -53,22 +60,33 @@ suites = {
     # test_teardown_local_gate.TREE (the teardown runs in a copy) plus its fixtures and the curl stub;
     # benchmark-deploy.sh is read by a source test.
     "test_teardown_local_gate": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
-                                 "benchmark/pull-lib.sh", "benchmark/benchmark-teardown.sh",
+                                 "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/benchmark-teardown.sh",
                                  "benchmark/benchmark-deploy.sh",
                                  "benchmark/recovery-lib.sh", "benchmark/tools/cert-rate.py",
                                  "benchmark/tools/block-rate.py", "benchmark/tests/fixtures/teardown",
                                  "benchmark/tests/fixtures/node-image/stub-curl-forbidden.sh"),
-    "test_certification": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/benchmark-teardown.sh",
+    "test_certification": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
+                           "benchmark/benchmark-teardown.sh",
                            "benchmark/benchmark-blast.sh", "benchmark/config.sh", "benchmark/tools/cert-rate.py",
                            "benchmark/tests/fixtures/certification", "benchmark/tests/fixtures/teardown"),
-    "test_collect_retry": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/tests/fixtures/teardown"),
+    "test_collect_retry": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
+                           "benchmark/tests/fixtures/teardown"),
     "test_report_kpis": ("benchmark/report/kpis.py", "benchmark/report/windows.py",
                          "benchmark/tests/fixtures/report"),
     "test_report_provenance": ("benchmark/report/provenance.py", "benchmark/tests/fixtures/provenance"),
     "test_pull_logs": ("benchmark/pull-lib.sh", "devnet-lib.sh", "benchmark/tests/fixtures/pull",
                        "benchmark/report/provenance.py"),
-    "test_tunnel": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/benchmark-teardown.sh",
+    # The bench-obs INDEX test loads the real bench-lib.sh in a copy of the scripts it sources; the
+    # fixtures carry the HEAD baseline (baseline-28c7623.sh) the byte-identity tests compare against.
+    "test_tunnel": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+                    "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/benchmark-teardown.sh",
                     "benchmark/tests/fixtures/tunnel"),
+    # test_obs.TREE (copied into each sandbox) plus the fakes; the scopes test skips itself without common/.
+    "test_obs": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+                 "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/obs", "benchmark/tests/fixtures/obs"),
+    # The driver runs against fixtures/log-filter/config.sh (CONFIG_FILE), never the root config.sh; the
+    # session-script tests that need tn-node-deployment/lib skip themselves without it.
+    "test_log_filter": ("devnet-log-filter.sh", "devnet-lib.sh", "benchmark/tests/fixtures/log-filter"),
     "test_iap_retry": ("devnet-lib.sh", "benchmark/tests/fixtures/iap-retry"),
     "test_keygen": ("devnet-keygen.sh", "devnet-lib.sh", "benchmark/tests/fixtures/keygen"),
     "test_network_config": ("devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh",
@@ -87,6 +105,12 @@ CHAOS_SESSION = ('    out="$(TN_IAP_RETRIES=0 tn_iap_ssh "${inst}" "${zone}" "${
                  '"${BENCH_RESULTS_DIR}/chaos-remote.log")" || rc=$?')
 ROTATED_PULL = ('        [ "${r}" -le 1 ] || echo "      ✗ ${inst}: rotated unit logs: not all pulled (rc ${r})" >&2\n'
                 '        _bench_pull_rc "${r}"\n')
+OBS_RUN_MATCH = ('        if ! printf \'%s\' "${j}" | jq -e --arg run "${BENCH_RUN_ID}" \'(.tags.items // []) == ["bench-obs"] '
+                 'and .labels.benchmark == "1" and .labels["bench-run"] == $run\' >/dev/null; then')
+OBS_MEM_ABORT = ('                record_abort "obs-memory" "${BENCH_OBS_INSTANCE}" "${BENCH_OBS_INSTANCE} memory ${mem}% > '
+                 '${BENCH_ABORT_OBS_MEM_PCT}%"')
+OBS_GATE_ROW = ('[ "${OBS_UP}" -ne 1 ] || GATE_IDS="${GATE_IDS}${OBS_CAND} $(inst_id "${OBS_CAND%% *}" '
+                '"${OBS_CAND#* }")"$\'\\n\'\n')
 REAUTH = ('    grep -Eq -- "${TN_IAP_REAUTH_PAT:-Reauthentication failed|There was a problem refreshing your '
           'current auth tokens|invalid_grant}" "$2" && { echo reauth; return 0; }')
 
@@ -187,6 +211,29 @@ cases = [
     # test_certification.NodePullTests.test_a_failed_rotated_pull_fails_the_node.
     ("benchmark/bench-lib.sh", ROTATED_PULL, ROTATED_PULL.split("\n")[0] + "\n",
      "test_teardown_local_gate.TeardownLocalGateTests.test_a_failed_rotated_pull_leaves_no_marker_and_deletes_nothing"),
+    # Bench 4, obs wave. An existing bench-obs VM tagged as a node passes the ownership check, so the
+    # bench would adopt a VM it did not create.
+    ("benchmark/obs-lib.sh", OBS_RUN_MATCH, OBS_RUN_MATCH.replace('== ["bench-obs"]', '== ["bench-node"]'),
+     "test_obs.ExistingVmTests.test_a_vm_of_another_run_is_refused"),
+    # Step 8 restarts every node's Alloy although bench-obs does not answer its ready probe.
+    ("benchmark/benchmark-deploy.sh",
+     'curl -sf --max-time 5 "http://${ip}:9090/-/ready" >/dev/null || fail "bench-obs unreachable"',
+     'curl -sf --max-time 5 "http://${ip}:9090/-/ready" >/dev/null || true',
+     "test_node_image.ObsScriptTests.test_unreachable_obs_fails_before_alloy_restarts"),
+    # A Prometheus query goes through the Grafana proxy (and reads its admin secret) by default.
+    ("benchmark/bench-lib.sh", '    if [ "${BENCH_PROM_AUTH:-0}" = 0 ]; then', '    if [ "${BENCH_PROM_AUTH:-0}" = 1 ]; then',
+     "test_tunnel.PromQueryTests.test_no_auth_path_never_reads_a_secret"),
+    # The log-filter sweep moves on to the next node after one was deferred or failed.
+    ("devnet-log-filter.sh", '    [ "${st}" = ok ] || { lf_stop "${k}"; break; }',
+     '    true || [ "${st}" = ok ] || { lf_stop "${k}"; break; }',
+     "test_log_filter.SweepTests.test_a_deferred_node_stops_the_sweep"),
+    # The obs-memory abort names obs-devnet's instance variable instead of bench-obs.
+    ("benchmark/benchmark-blast.sh", OBS_MEM_ABORT,
+     OBS_MEM_ABORT.replace('"${BENCH_OBS_INSTANCE}"', '"${OBS_INSTANCE_NAME}"', 1),
+     "test_recovery.BenchObsTests.test_obs_memory_abort_records_the_bench_obs_instance"),
+    # bench-obs never gets a gate row, so the teardown leaves the run's metrics VM running.
+    ("benchmark/benchmark-teardown.sh", OBS_GATE_ROW, "",
+     "test_teardown_local_gate.TeardownLocalGateTests.test_bench_obs_is_deleted_after_the_gate"),
 ]
 
 
@@ -198,6 +245,8 @@ def build(tree, module):
     """Copy <module>'s test file and everything it reads into <tree>, in the repo's layout."""
     for rel in suites[module] + ("benchmark/tests/%s.py" % module,):
         source = repo / rel
+        if rel.startswith(SUBMODULES) and not source.exists():
+            continue
         files = sorted(p for p in source.rglob("*") if p.is_file()) if source.is_dir() else [source]
         for path in files:
             if "__pycache__" in path.parts:
