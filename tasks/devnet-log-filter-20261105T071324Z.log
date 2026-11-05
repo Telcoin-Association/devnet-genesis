@@ -1,0 +1,433 @@
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. observer-5-devnet (europe-west2-b, observer): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  5. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/5] observer-5-devnet (europe-west2-b, observer): --log.file.filter info
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET observer-5-devnet flag=--log.file.filter value=info rc=0 was=- backup=/usr/local/libexec/telcoin/tn-start-docker.bak-logfilter-20261105T071330Z
+LOGFILTER_DEFERRED observer-5-devnet reason=guard
+    ⚠️  the committee guard refused to restart observer-5-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at observer-5-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes observer-5-devnet validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      0/5 
+stopped: observer-5-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+
+>>> RESUME attempt 1 at 2026-11-05T07:18:19Z: ./devnet-log-filter.sh --yes observer-5-devnet validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. observer-5-devnet (europe-west2-b, observer): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  5. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/5] observer-5-devnet (europe-west2-b, observer): --log.file.filter info
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+  ->  Epoch 64 ends in 15m 32s, outside the 300s margin; no need to wait.
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+LOGFILTER_SET observer-5-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_WAIT observer-5-devnet secs=932
+LOGFILTER_RESTART observer-5-devnet at=2026-11-05T07:18:29Z
+      ✓ telcoin on observer-5-devnet active AND :43174 responds (after 0s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_VERIFY observer-5-devnet flag=yes debug_lines=0 lines=300
+LOGFILTER_OK observer-5-devnet restarted=yes level_check=ok
+    settling 90s after the restart, before the next node
+
+>>> [2/5] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=0 was=- backup=/usr/local/libexec/telcoin/tn-start-docker.bak-logfilter-20261105T072011Z
+LOGFILTER_DEFERRED validator-1-devnet reason=guard
+    ⚠️  the committee guard refused to restart validator-1-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at validator-1-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      1/5 observer-5-devnet
+stopped: validator-1-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 1 rc=1
+
+>>> RESUME attempt 2 at 2026-11-05T07:20:57Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_DEFERRED validator-1-devnet reason=guard
+    ⚠️  the committee guard refused to restart validator-1-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at validator-1-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      0/4 
+stopped: validator-1-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 2 rc=1
+
+>>> RESUME attempt 3 at 2026-11-05T07:21:45Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_DEFERRED validator-1-devnet reason=guard
+    ⚠️  the committee guard refused to restart validator-1-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at validator-1-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      0/4 
+stopped: validator-1-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 3 rc=1
+
+>>> RESUME attempt 4 at 2026-11-05T07:22:34Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_DEFERRED validator-1-devnet reason=guard
+    ⚠️  the committee guard refused to restart validator-1-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at validator-1-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      0/4 
+stopped: validator-1-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 4 rc=1
+
+>>> RESUME attempt 5 at 2026-11-05T07:23:23Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 1 member(s) down; stopping this node makes 2 of the 2 that halt consensus. Refused: wait until the others are back, or, for a coordinated restart, run again with --allow-quorum-risk.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_DEFERRED validator-1-devnet reason=guard
+    ⚠️  the committee guard refused to restart validator-1-devnet: --log.file.filter is in its start script but not live.
+       Run the resume command below once every committee member is up and voting.
+    ❌ stopping the sweep at validator-1-devnet (deferred): the nodes after it are untouched.
+    resume: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+
+==========================================
+ok:      0/4 
+stopped: validator-1-devnet (deferred)
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 5 rc=1
+
+>>> RESUME attempt 6 at 2026-11-05T07:24:11Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+  ->  Epoch 64 ends in 9m 41s, outside the 300s margin; no need to wait.
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_WAIT validator-1-devnet secs=581
+LOGFILTER_RESTART validator-1-devnet at=2026-11-05T07:24:19Z
+      ✓ telcoin on validator-1-devnet active AND :43174 responds (after 0s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_VERIFY validator-1-devnet flag=yes debug_lines=0 lines=250
+LOGFILTER_OK validator-1-devnet restarted=yes level_check=ok
+    settling 90s after the restart, before the next node
+
+>>> [2/4] validator-2-devnet (us-south1-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+  ->  Epoch 64 ends in 7m 56s, outside the 300s margin; no need to wait.
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+LOGFILTER_SET validator-2-devnet flag=--log.file.filter value=info rc=0 was=- backup=/usr/local/libexec/telcoin/tn-start-docker.bak-logfilter-20261105T072600Z
+LOGFILTER_WAIT validator-2-devnet secs=476
+LOGFILTER_RESTART validator-2-devnet at=2026-11-05T07:26:04Z
+      ✓ telcoin on validator-2-devnet active AND :43174 responds (after 0s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_VERIFY validator-2-devnet flag=yes debug_lines=0 lines=248
+LOGFILTER_OK validator-2-devnet restarted=yes level_check=ok
+    settling 90s after the restart, before the next node
+
+>>> [3/4] validator-3-devnet (northamerica-northeast1-b, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+  ->  Epoch 64 ends in 6m 10s, outside the 300s margin; no need to wait.
+committee of 4: 0 member(s) down; stopping this node leaves 1, below the 2 that halts consensus.
+LOGFILTER_SET validator-3-devnet flag=--log.file.filter value=info rc=0 was=- backup=/usr/local/libexec/telcoin/tn-start-docker.bak-logfilter-20261105T072745Z
+LOGFILTER_WAIT validator-3-devnet secs=370
+LOGFILTER_RESTART validator-3-devnet at=2026-11-05T07:27:51Z
+      ✓ telcoin on validator-3-devnet active AND :43174 responds (after 0s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_VERIFY validator-3-devnet flag=yes debug_lines=0 lines=137
+LOGFILTER_OK validator-3-devnet restarted=yes level_check=ok
+    settling 90s after the restart, before the next node
+
+>>> [4/4] validator-4-devnet (europe-west4-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+this node is Observer: stopping it does not change the committee's quorum.
+  ->  Node mode is Observer, so this node is not voting in the current committee; no need to wait for the epoch boundary.
+this node is Observer: stopping it does not change the committee's quorum.
+LOGFILTER_SET validator-4-devnet flag=--log.file.filter value=info rc=0 was=- backup=/usr/local/libexec/telcoin/tn-start-docker.bak-logfilter-20261105T072932Z
+LOGFILTER_WAIT validator-4-devnet secs=263
+LOGFILTER_RESTART validator-4-devnet at=2026-11-05T07:29:37Z
+      ✓ telcoin on validator-4-devnet active AND :43174 responds (after 0s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_VERIFY validator-4-devnet flag=yes debug_lines=0 lines=139
+LOGFILTER_OK validator-4-devnet restarted=yes level_check=ok
+./devnet-log-filter.sh: line 563: unexpected EOF while looking for matching `''
+>>> RESUME attempt 6 rc=2
+
+>>> RESUME attempt 7 at 2026-11-05T07:30:30Z: ./devnet-log-filter.sh --yes validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+==========================================
+devnet node file-log level (--log.file.filter)
+Project:    tn-devnet
+Filter:     --log.file.filter info
+Restart:    one node at a time when the flag is not live yet, behind v2's committee guard
+Epoch wait: v2 policy (tn_wait_restart_window) before each restart
+Settle:     90s after each node that was restarted
+Guard:      up to 8 samples, 10 s apart (deferred only when every sample refuses; a blind pass defers at once)
+Mode:       apply
+==========================================
+plan (observers first, then validators, each in index order):
+  1. validator-1-devnet (us-west2-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  2. validator-2-devnet (us-south1-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  3. validator-3-devnet (northamerica-northeast1-b, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+  4. validator-4-devnet (europe-west4-a, validator): flag=--log.file.filter value=info restart=yes epoch_wait=v2
+
+>>> [1/4] validator-1-devnet (us-west2-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_SET validator-1-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_OK validator-1-devnet restarted=no
+
+>>> [2/4] validator-2-devnet (us-south1-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_SET validator-2-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_OK validator-2-devnet restarted=no
+
+>>> [3/4] validator-3-devnet (northamerica-northeast1-b, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_SET validator-3-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_OK validator-3-devnet restarted=no
+
+>>> [4/4] validator-4-devnet (europe-west4-a, validator): --log.file.filter info
+    this session may wait up to 1800 s for the epoch boundary (v2's TN_EPOCH_WAIT_MAX default);
+    the node's progress shows on stderr, its marker lines when the session ends
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOGFILTER_SET validator-4-devnet flag=--log.file.filter value=info rc=1 was=info backup=none
+LOGFILTER_OK validator-4-devnet restarted=no
+
+==========================================
+ok:      4/4 validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+Re-run after any devnet-finalize.sh or devnet-update.sh --finalize / --wipe (they re-render the launch line).
+==========================================
+>>> RESUME attempt 7 rc=0

@@ -1456,3 +1456,24 @@ base fee after more boundaries) is appended to the verification file when the wa
   unset (HEAD baselines committed). txgen 6f2aae6 (unpushed): 46 optional series + --start/--end precedence.
 - Live run r20261105-0036 stopped at the step-0 obs-disk gate (devnet DEBUG shipping fills obs-devnet at ≈ 4 GB/h); resume command and the
   user decision are in tasks/checkpoint-bench4-live.md. Remaining after the run: analysis (A1-A5), report, backfill, publish, pushes, draft PR.
+
+## 2026-11-05 — bench 4 obs wave: follow-ups (after the obs-devnet DEBUG incident)
+- [ ] tn-node-deployment: `obs_reth_log_flags` (lib/observability.sh:101) renders `--log.file.format json … max-files 5` but no
+      `--log.file.filter`; reth's file filter defaults to `debug` → every v2 node ships DEBUG. Add `--log.file.filter ${TN_LOG_FILE_FILTER:-info}`
+      (a `.node-meta`/env knob, one shell word) for both runtimes so finalize/update-node/edit-config all carry it; devnet-log-filter.sh
+      becomes a no-op check once the pin moves.
+- [ ] devnet-genesis: `devnet-finalize.sh` / `devnet-update.sh --finalize|--wipe` re-render the launch line without the filter. Until
+      the tn-node-deployment fix lands: run `./devnet-log-filter.sh --yes --skip-epoch-wait` from devnet-deploy.sh after the observability
+      step on a fresh chain, and print the re-run reminder at the end of finalize/update.
+- [ ] tn-node-deployment: `tn_committee_down_guard` counts the authors of ONE tn_latestConsensusHeader; a sub-DAG often carries 3 of 4
+      authors (25-50 % of commits on the devnet, more right after a member restarts) → spurious refusals with n=4. Count authors over
+      the last k commits (or ≥ 2 rounds) and name the missing author in the message.
+- [ ] devnet-log-filter.sh nits (review P2): N2 --no-restart banner still mentions the epoch wait; N6 `lf_live` misses the
+      `--log.file.filter=info` form and `reth.log` is hard-coded (read `--log.file.name`); N8 rollback `cp -p` is not atomic (use
+      tn_launch_flag_unset / install); N9 `no_new_log_lines` would fail a quiet custom filter such as `warn`.
+- [ ] obs-lib bring-up: a re-run with a changed prometheus.yml is not seen by the running container (file bind mount keeps the old
+      inode) → `docker compose up -d --force-recreate prometheus` when the file changed (review A N10). Admin API/lifecycle endpoints
+      reachable inside the VPC (N9) — accepted for a throwaway VM; README notes it.
+- [ ] test_tunnel's TUNNEL_PAT check reads only the teardown's first TUNNEL_PAT line (the obs ports are on the second line, unchecked).
+- [ ] CI: the `common` submodule is private; test_node_image must not need it (U-O2 follow-up in flight); check_mutations skips missing
+      common/ paths.

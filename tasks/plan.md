@@ -55,10 +55,36 @@ tn-transaction-generator:
 - [x] Push `bench/main-v1lazy-obs-2026-11`; image build + push; digest; probe by digest
 - [x] Dry-run deploy plan text (`--with-contracts`, no `--yes`), `--print-prestart`
 
+## Wave A — obs VM, devnet DEBUG, obs-devnet prune (plan of 2026-11-05 05:50Z; contracts: checkpoint-bench4-design.md §D-A/D-B/D-C)
+- [x] §D-A/D-B/D-C contracts frozen; tasks/bench4-obs-agent-rules.md written
+- [x] U-P1 loki-config retention_stream (common submodule) — verify-config ok; uncommitted
+- [x] U-P2 devnet-log-filter.sh + test_log_filter (30 OK) + README entry; uncommitted — reviewed (tasks/checkpoint-bench4-review-P2.md): 0 BLOCKING, S1-S4 being applied
+- [x] U-O1 obs-lib.sh + benchmark/obs bundle + config knobs + test_obs (34 OK; compose config ok); uncommitted
+- [x] U-O2 deploy steps 0/2/8/10/13/15 + test_node_image (111 OK); follow-up: --push-url → black hole; uncommitted
+- [x] U-O3 bench-lib _bench_tunnel_start, prom no-auth, obs source line + test_tunnel (23 OK, parity vs 28c7623 fixture); uncommitted
+- [x] U-O4 teardown bench-obs gate/snapshot/delete + test_teardown_local_gate (66 OK); uncommitted
+- [x] U-O5 blast obs-memory abort + bench_obs_require (top of do_run, apply-only, fatal) — test_recovery 33 OK; uncommitted
+- [x] U-O6 collector --prom-no-auth (txgen) — 122 tests OK; uncommitted
+- [x] U-O7 README, check_mutations (34/34 killed), hygiene, scrub test, admission TREE, CI; follow-up: test_node_image without common/ (U-O2)
+
+## Wave A-ops — live, orchestrator only (after U-P1 and U-P2 review)
+- [x] D-A applied on obs-devnet 06:13Z (backup, -verify-config ok, restart loki, /ready 70 s)
+- [x] D-A verified 06:56Z: 80 % → 35 % (102 G used); INFO 11-03/11-04 still queryable; DEBUG < 24 h kept
+- [x] D-B sweep 07:13-07:30Z (log tasks/devnet-log-filter-20261105T071324Z.log): 5× LOGFILTER_OK restarted=yes (6 resume attempts; guard one-commit sampling → resampling added to the driver)
+- [x] D-B verified 07:46Z: DEBUG 0 B / INFO 38 MB per 15 min; obs-devnet disk 33 %
+
+## Wave B — checks, review, commits, dry runs
+- [x] offline (07:20Z): bash -n, shellcheck, check-bash32, portability (0 ERROR), py3.9 grammar, YAML, compose config — all green
+- [x] check_mutations: 34 of 34 killed
+- [x] full unittest suite: 843 tests OK (7 skipped), 485 s
+- [x] reviews: P2 (driver), A (libs/bundle/blast/collector), B (deploy/teardown live flow) — 0 BLOCKING; every SHOULD applied (tasks/checkpoint-bench4-review-*.md); parity vs 28c7623 proven in test_tunnel; prestart print aid byte-identical vs HEAD
+- [x] commits: common 1a6955d; devnet-genesis 133b8d5..bbc2533 (8 commits); txgen (collector) — no attribution; nothing pushed
+- [x] dry-run deploy (r20261105-dry0, gcloud stub: 0 calls, rc 0; plan names bench-obs/forwards/--only 8), `--print-obs-script` (placeholder ×4, no obs-devnet), `--print-obs-bringup` (18.9 kB, bash -n ok), `--print-prestart` byte-identical vs HEAD; real teardown dry run on r20261105-0036 rc 0 (bench-obs absent → warn, nothing deleted)
+
 ## Wave 3 — live run (D5)
 - [x] preflight clean; run id r20261105-0036
 - [ ] BLOCKED at step 0 (00:37Z): obs-devnet data disk 73 % ≥ 70 % gate — cause = live devnet nodes shipping DEBUG to Loki at ≈ 4 GB/h since 2026-11-02 (not the bench). Relaunch with BENCH_OBS_DISK_MAX_PCT=85 was permission-denied → user decision; resume command in tasks/checkpoint-bench4-live.md
-- [ ] deploy `--to 12` → idle ≥ 10 min → `--from 13 --to 15` → teardown → `--reindex`
+- [ ] (superseded by Wave C) fresh BENCH_RUN_ID; deploy `--to 12` (gates: OBS_READY, OBSCFG_OK ×11, tunnel target=bench-obs:9090) → idle ≥ 10 min → `--from 13 --to 15` (step 15 prometheus.url = local tunnel) → teardown (bench-obs-prometheus-*.tar.gz pulled, bench-obs deleted, obs-devnet present) → `--reindex`
 
 ## Wave 4 — analysis (A1, A2, A3, A4n, A4o, P-backfill, A5 report)
 - [ ] `tasks/bench4-report-<run>.md` + `benchmark/private/followups.md ## <run>`

@@ -1324,3 +1324,27 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   tn-rust-skills. The session scratchpad is shared by every agent: use unique subdirectories or another agent's run deletes your tree.
 - A committed collector change moved the txgen HEAD, which is where BENCH_TXGEN_SHA defaults from: pin BENCH_TXGEN_SHA to the existing
   blaster image when the txgen change does not touch the blaster.
+
+## 2026-11-05 — a Loki `filename` label is the shipper's view of the path, not the host's
+- Loki's series for the devnet carried `filename=/var/log/telcoin/telcoin-network-logs/reth.log`; relayed as "the host path" to
+  the agent writing the log-filter driver. It is the Alloy sidecar's mount (`${DATA_DIR}/logs` → `/var/log/telcoin:ro`,
+  tn-node-deployment/lib/observability.sh:741); the host file is `/var/lib/telcoin/logs/telcoin-network-logs/reth.log`. A verify
+  step that tailed the label's path on the host would have failed every node. The agent checked the mount and said so.
+- Rule: a path read from a label, a dashboard or a container log is relative to the process that emitted it; before writing it into
+  a script that runs on the host, map it through `docker inspect … .Mounts` (or the lib's own getter) and say which view you mean.
+
+## 2026-11-05 — never let an agent rewrite a bash driver that is running against the fleet
+- The log-filter sweep was running (resume loop, one bash instance per attempt) while U-P2 rewrote `devnet-log-filter.sh` in place to add
+  guard resampling. bash reads a script incrementally: the already-parsed node loop finished correctly (all five nodes restarted and
+  verified), but the summary after the loop was read from a shifted offset → "unexpected EOF while looking for matching `'`", rc 2,
+  and my resume loop re-ran one no-op pass. A shift inside the node loop would have been far worse.
+- Rule: while a driver runs live, nobody edits its file (or any lib it sources). Queue the change, or have the agent write
+  `<file>.next` and swap it with `mv` (new inode) between attempts. Same for bench-lib/deploy/teardown during a bench run.
+
+## 2026-11-05 — v2's committee guard samples one commit; with n=4 it refuses ~25-50 % of the time when nobody is down
+- `tn_committee_down_guard` counts the distinct authors of one `tn_latestConsensusHeader` answer; a sub-DAG often carries 3 of 4
+  authors, and a member just restarted authors fewer headers for minutes. With f=1 the guard needs down=0, so it refused validator-1
+  five times in a row with every member up and voting. Resampling (8 × 10 s, defer only when every sample refuses) fixed it; a truly
+  down member fails every sample, so the safety is unchanged.
+- Rule: treat a single guard refusal as a sample, not a verdict: resample before deferring, and report which author was missing.
+  Follow-up for tn-node-deployment: count authors over the last k commits.
