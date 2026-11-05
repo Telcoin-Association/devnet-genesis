@@ -6,6 +6,7 @@ State lives under $FAKE_ROOT:
   labels/<bucket>.json         bucket labels
   instances.json               the project's instances (compute instances list/describe/delete)
   deleting.json                {"<zone>/<name>": describes left} for instances deleted with --async
+  disks.json                   the project's disks (compute disks list/delete; absent = no disk)
   scp-attempts                 compute scp attempts so far
   logspan/<instance>           LOGSPAN lines the `# bench-pull: span` session prints (else a default)
   rotated/<instance>/<file>    the files the `# bench-pull: rotated` session tars (else a default)
@@ -24,12 +25,17 @@ Knobs (environment):
   FAKE_REAUTH_SSH=1             every `compute ssh` fails as an expired session does (rc 1)
   FAKE_SSH_FAIL=<text>          a `compute ssh` whose command or stdin script header contains <text>
                                 fails as a dropped IAP session does (rc 255)
+  FAKE_DESCRIBE_TRANSIENT=<name> `instances describe <name>` fails as an API error does (rc 1, no
+                                "not found"), as fixtures/obs/fake-gcloud.py's describe-transient
   FAKE_DELETE_POLLS=<n>|never   an `instances delete --async` leaves the instance STOPPING for <n>
                                 describes (default 1), then describe says not found; never = stays
 
 Remote sessions on stdin are told apart by the script's first line: `# bench-pull: span` prints
 LOGSPAN lines, `# bench-pull: rotated` writes a tar of gzip files; any other `sudo bash -s`
 script gets the recovery-evidence tar (a gzipped tar holding telcoin.journal).
+bench-obs's Prometheus snapshot pull (--command="sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots
+<name> | gzip -1") gets a gzipped tar of <name>/; a port-forward session (--ssh-flag=-N, the tunnel
+supervisor's) is not modelled offline and fails at once as a refused forward does (rc 255).
 
 For an instance with a sandbox nodes/<instance>/, the `# bench-pull:` scripts and every --command
 other than `sudo bash -s` run there for real (bash -c <command>, the script on stdin): every
@@ -58,8 +64,12 @@ SCHEME = "gs" + "://"
 
 
 def log(argv, stdin):
-    with open(os.path.join(ROOT, "calls.jsonl"), "a") as fh:
-        fh.write(json.dumps({"argv": argv, "stdin": stdin}) + "\n")
+    # One write per call: a tunnel supervisor in the background may log while the teardown does.
+    fd = os.open(os.path.join(ROOT, "calls.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (json.dumps({"argv": argv, "stdin": stdin}) + "\n").encode())
+    finally:
+        os.close(fd)
 
 
 def die(msg, code=1):
@@ -243,6 +253,9 @@ def compute(args, pos, stdin):
             print(json.dumps(state))
             return
         name, zone = pos[3], flag(args, "--zone")
+        if verb == "describe" and name == os.environ.get("FAKE_DESCRIBE_TRANSIENT"):
+            die("ERROR: (gcloud.compute.instances.describe) Could not fetch resource:\n"
+                " - Internal error. Please try again or contact Google Support. (fake)")
         match = [i for i in state if i["name"] == name and i["zone"].split("/")[-1] == zone]
         if not match:
             die("ERROR: (gcloud.compute.instances.%s) Could not fetch resource:\n"
@@ -274,7 +287,19 @@ def compute(args, pos, stdin):
                 save_json("instances.json", [i for i in state if i is not match[0]])
         else:
             die("fake gcloud: unexpected compute instances %s" % verb)
-    elif what in ("firewall-rules", "disks"):
+    elif what == "disks":
+        p = os.path.join(ROOT, "disks.json")
+        disks = json.load(open(p)) if os.path.exists(p) else []
+        if verb == "list":
+            print(json.dumps(disks))
+            return
+        name, zone = pos[3], flag(args, "--zone")
+        match = [d for d in disks if d["name"] == name and d["zone"].split("/")[-1] == zone]
+        if verb != "delete" or not match:
+            die("ERROR: (gcloud.compute.disks.%s) The resource 'projects/p/zones/%s/disks/%s' was not found"
+                % (verb, zone, name))
+        save_json("disks.json", [d for d in disks if d is not match[0]])
+    elif what == "firewall-rules":
         if verb == "list":
             print("[]")
         else:
@@ -288,6 +313,12 @@ def compute(args, pos, stdin):
         if broken and (broken in header or broken in cmd):
             die("Connection closed by remote host\nERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with "
                 "return code [255].", 255)
+        if "--ssh-flag=-N" in args:
+            die("channel 2: open failed: connect failed: Connection refused\n"
+                "ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].", 255)
+        if cmd.startswith(PROM_SNAPSHOTS):
+            prom_snapshot_session(cmd)
+            return
         node = os.path.join(ROOT, "nodes", pos[2])
         if os.path.isdir(node) and (header.startswith("# bench-pull:") or cmd != "sudo bash -s"):
             on_node(node, cmd, stdin, header == "# bench-pull: span")
@@ -326,6 +357,22 @@ def compute(args, pos, stdin):
         die("ERROR: (gcloud.compute.start-iap-tunnel) Error while connecting [%s: 'not authorized']." % outcome)
     else:
         die("fake gcloud: unexpected compute %s" % what)
+
+
+PROM_SNAPSHOTS = "sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots "
+
+
+def prom_snapshot_session(cmd):
+    """bench-obs's `sudo tar -cf - -C <snapshots> <name> | gzip -1`: a gzipped tar of <name>/ (meta.json
+    and one chunk), what the snapshot directory Prometheus wrote for the POST holds."""
+    name = cmd[len(PROM_SNAPSHOTS):].split("|", 1)[0].strip()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for rel, data in (("meta.json", b'{"ulid": "01FAKE"}\n'), ("chunks/000001", b"\x00" * 512)):
+            info = tarfile.TarInfo(name + "/01FAKE/" + rel)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    sys.stdout.buffer.write(buf.getvalue())
 
 
 def on_node(node, cmd, stdin, span):

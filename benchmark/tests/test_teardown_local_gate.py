@@ -9,10 +9,11 @@ under bash. The teardown runs for real, in a temporary copy of the scripts (its 
 fixed to <its dir>/results, so nothing here runs it in place). Both talk to fixtures/teardown/:
 a fake gcloud backed by a directory (it logs every call with the stdin it was given), a perl
 stub that records each alarm and execs the command, and stubs for sleep and pgrep (so a real
-local IAP tunnel is never seen, or killed). curl fails if anything reaches for the network.
+local IAP tunnel is never seen, or killed). curl answers only bench-obs's Prometheus through its
+local forward (the snapshot request and the two forwards' probes) and fails anything else.
 
 The teardown's world: one live bench instance whose logs a fresh pull marker vouches for, its
-run bucket, and the devnet instances it must leave alone.
+run bucket, and the devnet instances it must leave alone; some tests add the run's bench-obs.
 """
 import calendar
 import gzip
@@ -33,7 +34,10 @@ TESTS = Path(__file__).resolve().parent
 BENCH = TESTS.parent
 REPO = BENCH.parent
 FIX = TESTS / "fixtures" / "teardown"
-CURL_STUB = TESTS / "fixtures" / "node-image" / "stub-curl-forbidden.sh"
+CURL_STUB = FIX / "stub-curl.sh"
+# Stand-ins for obs-lib.sh / the config.sh knobs (U-O1) and _bench_tunnel_start (U-O3), each used only
+# when the real one is absent: sourced at the end of the temporary bench-lib.sh (see setUp).
+OBS_STUBS = FIX / "obs-stubs.sh"
 LIB = (BENCH / "bench-lib.sh").read_text()
 TEARDOWN = (BENCH / "benchmark-teardown.sh").read_text()
 
@@ -43,16 +47,21 @@ OLD_ARCHIVE = PROJECT + "-benchmark-archive"   # the retired persistent bucket: 
 RUN = "r20991231-0101"
 RUN_BUCKET = PROJECT + "-bench-" + RUN
 INST, ZONE, INST_ID = "bench-validator-01", "us-west2-a", "4242"
+OBS, OBS_ID = "bench-obs", "5151"   # the run's own Prometheus VM (BENCH_OBS_INSTANCE, BENCH_OBS_ZONE = ZONE)
+SNAP_NAME = "20991231T090500Z-0123456789abcdef"   # stub-curl.sh's snapshot name
+OBS_SNAP_CMD = "--command=sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots "
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DELETES = (("compute", "instances", "delete"), ("storage", "rm"), ("storage", "buckets", "delete"),
            ("compute", "firewall-rules", "delete"), ("compute", "disks", "delete"))
 MUTATIONS = DELETES + (("storage", "rsync"), ("storage", "cp"), ("storage", "buckets", "create"),
                        ("storage", "buckets", "update"))
 
-# Scripts the teardown sources or runs, relative to the repo root.
+# Scripts the teardown sources or runs, relative to the repo root. bench-lib.sh sources obs-lib.sh
+# and refuses to load without it: until it lands, setUp writes a placeholder into the copy (never the repo).
+OBS_LIB = "benchmark/obs-lib.sh"
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/benchmark-teardown.sh", "benchmark/recovery-lib.sh",
-        "benchmark/tools/cert-rate.py", "benchmark/tools/block-rate.py")
+        "benchmark/tools/cert-rate.py", "benchmark/tools/block-rate.py") + ((OBS_LIB,) if (REPO / OBS_LIB).exists() else ())
 
 
 def shell_function(source, name):
@@ -505,6 +514,26 @@ class TeardownSourceOrderTests(unittest.TestCase):
         self.assertLess(delete, self.line_of('st="$(delete_state '))
         self.assertLess(self.line_of('st="$(delete_state '), self.line_of("bench_run gcloud compute disks delete"))
 
+    def test_bench_obs_snapshot_before_the_gates_and_its_delete_after(self):
+        # Its forwards before the health table's reads; its GATE_IDS row after the load-VM gate.
+        self.assertLess(self.line_of("bench_obs_exists || obs_rc=$?"), self.line_of("bench_obs_tunnel_up"))
+        self.assertLess(self.line_of("bench_obs_tunnel_up"), self.line_of("health_table || "))
+        row = self.line_of('GATE_IDS="${GATE_IDS}${OBS_CAND} ')
+        self.assertLess(self.line_of('if v="$(load_vm_verdict '), row)
+        self.assertLess(row, self.line_of('bench_pull_node_logs "${LOG_DIR}"'))
+        # snapshot < coverage gate < local gate < instance delete
+        snap = self.line_of('bench_obs_prom_snapshot_pull "${LOG_DIR}"')
+        self.assertLess(self.line_of('bench_cert_failures_snapshot "${LOG_DIR}"'), snap)
+        self.assertLess(snap, self.line_of("bench_log_coverage_check "))
+        gate = self.line_of('if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then')
+        self.assertLess(snap, gate)
+        self.assertLess(gate, self.line_of("bench_run gcloud compute instances delete"))
+        # TUNNEL_PAT keeps today's alternatives as they were; the bench-obs forwards come after them.
+        pats = re.findall(r'^TUNNEL_PAT="(.*)"$', TEARDOWN, re.M)
+        self.assertEqual(pats, ["tn-bench-tunnel-supervisor|localhost:${BENCH_TUNNEL_PORT}:127\\.0\\.0\\.1:8545"
+                                "|start-iap-tunnel.*${BENCH_TUNNEL_PORT}",
+                                "${TUNNEL_PAT}|localhost:${BENCH_OBS_PROM_LOCAL_PORT}:|localhost:${BENCH_OBS_GRAFANA_LOCAL_PORT}:"])
+
     def test_final_index_after_provenance_and_before_the_checks(self):
         prov = self.line_of("node_startup_check || ")
         final = self.line_of("final_local_index || ")
@@ -528,6 +557,10 @@ class TeardownLocalGateTests(unittest.TestCase):
         for rel in TREE:
             (self.tree / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(REPO / rel), str(self.tree / rel))
+        if not (self.tree / OBS_LIB).exists():
+            (self.tree / OBS_LIB).write_text("# placeholder: benchmark/obs-lib.sh (unit U-O1) has not landed\n")
+        with (self.tree / "benchmark" / "bench-lib.sh").open("a") as fh:
+            fh.write('\n. "%s"\n' % OBS_STUBS)
         self.cloud = FakeCloud(self.root)
         self.params = self.root / "consensus-params.yaml"
         self.params.write_text("max_header_delay: 3s\n")
@@ -657,6 +690,213 @@ class TeardownLocalGateTests(unittest.TestCase):
             self.assertNotIn(OLD_ARCHIVE, " ".join(c["argv"]))
             self.assertFalse(is_call(c, ("storage", "rsync")), c["argv"])
         self.assertEqual(set(self.cloud.objects(OLD_ARCHIVE)), {"runs/r20261006-0458/results/manifest.json"})
+
+    def obs_vm(self, run=RUN, zone=ZONE):
+        """Add bench-obs to the project as bench_obs_create leaves it (labelled for <run>, in <zone>)."""
+        insts = json.loads((self.cloud.state / "instances.json").read_text())
+        insts.append({"name": OBS, "zone": "projects/%s/zones/%s" % (PROJECT, zone), "status": "RUNNING", "id": OBS_ID,
+                      "tags": {"items": ["bench-obs"]}, "networkInterfaces": [{"networkIP": "192.0.2.90"}],
+                      "labels": {"benchmark": "1", "network": "bench", "bench-run": run, "tn-role": "obs"}})
+        (self.cloud.state / "instances.json").write_text(json.dumps(insts))
+
+    def obs_forwards_up(self):
+        """bench-obs's two forwards as the run left them: each pidfile names a live process (a sleep of
+        this test's, in its own session), so bench_obs_tunnel_up finds them up and starts nothing."""
+        sleeper = subprocess.Popen(["sleep", "300"], start_new_session=True)
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        for name in ("tunnel-obs-prom.pid", "tunnel-obs-grafana.pid"):
+            (self.results / name).write_text("%d\n" % sleeper.pid)
+
+    def curl_log(self):
+        p = self.root / "curl.log"
+        return p.read_text() if p.exists() else ""
+
+    def obs_snapshot_pulls(self):
+        return [i for i, c in enumerate(self.cloud.calls()) if is_call(c, ("compute", "ssh", OBS))
+                and any(a.startswith(OBS_SNAP_CMD) for a in c["argv"])]
+
+    def test_bench_obs_is_deleted_after_the_gate(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        self.obs_forwards_up()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertEqual(self.done_line(p), (RUN, 2, 0, False))
+        self.assertNotIn(OBS, self.instance_names())
+        self.assertEqual(set(self.devnet), set(self.instance_names()), "obs-devnet and the rest of devnet stay")
+        out = p.stdout
+        self.assertIn("✓ obs-devnet RUNNING", out)
+        self.assertIn("✓ bench-obs (%s): none" % OBS, out)
+        # Its forwards are up before the health table reads Prometheus; the snapshot lands before both
+        # gates; the delete comes after the local gate.
+        self.assertEqual(out[:out.index(">>> node health")].count("tunnel already up (pid "), 2)
+        snap_at = out.index(">>> bench-obs Prometheus snapshot")
+        self.assertLess(out.index(">>> certification outcome"), snap_at)
+        self.assertLess(snap_at, out.index(">>> log coverage"))
+        self.assertLess(out.index(">>> log coverage"), out.index(">>> local gate"))
+        self.assertLess(out.index(">>> local gate"),
+                        out.index("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async"
+                                  % (OBS, ZONE, PROJECT)))
+        self.assertIn("✓ %s (%s) deleted" % (OBS, ZONE), out)
+        snaps = sorted((self.results / "logs").glob("bench-obs-prometheus-*.tar.gz"))
+        self.assertEqual(len(snaps), 1, sorted(os.listdir(str(self.results / "logs"))))
+        with tarfile.open(str(snaps[0]), "r:gz") as tar:
+            self.assertTrue(tar.getnames() and all(n.startswith(SNAP_NAME + "/") for n in tar.getnames()))
+        self.assertIn("logs/" + snaps[0].name, read_checksums(self.results))
+        rec = self.manifest()["obs"]["prom_snapshot"]
+        self.assertEqual((rec["name"], os.path.basename(rec["file"]), int(rec["bytes"])),
+                         (SNAP_NAME, snaps[0].name, snaps[0].stat().st_size))
+        self.assertIn("/admin/tsdb/snapshot", self.curl_log())
+        # In the calls: the snapshot's pull, then a fresh describe of bench-obs (its id re-check), then
+        # its --async delete.
+        calls = self.cloud.calls()
+        pulls = self.obs_snapshot_pulls()
+        deletes = [i for i in indices(calls, ("compute", "instances", "delete")) if is_call(calls[i], ("compute", "instances", "delete", OBS))]
+        self.assertEqual((len(pulls), len(deletes)), (1, 1))
+        self.assertIn(OBS_SNAP_CMD + SNAP_NAME + " | gzip -1", calls[pulls[0]]["argv"])
+        self.assertIn("--async", calls[deletes[0]]["argv"])
+        self.assertTrue([i for i in indices(calls, ("compute", "instances", "describe", OBS)) if pulls[0] < i < deletes[0]])
+        self.assertEqual(sorted(p.name for p in self.results.glob("tunnel*.pid")), [], "every tunnel pidfile is gone")
+
+    def test_a_run_without_bench_obs_warns_and_completes(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("⚠ bench-obs absent — no Prometheus snapshot", p.stderr)
+        self.assertIn("    - no bench-obs of this run: no snapshot", p.stdout)
+        self.assertEqual(self.obs_snapshot_pulls(), [])
+        self.assertNotIn("/admin/tsdb/snapshot", self.curl_log())
+        self.assertFalse(list((self.results / "logs").glob("bench-obs-prometheus-*")))
+        self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
+
+    def test_a_failed_bench_obs_describe_warns_apart_from_absent_and_completes(self):
+        # Not listed, and describe fails without "not found" (bench_obs_exists rc 2): no snapshot, the
+        # teardown goes on, and the warning says to re-run rather than that bench-obs is gone.
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", FAKE_DESCRIBE_TRANSIENT=OBS)
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("⚠ bench-obs describe failed (transient?) — no snapshot; if %s exists, re-run the teardown" % OBS,
+                      p.stderr)
+        self.assertIn("Internal error. Please try again", p.stderr, "the describe's stderr is shown")
+        self.assertNotIn("bench-obs absent", p.stderr)
+        self.assertEqual(self.obs_snapshot_pulls(), [])
+        self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
+
+    def test_a_failed_obs_snapshot_warns_and_the_gate_still_passes(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        self.obs_forwards_up()
+        p = self.teardown("--yes", FAKE_SSH_FAIL="/mnt/obs-data/prometheus/snapshots")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertTrue(self.obs_snapshot_pulls(), "the pull was tried")
+        self.assertFalse(list((self.results / "logs").glob("bench-obs-prometheus-*")), "nothing half-pulled is left")
+        self.assertNotIn("prom_snapshot", self.manifest().get("obs", {}))
+        self.assertEqual(self.manifest()["archive"]["kind"], "local")
+        self.assertNotIn("skipped_gate", self.manifest()["archive"])
+        self.assertEqual(self.done_line(p), (RUN, 2, 0, False))
+        self.assertNotIn(OBS, self.instance_names())
+
+    def test_another_runs_bench_obs_stops_before_anything(self):
+        self.give_every_node_its_logs()
+        self.obs_vm(run="r20991230-0000")
+        before = tree_files(self.results)
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("instance(s) are not labelled bench-run=%s (this teardown's run) — NOTHING was pulled or deleted"
+                      % RUN, p.stderr)
+        self.assertIn("   - %s: bench-run=r20991230-0000" % OBS, p.stderr)
+        self.assert_nothing_deleted(p)
+        self.assertIn(OBS, self.instance_names())
+        self.assertEqual([c for c in self.cloud.calls() if is_call(c, ("compute", "ssh"))], [])
+        self.assertEqual(self.curl_log(), "")
+        self.assertEqual(tree_files(self.results), before)
+
+    def test_bench_obs_in_another_zone_is_a_violation(self):
+        self.give_every_node_its_logs()
+        self.obs_vm(zone="us-east1-b")
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✗ VIOLATION: instance %s is in us-east1-b, not BENCH_OBS_ZONE=%s" % (OBS, ZONE), p.stderr)
+        self.assertIn("guard violation(s) — NOTHING was deleted", p.stderr)
+        self.assert_nothing_deleted(p)
+        self.assertEqual([c for c in self.cloud.calls() if is_call(c, ("compute", "ssh"))], [])
+
+    def test_bench_obs_listed_but_not_described_stops_before_any_pull(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        before = tree_files(self.results)
+        p = self.teardown("--yes", FAKE_DESCRIBE_TRANSIENT=OBS)
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("❌ %s is listed in %s but gcloud compute instances describe does not answer for it — NOTHING was "
+                      "pulled or deleted." % (OBS, ZONE), p.stderr)
+        self.assertNotIn(">>> node health", p.stdout)
+        self.assert_nothing_deleted(p)
+        self.assertEqual([c for c in self.cloud.calls() if is_call(c, ("compute", "ssh"))], [])
+        self.assertEqual(tree_files(self.results), before)
+
+    def test_obs_devnet_is_still_required_to_exist(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        self.obs_forwards_up()
+        insts = json.loads((self.cloud.state / "instances.json").read_text())
+        (self.cloud.state / "instances.json").write_text(json.dumps([i for i in insts if i["name"] != "obs-devnet"]))
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("      ✗ obs-devnet MISSING", p.stdout)
+        self.assertIn("❌ teardown left something behind", p.stderr)
+        self.assertEqual(self.done_line(p), (RUN, 2, 0, False))   # bench-obs went; obs-devnet is devnet's, never a candidate
+
+    def test_dry_run_lists_bench_obs_prints_its_forwards_and_snapshot_and_deletes_nothing(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        before = tree_files(self.results)
+        p = self.teardown()
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        out = p.stdout
+        cands = out[out.index(">>> instance candidates"):out.index("✓ no devnet instance is a candidate")]
+        self.assertIn("    - %s (%s)" % (OBS, ZONE), cands)
+        obs = out[out.index(">>> bench-obs: "):out.index(">>> node health")]
+        for local, remote in (("19090", "127.0.0.1:9090"), ("13000", "127.0.0.1:3000")):
+            self.assertIn("+ gcloud compute ssh %s --zone=%s --project=%s --tunnel-through-iap --ssh-flag=-N "
+                          "--ssh-flag=-L --ssh-flag=localhost:%s:%s ... &" % (OBS, ZONE, PROJECT, local, remote), obs)
+        self.assertEqual(obs.count("      (dry run — not executed)"), 2)
+        snap = out[out.index(">>> bench-obs Prometheus snapshot"):out.index(">>> log coverage")]
+        self.assertIn("    + curl -sS -XPOST http://127.0.0.1:19090/api/v1/admin/tsdb/snapshot\n", snap)
+        self.assertIn("%s/logs/bench-obs-prometheus-" % self.results, snap)
+        self.assertIn("'sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots <name> | gzip -1'", snap)
+        self.assertIn("      (dry run — not executed)", snap)
+        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async" % (OBS, ZONE, PROJECT),
+                      out)
+        for c in self.cloud.calls():
+            for words in MUTATIONS + (("compute", "ssh"),):
+                self.assertFalse(is_call(c, words), "dry run executed gcloud " + " ".join(c["argv"]))
+        self.assertEqual(self.curl_log(), "", "a dry run reaches no Prometheus")
+        self.assertEqual(tree_files(self.results), before)
+        self.assertIn(OBS, self.instance_names())
+        # left: the live node (labelled, named), bench-obs (labelled, named, bench-obs) and the run bucket
+        self.assertEqual(self.done_line(p), (RUN, 0, 6, True))
+
+    def test_the_bench_obs_data_disk_goes_by_its_run_label(self):
+        self.give_every_node_its_logs()
+        self.obs_vm()
+        self.obs_forwards_up()
+        zone_url = "projects/%s/zones/%s" % (PROJECT, ZONE)
+        disk = lambda name, **labels: {"name": name, "zone": zone_url, "labels": labels, "users": []}
+        (self.cloud.state / "disks.json").write_text(json.dumps([
+            disk(OBS + "-data", benchmark="1", **{"bench-run": RUN, "tn-role": "obs"}),   # its auto-delete failed
+            disk("bench-validator-07", benchmark="1", **{"bench-run": "r20991230-0000"}),   # another run's: kept
+            disk("scratch-1", **{"bench-run": RUN})]))   # this run's label alone: not a candidate, reported left
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        deleted = [c["argv"] for c in self.cloud.calls() if is_call(c, ("compute", "disks", "delete"))]
+        self.assertEqual([a[3] for a in deleted], [OBS + "-data"])
+        left = {d["name"] for d in json.loads((self.cloud.state / "disks.json").read_text())}
+        self.assertEqual(left, {"bench-validator-07", "scratch-1"})
+        self.assertIn("    ⚠ disk bench-validator-07 (%s) left: kept: belongs to another run (bench-run=r20991230-0000)"
+                      % ZONE, p.stdout)
+        self.assertIn("    ✗ disks labelled bench-run=%s (any name): 1 scratch-1" % RUN, p.stdout)
+        self.assertEqual(self.done_line(p), (RUN, 2, 1, False))
 
     def test_local_gate_passes_then_indexes_the_final_tree(self):
         self.give_every_node_its_logs()
@@ -1331,6 +1571,26 @@ class FakeGcloudTests(unittest.TestCase):
         p = self.gcloud(["auth", "print-access-token"], FAKE_AUTH="fail")
         self.assertEqual((p.returncode, p.stdout), (1, b""))
         self.assertIn(b"gcloud auth login", p.stderr)
+
+    def test_obs_snapshot_session_is_a_gzipped_tar_and_forwards_are_refused(self):
+        p = self.gcloud(["compute", "ssh", OBS, "--zone=" + ZONE, "--project=p", "--tunnel-through-iap",
+                         OBS_SNAP_CMD + "snapX | gzip -1"])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        with tarfile.open(fileobj=io.BytesIO(p.stdout), mode="r:gz") as tar:
+            names = tar.getnames()
+        self.assertTrue(names and all(n.startswith("snapX/") for n in names), names)
+        p = self.gcloud(["compute", "ssh", OBS, "--zone=" + ZONE, "--project=p", "--tunnel-through-iap",
+                         "--ssh-flag=-N", "--ssh-flag=-L", "--ssh-flag=localhost:19090:127.0.0.1:9090"])
+        self.assertEqual((p.returncode, p.stdout), (255, b""))
+
+    def test_disks_list_and_delete(self):
+        self.assertEqual(json.loads(self.gcloud(["compute", "disks", "list"]).stdout), [])
+        d = {"name": "bench-obs-data", "zone": "projects/p/zones/" + ZONE, "labels": {"bench-run": RUN}, "users": []}
+        (self.cloud.state / "disks.json").write_text(json.dumps([d]))
+        self.assertEqual(json.loads(self.gcloud(["compute", "disks", "list"]).stdout), [d])
+        self.assertEqual(self.gcloud(["compute", "disks", "delete", "nope", "--zone=" + ZONE]).returncode, 1)
+        self.assertEqual(self.gcloud(["compute", "disks", "delete", d["name"], "--zone=" + ZONE, "--quiet"]).returncode, 0)
+        self.assertEqual(json.loads(self.gcloud(["compute", "disks", "list"]).stdout), [])
 
     def test_async_delete_is_found_for_n_describes_then_not_found(self):
         zone_url = "projects/p/zones/" + ZONE

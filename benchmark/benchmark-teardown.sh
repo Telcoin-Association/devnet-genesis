@@ -3,7 +3,7 @@
 # benchmark-teardown.sh — remove everything the benchmark created, and prove it.
 #
 # Candidates (each re-proven before anything is deleted):
-#   instances   bench INSTANCE_NAMES ∪ every instance labelled benchmark=1
+#   instances   bench INSTANCE_NAMES ∪ every instance labelled benchmark=1 (bench-obs among them)
 #   firewall    BENCH_FIREWALL_RULES (only if they target exactly bench-node + say benchmark=1)
 #   buckets     every bucket labelled benchmark=1 or named tn-devnet-bench-* (copied into
 #               results/<run>/bucket/ first; a non-empty bucket whose copy failed is LEFT)
@@ -13,12 +13,17 @@
 #   secrets     bench-txgen-* — KEPT unless --purge
 #   contracts   the tn-contracts worktree benchmark/work/tn-contracts + bench/r* branches with
 #               no commits of their own
-#   tunnels     local `gcloud compute start-iap-tunnel ... 18545` processes
+#   tunnels     local `gcloud compute start-iap-tunnel ... 18545` processes, and the two bench-obs
+#               forwards (BENCH_OBS_PROM_LOCAL_PORT, BENCH_OBS_GRAFANA_LOCAL_PORT)
 #   local       benchmark/genesis/ is moved into results/<run>/genesis/
 #
 # First a CREDENTIAL CHECK: `gcloud auth print-access-token` must answer within 60 s, or the
 # teardown stops before any pull or delete and says to run `gcloud auth login` (a long pull that
 # outlives the session cannot finish, and a half-pulled fleet is the worst place to find out).
+# BENCH-OBS (BENCH_OBS_INSTANCE in BENCH_OBS_ZONE) holds the run's metrics. When it exists, its two local
+# forwards come up first (bench_obs_tunnel_up; in a dry run, their plan lines), so the Prometheus reads
+# below go through them; a run without it warns and goes on with no snapshot. An instance listed under
+# that name that describe cannot find stops the teardown with nothing pulled or deleted.
 # Before the first delete: a Prometheus health table per node (mode, failed batch reports,
 # consensus round; informs, never blocks), then the LOG GATE — every fleet node's logs are
 # pulled to results/<run>/logs/ from three sources (current container, logs saved on the
@@ -43,8 +48,10 @@
 # Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
 # runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
 # window gets a cert-fail log snapshot saved on the node and pulled, listed in
-# manifest.cert_failures[].logs[]. Then the COVERAGE GATE: every fleet node's pulled logs must
-# span the run, its earliest line at or before manifest coordinated_start.due and its latest at or
+# manifest.cert_failures[].logs[]. Then bench-obs's Prometheus TSDB snapshot is pulled into
+# logs/bench-obs-prometheus-<UTC>.tar.gz (bench_obs_prom_snapshot_pull; warn-only, BENCH_OBS_PULL_PROM=0
+# skips it), so the gates below see it and index it; neither requires it.
+# Then the COVERAGE GATE: every fleet node's pulled logs must span the run, its earliest line at or before manifest coordinated_start.due and its latest at or
 # after timestamps.blast_end (one LOGCOV line per node from bench_log_coverage_check, recorded as
 # manifest.log_coverage[]). A node whose logs start late or end early stops the teardown with nothing
 # deleted, and so does a live node with no recorded span when the run's start and end are known;
@@ -59,7 +66,9 @@
 # local, path, verified_at, files, bytes). A missing file stops the teardown with nothing deleted,
 # naming every one; BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes anyway and notes it in the manifest
 # (archive.skipped_gate). The harness never deletes a node log.
-# Deletes: each instance is deleted with --async right after its id is re-checked, then one loop
+# Deletes: each instance (bench-obs too, after the local gate and every Prometheus read; its boot and data
+# disks auto-delete with it, else the orphan-disk step deletes them by their bench-run label) is deleted
+# with --async right after its id is re-checked, then one loop
 # describes every instance still deleting every 10 s until each is gone or
 # BENCH_TEARDOWN_DELETE_WAIT_SECS (default 600) have passed; one still there is reported, listed in
 # manifest teardown_pending[] and counted by the left-nothing checks. manifest timestamps.teardown_start
@@ -76,9 +85,9 @@
 # with " dry_run=1" appended in a dry run.
 #
 # Instance rule: labels.benchmark == "1" AND (name ∈ bench INSTANCE_NAMES OR name ~
-# ^bench-(blaster|funder)) AND name ∉ the devnet denylist (INSTANCE_NAMES of a clean
-# ../config.sh + obs-devnet txgen-devnet devnet-indexer). ANY violation aborts the whole
-# teardown before a single delete.
+# ^bench-(blaster|funder) OR name == BENCH_OBS_INSTANCE, in BENCH_OBS_ZONE) AND name ∉ the devnet
+# denylist (INSTANCE_NAMES of a clean ../config.sh + obs-devnet txgen-devnet devnet-indexer; obs-devnet
+# is devnet's, never the bench's). ANY violation aborts the whole teardown before a single delete.
 #
 # Run rule: results/<run>/ must exist (the teardown never creates it) and every candidate
 # instance must carry labels.bench-run == <run>; otherwise it stops before anything is pulled,
@@ -261,9 +270,13 @@ while IFS= read -r row; do
     labelled="$(printf '%s' "${ALL_INST}" | jq -r --arg n "${name}" '.[] | select(.name == $n) | .labels.benchmark // ""')"
     ok_name=0
     bench_in_list "${name}" "${INSTANCE_NAMES[@]}" && ok_name=1
-    case "${name}" in bench-blaster-*|bench-funder*) ok_name=1 ;; esac
+    case "${name}" in bench-blaster-*|bench-funder*|"${BENCH_OBS_INSTANCE}") ok_name=1 ;; esac
     if [ "${labelled}" != "1" ]; then violate "instance ${name} lacks labels.benchmark=1"; continue; fi
-    if [ "${ok_name}" -ne 1 ]; then violate "instance ${name} is labelled benchmark=1 but is not a bench node/blaster/funder name"; continue; fi
+    if [ "${ok_name}" -ne 1 ]; then violate "instance ${name} is labelled benchmark=1 but is not a bench node/blaster/funder/obs name"; continue; fi
+    # Every bench-obs call (forwards, snapshot) names BENCH_OBS_ZONE: one elsewhere is not the run's.
+    if [ "${name}" = "${BENCH_OBS_INSTANCE}" ] && [ "${zone}" != "${BENCH_OBS_ZONE}" ]; then
+        violate "instance ${name} is in ${zone}, not BENCH_OBS_ZONE=${BENCH_OBS_ZONE}"; continue
+    fi
     if bench_in_list "${name}" "${DENY[@]}"; then violate "instance ${name} is on the devnet denylist"; continue; fi
     if bench_is_protected "${name}"; then violate "instance ${name} matches ${BENCH_PROTECTED_RE}"; continue; fi
     CAND_INST+=("${zone} ${name}")
@@ -361,8 +374,10 @@ for c in "${CAND_DISK[@]+"${CAND_DISK[@]}"}"; do read -r dz dn dl <<< "${c}"; ec
 # --- local / git / IAM ------------------------------------------------------------------------
 # Both tunnel transports (bench_tunnel_up): the ssh-forward supervisor (its $0, which restarts the
 # session when it drops, so it must die first), its gcloud/ssh child (the expanded -L spec), and the
-# old websocket tunnel.
+# old websocket tunnel. Then the gcloud/ssh children of the two bench-obs forwards (bench_obs_tunnel_up,
+# under the same supervisor), by their local ports.
 TUNNEL_PAT="tn-bench-tunnel-supervisor|localhost:${BENCH_TUNNEL_PORT}:127\.0\.0\.1:8545|start-iap-tunnel.*${BENCH_TUNNEL_PORT}"
+TUNNEL_PAT="${TUNNEL_PAT}|localhost:${BENCH_OBS_PROM_LOCAL_PORT}:|localhost:${BENCH_OBS_GRAFANA_LOCAL_PORT}:"
 TUNNEL_PIDS="$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | tr '\n' ' ' || true)"
 echo ">>> IAP tunnel pids: ${TUNNEL_PIDS:-none}"
 WT_PRESENT=0; [ -e "${BENCH_CONTRACTS_WORKTREE}" ] && WT_PRESENT=1
@@ -389,6 +404,41 @@ if [ "${#VIOLATIONS[@]}" -gt 0 ]; then
     exit 1
 fi
 
+# ================================ bench-obs (read before any delete) ======================
+# bench-obs holds the run's metrics. The health table and the Prometheus snapshot below read it
+# through the two local forwards brought up here (a dry run prints their plan lines); it is deleted
+# with the fleet, after the local gate. OBS_CAND is its candidate row ("<zone> <name>") when listed;
+# OBS_UP=1 once bench_obs_exists answers for it too (it then gets a GATE_IDS row after the load-VM gate).
+# bench_obs_exists: rc 0 found, 1 not found, 2 the describe itself failed (its stderr is shown).
+OBS_CAND=""; OBS_UP=0; obs_rc=0
+for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do [ "${c#* }" != "${BENCH_OBS_INSTANCE}" ] || OBS_CAND="${c}"; done
+echo ""
+echo ">>> bench-obs: ${BENCH_OBS_INSTANCE} (${BENCH_OBS_ZONE}), the run's Prometheus, read before any delete"
+bench_obs_exists || obs_rc=$?
+if [ "${obs_rc}" -eq 0 ]; then
+    if [ -n "${OBS_CAND}" ]; then
+        OBS_UP=1
+        { bench_obs_urls && bench_obs_tunnel_up; } \
+            || bench_warn "bench-obs forwards not up — the health table and the Prometheus snapshot may find nothing; teardown continues"
+    else
+        bench_warn "${BENCH_OBS_INSTANCE} exists but is not labelled benchmark=1 — not this run's: no Prometheus snapshot, not deleted"
+    fi
+elif [ -n "${OBS_CAND}" ]; then
+    # Listed above, yet describe does not answer for it: no snapshot, and no row its delete could be
+    # re-checked against. Stop before the first pull rather than in the middle of the deletes.
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        echo "" >&2
+        echo "❌ ${BENCH_OBS_INSTANCE} is listed in ${BENCH_OBS_ZONE} but gcloud compute instances describe does not answer for it — NOTHING was pulled or deleted." >&2
+        echo "   Re-run the teardown (a transient gcloud failure clears), or look at the instance by hand." >&2
+        exit 1
+    fi
+    echo "    ✗ listed, but describe does not answer for it: with --yes the teardown stops here, before any pull or delete"
+elif [ "${obs_rc}" -eq 1 ]; then
+    bench_warn "bench-obs absent — no Prometheus snapshot"
+else
+    bench_warn "bench-obs describe failed (transient?) — no snapshot; if ${BENCH_OBS_INSTANCE} exists, re-run the teardown"
+fi
+
 # ================================ node health + logs (before any delete) ==================
 # A node's container log dies with its VM, so the health table and the log gate come first.
 # prom_get <json|""> <node> <absent> — the node's value; "?" when the query failed ("").
@@ -413,7 +463,7 @@ health_table() {
     rounds="$(bench_prom_rounds max)"
     [ -z "${rounds}" ] || rounds="$(printf '%s' "${rounds}" | jq -c 'map_values((. / 100000000 | floor) as $e | "\($e)/\(. - $e * 100000000)")')"
     if [ -z "${modes}${fails}${rounds}" ]; then
-        echo "    ⚠ Prometheus not reachable via ${BENCH_GRAFANA_URL} — no health table; teardown continues"
+        echo "    ⚠ Prometheus not reachable via $([ "${BENCH_PROM_AUTH:-0}" = 0 ] && echo "${BENCH_PROM_URL}" || echo "${BENCH_GRAFANA_URL}") — no health table; teardown continues"
         return 0
     fi
     printf '    %-20s %-9s %-14s %10s  %-12s\n' node role mode failed_rpt epoch/round
@@ -515,6 +565,9 @@ if [ "${#LOAD_BAD[@]}" -gt 0 ]; then
         echo "    ✗ with --yes the teardown stops here, before any pull or delete: ${LOAD_BAD[*]} (collect first: benchmark/benchmark-blast.sh collect --run ${BENCH_RUN_ID} --yes)"
     fi
 fi
+# bench-obs owes no file: its metrics leave in the Prometheus snapshot pulled before the gates (warn-only).
+# Its row lets the delete loop re-check its id like every other instance's; without one it is not deleted.
+[ "${OBS_UP}" -ne 1 ] || GATE_IDS="${GATE_IDS}${OBS_CAND} $(inst_id "${OBS_CAND%% *}" "${OBS_CAND#* }")"$'\n'
 
 # Log gate. The helper walks INSTANCE_NAMES and re-pulls an existing log under a new name, so
 # it gets a narrowed fleet in a subshell: live instances not saved yet. "Saved" means a marker
@@ -638,6 +691,19 @@ bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certi
 bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
 stop_if_reauth "the certification snapshots"
 
+# ================================ bench-obs Prometheus snapshot (before the gates) ========
+# The run's metrics go with bench-obs: a TSDB snapshot lands in logs/ now, so the coverage and local
+# gates below see it and INDEX.md / CHECKSUMS.sha256 list it. Neither gate requires it: the pull
+# warns and returns 0 whatever happens (BENCH_OBS_PULL_PROM=0 skips it); a dry run prints its argv.
+echo ""
+echo ">>> bench-obs Prometheus snapshot -> ${LOG_DIR} (informs, never blocks)"
+if [ "${OBS_UP}" -ne 1 ]; then
+    echo "    - no bench-obs of this run: no snapshot"
+else
+    bench_obs_prom_snapshot_pull "${LOG_DIR}" || bench_warn "bench-obs Prometheus snapshot not pulled — teardown continues"
+    stop_if_reauth "the Prometheus snapshot"
+fi
+
 # ================================ log coverage (before the local gate) ====================
 # D19: presence is not coverage. logrotate moved bench 3's first hours into telcoin.log.1 and the
 # teardown pulled only the live file, so the nodes were deleted with their logs starting 70-90 min
@@ -746,13 +812,17 @@ fi
 # ================================ delete ==================================================
 echo ""
 echo ">>> plan / execution"
+# The bench-obs forwards came up after the listing above: look again (Prometheus is not read after this).
+[ "${BENCH_APPLY}" != "1" ] || TUNNEL_PIDS="$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | tr '\n' ' ' || true)"
 if [ -n "${TUNNEL_PIDS}" ]; then
-    # the pidfile's process group first (supervisor + child together), then whatever is left
+    # the pidfiles' process groups first (supervisor + child together; bench_tunnel_down stops every
+    # tunnel*.pid, the bench-obs forwards' too), then whatever is left
     [ "${BENCH_APPLY}" = "1" ] && bench_tunnel_down
     # shellcheck disable=SC2086  # pid list
     bench_run kill ${TUNNEL_PIDS} || true
 fi
-[ "${BENCH_APPLY}" = "1" ] && rm -f "$(bench_tunnel_pidfile)"
+# Every tunnel process found was stopped above: a pidfile still here names a dead one.
+[ "${BENCH_APPLY}" = "1" ] && rm -f "$(bench_tunnel_pidfile)" "${BENCH_RESULTS_DIR}"/tunnel*.pid
 # D21: timestamps.teardown_start is the first teardown's; a re-run of a run whose teardown already
 # reached this point appends {start, done} to teardown_reruns[] instead of moving it.
 TD_START="$(bench_now_iso)"
@@ -970,12 +1040,18 @@ now_inst="$(gcloud compute instances list --project="${PROJECT_ID}" --format=jso
 chk "instances labelled benchmark=1" "$(printf '%s' "${now_inst}" | jq '[.[] | select((.labels.benchmark // "") == "1")] | length')" \
     "$(printf '%s' "${now_inst}" | jq -r '[.[] | select((.labels.benchmark // "") == "1") | .name] | join(",")')"
 chk "instances named bench-*" "$(printf '%s' "${now_inst}" | jq '[.[] | select(.name | test("^bench-"))] | length')"
+chk "bench-obs (${BENCH_OBS_INSTANCE})" "$(printf '%s' "${now_inst}" | jq --arg n "${BENCH_OBS_INSTANCE}" '[.[] | select(.name == $n)] | length')"
 chk "firewall rules ^bench- or targeting bench-node" "$(gcloud compute firewall-rules list --project="${PROJECT_ID}" --format=json \
     | jq '[.[] | select((.name | test("^bench-")) or ((.targetTags // []) | index("bench-node")))] | length')"
 chk "buckets labelled benchmark=1 / named tn-devnet-bench-*" "$(bench_bucket_names | grep -c . || true)" "${LEFT_BKT[*]:+(backup failed, left: ${LEFT_BKT[*]})}"
 chk "disks of run ${BENCH_RUN_ID} (labelled benchmark=1 / named bench-*)" "$(list_disks | awk -v r="${BENCH_RUN_ID}" '$3 == r' | grep -c . || true)"
 list_disks | awk -v r="${BENCH_RUN_ID}" '$3 != r' | while read -r dz dn dl du; do echo "    ⚠ disk ${dn} (${dz}) left: $(disk_fate "${dl}")"; done
-chk "local IAP tunnels on :${BENCH_TUNNEL_PORT} (supervisor, ssh forward or websocket)" "$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | grep -c . || true)"
+# Whatever the name: bench-obs's boot and data disks carry the run's label and go with it.
+run_disks="$(gcloud compute disks list --project="${PROJECT_ID}" --format=json 2>/dev/null \
+    | jq -r --arg r "${BENCH_RUN_ID}" '[.[] | select((.labels["bench-run"] // "") == $r) | .name] | "\(length) \(join(","))"')" \
+    || run_disks="? (the disk list failed)"
+chk "disks labelled bench-run=${BENCH_RUN_ID} (any name)" "${run_disks%% *}" "${run_disks#* }"
+chk "local IAP tunnels on :${BENCH_TUNNEL_PORT}, :${BENCH_OBS_PROM_LOCAL_PORT}, :${BENCH_OBS_GRAFANA_LOCAL_PORT} (supervisor, ssh forward or websocket)" "$(pgrep -f "${TUNNEL_PAT}" 2>/dev/null | grep -c . || true)"
 chk "contracts worktree" "$([ -e "${BENCH_CONTRACTS_WORKTREE}" ] && echo 1 || echo 0)" "${BENCH_CONTRACTS_WORKTREE}"
 chk "bench/r* branches" "$(git -C "${BENCH_CONTRACTS_SRC_DIR}" for-each-ref --format=x 'refs/heads/bench/r*' 2>/dev/null | grep -c . || true)"
 acc=0
