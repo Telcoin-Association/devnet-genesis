@@ -5,8 +5,11 @@ three-node fleet, two validators and one observer (fixtures/finalize/config.sh i
 A fake gcloud (fixtures/finalize/gcloud.py) is first on PATH: it keeps each node's telcoin unit on
 disk (installed, ActiveState, UnitFileState, NRestarts, container), answers every probe by its
 `# tn-probe: <name>` line, logs each call (argv, stdin, probe arguments) and each unit state change,
-and can be told per node to drop ssh (rc 255) N times for one kind of call, fail finalize, leave a
-stopped unit `failed`, keep its container running, hang a start-at probe, or report a late start.
+and can be told per node to drop ssh (rc 255) N times for one kind of call, fail an IP describe
+(rc 1), fail finalize, leave a stopped unit `failed`, keep its container running, hang a start-at
+probe, or report a late start. It also logs each call's return, so FINALIZE_JOBS runs are judged
+by counting sessions (in flight at once, one after another), never by timing, and can hold the
+nodes' calls in lockstep so parallel nodes provably overlap.
 A python3 shim (fixtures/finalize/python3.sh) answers the PyYAML check and devnet-network-config.py
 validate; the raw-shape half of the gate's network-config check runs for real on
 fixtures/finalize/network-config.yaml. Nothing reaches GCP, ssh or a network.
@@ -14,6 +17,7 @@ fixtures/finalize/network-config.yaml. Nothing reaches GCP, ssh or a network.
 The tests find the scripts and fixtures relative to their own location: check_mutations.py copies
 this module and what it reads into a temporary tree laid out like the repo.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +32,10 @@ import unittest
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parents[1]
 FIX = TESTS / "fixtures" / "finalize"
+BASELINE = FIX / "baseline-knobs-unset.json"
+# test_network_config's five-node fleet (read only): committee.yaml, validators/, observers/.
+NC_FLEET = TESTS / "fixtures" / "network-config" / "fleet"
+TRUST = "--trust-observers-everywhere"
 
 # Scripts the run sources or hands to python3 (the shim checks that the validator is there),
 # relative to the repo root. The real config.sh is not read: CONFIG_FILE is the fixture's.
@@ -174,6 +182,36 @@ class FinalizeCase(unittest.TestCase):
             peak = max(peak, len(active))
         return peak
 
+    def reset_fleet(self):
+        """A fresh fleet with empty logs, for a second run in the same test."""
+        shutil.rmtree(str(self.sb))
+        for sub in ("state", "faults"):
+            (self.sb / sub).mkdir(parents=True)
+
+    def lockstep(self, n):
+        """Every node's k-th call waits for n nodes' k-th calls (see fixtures/finalize/gcloud.py)."""
+        (self.sb / "lockstep.json").write_text(json.dumps({"n": n, "secs": 20}))
+
+    def sessions(self):
+        """(most calls in flight at once, most calls one after another) from each call's span,
+        calls.jsonl to ends.jsonl by seq: counted, not timed. The second is the longest chain of
+        calls each of which began after the one before it had returned: a serial run's every call."""
+        ends = {e["call"]: e["seq"] for e in self.jsonl("ends.jsonl")}
+        spans = sorted((ends.get(c["seq"], float("inf")), c["seq"]) for c in self.calls())
+        chain, last = 0, 0
+        for end, begin in spans:
+            if begin > last:
+                chain, last = chain + 1, end
+        peak = live = 0
+        for _, step in sorted([(b, 1) for _, b in spans] + [(e, -1) for e, _ in spans if e != float("inf")]):
+            live += step
+            peak = max(peak, live)
+        return peak, chain
+
+    def by_node(self):
+        """Each node's calls (kind, argv, stdin), in its own order."""
+        return {inst: [(c["kind"], c["argv"], c["stdin"]) for c in self.calls(inst=inst)] for inst in INSTS}
+
     def validate_calls(self):
         f = self.sb / "validate.log"
         if not f.exists():
@@ -215,6 +253,29 @@ class FinalizeCase(unittest.TestCase):
             return ""
         out, err = ("\n".join(text.splitlines()[-40:]) for text in (p.stdout, p.stderr))
         return "\nrc %d\n--- stdout (tail)\n%s\n--- stderr (tail)\n%s" % (p.returncode, out, err)
+
+    def normalized(self):
+        """The last run as the baseline records it: rc, stdout and stderr lines, and every gcloud call
+        (argv, stdin) in call order, with the fixtures dir (<FIX>), the repo (<REPO>), the sandbox
+        root (<ROOT>), the WORK dir name and unix times replaced, so the snapshot holds no host
+        path and matches in any checkout. An argument longer than 160 characters (a probe's
+        text) is kept as its sha256."""
+        places = ((str(FIX), "<FIX>"), (str(REPO), "<REPO>"), (str(self.root), "<ROOT>"))
+
+        def norm(text):
+            for where, name in places:
+                text = text.replace(where, name)
+            text = re.sub(r"tn-finalize\.[A-Za-z0-9]+", "tn-finalize.<X>", text)
+            return re.sub(r"\b1[0-9]{9}\b", "<unix>", text)
+
+        def arg(a):
+            a = norm(a)
+            if len(a) <= 160:
+                return a
+            return "<sha256:%s len=%d>" % (hashlib.sha256(a.encode("utf-8")).hexdigest(), len(a))
+        return {"rc": self.last.returncode, "stdout": norm(self.last.stdout).splitlines(),
+                "stderr": norm(self.last.stderr).splitlines(),
+                "calls": [{"argv": [arg(a) for a in c["argv"]], "stdin": norm(c["stdin"])} for c in self.calls()]}
 
     def assertExit(self, rc):
         self.assertEqual(self.last.returncode, rc, self.why())
@@ -264,6 +325,22 @@ class UsageTests(FinalizeCase):
     def test_unknown_target(self):
         for args in (["node9"], ["--start-all", "fin-validator-9"], ["0", "7"], ["--verify", "node"]):
             self.refused(args, text="unknown target")
+
+    def test_trust_knob_that_is_not_0_or_1(self):
+        for value in ("2", "yes", " 1", "true"):
+            self.refused([], {"NETCFG_TRUST_OBSERVERS_EVERYWHERE": value},
+                         text="NETCFG_TRUST_OBSERVERS_EVERYWHERE must be 0 or 1")
+
+    def test_jobs_knob_that_is_not_a_whole_number_of_nodes(self):
+        for value in ("0", "00", "abc", "-1", "1.5", "2 "):
+            self.refused([], {"FINALIZE_JOBS": value}, text="FINALIZE_JOBS must be a whole number of nodes")
+
+    def test_jobs_that_could_run_a_quorum_refuse_the_staged_modes(self):
+        # Two validators: a quorum is 2, so two units running at once between finalize and
+        # stop could form it. The other modes start nothing in parallel and take any number.
+        for mode in ("--stage-only", "--defer-start"):
+            self.refused([mode], {"FINALIZE_JOBS": "2"}, text="a quorum (2) of this fleet's 2 validators")
+        self.assertIn("use FINALIZE_JOBS=1 or less", self.last.stderr)
 
     def test_knob_that_is_not_whole_seconds(self):
         for knob, value in (("FINALIZE_START_LEAD_SECS", "abc"), ("FINALIZE_START_LAUNCH_GAP_SECS", "0.5"),
@@ -801,5 +878,280 @@ class VerifyTests(FinalizeCase):
         self.assertIn("✗ [node2] A1 service: no answer from fin-validator-2 (ssh rc 255)", p.stdout)
 
 
+class JobsTests(FinalizeCase):
+    """FINALIZE_JOBS: 1 is the serial run byte for byte; N > 1 runs phase A, then phase B, on up
+    to N nodes at once, and prints each node's lines in target order once it is done."""
+
+    WHOLE = len(PHASE_A) + len(PHASE_B)   # one node's calls in a default run
+
+    def three_validators(self):
+        """CONFIG_FILE for the same three nodes, all validators (a quorum is 3, so 2 jobs may stage)."""
+        cfg = self.root / "config-3v.sh"
+        cfg.write_text('. "${FIN_FIX}/config.sh"\nexport NODE_ROLES=("validator" "validator" "validator")\n')
+        return str(cfg)
+
+    def test_one_job_is_the_serial_run_byte_for_byte(self):
+        for args in ((), ("--stage-only",)):
+            with self.subTest(args=args):
+                self.reset_fleet()
+                base = self.finalize(*args)
+                self.assertExit(0)
+                calls = [(c["argv"], c["stdin"]) for c in self.calls()]
+                self.reset_fleet()
+                one = self.finalize(*args, FINALIZE_JOBS="1")
+                self.assertExit(0)
+                self.assertEqual(one.stdout, base.stdout)
+                self.assertEqual(one.stderr, base.stderr)
+                self.assertEqual([(c["argv"], c["stdin"]) for c in self.calls()], calls)
+                self.assertEqual(self.sessions(), (1, len(calls)))
+
+    def test_three_jobs_print_the_serial_lines_in_target_order_in_fewer_sequential_sessions(self):
+        base = self.finalize()
+        self.assertExit(0)
+        calls = self.by_node()
+        self.assertEqual(self.sessions(), (1, 3 * self.WHOLE))
+        self.reset_fleet()
+        self.lockstep(3)
+        p = self.finalize(FINALIZE_JOBS="3")
+        self.assertExit(0)
+        self.assertEqual(p.stdout, base.stdout, "the per-node lines, in target order")
+        self.assertEqual(self.by_node(), calls)
+        self.assertEqual({e["lockstep_met"] for e in self.jsonl("ends.jsonl")}, {True},
+                         "a node's call waited for the others: the nodes did not run at once")
+        # The nodes' calls overlap rank by rank: one node's worth of sessions one after another.
+        self.assertEqual(self.sessions(), (3, self.WHOLE))
+        for phase in ("A", "B"):
+            self.assertIn(">>> phase %s: 3 node(s), at most 3 at a time (FINALIZE_JOBS)" % phase, p.stderr)
+        self.assertIn("all targeted nodes finalized, started, enabled and verified.", p.stdout)
+
+    def test_two_jobs_never_run_three_nodes_at_once(self):
+        # Lockstep for two: node1 and node2 overlap call by call; node3 waits for a free slot.
+        self.lockstep(2)
+        p = self.finalize(FINALIZE_JOBS="2")
+        self.assertExit(0)
+        peak, chain = self.sessions()
+        self.assertEqual(peak, 2)
+        self.assertLess(chain, 3 * self.WHOLE)
+        # node3 begins once node1, the oldest job, has returned from its last phase A call.
+        ends = {e["call"]: e["seq"] for e in self.jsonl("ends.jsonl")}
+        node1_a = [c for c in self.calls(inst=INSTS[0]) if c["kind"] in PHASE_A]
+        self.assertGreater(self.calls(inst=INSTS[2])[0]["seq"], max(ends[c["seq"]] for c in node1_a))
+        self.assertEqual([[k for k, _, _ in v] for v in self.by_node().values()], [list(PHASE_A + PHASE_B)] * 3)
+        self.assertIn(">>> phase A: 3 node(s), at most 2 at a time (FINALIZE_JOBS)", p.stderr)
+        self.assertIn("finalized + verified (3):\n  - node1 (telcoin)\n  - node2 (telcoin)\n  - node3 (telcoin)\n",
+                      p.stdout)
+
+    def test_stage_only_jobs_stop_each_node_and_print_the_serial_lines(self):
+        # The bench's step: --stage-only with jobs. Every node is still stopped (M2's
+        # _defer_stop, inside its job) and no more than two units are ever active at once.
+        cfg = self.three_validators()
+        base = self.finalize("--stage-only", CONFIG_FILE=cfg)
+        self.assertExit(0)
+        calls = self.by_node()
+        self.reset_fleet()
+        p = self.finalize("--stage-only", CONFIG_FILE=cfg, FINALIZE_JOBS="2")
+        self.assertExit(0)
+        self.assertEqual(p.stdout, base.stdout)
+        self.assertEqual(self.by_node(), calls)
+        self.assertEqual(self.lines("STAGED"), ["STAGED %s state=inactive enabled=enabled" % i for i in INSTS])
+        self.assertEqual([[k for k, _, _ in v] for v in calls.values()], [list(STAGE)] * 3)
+        self.assertLessEqual(self.peak_active(), 2)
+        for i in range(3):
+            self.assertEqual(self.unit(i), (True, "inactive", "enabled"))
+        self.assertIn("staged: finalized, then stopped, enabled (3):", p.stdout)
+
+    def test_a_failed_node_fails_alone_and_reads_as_the_serial_run(self):
+        self.fault(1, describe_fails={"internal": 1})
+        base = self.finalize()
+        self.assertExit(1)
+        self.reset_fleet()
+        self.fault(1, describe_fails={"internal": 1})
+        p = self.finalize(FINALIZE_JOBS="3")
+        self.assertExit(1)
+        self.assertEqual(p.stdout, base.stdout)
+        self.assertIn("failed (1):\n  - node2: internal IP\n", p.stdout)
+        self.assertEqual([self.unit(i)[1] for i in range(3)], ["active", "inactive", "active"])
+
+    def test_a_job_that_stops_under_set_e_fails_its_node_not_the_run(self):
+        # A copy of the script without D4's `|| intIP=""`: node2's describe (rc 1) ends its
+        # job under `set -e`. Serial, that ends the run; in a job, it fails node2 alone.
+        script = self.tree / "devnet-finalize.sh"
+        text = script.read_text()
+        line = 'intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""'
+        self.assertEqual(text.count(line), 1, "the internal-IP line moved")
+        script.write_text(text.replace(line, 'intIP="$(tn_node_int_ip "${inst}" "${zone}")"'))
+        self.fault(1, describe_fails={"internal": 1})
+        p = self.finalize(FINALIZE_JOBS="3")
+        self.assertExit(1)
+        self.assertIn("❌ [node2] phase A: the node's job ended without an outcome (see its lines above)", p.stdout)
+        self.assertIn("failed (1):\n  - node2: phase A job ended early\n", p.stdout)
+        self.assertIn("finalized + verified (2):\n  - node1 (telcoin)\n  - node3 (telcoin)\n", p.stdout)
+        self.assertEqual([c["kind"] for c in self.calls(inst=INSTS[1])], list(PHASE_A[:6]))
+
+
+class TrustEverywhereTests(FinalizeCase):
+    """NETCFG_TRUST_OBSERVERS_EVERYWHERE (bench 4 review B1): the gate and A3 validate each node's
+    network-config with the trust context devnet-network-config.sh rendered it with."""
+
+    INSTS5 = ("fin-validator-1", "fin-validator-2", "fin-validator-3", "fin-observer-4", "fin-observer-5")
+
+    def test_the_knob_puts_the_flag_on_every_validate_call(self):
+        for value, want in ((None, False), ("0", False), ("1", True)):
+            with self.subTest(knob=value):
+                self.reset_fleet()
+                self.finalize(NETCFG_TRUST_OBSERVERS_EVERYWHERE=value)
+                self.assertExit(0)
+                checked = self.validate_calls()
+                self.assertEqual(len(checked), 6, "the gate and A3 on each of three nodes")
+                self.assertEqual([TRUST in args for args in checked], [want] * 6)
+
+    def five_nodes(self):
+        """CONFIG_FILE for test_network_config's fleet (node1-3 validators, node1 the hub, node4-5
+        observers), its genesis files in the workspace, and each node's trust-everywhere render
+        from the real devnet-network-config.py, kept for place_renders()."""
+        gen = self.workspace / "genesis"
+        shutil.copyfile(str(NC_FLEET / "committee.yaml"), str(gen / "committee.yaml"))
+        for sub in ("validators", "observers"):
+            shutil.copytree(str(NC_FLEET / sub), str(gen / sub))
+        self.renders = self.root / "rendered"
+        r = subprocess.run([sys.executable, str(self.tree / "devnet-network-config.py"), "render",
+                            "--committee", str(gen / "committee.yaml"), "--genesis-dir", str(gen),
+                            "--nodes", "node1=validator,node2=validator,node3=validator,node4=observer,node5=observer",
+                            "--hub", "node1", TRUST, "--out-dir", str(self.renders)],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = self.root / "config-5.sh"
+        cfg.write_text('. "${FIN_FIX}/config.sh"\n'
+                       'export INSTANCE_NAMES=(%s)\n' % " ".join('"%s"' % i for i in self.INSTS5)
+                       + 'export NODE_ROLES=("validator" "validator" "validator" "observer" "observer")\n'
+                       'export ZONES=("zone-a1" "zone-b1" "zone-c1" "zone-d1" "zone-e1")\n'
+                       'export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")\n'
+                       'export EXECUTION_ADDRESSES=(%s)\n' % " ".join('"0x%s"' % (d * 40) for d in "12345"))
+        return str(cfg)
+
+    def place_renders(self):
+        (self.sb / "nc").mkdir()
+        for k, inst in enumerate(self.INSTS5):
+            shutil.copyfile(str(self.renders / ("node%d.yaml" % (k + 1))), str(self.sb / "nc" / (inst + ".yaml")))
+
+    def test_the_real_validator_passes_trust_everywhere_files_only_with_the_knob(self):
+        cfg = self.five_nodes()
+        self.place_renders()
+        p = self.finalize(CONFIG_FILE=cfg, FIN_REAL_VALIDATE="1", NETCFG_TRUST_OBSERVERS_EVERYWHERE="1")
+        self.assertExit(0)
+        checked = self.validate_calls()
+        self.assertEqual(sorted(a[a.index("--node") + 1] for a in checked), sorted(["node%d" % k for k in range(1, 6)] * 2))
+        self.assertTrue(all(TRUST in a for a in checked))
+        for k in range(1, 6):
+            a3 = [line for line in p.stdout.splitlines() if line.startswith("    ✓ [node%d] A3 network-config: " % k)]
+            self.assertEqual(len(a3), 1, "node%d" % k + self.why())
+            self.assertIn("Closed admission, committee_peers, validator ok for node%d" % k, a3[0])
+        self.assertIn("finalized + verified (5):", p.stdout)
+        # The same files under the hub-only context (the knob unset, as finalize was before the
+        # fix): the real validator refuses every node but the hub, at the gate.
+        self.reset_fleet()
+        self.place_renders()
+        p = self.finalize("--stage-only", CONFIG_FILE=cfg, FIN_REAL_VALIDATE="1")
+        self.assertExit(1)
+        self.assertEqual(self.lines("STAGED"), ["STAGED fin-validator-1 state=inactive enabled=enabled"])
+        for k in range(2, 6):
+            refused = [line for line in p.stdout.splitlines() if line.startswith("❌ [node%d] not ready to finalize:" % k)]
+            self.assertEqual(len(refused), 1, "node%d" % k + self.why())
+            self.assertIn(" validator: ", refused[0])
+
+
+def scenario_default(case, **knobs):
+    case.finalize(**knobs)
+
+
+def scenario_stage_only(case, **knobs):
+    case.finalize("--stage-only", **knobs)
+
+
+def scenario_verify(case, **knobs):
+    for i in range(3):
+        case.running(i)
+    case.finalize("--verify", **knobs)
+
+
+def scenario_ready_255_retry(case, **knobs):
+    case.fault(1, fail255={"ready": 1})
+    case.finalize(**knobs)
+
+
+def scenario_finalize_fault(case, **knobs):
+    case.fault(1, finalize_fails=True)
+    case.finalize(**knobs)
+
+
+BASELINE_SCENARIOS = (("default", scenario_default), ("stage_only", scenario_stage_only),
+                      ("verify", scenario_verify), ("ready_255_retry", scenario_ready_255_retry),
+                      ("finalize_fault", scenario_finalize_fault))
+
+
+def run_scenario(case, scenario, **knobs):
+    case.reset_fleet()
+    scenario(case, **knobs)
+    return case.normalized()
+
+
+class BaselineTests(FinalizeCase):
+    """Knobs unset == the script before bench 4, byte for byte: rc, stdout, stderr and every gcloud
+    call's argv and stdin (see normalized()). fixtures/finalize/baseline-knobs-unset.json was
+    produced by c0f3ca1's devnet-finalize.sh, devnet-lib.sh and devnet-network-config.py:
+    `python3 test_finalize_modes.py --capture-baseline c0f3ca1` runs these scenarios on `git show`
+    copies of them and rewrites the file."""
+
+    def setUp(self):
+        super(BaselineTests, self).setUp()
+        with open(str(BASELINE), encoding="utf-8") as f:
+            self.baseline = json.load(f)
+
+    def test_the_snapshot_holds_no_host_paths(self):
+        # A committed file: no home dir, user name or checkout path; normalized() maps them away.
+        text = BASELINE.read_text(encoding="utf-8")
+        words = ["/" + "home/", "/" + "Users/", "drt" + "narg", str(REPO), str(FIX)]
+        home = os.path.expanduser("~")
+        if home not in ("", "/", "~"):
+            words.append(home)
+        for word in words:
+            self.assertNotIn(word, text, "the baseline holds a host path or name")
+        self.assertIn("<FIX>/finalize-parameters.yaml", text)
+
+    def test_knobs_unset_match_the_head_snapshot(self):
+        self.assertEqual(sorted(self.baseline), sorted(name for name, _ in BASELINE_SCENARIOS))
+        for name, scenario in BASELINE_SCENARIOS:
+            with self.subTest(scenario=name):
+                self.assertEqual(run_scenario(self, scenario), self.baseline[name], self.why())
+
+    def test_every_knob_at_its_default_matches_the_head_snapshot(self):
+        for name, scenario in BASELINE_SCENARIOS:
+            with self.subTest(scenario=name):
+                got = run_scenario(self, scenario, FINALIZE_JOBS="1", NETCFG_TRUST_OBSERVERS_EVERYWHERE="0")
+                self.assertEqual(got, self.baseline[name], self.why())
+
+
+def capture_baseline(ref):
+    """Rewrite BASELINE from <ref>'s scripts (git show), one fresh sandbox per scenario."""
+    texts = {}
+    for rel in TREE:
+        texts[rel] = subprocess.run(["git", "-C", str(REPO), "show", "%s:%s" % (ref, rel)], check=True,
+                                    stdout=subprocess.PIPE, encoding="utf-8").stdout
+    out = {}
+    for name, scenario in BASELINE_SCENARIOS:
+        case = FinalizeCase("setUp")   # any existing method name: the case is driven by hand
+        case.setUp()
+        try:
+            for rel, text in texts.items():
+                (case.tree / rel).write_text(text, encoding="utf-8")
+            out[name] = run_scenario(case, scenario)
+        finally:
+            case.tearDown()
+    BASELINE.write_text(json.dumps(out, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if sys.argv[1:2] == ["--capture-baseline"] and len(sys.argv) == 3:
+        capture_baseline(sys.argv[2])
+    else:
+        unittest.main()

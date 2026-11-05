@@ -71,8 +71,9 @@
 #                  and the node is skipped; an active one prints `RUNNING <inst>` and a
 #                  warning (a quorum may have formed) and is skipped, never stopped. Any other
 #                  installed unit fails the gate as above. No phase B. Each node runs alone,
-#                  from its finalize to its stop, so no quorum forms; a node that fails after
-#                  finalize started it is left as it is (exit 1).
+#                  from its finalize to its stop, so no quorum forms (FINALIZE_JOBS=N: at most
+#                  N at once, see below); a node that fails after finalize started it is left
+#                  as it is (exit 1).
 #   --start-all    every target must have the unit installed and enabled: inactive ones are
 #                  started, an active one prints `RUNNING <inst>` and is skipped; any other
 #                  state, or no answer, stops the run (exit 1) before any start. due = now +
@@ -127,6 +128,19 @@
 # Knobs (env, whole seconds): FINALIZE_STABLE_SECS (60), FINALIZE_STABLE_POLL_SECS (10),
 # FINALIZE_RO_RETRY_SECS (5), FINALIZE_START_LEAD_SECS (60), FINALIZE_START_LAUNCH_GAP_SECS
 # (1), FINALIZE_START_TIMEOUT_SECS (120), FINALIZE_START_SPREAD_WARN_SECS (10).
+# FINALIZE_JOBS (1, a whole number of nodes): how many nodes phase A, and then phase B,
+# work on at once. 1 is the serial run, byte for byte. With N > 1 each node's phase A (then
+# each node's phase B) runs in a background job, at most N at a time, started in target
+# order; a node's stdout and stderr are held until it is done and printed in target order,
+# so stdout reads as the serial run's (a note per phase on stderr says so). A job that stops
+# without an outcome fails its node, never the run. The coordinated start and --verify's
+# unit check stay serial. In --stage-only / --defer-start up to N finalized units run at
+# once before their stops: N must be below a quorum (2n/3 + 1) of the n validators in
+# NODE_ROLES, else the run is refused (exit 2).
+# NETCFG_TRUST_OBSERVERS_EVERYWHERE (0 or 1): set it to what devnet-network-config.sh used. 1 =
+# every validator trusts every observer and each observer every validator, so the gate and A3
+# validate each network-config with devnet-network-config.py's --trust-observers-everywhere
+# context; 0 = the hub-only context above.
 # Exit: 0 every targeted node finalized and passed A1-A5; 1 a node failed, or a local
 # check did (a failed release-signature verification included); 2 bad target; 3 release
 # signature pending (RELEASE_SIG_PENDING), no node touched.
@@ -134,7 +148,9 @@
 # reported, not failed); --start-all / --defer-start every target started or already
 # running, and passed A1-A5; --verify every target passed A1-A5. 1 any other outcome
 # (--defer-start: also a RUNNING node, which stops the start). 2 also a bad option, two mode
-# flags, or a knob that is not whole seconds.
+# flags, a knob that is not whole seconds, a NETCFG_TRUST_OBSERVERS_EVERYWHERE other than 0
+# or 1, or a FINALIZE_JOBS that is not a whole number of 1 or more, or reaches a quorum in
+# --stage-only / --defer-start.
 
 set -euo pipefail
 
@@ -163,6 +179,22 @@ FINALIZE_START_LEAD_SECS=$((10#${FINALIZE_START_LEAD_SECS}))
 FINALIZE_START_LAUNCH_GAP_SECS=$((10#${FINALIZE_START_LAUNCH_GAP_SECS}))
 FINALIZE_START_TIMEOUT_SECS=$((10#${FINALIZE_START_TIMEOUT_SECS}))
 FINALIZE_START_SPREAD_WARN_SECS=$((10#${FINALIZE_START_SPREAD_WARN_SECS}))
+# FINALIZE_JOBS (1): nodes in phase A / phase B at once (see the header); 1 = the serial run.
+FINALIZE_JOBS="${FINALIZE_JOBS:-1}"
+case "${FINALIZE_JOBS}" in
+    *[!0123456789]*) FINALIZE_JOBS=0 ;;
+    *) FINALIZE_JOBS=$((10#${FINALIZE_JOBS})) ;;
+esac
+if [ "${FINALIZE_JOBS}" -lt 1 ]; then
+    echo "❌ FINALIZE_JOBS must be a whole number of nodes, 1 or more" >&2; exit 2
+fi
+# NETCFG_TRUST_OBSERVERS_EVERYWHERE (0): the trust context the network-configs were rendered
+# with (devnet-network-config.sh's knob of the same name); the gate and A3 validate with it.
+NETCFG_TRUST_OBSERVERS_EVERYWHERE="${NETCFG_TRUST_OBSERVERS_EVERYWHERE:-0}"
+case "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" in
+    0|1) ;;
+    *) echo "❌ NETCFG_TRUST_OBSERVERS_EVERYWHERE must be 0 or 1 (got '${NETCFG_TRUST_OBSERVERS_EVERYWHERE}')" >&2; exit 2 ;;
+esac
 
 # Same selector as devnet-network-config.sh: no args → all nodes; args may be an index
 # (0-based), an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once. An
@@ -232,6 +264,23 @@ if [ "${#INDICES[@]}" -eq 0 ]; then
     echo "❌ no target nodes (INSTANCE_NAMES is empty?)" >&2
     exit 2
 fi
+# --stage-only / --defer-start with FINALIZE_JOBS=N > 1: up to N finalized units run at once
+# before their stops. N must stay below a quorum (2n/3 + 1, as the node computes it) of the
+# fleet's n validators, or the staged start could have a quorum running before its due.
+case "${FINALIZE_JOBS}:${FINALIZE_MODE}" in
+    1:*) ;;
+    *:stage-only|*:defer-start)
+        _nval=0
+        for _r in ${NODE_ROLES[@]+"${NODE_ROLES[@]}"}; do
+            if [ "${_r}" = "validator" ]; then _nval=$((_nval + 1)); fi
+        done
+        _q=$((2 * _nval / 3 + 1))
+        if [ "${FINALIZE_JOBS}" -ge "${_q}" ]; then
+            echo "❌ FINALIZE_JOBS=${FINALIZE_JOBS} with --${FINALIZE_MODE}: that many units could run at once between finalize and stop, a quorum (${_q}) of this fleet's ${_nval} validators; use FINALIZE_JOBS=$(( _q > 2 ? _q - 1 : 1 )) or less" >&2
+            exit 2
+        fi
+        unset _r _nval _q ;;
+esac
 
 # Local genesis artifacts produced by devnet-genesis-build.sh (in GENESIS_WORKSPACE,
 # which config.sh sets to REPO_ROOT for devnet).
@@ -298,7 +347,8 @@ fi
 
 # The gate and A3 run devnet-network-config.py's validator on each node's network-config,
 # with the context devnet-network-config.sh --verify gives it (the fleet in config.sh
-# order, hub = the first validator), so python3 + PyYAML are needed here too.
+# order, hub = the first validator, --trust-observers-everywhere when
+# NETCFG_TRUST_OBSERVERS_EVERYWHERE=1), so python3 + PyYAML are needed here too.
 NC_PY="${DEVNET_LIB_DIR}/devnet-network-config.py"
 if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import yaml' >/dev/null 2>&1; then
     echo "❌ python3 with PyYAML is needed to validate each node's network-config (sudo apt-get install python3-yaml)" >&2
@@ -312,6 +362,7 @@ for _n in "${!NODE_NAMES[@]}"; do
 done
 unset _n
 NC_CTX=(--committee "${COMMITTEE_LOCAL}" --genesis-dir "${GENESIS_LOCAL_DIR}" --nodes "${NODES_SPEC}" --hub "${HUB}")
+if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ]; then NC_CTX+=(--trust-observers-everywhere); fi
 
 # v2's LOG_DIR default (lib/common.sh:55): the unit appends to <dir>/<service>.log and
 # <dir>/<service>-error.log (setup-node.sh:1083-1084). The gate records where those end.
@@ -949,6 +1000,98 @@ _start_all() {
     done
 }
 
+# --- FINALIZE_JOBS: phase A / phase B on several nodes at once ---------------------------
+
+# _run_nodes <a|b> <fn> <index>... — <fn> <index> for every index, in target order.
+# FINALIZE_JOBS=1 (the default): inline, one node after the other: the serial loop.
+# Otherwise each node runs in a background job (_node_job), at most FINALIZE_JOBS at once,
+# started in target order (with that many running, the oldest is awaited first), and each
+# finished node is merged (_merge_node) in target order, so stdout reads as the serial
+# run's. INT, TERM or HUP stops the jobs too (a background job ignores the terminal's INT).
+_JOB_PIDS=()
+_run_nodes() {
+    local ph="$1" fn="$2" i k=0 next=0 idx name="phase B"
+    shift 2
+    if [ "${FINALIZE_JOBS}" -eq 1 ]; then
+        for i in "$@"; do "${fn}" "${i}"; done
+        return 0
+    fi
+    if [ "${ph}" = a ]; then name="phase A"; fi
+    idx=(); _JOB_PIDS=()
+    if [ "$#" -gt 0 ]; then
+        echo ">>> ${name}: $# node(s), at most ${FINALIZE_JOBS} at a time (FINALIZE_JOBS); each node's lines follow, in target order, once it is done" >&2
+    fi
+    trap '_stop_jobs; exit 130' INT
+    trap '_stop_jobs; exit 143' TERM
+    trap '_stop_jobs; exit 129' HUP
+    for i in "$@"; do
+        if [ $((k - next)) -ge "${FINALIZE_JOBS}" ]; then
+            wait "${_JOB_PIDS[next]}" || true
+            _merge_node "${ph}" "${idx[next]}" "${name}"; next=$((next + 1))
+        fi
+        _node_job "${ph}" "${fn}" "${i}" > "${WORK}/${ph}.${i}.out" 2> "${WORK}/${ph}.${i}.err" &
+        _JOB_PIDS[k]=$!; idx[k]="${i}"; k=$((k + 1))
+    done
+    while [ "${next}" -lt "${k}" ]; do
+        wait "${_JOB_PIDS[next]}" || true
+        _merge_node "${ph}" "${idx[next]}" "${name}"; next=$((next + 1))
+    done
+    trap - INT TERM HUP
+    _JOB_PIDS=()
+}
+
+_stop_jobs() { local p; for p in ${_JOB_PIDS[@]+"${_JOB_PIDS[@]}"}; do _kill_tree "${p}"; done; }
+
+# _node_job <a|b> <fn> <index> — one node's <fn> inside its background job. The lists
+# start empty there, so what <fn> appends is this node's alone: it goes to
+# ${WORK}/<a|b>.<index>.kv (result=finalized|staged|prestaged|running|verified|failed,
+# failed_text, verified_text, logmark, jcursor), written last and renamed into place.
+_node_job() {
+    local ph="$1" fn="$2" i="$3" kv="${WORK}/$1.$3.kv" result=""
+    failed=(); finalized=(); verified=(); STAGED_IDX=(); PRESTAGED_IDX=(); RUNNING_IDX=()
+    "${fn}" "${i}"
+    if [ "${#failed[@]}" -gt 0 ]; then result=failed
+    elif [ "${#STAGED_IDX[@]}" -gt 0 ]; then result=staged
+    elif [ "${#PRESTAGED_IDX[@]}" -gt 0 ]; then result=prestaged
+    elif [ "${#RUNNING_IDX[@]}" -gt 0 ]; then result=running
+    elif [ "${#finalized[@]}" -gt 0 ]; then result=finalized
+    elif [ "${#verified[@]}" -gt 0 ]; then result=verified
+    fi
+    {
+        echo "result=${result}"
+        echo "failed_text=${failed[0]:-}"
+        echo "verified_text=${verified[0]:-}"
+        echo "logmark=${LOG_MARKS[i]:-}"
+        echo "jcursor=${JOURNAL_CURSORS[i]:-}"
+    } > "${kv}.tmp"
+    mv "${kv}.tmp" "${kv}"
+}
+
+# _merge_node <a|b> <index> <name> — one finished job: its stdout, then its stderr, then
+# its outcome added to the lists as the serial loop would have. A job that left no outcome
+# (it stopped under set -e) fails its node, never the run.
+_merge_node() {
+    local ph="$1" i="$2" name="$3" kv="${WORK}/$1.$2.kv" out=""
+    cat "${WORK}/${ph}.${i}.out"
+    cat "${WORK}/${ph}.${i}.err" >&2
+    if [ -f "${kv}" ]; then out="$(cat "${kv}")"; fi
+    case "$(_kv "${out}" result)" in
+        failed) failed+=("$(_kv "${out}" failed_text)") ;;
+        staged) STAGED_IDX+=("${i}") ;;
+        prestaged) PRESTAGED_IDX+=("${i}") ;;
+        running) RUNNING_IDX+=("${i}") ;;
+        finalized) finalized+=("${i}") ;;
+        verified) verified+=("$(_kv "${out}" verified_text)") ;;
+        *)
+            echo "❌ [${NODE_NAMES[$i]}] ${name}: the node's job ended without an outcome (see its lines above)"
+            failed+=("${NODE_NAMES[$i]}: ${name} job ended early") ;;
+    esac
+    if [ "${ph}" = a ]; then
+        LOG_MARKS[i]="$(_kv "${out}" logmark)"
+        JOURNAL_CURSORS[i]="$(_kv "${out}" jcursor)"
+    fi
+}
+
 echo ">>> finalize targets: ${#INDICES[@]} node(s) — ${INDICES[*]}"
 if [ -n "${FINALIZE_MODE}" ]; then echo ">>> mode --${FINALIZE_MODE}"; fi
 echo ">>> image ${DOCKER_IMAGE}"
@@ -984,7 +1127,11 @@ PHASE_A=()
 case "${FINALIZE_MODE}" in start-all|verify) ;; *) PHASE_A=("${INDICES[@]}") ;; esac
 
 # --- phase A: gate, stage, finalize, health ------------------------------------------
-for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
+# _phase_a_node <index> — phase A on one node (the serial loop's body). Its outcome is one
+# entry in failed, PRESTAGED_IDX, RUNNING_IDX, STAGED_IDX or finalized, and the node's
+# LOG_MARKS / JOURNAL_CURSORS once its gate passed. _run_nodes runs it for every target.
+_phase_a_node() {
+    local i="$1"
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
     node="${NODE_NAMES[$i]}"
@@ -1006,13 +1153,13 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     case "${_ahex}" in *[!0123456789abcdefABCDEF]*) _ahex="" ;; esac
     if [ "${#_ahex}" -ne 40 ]; then
         echo "❌ [${node}] EXECUTION_ADDRESSES[${i}]='${addr}' is not 0x + 40 hex (config.sh)"
-        failed+=("${node}: bad execution address"); continue
+        failed+=("${node}: bad execution address"); return 0
     fi
 
     # --- Step 1: readiness gate ----------------------------------------------------
     if ! gate="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_ready)" "${setup}" "${service}" "${ddir}" "${TN_LOG_DIR}")"; then
         echo "❌ [${node}] readiness gate: ${gate}"
-        failed+=("${node}: readiness gate (no answer)"); continue
+        failed+=("${node}: readiness gate (no answer)"); return 0
     fi
     # --stage-only / --defer-start skip rules, decided by this probe before anything else.
     case "${FINALIZE_MODE}" in
@@ -1021,12 +1168,12 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
                 unit_st="$(_kv "${gate}" ActiveState)"; unit_en="$(_kv "${gate}" UnitFileState)"
                 if [ "${unit_st}" = "inactive" ] && [ "${unit_en}" = "enabled" ]; then
                     echo "PRESTAGED ${inst}"
-                    PRESTAGED_IDX+=("${i}"); continue
+                    PRESTAGED_IDX+=("${i}"); return 0
                 fi
                 if [ "${unit_st}" = "active" ]; then
                     echo "RUNNING ${inst}"
                     echo "⚠️  [${node}] ${service} is already running on ${inst} (UnitFileState=${unit_en:-?}): not staged and NOT stopped; if other committee members run too, a quorum may have formed" >&2
-                    RUNNING_IDX+=("${i}"); continue
+                    RUNNING_IDX+=("${i}"); return 0
                 fi
                 echo ">>> [${node}] ${service} unit installed with ActiveState=${unit_st:-?} UnitFileState=${unit_en:-?}: neither PRESTAGED nor RUNNING"
             fi ;;
@@ -1040,7 +1187,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     fi
     if [ -n "${gate_bad}" ]; then
         echo "❌ [${node}] not ready to finalize:${gate_bad}"
-        failed+=("${node}: readiness gate"); continue
+        failed+=("${node}: readiness gate"); return 0
     fi
     echo ">>> [${node}] ready: setup-node.sh present, keygen recorded, no unit yet, $(_kv "${gate}" nc): ${nc_obs}"
     # Where the logs end before this finalize: A4 reads only what comes after.
@@ -1055,7 +1202,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     tn_iap_scp "${PARAMETERS_FILE}" "${inst}" "${zone}" "/tmp/parameters.yaml" || stage_ok=0
     if [ "${stage_ok}" -ne 1 ]; then
         echo "❌ [${node}] failed to scp one or more genesis files"
-        failed+=("${node}: scp"); continue
+        failed+=("${node}: scp"); return 0
     fi
     stage_cmd="sudo install -d -o root -g root -m 0755 '${gdir%/*}' '${gdir}'"
     for f in committee.yaml genesis.yaml parameters.yaml; do
@@ -1065,7 +1212,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     echo ">>> [${node}] running: ${stage_cmd}"
     if ! tn_iap_ssh "${inst}" "${zone}" "${stage_cmd}"; then
         echo "❌ [${node}] failed to install genesis files into ${gdir}"
-        failed+=("${node}: stage"); continue
+        failed+=("${node}: stage"); return 0
     fi
     echo ">>> [${node}] genesis staged in ${gdir} (root:root 0644)"
 
@@ -1075,7 +1222,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""
     if [ -z "${intIP}" ]; then
         echo "❌ [${node}] could not resolve internal IP for listener multiaddrs"
-        failed+=("${node}: internal IP"); continue
+        failed+=("${node}: internal IP"); return 0
     fi
     # Finalize rewrites PUBLIC_IP / EXTERNAL_PRIMARY_ADDR / EXTERNAL_WORKER_ADDR in
     # .node-meta from its OWN flags (keygen does not keep them), so pass the same values
@@ -1083,7 +1230,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     extIP="$(tn_node_ext_ip "${inst}" "${zone}")" || extIP=""
     if [ -z "${extIP}" ]; then
         echo "❌ [${node}] could not resolve external IP for the advertised multiaddrs"
-        failed+=("${node}: external IP"); continue
+        failed+=("${node}: external IP"); return 0
     fi
 
     # --- Step 3: finalize (node.env + start script + unit; start + enable) ----------
@@ -1132,14 +1279,14 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     fin_done="$(tn_json_done_line "${fin_out}")"
     if [ "${fin_rc}" -ne 0 ] || ! tn_json_true "${fin_done}" ok; then
         echo "❌ [${node}] finalize failed (ssh rc ${fin_rc}; done: ${fin_done:-none})"
-        failed+=("${node}: finalize"); continue
+        failed+=("${node}: finalize"); return 0
     fi
     echo ">>> [${node}] finalize ok"
 
     # --- Step 4: health gate ----------------------------------------------------------
     if ! wait_healthy "${inst}" "${zone}" "${service}"; then
         echo "❌ [${node}] not healthy after finalize"
-        failed+=("${node}: health"); continue
+        failed+=("${node}: health"); return 0
     fi
     # --stage-only / --defer-start: the node ran alone long enough to prove it starts; leave
     # it stopped and enabled for the coordinated start.
@@ -1147,21 +1294,22 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
         stage-only|defer-start)
             if ! unit_out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_unit)" "${service}")"; then
                 echo "❌ [${node}] unit state before the stop: ${unit_out}"
-                failed+=("${node}: unit state (no answer)"); continue
+                failed+=("${node}: unit state (no answer)"); return 0
             fi
             if [ "$(_kv "${unit_out}" ActiveState)" != "active" ] || [ "$(_kv "${unit_out}" NRestarts)" != "0" ]; then
                 echo "❌ [${node}] after finalize: ActiveState=$(_kv "${unit_out}" ActiveState) NRestarts=$(_kv "${unit_out}" NRestarts) (want active, 0); not stopped"
-                failed+=("${node}: not stable after finalize"); continue
+                failed+=("${node}: not stable after finalize"); return 0
             fi
             if ! stop_obs="$(_defer_stop "${inst}" "${zone}" "${service}")"; then
                 echo "❌ [${node}] stop: ${stop_obs}"
-                failed+=("${node}: stop"); continue
+                failed+=("${node}: stop"); return 0
             fi
             echo "STAGED ${inst} ${stop_obs}"
-            STAGED_IDX+=("${i}"); continue ;;
+            STAGED_IDX+=("${i}"); return 0 ;;
     esac
     finalized+=("${i}")
-done
+}
+_run_nodes a _phase_a_node ${PHASE_A[@]+"${PHASE_A[@]}"}
 
 # --- coordinated start (--start-all; --defer-start once every target is staged) ---------
 STAGE_SUMMARY=""
@@ -1184,7 +1332,10 @@ if [ "${#finalized[@]}" -gt 0 ]; then
     echo ""
     echo ">>> post-finalize assertions (${#finalized[@]} node(s); stability window ${FINALIZE_STABLE_SECS}s every ${FINALIZE_STABLE_POLL_SECS}s)"
 fi
-for i in ${finalized[@]+"${finalized[@]}"}; do
+# _phase_b_node <index> — A1-A5 on one node (the serial loop's body): one entry in
+# verified or failed. _run_nodes runs it for every node that passed phase A.
+_phase_b_node() {
+    local i="$1"
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
     node="${NODE_NAMES[$i]}"
@@ -1203,7 +1354,8 @@ for i in ${finalized[@]+"${finalized[@]}"}; do
     else
         failed+=("${node}: ${misses} assertion(s) failed")
     fi
-done
+}
+_run_nodes b _phase_b_node ${finalized[@]+"${finalized[@]}"}
 
 # _list_idx <index>... — one "  - NODE_NAME (INSTANCE_NAME)" line per index.
 _list_idx() { local i; for i in "$@"; do echo "  - ${NODE_NAMES[$i]} (${INSTANCE_NAMES[$i]})"; done; }

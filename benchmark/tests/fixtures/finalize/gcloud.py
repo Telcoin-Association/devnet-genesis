@@ -31,6 +31,15 @@ Installed as <sandbox>/bin/gcloud. Every node lives in $FIN_SB:
                        stdin, inst, kind, cmd (the ssh --command), pargs (a probe's arguments),
                        key (a .node-meta read), injected255, drop (connect | drop_after_send |
                        drop_after_due | api-rc1 | "")
+  ends.jsonl           one JSON object per call that returned (not one killed by a signal),
+                       written as it returns: seq, t, call (the seq of its calls.jsonl record),
+                       inst, kind, lockstep_met (null when lockstep.json is absent). With
+                       calls.jsonl this gives each call's span, so a test can count sessions
+                       in flight at once and sessions run one after another without timing.
+  lockstep.json        optional, {"n": N, "secs": S}: every node's k-th call waits, after its
+                       calls.jsonl record, until N nodes have made their k-th call or S s have
+                       passed (lockstep/ holds the arrivals). With N parallel nodes making the
+                       same calls, each call overlaps the other nodes' calls of the same rank.
   node.jsonl           one JSON object (seq, t, inst, argv) per `systemctl` the start-at text runs
   transitions.jsonl    one JSON object per change of a unit's state: seq, t, inst, kind, before,
                        after (each {"active", "enabled", "installed"})
@@ -47,7 +56,7 @@ network-config, logs, runtime. Every probe is answered from the model above, exc
 devnet-finalize.sh's own start-at text runs under bash, its /run/ relocated and its
 `systemctl start` the stub's (which starts the unit in state/). Anything else: a message on
 stderr, rc 1. $FIN_FIX/network-config.yaml is the network-config every node holds (finalize
-appends hostname).
+appends hostname), unless $FIN_SB/nc/<inst>.yaml gives that node its own.
 """
 import base64
 import fcntl
@@ -149,8 +158,9 @@ def unit_lines(st):
             "NRestarts=%d" % st["nrestarts"], "Result=" + result]
 
 
-def nc_lines(st):
-    with open(os.path.join(FIX, "network-config.yaml"), "rb") as f:
+def nc_lines(st, inst):
+    own = path("nc", inst + ".yaml")
+    with open(own if os.path.exists(own) else os.path.join(FIX, "network-config.yaml"), "rb") as f:
         data = f.read()
     if st["hostname"]:
         data += ('hostname: "%s"\n' % st["hostname"]).encode()
@@ -269,6 +279,42 @@ def start_at(inst, script, pargs, faults, drop):
     return p.returncode
 
 
+def lockstep_join(inst):
+    """Under the lock: register this node's next call for the lockstep; None when it is off."""
+    try:
+        with open(path("lockstep.json")) as f:
+            cfg = json.load(f)
+    except (IOError, OSError, ValueError):
+        return None
+    os.makedirs(path("lockstep"), exist_ok=True)
+    counter = path("lockstep", inst + ".n")
+    try:
+        with open(counter) as f:
+            n = int(f.read().strip() or "0") + 1
+    except (IOError, OSError, ValueError):
+        n = 1
+    with open(counter, "w") as f:
+        f.write(str(n))
+    open(path("lockstep", "%d.%s" % (n, inst)), "w").close()
+    return int(cfg["n"]), float(cfg.get("secs", 20)), n
+
+
+def lockstep_wait(joined):
+    """True once N nodes made a call of this rank, False at the deadline, None when off."""
+    if joined is None:
+        return None
+    want, secs, n = joined
+    deadline = time.time() + secs
+    while True:
+        with Locked():
+            got = len([f for f in os.listdir(path("lockstep")) if f.startswith("%d." % n)])
+        if got >= want:
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.02)
+
+
 def main():
     name = os.path.basename(sys.argv[0])
     if name in ("systemctl", "date"):
@@ -311,6 +357,17 @@ def main():
             save("faults", inst, faults)
             record["injected255"] = record["drop"] != "api-rc1"
         append("calls.jsonl", record)
+        joined = lockstep_join(inst) if inst else None
+    met = lockstep_wait(joined)
+    rc = answer(record, args, script, faults)
+    with Locked():
+        append("ends.jsonl", {"call": record["seq"], "inst": inst, "kind": kind, "lockstep_met": met})
+    return rc
+
+
+def answer(record, args, script, faults):
+    """The call's output and rc, from the node's state and faults."""
+    inst, kind = record["inst"], record["kind"]
     if record["drop"] == "api-rc1":
         sys.stderr.write("ERROR: (gcloud.compute.instances.describe) Could not fetch resource:\n"
                          " - fake API fault for %s\n" % inst)
@@ -366,7 +423,7 @@ def main():
                     "jcursor=s=ready-" + inst, "nc=/var/lib/telcoin/network-config"]
             if SHOW in script:
                 out += unit_lines(st)
-            out += nc_lines(st)
+            out += nc_lines(st, inst)
         elif kind == "unit":
             out += unit_lines(st)
         elif kind == "stop":
@@ -390,7 +447,7 @@ def main():
             out += ["active=" + active, "enabled=" + (st["enabled"] or "not-found"),
                     "nrestarts=%d" % st["nrestarts"]]
         elif kind == "network-config":
-            out += nc_lines(st)
+            out += nc_lines(st, inst)
         elif kind == "logs":
             svc, cursor = pargs[0], pargs[3]
             out += ["files= /var/log/telcoin/%s.log(skip=0,new-since-gate)" % svc, "journal=12",

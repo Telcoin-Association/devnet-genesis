@@ -1,0 +1,3103 @@
+{
+ "default": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-1:/tmp/committee.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-1:/tmp/genesis.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-1:/tmp/parameters.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9305df7feba7c38cbca9d672ef430a54ef4d18754529fedb936d143abd22069f len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-2:/tmp/committee.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-2:/tmp/genesis.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-2:/tmp/parameters.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:f9aea67b99cca29da717b405c3ca7a842e1e22bac47984f3db039ca878501166 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-observer-3:/tmp/committee.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-observer-3:/tmp/genesis.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-observer-3:/tmp/parameters.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9755579d455498a12cd8cca50836031b7293a20069096ef51da437a08dbb33e2 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:0fe9f5e259f66bd5190ca8a7a2cdfdf36186065d383cd3bbdc7d3711976826a5 len=1611>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2e83e2b7fad788a13adc7e17449399f8a3d4ab13318570e4d170f6a67f1eb61b len=1611>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:54553a64ad35b0dd2e8bd05b0f89c830d1bb9834139ec4a4d43d2583df7e8484 len=1610>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 0,
+  "stderr": [],
+  "stdout": [
+   ">>> verifying local genesis artifacts",
+   ">>> finalize targets: 3 node(s) — 0 1 2",
+   ">>> image registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "",
+   ">>> [node1] finalize on fin-validator-1 (zone-a1) role=validator service=telcoin",
+   ">>> [node1] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; no hostname line",
+   ">>> [node1] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node1] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node1] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x1111111111111111111111111111111111111111' '--advertised-name' 'node1' '--public-rpc-url' 'https://node1.example.invalid' '--public-ws-url' 'wss://node1.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node1] finalize ok",
+   "      ✓ telcoin on fin-validator-1 active AND :43174 responds (after 0s)",
+   "",
+   ">>> [node2] finalize on fin-validator-2 (zone-b1) role=validator service=telcoin",
+   ">>> [node2] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; no hostname line",
+   ">>> [node2] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node2] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node2] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x2222222222222222222222222222222222222222' '--advertised-name' 'node2' '--public-rpc-url' 'https://node2.example.invalid' '--public-ws-url' 'wss://node2.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node2] finalize ok",
+   "      ✓ telcoin on fin-validator-2 active AND :43174 responds (after 0s)",
+   "",
+   ">>> [node3] finalize on fin-observer-3 (zone-c1) role=observer service=telcoin",
+   ">>> [node3] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; no hostname line",
+   ">>> [node3] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node3] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node3] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x3333333333333333333333333333333333333333' '--advertised-name' 'node3' '--public-rpc-url' 'https://node3.example.invalid' '--public-ws-url' 'wss://node3.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node3] finalize ok",
+   "      ✓ telcoin on fin-observer-3 active AND :43174 responds (after 0s)",
+   "",
+   ">>> post-finalize assertions (3 node(s); stability window 0s every 1s)",
+   ">>> [node1] asserting fin-validator-1",
+   "    ✓ [node1] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node1] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node1] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; hostname: \"node1\"",
+   "    ✓ [node1] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node1] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node2] asserting fin-validator-2",
+   "    ✓ [node2] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node2] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node2] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; hostname: \"node2\"",
+   "    ✓ [node2] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node2] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node3] asserting fin-observer-3",
+   "    ✓ [node3] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node3] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node3] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; hostname: \"node3\"",
+   "    ✓ [node3] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node3] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   "",
+   "=========================================",
+   "finalize summary",
+   "=========================================",
+   "finalized + verified (3):",
+   "  - node1 (telcoin)",
+   "  - node2 (telcoin)",
+   "  - node3 (telcoin)",
+   "all targeted nodes finalized, started, enabled and verified."
+  ]
+ },
+ "finalize_fault": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-1:/tmp/committee.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-1:/tmp/genesis.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-1:/tmp/parameters.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9305df7feba7c38cbca9d672ef430a54ef4d18754529fedb936d143abd22069f len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-2:/tmp/committee.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-2:/tmp/genesis.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-2:/tmp/parameters.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:f9aea67b99cca29da717b405c3ca7a842e1e22bac47984f3db039ca878501166 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-observer-3:/tmp/committee.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-observer-3:/tmp/genesis.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-observer-3:/tmp/parameters.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9755579d455498a12cd8cca50836031b7293a20069096ef51da437a08dbb33e2 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:0fe9f5e259f66bd5190ca8a7a2cdfdf36186065d383cd3bbdc7d3711976826a5 len=1611>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:54553a64ad35b0dd2e8bd05b0f89c830d1bb9834139ec4a4d43d2583df7e8484 len=1610>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 1,
+  "stderr": [],
+  "stdout": [
+   ">>> verifying local genesis artifacts",
+   ">>> finalize targets: 3 node(s) — 0 1 2",
+   ">>> image registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "",
+   ">>> [node1] finalize on fin-validator-1 (zone-a1) role=validator service=telcoin",
+   ">>> [node1] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; no hostname line",
+   ">>> [node1] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node1] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node1] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x1111111111111111111111111111111111111111' '--advertised-name' 'node1' '--public-rpc-url' 'https://node1.example.invalid' '--public-ws-url' 'wss://node1.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node1] finalize ok",
+   "      ✓ telcoin on fin-validator-1 active AND :43174 responds (after 0s)",
+   "",
+   ">>> [node2] finalize on fin-validator-2 (zone-b1) role=validator service=telcoin",
+   ">>> [node2] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; no hostname line",
+   ">>> [node2] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node2] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node2] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x2222222222222222222222222222222222222222' '--advertised-name' 'node2' '--public-rpc-url' 'https://node2.example.invalid' '--public-ws-url' 'wss://node2.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"error\",\"message\":\"fake finalize failure\"}",
+   "    json: {\"event\":\"done\",\"ok\":false}",
+   "❌ [node2] finalize failed (ssh rc 1; done: {\"event\":\"done\",\"ok\":false})",
+   "",
+   ">>> [node3] finalize on fin-observer-3 (zone-c1) role=observer service=telcoin",
+   ">>> [node3] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; no hostname line",
+   ">>> [node3] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node3] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node3] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x3333333333333333333333333333333333333333' '--advertised-name' 'node3' '--public-rpc-url' 'https://node3.example.invalid' '--public-ws-url' 'wss://node3.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node3] finalize ok",
+   "      ✓ telcoin on fin-observer-3 active AND :43174 responds (after 0s)",
+   "",
+   ">>> post-finalize assertions (2 node(s); stability window 0s every 1s)",
+   ">>> [node1] asserting fin-validator-1",
+   "    ✓ [node1] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node1] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node1] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; hostname: \"node1\"",
+   "    ✓ [node1] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node1] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node3] asserting fin-observer-3",
+   "    ✓ [node3] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node3] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node3] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; hostname: \"node3\"",
+   "    ✓ [node3] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node3] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   "",
+   "=========================================",
+   "finalize summary",
+   "=========================================",
+   "finalized + verified (2):",
+   "  - node1 (telcoin)",
+   "  - node3 (telcoin)",
+   "failed (1):",
+   "  - node2: finalize"
+  ]
+ },
+ "ready_255_retry": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-1:/tmp/committee.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-1:/tmp/genesis.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-1:/tmp/parameters.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9305df7feba7c38cbca9d672ef430a54ef4d18754529fedb936d143abd22069f len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-2:/tmp/committee.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-2:/tmp/genesis.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-2:/tmp/parameters.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:f9aea67b99cca29da717b405c3ca7a842e1e22bac47984f3db039ca878501166 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2775f64e0c206c5c0bd2049f20945d4c2c10ef05e33c07bec417496c8cb34eb8 len=1140>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-observer-3:/tmp/committee.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-observer-3:/tmp/genesis.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-observer-3:/tmp/parameters.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9755579d455498a12cd8cca50836031b7293a20069096ef51da437a08dbb33e2 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:0fe9f5e259f66bd5190ca8a7a2cdfdf36186065d383cd3bbdc7d3711976826a5 len=1611>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:2e83e2b7fad788a13adc7e17449399f8a3d4ab13318570e4d170f6a67f1eb61b len=1611>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:54553a64ad35b0dd2e8bd05b0f89c830d1bb9834139ec4a4d43d2583df7e8484 len=1610>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 0,
+  "stderr": [
+   "    … ssh rc 255 from fin-validator-2; one retry in 1s"
+  ],
+  "stdout": [
+   ">>> verifying local genesis artifacts",
+   ">>> finalize targets: 3 node(s) — 0 1 2",
+   ">>> image registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "",
+   ">>> [node1] finalize on fin-validator-1 (zone-a1) role=validator service=telcoin",
+   ">>> [node1] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; no hostname line",
+   ">>> [node1] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node1] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node1] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x1111111111111111111111111111111111111111' '--advertised-name' 'node1' '--public-rpc-url' 'https://node1.example.invalid' '--public-ws-url' 'wss://node1.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node1] finalize ok",
+   "      ✓ telcoin on fin-validator-1 active AND :43174 responds (after 0s)",
+   "",
+   ">>> [node2] finalize on fin-validator-2 (zone-b1) role=validator service=telcoin",
+   ">>> [node2] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; no hostname line",
+   ">>> [node2] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node2] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node2] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x2222222222222222222222222222222222222222' '--advertised-name' 'node2' '--public-rpc-url' 'https://node2.example.invalid' '--public-ws-url' 'wss://node2.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node2] finalize ok",
+   "      ✓ telcoin on fin-validator-2 active AND :43174 responds (after 0s)",
+   "",
+   ">>> [node3] finalize on fin-observer-3 (zone-c1) role=observer service=telcoin",
+   ">>> [node3] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; no hostname line",
+   ">>> [node3] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node3] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node3] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x3333333333333333333333333333333333333333' '--advertised-name' 'node3' '--public-rpc-url' 'https://node3.example.invalid' '--public-ws-url' 'wss://node3.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node3] finalize ok",
+   "      ✓ telcoin on fin-observer-3 active AND :43174 responds (after 0s)",
+   "",
+   ">>> post-finalize assertions (3 node(s); stability window 0s every 1s)",
+   ">>> [node1] asserting fin-validator-1",
+   "    ✓ [node1] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node1] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node1] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; hostname: \"node1\"",
+   "    ✓ [node1] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node1] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node2] asserting fin-validator-2",
+   "    ✓ [node2] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node2] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node2] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; hostname: \"node2\"",
+   "    ✓ [node2] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node2] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node3] asserting fin-observer-3",
+   "    ✓ [node3] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node3] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node3] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; hostname: \"node3\"",
+   "    ✓ [node3] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node3] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   "",
+   "=========================================",
+   "finalize summary",
+   "=========================================",
+   "finalized + verified (3):",
+   "  - node1 (telcoin)",
+   "  - node2 (telcoin)",
+   "  - node3 (telcoin)",
+   "all targeted nodes finalized, started, enabled and verified."
+  ]
+ },
+ "stage_only": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:35bc43eccc019111145e75803b0f215a2957bd10b1141680756b2b4e8042bd2a len=1229>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-1:/tmp/committee.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-1:/tmp/genesis.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-1:/tmp/parameters.yaml",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9305df7feba7c38cbca9d672ef430a54ef4d18754529fedb936d143abd22069f len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a6a8a281e82bef91c920ffe86fc8ef14d4919aad4eea18803dae0592ce15e5eb len=357>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:35bc43eccc019111145e75803b0f215a2957bd10b1141680756b2b4e8042bd2a len=1229>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-validator-2:/tmp/committee.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-validator-2:/tmp/genesis.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-validator-2:/tmp/parameters.yaml",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:f9aea67b99cca29da717b405c3ca7a842e1e22bac47984f3db039ca878501166 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a6a8a281e82bef91c920ffe86fc8ef14d4919aad4eea18803dae0592ce15e5eb len=357>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:35bc43eccc019111145e75803b0f215a2957bd10b1141680756b2b4e8042bd2a len=1229>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/committee.yaml",
+     "fin-observer-3:/tmp/committee.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<ROOT>/workspace/genesis/genesis.yaml",
+     "fin-observer-3:/tmp/genesis.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "<FIX>/finalize-parameters.yaml",
+     "fin-observer-3:/tmp/parameters.yaml",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:c09aa09e33c40a8b5d0a784d565cfb0c3b37ada8d64c1edb1674d8523f1c44ce len=528>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9755579d455498a12cd8cca50836031b7293a20069096ef51da437a08dbb33e2 len=842>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:9e776001874260545a27bd0c2546ae669f6326c31172bc64a8c4968d0d609e77 len=220>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a6a8a281e82bef91c920ffe86fc8ef14d4919aad4eea18803dae0592ce15e5eb len=357>"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 0,
+  "stderr": [],
+  "stdout": [
+   ">>> verifying local genesis artifacts",
+   ">>> finalize targets: 3 node(s) — 0 1 2",
+   ">>> mode --stage-only",
+   ">>> image registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "",
+   ">>> [node1] finalize on fin-validator-1 (zone-a1) role=validator service=telcoin",
+   ">>> [node1] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; no hostname line",
+   ">>> [node1] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node1] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node1] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x1111111111111111111111111111111111111111' '--advertised-name' 'node1' '--public-rpc-url' 'https://node1.example.invalid' '--public-ws-url' 'wss://node1.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node1] finalize ok",
+   "      ✓ telcoin on fin-validator-1 active AND :43174 responds (after 0s)",
+   "STAGED fin-validator-1 state=inactive enabled=enabled",
+   "",
+   ">>> [node2] finalize on fin-validator-2 (zone-b1) role=validator service=telcoin",
+   ">>> [node2] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; no hostname line",
+   ">>> [node2] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node2] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node2] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x2222222222222222222222222222222222222222' '--advertised-name' 'node2' '--public-rpc-url' 'https://node2.example.invalid' '--public-ws-url' 'wss://node2.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node2] finalize ok",
+   "      ✓ telcoin on fin-validator-2 active AND :43174 responds (after 0s)",
+   "STAGED fin-validator-2 state=inactive enabled=enabled",
+   "",
+   ">>> [node3] finalize on fin-observer-3 (zone-c1) role=observer service=telcoin",
+   ">>> [node3] ready: setup-node.sh present, keygen recorded, no unit yet, /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; no hostname line",
+   ">>> [node3] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet",
+   ">>> [node3] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc",
+   ">>> [node3] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x3333333333333333333333333333333333333333' '--advertised-name' 'node3' '--public-rpc-url' 'https://node3.example.invalid' '--public-ws-url' 'wss://node3.example.invalid' '--listener-primary' '/ip4/192.0.2.7/udp/49590/quic-v1' '--listener-worker' '/ip4/192.0.2.7/udp/49594/quic-v1' '--external-primary' '/ip4/203.0.113.7/udp/49590/quic-v1' '--external-worker' '/ip4/203.0.113.7/udp/49594/quic-v1' '--public-ip' '203.0.113.7' '--enable-healthcheck-monitor'",
+   "    json: {\"event\":\"step\",\"step\":\"finalize\",\"ok\":true}",
+   "    json: {\"event\":\"done\",\"ok\":true}",
+   ">>> [node3] finalize ok",
+   "      ✓ telcoin on fin-observer-3 active AND :43174 responds (after 0s)",
+   "STAGED fin-observer-3 state=inactive enabled=enabled",
+   "",
+   "=========================================",
+   "finalize --stage-only summary",
+   "=========================================",
+   "staged: finalized, then stopped, enabled (3):",
+   "  - node1 (fin-validator-1)",
+   "  - node2 (fin-validator-2)",
+   "  - node3 (fin-observer-3)",
+   "prestaged, skipped (0):",
+   "running, skipped, NOT stopped (0):",
+   "every targeted node is staged (stopped, enabled) or was already; start them with --start-all."
+  ]
+ },
+ "verify": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:04b22bbbda0ee623dddef079dd285a80dec6c9530e58c12c4e84027348843267 len=172>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:6781881b9cf4eed84e96b66a9a009b8467580518375696f19a9ede50862e339d len=1516>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-1",
+     "--zone=zone-a1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:6781881b9cf4eed84e96b66a9a009b8467580518375696f19a9ede50862e339d len=1516>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-validator-2",
+     "--zone=zone-b1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:a8fabd9a770da57487b1bbede3391e7c49370999943d30e90803bf5229c6034d len=275>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NETWORK=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DOCKER_IMAGE_DIGEST=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^DATA_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo grep -E '^NODE_LOG_DIR=' '/etc/telcoin/.node-meta' 2>/dev/null; echo \"__tn_meta_rc=$?\""
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:d1cea4ce35d581500c379d202145e4d1faa856f89dc62233e95d383ee9130cec len=230>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:6781881b9cf4eed84e96b66a9a009b8467580518375696f19a9ede50862e339d len=1516>"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "fin-observer-3",
+     "--zone=zone-c1",
+     "--project=fin-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "<sha256:085463569fcb6378d64133a62d7fade818df759409b1d6774fe1f9185d20f102 len=1202>"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 0,
+  "stderr": [],
+  "stdout": [
+   ">>> verifying local genesis artifacts",
+   ">>> finalize targets: 3 node(s) — 0 1 2",
+   ">>> mode --verify",
+   ">>> image registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "",
+   ">>> post-finalize assertions (3 node(s); stability window 0s every 1s)",
+   ">>> [node1] asserting fin-validator-1",
+   "    ✓ [node1] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node1] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node1] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node1; hostname: \"node1\"",
+   "    ✓ [node1] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines this-boot): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node1] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node2] asserting fin-validator-2",
+   "    ✓ [node2] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node2] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node2] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node2; hostname: \"node2\"",
+   "    ✓ [node2] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines this-boot): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node2] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   ">>> [node3] asserting fin-observer-3",
+   "    ✓ [node3] A1 service: is-active=active for 0s (1 polls), is-enabled=enabled, NRestarts=0",
+   "    ✓ [node3] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "    ✓ [node3] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator ok for node3; hostname: \"node3\"",
+   "    ✓ [node3] A4 logs: 40 lines scanned (files: /var/log/telcoin/telcoin.log(skip=0,new-since-gate); journal: 12 lines this-boot): 'bad yaml data'=0 'committee_peers:'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0",
+   "    ✓ [node3] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=registry.example.invalid/tn/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; MainPID 4242 '/usr/bin/docker run -i --rm --pull=nev...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [4343]: 0",
+   "",
+   "=========================================",
+   "finalize summary",
+   "mode: --verify",
+   "=========================================",
+   "finalized + verified (3):",
+   "  - node1 (telcoin)",
+   "  - node2 (telcoin)",
+   "  - node3 (telcoin)",
+   "all targeted nodes finalized, started, enabled and verified."
+  ]
+ }
+}
