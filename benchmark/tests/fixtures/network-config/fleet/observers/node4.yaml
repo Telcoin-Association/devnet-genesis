@@ -1,0 +1,16 @@
+---
+name: node-fixture4
+bls_public_key: Cba2ftWFqVbXq1ZeJRaSNeYH2xcdWmS53kyxGSD6nYfkgApsykTT2zPG3m5ztoie1jecriL9yQCJUjNg2F5TuvnkucSLcGqCWJBEV8E52iGa9CULSUxbZmHTxtDRChxtrrS
+p2p_info:
+  primary:
+    network_address: /ip4/192.0.2.14/udp/49590/quic-v1/p2p/12D3KooWRibBcrAdbsdhDMSMXapXT5HkEM1mJjS1duYMHXQFsaUD
+    network_key: 4XTTMH3GqTzdiDEmMF1tmeciMbfwQi21DRx3FN7x7Km1nqMFK
+    rpc: ~
+  workers:
+    - network_address: /ip4/192.0.2.14/udp/49594/quic-v1/p2p/12D3KooWJ1BNfGvnS6z7mTSHsc17ay9wKGkbKGDeCqxztUFgmbBW
+      network_key: 4XTTM9Ks2WRPs3U7mo7thzdtwjZobnwk3SUpsw4NkvhsDjMxc
+      rpc:
+        http: "https://node4.example.invalid/"
+        ws: "wss://node4.example.invalid/"
+execution_address: "0x95eb7900854ef0fc8c118e5f4ca28fbaf31c9731"
+proof_of_possession: o2hFqikwQVfG8vPE3GUb4iT3b6hE2X7hkjBuPYrAkN4ZT65xd1HN4195B98P2Lbvo

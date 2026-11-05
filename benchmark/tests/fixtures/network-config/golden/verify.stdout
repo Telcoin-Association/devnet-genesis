@@ -1,0 +1,40 @@
+>>> rendering + validating network-config for node1=validator,node2=validator,node3=validator,node4=observer,node5=observer (hub node1)
+ok   <ROOT>/workspace/genesis/network-config/node1.yaml (3362 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node2.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node3.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node4.yaml (3369 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node5.yaml (3369 bytes)
+wrote 5 file(s) under <ROOT>/workspace/genesis/network-config
+
+>>> verify targets: 5 node(s) — 0 1 2 3 4
+
+>>> [node1] verify network-config on nc-validator-1 (zone-a1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-1/data, owner telcoin:telcoin
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node1.installed is a valid network-config for node1
+
+>>> [node2] verify network-config on nc-validator-2 (zone-b1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-2/data, owner telcoin:telcoin
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node2.installed is a valid network-config for node2
+
+>>> [node3] verify network-config on nc-validator-3 (zone-c1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-3/data, owner telcoin:telcoin
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node3.installed is a valid network-config for node3
+
+>>> [node4] verify network-config on nc-observer-4 (zone-d1) role=observer
+    datadir <ROOT>/sb/nodes/nc-observer-4/data, owner telcoin:telcoin
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node4.installed is a valid network-config for node4
+
+>>> [node5] verify network-config on nc-observer-5 (zone-e1) role=observer
+    datadir <ROOT>/sb/nodes/nc-observer-5/data, owner telcoin:telcoin
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node5.installed is a valid network-config for node5
+
+=========================================
+network-config verify summary
+=========================================
+ok (5):
+  - node1
+  - node2
+  - node3
+  - node4
+  - node5
+all targeted nodes: verify ok.

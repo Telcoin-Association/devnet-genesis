@@ -1,0 +1,10 @@
+>>> rendering + validating network-config for node1=validator,node2=validator,node3=validator,node4=observer,node5=observer (hub node1)
+ok   <ROOT>/workspace/genesis/network-config/node1.yaml (3362 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node2.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node3.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node4.yaml (3369 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node5.yaml (3369 bytes)
+wrote 5 file(s) under <ROOT>/workspace/genesis/network-config
+
+rendered + validated under <ROOT>/workspace/genesis/network-config; no node was touched.
+review the files, then install with: <ROOT>/tree/devnet-network-config.sh --yes

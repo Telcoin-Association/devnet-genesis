@@ -1,0 +1,61 @@
+>>> rendering + validating network-config for node1=validator,node2=validator,node3=validator,node4=observer,node5=observer (hub node1)
+ok   <ROOT>/workspace/genesis/network-config/node1.yaml (3362 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node2.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node3.yaml (2026 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node4.yaml (3369 bytes)
+ok   <ROOT>/workspace/genesis/network-config/node5.yaml (3369 bytes)
+wrote 5 file(s) under <ROOT>/workspace/genesis/network-config
+
+>>> install targets: 5 node(s) — 0 1 2 3 4
+
+>>> [node1] install network-config on nc-validator-1 (zone-a1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-1/data, owner telcoin:telcoin
+    no existing <ROOT>/sb/nodes/nc-validator-1/data/network-config
+merged <ROOT>/tmp/tn-network-config.<WORK>/node1.merged: hostname none; dropped none
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node1.merged is a valid network-config for node1
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node1.installed is a valid network-config for node1
+    ✓ installed + re-read + validated <ROOT>/sb/nodes/nc-validator-1/data/network-config
+
+>>> [node2] install network-config on nc-validator-2 (zone-b1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-2/data, owner telcoin:telcoin
+    existing <ROOT>/sb/nodes/nc-validator-2/data/network-config: 152 bytes (keeping only its hostname line)
+merged <ROOT>/tmp/tn-network-config.<WORK>/node2.merged: hostname kept (hostname: "node2.example.invalid"); replaced with the rendered values: admission; dropped 2 existing key(s) the rendered file does not set: libp2p_config, trusted_nodes
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node2.merged is a valid network-config for node2
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node2.installed is a valid network-config for node2
+    ⚠️  telcoin is already running: it reads <ROOT>/sb/nodes/nc-validator-2/data/network-config at its NEXT start (not restarted here)
+    ✓ installed + re-read + validated <ROOT>/sb/nodes/nc-validator-2/data/network-config
+
+>>> [node3] install network-config on nc-validator-3 (zone-c1) role=validator
+    datadir <ROOT>/sb/nodes/nc-validator-3/data, owner telcoin:telcoin
+    no existing <ROOT>/sb/nodes/nc-validator-3/data/network-config
+merged <ROOT>/tmp/tn-network-config.<WORK>/node3.merged: hostname none; dropped none
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node3.merged is a valid network-config for node3
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node3.installed is a valid network-config for node3
+    ✓ installed + re-read + validated <ROOT>/sb/nodes/nc-validator-3/data/network-config
+
+>>> [node4] install network-config on nc-observer-4 (zone-d1) role=observer
+    datadir <ROOT>/sb/nodes/nc-observer-4/data, owner telcoin:telcoin
+    existing <ROOT>/sb/nodes/nc-observer-4/data/network-config: 3403 bytes (keeping only its hostname line)
+merged <ROOT>/tmp/tn-network-config.<WORK>/node4.merged: hostname kept (hostname: "node4.example.invalid"); replaced with the rendered values: admission, bootstrap_peers, trusted_nodes, committee_peers; dropped none
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node4.merged is a valid network-config for node4
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node4.installed is a valid network-config for node4
+    ✓ installed + re-read + validated <ROOT>/sb/nodes/nc-observer-4/data/network-config
+
+>>> [node5] install network-config on nc-observer-5 (zone-e1) role=observer
+    datadir <ROOT>/sb/nodes/nc-observer-5/data, owner telcoin:telcoin
+    no existing <ROOT>/sb/nodes/nc-observer-5/data/network-config
+merged <ROOT>/tmp/tn-network-config.<WORK>/node5.merged: hostname none; dropped none
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node5.merged is a valid network-config for node5
+ok   <ROOT>/tmp/tn-network-config.<WORK>/node5.installed is a valid network-config for node5
+    ✓ installed + re-read + validated <ROOT>/sb/nodes/nc-observer-5/data/network-config
+
+=========================================
+network-config install summary
+=========================================
+ok (5):
+  - node1
+  - node2
+  - node3
+  - node4
+  - node5
+all targeted nodes: install ok.

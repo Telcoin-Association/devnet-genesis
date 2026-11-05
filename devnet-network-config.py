@@ -13,7 +13,8 @@ What a rendered file holds (field names and shapes pinned at telcoin-network 3f9
     snapshot_max_age_secs: 300
   bootstrap_peers:                # observers only. MAP keyed by BLS key (network.rs:59); a
     <hub BLS>: <BootstrapServer>  # nonempty map replaces the genesis bootstrap set in full
-  trusted_nodes:                  # the hub and the observers. MAP keyed by BLS key (network.rs:64)
+  trusted_nodes:                  # the hub and the observers (with --trust-observers-everywhere:
+                                  # every validator and the observers). MAP keyed by BLS key (network.rs:64)
     <peer BLS>:                   # TrustedNode, deny_unknown_fields (trusted.rs:12-19)
       primary: <P2pNode>
       workers:                    # MAP keyed by worker id, exactly 0..<LOCAL worker count>
@@ -41,7 +42,13 @@ PeerId derivation (stdlib): network_key is base58(protobuf-encoded libp2p Public
 (types crypto/network.rs:18-23,51-62). The PeerId is base58 of the multihash of those bytes:
 identity (0x00) when they are at most 42 bytes long (every ed25519 key), else sha256 (0x12).
 
-Subcommands (all share the context flags --committee/--genesis-dir/--nodes/--hub):
+Who trusts whom: by default the hub validator trusts every observer and each observer trusts the
+hub. With the context flag --trust-observers-everywhere every validator trusts every observer and
+each observer trusts every validator (an observer that redials the whole committee is then admitted
+everywhere, not only by the hub). bootstrap_peers stays the hub alone either way.
+
+Subcommands (all share the context flags --committee/--genesis-dir/--nodes/--hub
+[--trust-observers-everywhere]):
   render   --out-dir DIR                  write <node>.yaml for every node, then validate each
   validate --node N FILE [--existing E]   check FILE as node N's network-config
   merge    --rendered R [--existing E] --out O
@@ -391,7 +398,7 @@ def check_trusted_node(entry, where, bindings, local_workers, bls):
 class Context(object):
     """committee.yaml + every node's node-info file, cross-checked."""
 
-    def __init__(self, committee_path, genesis_dir, nodes_spec, hub):
+    def __init__(self, committee_path, genesis_dir, nodes_spec, hub, trust_everywhere=False):
         self.committee_path = committee_path
         self.committee, self.committee_text = load_yaml_file(committee_path)
         if not isinstance(self.committee, dict) or not all(
@@ -453,6 +460,8 @@ class Context(object):
             raise ConfigError("--hub %r must be a validator in --nodes" % hub)
         self.hub = hub
         self.observers = [n for n, r in self.nodes if r == "observer"]
+        self.validators = [n for n, r in self.nodes if r == "validator"]
+        self.trust_everywhere = bool(trust_everywhere)
 
     def _same_keys(self, name, path):
         """A validator's node-info must carry the keys and addresses committee.yaml lists for it."""
@@ -486,6 +495,11 @@ class Context(object):
                 "workers": dict((i, copy.deepcopy(source["workers"][i])) for i in range(count))}
 
     def trusted_peers_of(self, name):
+        """The nodes `name` trusts, in fleet order (see "Who trusts whom" in the module docstring)."""
+        if self.trust_everywhere and name in self.validators:
+            return list(self.observers)
+        if self.trust_everywhere and name in self.observers:
+            return list(self.validators)
         if name == self.hub:
             return list(self.observers)
         if name in self.observers:
@@ -757,7 +771,7 @@ def _binding_errors(ctx, name, what, bindings):
 # --------------------------------------------------------------------------- CLI
 
 def _context(args):
-    return Context(args.committee, args.genesis_dir, args.nodes, args.hub)
+    return Context(args.committee, args.genesis_dir, args.nodes, args.hub, args.trust_observers_everywhere)
 
 
 def cmd_render(args):
@@ -860,6 +874,9 @@ def main(argv):
         p.add_argument("--genesis-dir", required=True, help="dir with validators/<n>.yaml, observers/<n>.yaml")
         p.add_argument("--nodes", required=True, help="fleet order: node1=validator,...,node5=observer")
         p.add_argument("--hub", required=True, help="the validator that trusts the observers (node1)")
+        p.add_argument("--trust-observers-everywhere", action="store_true",
+                       help="every validator trusts every observer and each observer every validator "
+                            "(default: only the hub and the observers trust each other)")
 
     p_render = sub.add_parser("render", help="write <out-dir>/<node>.yaml for every node and validate it")
     context_flags(p_render)
