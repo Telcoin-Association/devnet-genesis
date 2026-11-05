@@ -68,9 +68,33 @@ _tn_require_cmd() {
 # so the crash can be recognised, and replayed to the caller's stderr after each attempt.
 # The caller's stdin, when forwarded, is buffered in a shell variable (never a file or
 # argv) so every attempt receives the same bytes. bench 3, 2026-11-03: three faults in
-# ~70 sessions, each ending a 10-minute step.
+# ~70 sessions, each ending a 10-minute step. Each failure is named by tn_iap_fault_kind:
+# only `transport` is retried. An expired gcloud login (`reauth`) is never retried, since
+# every later call fails the same way: it gets one ❌ line naming the fix, then the rc.
+#
+# tn_iap_fault_kind <rc> <stderr-file> — one word on stdout, always rc 0:
+#   ok           rc 0
+#   reauth       stderr matches TN_IAP_REAUTH_PAT (an ERE; default: the gcloud reauth and
+#                token-refresh failures), whatever the rc. The default leaves out a bare
+#                "gcloud auth login": a remote command's own stderr can print that hint, and
+#                gcloud's real failure always carries one of the three phrases as well
+#   transport    ssh rc 255 or "gcloud crashed" on stderr (the retry condition above)
+#   iap-refused  an IAP tunnel refusal under another rc: [4003: 'failed to connect to
+#                backend'], [4033: 'not authorized'], [4047: ...] (bench_iap_scp_down's matcher)
+#   other        anything else: the remote command's own failure, a missing instance, ...
+# Checked in that order, so an rc-255 refusal is `transport`. A missing or unreadable
+# stderr file reads as empty, and a non-numeric rc as a plain failure.
+tn_iap_fault_kind() {
+    case "${1:-}" in 0) echo ok; return 0 ;; ''|*[!0-9]*) set -- 1 "${2:-}" ;; esac
+    [ -r "${2:-}" ] || set -- "$1" /dev/null
+    grep -Eq -- "${TN_IAP_REAUTH_PAT:-Reauthentication failed|There was a problem refreshing your current auth tokens|invalid_grant}" "$2" && { echo reauth; return 0; }
+    { [ "$1" -eq 255 ] || grep -q 'gcloud crashed' "$2"; } && { echo transport; return 0; }
+    grep -Eq '\[(4003|4033|4047): |failed to connect to backend' "$2" && { echo iap-refused; return 0; }
+    echo other
+}
+
 _tn_iap_retry() {   # _tn_iap_retry <label> <stdin: 0|1> <gcloud args...>
-    local label="$1" use_stdin="$2" rc attempt=0 errf data=""
+    local label="$1" use_stdin="$2" rc attempt=0 errf data="" kind
     shift 2
     if [ "${use_stdin}" = 1 ]; then data="$(cat; printf x)"; data="${data%x}"; fi
     errf="$(mktemp)" || return 1
@@ -81,8 +105,13 @@ _tn_iap_retry() {   # _tn_iap_retry <label> <stdin: 0|1> <gcloud args...>
             gcloud "$@" 2>"${errf}" </dev/null; rc=$?
         fi
         cat "${errf}" >&2
+        kind="$(tn_iap_fault_kind "${rc}" "${errf}")"
+        if [ "${kind}" = reauth ]; then
+            echo "❌ ${label}: gcloud needs re-authentication (run: gcloud auth login) — not retried" >&2
+            break
+        fi
         if [ "${rc}" -eq 0 ] || [ "${attempt}" -ge "${TN_IAP_RETRIES:-2}" ]; then break; fi
-        if [ "${rc}" -eq 255 ] || grep -q 'gcloud crashed' "${errf}"; then
+        if [ "${kind}" = transport ]; then
             attempt=$((attempt + 1))
             echo "⚠️  ${label}: transport fault (rc ${rc}) — retry ${attempt}/${TN_IAP_RETRIES:-2} in ${TN_IAP_RETRY_SECS:-5} s" >&2
             sleep "${TN_IAP_RETRY_SECS:-5}"
@@ -162,13 +191,15 @@ tn_iap_scp() {
 }
 
 # tn_node_ext_ip / tn_node_int_ip <instance> <zone> — the node's external (static,
-# once pinned) and internal IPs, read from GCP (read-only describe).
+# once pinned) and internal IPs, read from GCP (read-only describe). Through _tn_iap_retry
+# (stdin closed): a `gcloud crashed (ReadTimeout)` on the describe is a transport fault that
+# ended a whole finalize/keygen run under `set -e` in bench 3 (D4/D5).
 tn_node_ext_ip() {
-    gcloud compute instances describe "$1" --zone="$2" --project="${PROJECT_ID}" \
+    _tn_iap_retry "tn_node_ext_ip $1" 0 compute instances describe "$1" --zone="$2" --project="${PROJECT_ID}" \
         --format='value(networkInterfaces[0].accessConfigs[0].natIP)'
 }
 tn_node_int_ip() {
-    gcloud compute instances describe "$1" --zone="$2" --project="${PROJECT_ID}" \
+    _tn_iap_retry "tn_node_int_ip $1" 0 compute instances describe "$1" --zone="$2" --project="${PROJECT_ID}" \
         --format='value(networkInterfaces[0].networkIP)'
 }
 
