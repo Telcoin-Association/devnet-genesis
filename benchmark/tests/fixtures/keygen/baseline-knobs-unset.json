@@ -1,0 +1,894 @@
+{
+ "download_fault": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node1.yaml' && sudo chown $(whoami) '/tmp/node1.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-1:/tmp/node1.yaml",
+     "<ROOT>/workspace/genesis/validators/node1.yaml",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node2.yaml' && sudo chown $(whoami) '/tmp/node2.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-2:/tmp/node2.yaml",
+     "<ROOT>/workspace/genesis/validators/node2.yaml",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node3.yaml' && sudo chown $(whoami) '/tmp/node3.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-3:/tmp/node3.yaml",
+     "<ROOT>/workspace/genesis/validators/node3.yaml",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node4.yaml' && sudo chown $(whoami) '/tmp/node4.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-observer-4:/tmp/node4.yaml",
+     "<ROOT>/workspace/genesis/observers/node4.yaml",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 1,
+  "stderr": [
+   "ssh: connect to host kg-validator-2 port 22: Connection timed out (fake 255)"
+  ],
+  "stdout": [
+   ">>> resolving BLS passphrase (never logged)",
+   ">>> keygen targets: 4 node(s) — 0 1 2 3",
+   ">>> per-node logs: <ROOT>/repo/logs/<RUN>-keygen",
+   "",
+   ">>> [node1] keygen on kg-validator-1 (zone-a1) role=validator",
+   ">>> [node1] resolving external + internal IP",
+   ">>> [node1] extIP=203.0.113.11 intIP=198.51.100.11 addr=0x1111111111111111111111111111111111111111",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/",
+   ">>> [node1] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-1.log",
+   ">>> [node1] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node1] staging node-info.yaml for download",
+   ">>> [node1] downloading /tmp/node1.yaml -> <ROOT>/workspace/genesis/validators/node1.yaml",
+   ">>> [node1] collected node-info -> <ROOT>/workspace/genesis/validators/node1.yaml",
+   "",
+   ">>> [node2] keygen on kg-validator-2 (zone-b1) role=validator",
+   ">>> [node2] resolving external + internal IP",
+   ">>> [node2] extIP=203.0.113.12 intIP=198.51.100.12 addr=0x2222222222222222222222222222222222222222",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/",
+   ">>> [node2] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-2.log",
+   ">>> [node2] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node2] staging node-info.yaml for download",
+   ">>> [node2] downloading /tmp/node2.yaml -> <ROOT>/workspace/genesis/validators/node2.yaml",
+   "❌ [node2] failed to download node-info.yaml",
+   "",
+   ">>> [node3] keygen on kg-validator-3 (zone-c1) role=validator",
+   ">>> [node3] resolving external + internal IP",
+   ">>> [node3] extIP=203.0.113.13 intIP=198.51.100.13 addr=0x3333333333333333333333333333333333333333",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/",
+   ">>> [node3] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-3.log",
+   ">>> [node3] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node3] staging node-info.yaml for download",
+   ">>> [node3] downloading /tmp/node3.yaml -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   ">>> [node3] collected node-info -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   "",
+   ">>> [node4] keygen on kg-observer-4 (zone-d1) role=observer",
+   ">>> [node4] resolving external + internal IP",
+   ">>> [node4] extIP=203.0.113.14 intIP=198.51.100.14 addr=0x4444444444444444444444444444444444444444",
+   ">>> [node4] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/",
+   ">>> [node4] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-observer-4.log",
+   ">>> [node4] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node4] staging node-info.yaml for download",
+   ">>> [node4] downloading /tmp/node4.yaml -> <ROOT>/workspace/genesis/observers/node4.yaml",
+   ">>> [node4] collected node-info -> <ROOT>/workspace/genesis/observers/node4.yaml",
+   "",
+   "=========================================",
+   "keygen summary",
+   "=========================================",
+   "collected node-info files (3):",
+   "  - <ROOT>/workspace/genesis/validators/node1.yaml",
+   "  - <ROOT>/workspace/genesis/validators/node3.yaml",
+   "  - <ROOT>/workspace/genesis/observers/node4.yaml",
+   "failed nodes (1):",
+   "  - node2",
+   "per-node logs: <ROOT>/repo/logs/<RUN>-keygen"
+  ]
+ },
+ "fresh": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node1.yaml' && sudo chown $(whoami) '/tmp/node1.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-1:/tmp/node1.yaml",
+     "<ROOT>/workspace/genesis/validators/node1.yaml",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node2.yaml' && sudo chown $(whoami) '/tmp/node2.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-2:/tmp/node2.yaml",
+     "<ROOT>/workspace/genesis/validators/node2.yaml",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node3.yaml' && sudo chown $(whoami) '/tmp/node3.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-3:/tmp/node3.yaml",
+     "<ROOT>/workspace/genesis/validators/node3.yaml",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node4.yaml' && sudo chown $(whoami) '/tmp/node4.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-observer-4:/tmp/node4.yaml",
+     "<ROOT>/workspace/genesis/observers/node4.yaml",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   }
+  ],
+  "rc": 0,
+  "stderr": [],
+  "stdout": [
+   ">>> resolving BLS passphrase (never logged)",
+   ">>> keygen targets: 4 node(s) — 0 1 2 3",
+   ">>> per-node logs: <ROOT>/repo/logs/<RUN>-keygen",
+   "",
+   ">>> [node1] keygen on kg-validator-1 (zone-a1) role=validator",
+   ">>> [node1] resolving external + internal IP",
+   ">>> [node1] extIP=203.0.113.11 intIP=198.51.100.11 addr=0x1111111111111111111111111111111111111111",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/",
+   ">>> [node1] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-1.log",
+   ">>> [node1] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node1] staging node-info.yaml for download",
+   ">>> [node1] downloading /tmp/node1.yaml -> <ROOT>/workspace/genesis/validators/node1.yaml",
+   ">>> [node1] collected node-info -> <ROOT>/workspace/genesis/validators/node1.yaml",
+   "",
+   ">>> [node2] keygen on kg-validator-2 (zone-b1) role=validator",
+   ">>> [node2] resolving external + internal IP",
+   ">>> [node2] extIP=203.0.113.12 intIP=198.51.100.12 addr=0x2222222222222222222222222222222222222222",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/",
+   ">>> [node2] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-2.log",
+   ">>> [node2] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node2] staging node-info.yaml for download",
+   ">>> [node2] downloading /tmp/node2.yaml -> <ROOT>/workspace/genesis/validators/node2.yaml",
+   ">>> [node2] collected node-info -> <ROOT>/workspace/genesis/validators/node2.yaml",
+   "",
+   ">>> [node3] keygen on kg-validator-3 (zone-c1) role=validator",
+   ">>> [node3] resolving external + internal IP",
+   ">>> [node3] extIP=203.0.113.13 intIP=198.51.100.13 addr=0x3333333333333333333333333333333333333333",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/",
+   ">>> [node3] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-3.log",
+   ">>> [node3] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node3] staging node-info.yaml for download",
+   ">>> [node3] downloading /tmp/node3.yaml -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   ">>> [node3] collected node-info -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   "",
+   ">>> [node4] keygen on kg-observer-4 (zone-d1) role=observer",
+   ">>> [node4] resolving external + internal IP",
+   ">>> [node4] extIP=203.0.113.14 intIP=198.51.100.14 addr=0x4444444444444444444444444444444444444444",
+   ">>> [node4] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/",
+   ">>> [node4] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-observer-4.log",
+   ">>> [node4] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node4] staging node-info.yaml for download",
+   ">>> [node4] downloading /tmp/node4.yaml -> <ROOT>/workspace/genesis/observers/node4.yaml",
+   ">>> [node4] collected node-info -> <ROOT>/workspace/genesis/observers/node4.yaml",
+   "",
+   "=========================================",
+   "keygen summary",
+   "=========================================",
+   "collected node-info files (4):",
+   "  - <ROOT>/workspace/genesis/validators/node1.yaml",
+   "  - <ROOT>/workspace/genesis/validators/node2.yaml",
+   "  - <ROOT>/workspace/genesis/validators/node3.yaml",
+   "  - <ROOT>/workspace/genesis/observers/node4.yaml",
+   "per-node logs: <ROOT>/repo/logs/<RUN>-keygen",
+   "all targeted nodes keyed and collected. Next: ./devnet-genesis-build.sh"
+  ]
+ },
+ "mixed": {
+  "calls": [
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-1",
+     "--zone=zone-a1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-2",
+     "--zone=zone-b1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-validator-3",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--command=sudo cp '/var/lib/telcoin/node-info.yaml' '/tmp/node3.yaml' && sudo chown $(whoami) '/tmp/node3.yaml'"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "scp",
+     "kg-validator-3:/tmp/node3.yaml",
+     "<ROOT>/workspace/genesis/validators/node3.yaml",
+     "--zone=zone-c1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--scp-flag=-o ConnectTimeout=20"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].accessConfigs[0].natIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "instances",
+     "describe",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--format=value(networkInterfaces[0].networkIP)"
+    ],
+    "stdin": ""
+   },
+   {
+    "argv": [
+     "compute",
+     "ssh",
+     "kg-observer-4",
+     "--zone=zone-d1",
+     "--project=kg-project",
+     "--tunnel-through-iap",
+     "--ssh-flag=-o ConnectTimeout=20",
+     "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+     "--ssh-flag=-T",
+     "--command=sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/"
+    ],
+    "stdin": "<PASSPHRASE>\n"
+   }
+  ],
+  "rc": 1,
+  "stderr": [],
+  "stdout": [
+   ">>> resolving BLS passphrase (never logged)",
+   ">>> keygen targets: 4 node(s) — 0 1 2 3",
+   ">>> per-node logs: <ROOT>/repo/logs/<RUN>-keygen",
+   "",
+   ">>> [node1] keygen on kg-validator-1 (zone-a1) role=validator",
+   ">>> [node1] resolving external + internal IP",
+   ">>> [node1] extIP=203.0.113.11 intIP=198.51.100.11 addr=0x1111111111111111111111111111111111111111",
+   ">>> [node1] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x1111111111111111111111111111111111111111 --external-primary /ip4/203.0.113.11/udp/49590/quic-v1 --external-worker /ip4/203.0.113.11/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.11/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.11/udp/49594/quic-v1 --public-ip 203.0.113.11 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node1 --rpc-http https://node1.example.invalid/ --rpc-ws wss://node1.example.invalid/",
+   ">>> [node1] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-1.log",
+   "❌ [node1] keygen failed (rc=1): node-keys already exist at /var/lib/telcoin/node-keys -- refusing to overwrite in non-interactive mode — see <ROOT>/repo/logs/<RUN>-keygen/kg-validator-1.log",
+   "",
+   ">>> [node2] keygen on kg-validator-2 (zone-b1) role=validator",
+   ">>> [node2] resolving external + internal IP",
+   ">>> [node2] extIP=203.0.113.12 intIP=198.51.100.12 addr=0x2222222222222222222222222222222222222222",
+   ">>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x2222222222222222222222222222222222222222 --external-primary /ip4/203.0.113.12/udp/49590/quic-v1 --external-worker /ip4/203.0.113.12/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.12/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.12/udp/49594/quic-v1 --public-ip 203.0.113.12 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node2 --rpc-http https://node2.example.invalid/ --rpc-ws wss://node2.example.invalid/",
+   ">>> [node2] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-2.log",
+   "❌ [node2] keygen sent no done event (rc=255; ssh failed or dropped?) — see <ROOT>/repo/logs/<RUN>-keygen/kg-validator-2.log:",
+   "      [setup-node] keygen on kg-validator-2 (data dir /var/lib/telcoin)",
+   "      Connection to kg-validator-2 closed by remote host.",
+   "",
+   ">>> [node3] keygen on kg-validator-3 (zone-c1) role=validator",
+   ">>> [node3] resolving external + internal IP",
+   ">>> [node3] extIP=203.0.113.13 intIP=198.51.100.13 addr=0x3333333333333333333333333333333333333333",
+   ">>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x3333333333333333333333333333333333333333 --external-primary /ip4/203.0.113.13/udp/49590/quic-v1 --external-worker /ip4/203.0.113.13/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.13/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.13/udp/49594/quic-v1 --public-ip 203.0.113.13 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node3 --rpc-http https://node3.example.invalid/ --rpc-ws wss://node3.example.invalid/",
+   ">>> [node3] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-validator-3.log",
+   ">>> [node3] keygen ok: keys generated -- BACK THEM UP before finalizing",
+   ">>> [node3] staging node-info.yaml for download",
+   ">>> [node3] downloading /tmp/node3.yaml -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   ">>> [node3] collected node-info -> <ROOT>/workspace/genesis/validators/node3.yaml",
+   "",
+   ">>> [node4] keygen on kg-observer-4 (zone-d1) role=observer",
+   ">>> [node4] resolving external + internal IP",
+   ">>> [node4] extIP=203.0.113.14 intIP=198.51.100.14 addr=0x4444444444444444444444444444444444444444",
+   ">>> [node4] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' --json --phase=keygen --network devnet --install-method docker --docker-image registry.example.invalid/tn/node@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --passphrase-stdin --address 0x4444444444444444444444444444444444444444 --external-primary /ip4/203.0.113.14/udp/49590/quic-v1 --external-worker /ip4/203.0.113.14/udp/49594/quic-v1 --listener-primary /ip4/198.51.100.14/udp/49590/quic-v1 --listener-worker /ip4/198.51.100.14/udp/49594/quic-v1 --public-ip 203.0.113.14 --data-dir /var/lib/telcoin --service-user telcoin --advertised-name node4 --rpc-http https://node4.example.invalid/ --rpc-ws wss://node4.example.invalid/",
+   ">>> [node4] passphrase on stdin; setup-node.sh stderr -> <ROOT>/repo/logs/<RUN>-keygen/kg-observer-4.log",
+   "❌ [node4] keygen failed (rc=1): A node is already installed (/etc/systemd/system/telcoin.service exists), so --phase=keygen does not run. Use edit-config.sh to change it, or remove-node.sh first. — see <ROOT>/repo/logs/<RUN>-keygen/kg-observer-4.log",
+   "",
+   "=========================================",
+   "keygen summary",
+   "=========================================",
+   "collected node-info files (1):",
+   "  - <ROOT>/workspace/genesis/validators/node3.yaml",
+   "failed nodes (3):",
+   "  - node1",
+   "  - node2",
+   "  - node4",
+   "per-node logs: <ROOT>/repo/logs/<RUN>-keygen"
+  ]
+ }
+}
