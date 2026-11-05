@@ -1,0 +1,16 @@
+# Dashboards the bring-up stages under grafana/dashboards/ (from BENCH_OBS_DASHBOARDS_DIR), mounted
+# read-only at /var/lib/grafana/dashboards.
+apiVersion: 1
+
+providers:
+  - name: telcoin
+    orgId: 1
+    folder: Telcoin
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

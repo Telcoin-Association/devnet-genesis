@@ -1,0 +1,14 @@
+# bench-obs Prometheus. Receiver-only: the bench nodes' Alloy sidecars scrape their own /metrics
+# and remote-write here (--web.enable-remote-write-receiver in docker-compose.yml). Prometheus
+# still needs a config file to start, so this is the minimal one: the global defaults and a
+# self-scrape (up{job="prometheus"}).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: bench-obs
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

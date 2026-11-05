@@ -1,0 +1,1 @@
+{"title": "node logs (Loki)", "uid": "bench-obs-test-logs", "panels": [{"datasource": {"type": "loki", "uid": "loki"}}], "schemaVersion": 39}

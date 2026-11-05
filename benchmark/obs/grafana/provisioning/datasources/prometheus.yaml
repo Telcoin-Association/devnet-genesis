@@ -1,0 +1,14 @@
+# The bench-obs Prometheus. uid MUST be "prometheus": the dashboards' panels and template
+# variables hard-code datasource uid=prometheus (BENCH_PROM_DATASOURCE_UID).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s

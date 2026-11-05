@@ -6,8 +6,10 @@
 # observer-5-devnet, obs-devnet, txgen-devnet, devnet-indexer).
 #
 # It sources the devnet ../config.sh first (so every shared constant — PROJECT_ID,
-# DOCKER_IMAGE, SERVICE_ACCOUNT, the OBS_* endpoints the bench metrics ship to — is
-# inherited) and then OVERRIDES everything that identifies a fleet. The shared drivers
+# DOCKER_IMAGE, SERVICE_ACCOUNT, ... — is inherited; the OBS_* settings come along too but are
+# inert by default: the bench metrics ship to the run's own bench-obs VM, see BENCH_OBS_* below,
+# and only BENCH_PROM_AUTH=1 still reads obs-devnet) and then OVERRIDES everything that
+# identifies a fleet. The shared drivers
 # pick it up through CONFIG_FILE, which only benchmark/*.sh set (in-process):
 #
 #   CONFIG_FILE=benchmark/config.sh   devnet-lib.sh, common/create-instances.sh,
@@ -171,16 +173,49 @@ export CERT_DOMAINS=("${BASE_DOMAIN}")
 export HEALTHCHECK_MONITOR_SRC=""
 export TN_KUMA_SRC=""
 
-# Observability: METRICS ONLY, shipped to obs-devnet (the OBS_* endpoints are inherited).
-# No logs (obs-devnet's Loki disk is devnet's), no health listener exposure, no dashboards.
+# Observability: METRICS ONLY, shipped to bench-obs, the run's own throwaway Prometheus + Grafana
+# VM (benchmark/obs-lib.sh: created at deploy step 2, brought up at step 8, deleted by the teardown
+# after its Prometheus snapshot is pulled). No logs, no health listener exposure, no dashboards on
+# the nodes; obs-devnet is never written to.
 export TN_OBS_ENABLE_LOGS=0
 export TN_OBS_ENABLE_METRICS=1
 export TN_OBS_ENABLE_HEALTH=0
 export TN_OBS_ENABLE_DASHBOARD=0
 export TN_ADMIN_DASHBOARD=0
 export BENCH_PROM_NETWORK_LABEL="bench"      # TN_CHAIN on the node -> network= and chain= labels
-export BENCH_GRAFANA_URL="https://${OBS_HOSTNAME}"
 export BENCH_PROM_DATASOURCE_UID="prometheus"
+# bench-obs: one VM (BENCH_OBS_MACHINE_TYPE; debian-12, 20 GB pd-balanced boot disk + a pd-ssd
+# data disk with device name obs-data, mounted at /mnt/obs-data by the startup script), tag
+# bench-obs, the run's labels plus tn-role=obs, an ephemeral external IP. The nodes' Alloy pushes
+# to its VPC internal IP (port 9090, default-allow-internal); the operator reaches Prometheus and
+# Grafana only through two IAP ssh forwards on localhost (bench_obs_tunnel_up), so no DNS, TLS,
+# static IP or firewall rule.
+export BENCH_OBS_INSTANCE="${BENCH_OBS_INSTANCE:-bench-obs}"
+export BENCH_OBS_ZONE="${BENCH_OBS_ZONE:-us-west2-a}"
+export BENCH_OBS_MACHINE_TYPE="${BENCH_OBS_MACHINE_TYPE:-e2-standard-4}"
+export BENCH_OBS_DISK_GB="${BENCH_OBS_DISK_GB:-50}"
+export BENCH_OBS_PROM_LOCAL_PORT="${BENCH_OBS_PROM_LOCAL_PORT:-19090}"
+export BENCH_OBS_GRAFANA_LOCAL_PORT="${BENCH_OBS_GRAFANA_LOCAL_PORT:-13000}"
+# 1: the teardown pulls a Prometheus TSDB snapshot (bench-obs-prometheus-<UTC>.tar.gz) before it
+# deletes the VM; 0 skips it.
+export BENCH_OBS_PULL_PROM="${BENCH_OBS_PULL_PROM:-1}"
+# Data disk use (%) at which bench_obs_require warns. Warn-only: it never stops a run.
+export BENCH_OBS_DISK_MAX_PCT="${BENCH_OBS_DISK_MAX_PCT:-70}"
+export BENCH_OBS_BOOT_TIMEOUT_SECS="${BENCH_OBS_BOOT_TIMEOUT_SECS:-600}"
+# 0: Prometheus answers directly on the local forward (bench-obs). 1: the old path through a Grafana
+# datasource proxy with the admin password from Secret Manager; 1 also needs
+# BENCH_GRAFANA_URL=https://${OBS_HOSTNAME} (the obs-devnet Grafana) — never set 1 with the local
+# forward URL.
+export BENCH_PROM_AUTH="${BENCH_PROM_AUTH:-0}"
+export BENCH_PROM_URL="${BENCH_PROM_URL:-http://127.0.0.1:${BENCH_OBS_PROM_LOCAL_PORT}/api/v1}"
+export BENCH_GRAFANA_URL="${BENCH_GRAFANA_URL:-http://127.0.0.1:${BENCH_OBS_GRAFANA_LOCAL_PORT}}"
+export BENCH_PROM_RETENTION="${BENCH_PROM_RETENTION:-7d}"
+# BENCH_OBS_INTERNAL_IP is deliberately left unset: bench_obs_urls fills it from the manifest (or the
+# bench-obs-internal-ip.invalid placeholder in dry and print modes). Set it only to override.
+# The bundle pushed to the VM, the Grafana dashboards it serves and the VM's startup script.
+export BENCH_OBS_BUNDLE_DIR="${BENCH_OBS_BUNDLE_DIR:-${BENCH_DIR}/obs}"
+export BENCH_OBS_DASHBOARDS_DIR="${BENCH_OBS_DASHBOARDS_DIR:-${BENCH_DIR}/../common/observability/obs-vm/grafana/dashboards}"
+export BENCH_OBS_STARTUP_SCRIPT="${BENCH_OBS_STARTUP_SCRIPT:-${BENCH_DIR}/../common/observability/obs-vm/startup-obs.sh}"
 
 # Genesis workspace: everything the build reads/writes lives under benchmark/.
 export GENESIS_WORKSPACE="${BENCH_DIR}"
