@@ -152,6 +152,7 @@ class ParseTests(unittest.TestCase):
             "bench-observer-11-unit-stdout.log.gz": "bench-observer-11",
             "bench-observer-11-unit-stderr-20260929T181157Z.log.gz": "bench-observer-11",
             "bench-validator-01-unit-stdout.rotated-1.log.gz": "bench-validator-01",
+            "bench-validator-01-unit-stderr-20261104T003616Z.rotated-2.log.gz": "bench-validator-01",
             "bench-telcoin-x-telcoin.log.gz": "bench-telcoin-x",
         }
         for name, want in cases.items():
@@ -200,6 +201,22 @@ class ScanTests(RunDirCase):
         scan = P.scan_run(str(run))
         self.assertEqual(scan["instances"], ["bench-validator-01"])
         self.assertEqual(len(scan["starts"]), 2)  # both rotated copies hold the same two starts: counted once
+
+    def test_rotated_generations_named_by_the_teardown_pull(self):
+        # The teardown pull lands each rotated generation as <inst>-unit-<stream>.rotated-<N>.log.gz, and as
+        # <inst>-unit-<stream>-<UTC stamp>.rotated-<N>.log.gz when that name is already taken.
+        names = ["bench-validator-01-unit-stdout.rotated-1.log.gz",
+                 "bench-validator-01-unit-stdout-20261104T003616Z.rotated-1.log.gz",
+                 "bench-validator-01-unit-stderr.rotated-3.log.gz",
+                 "bench-validator-01-unit-stderr-20261104T003616Z.rotated-12.log.gz"]
+        run = self.make_run(dict((n, ("node-log-validator-unit-stdout.txt", True)) for n in names))
+        self.assertEqual([os.path.basename(f) for f in P.node_log_files(str(run))], sorted(names))
+        for n in names:
+            with self.subTest(name=n):
+                self.assertEqual(P.instance_of(n), "bench-validator-01")
+        scan = P.scan_run(str(run))
+        self.assertEqual(scan["instances"], ["bench-validator-01"])
+        self.assertEqual(len(scan["starts"]), 2)  # the same two boots in every generation: counted once
 
     def test_truncated_gzip_is_reported_unreadable(self):
         run = self.make_run({"bench-validator-01-telcoin.log.gz": ("node-log-validator-container.txt", True)})
@@ -258,6 +275,29 @@ class CheckTests(RunDirCase):
         self.assertTrue(r["ok"], r["problems"])
         # A parameter the manifest does not record is not compared either.
         self.assertTrue(P.check(self.scan(), manifest_for(consensus_parameters={"max_header_delay_ms": 500}))["ok"])
+
+    def test_a_listed_node_without_a_start_is_a_problem(self):
+        # D20: the manifest lists four nodes; only bench-validator-01 and bench-observer-11 logged a start.
+        # bench-validator-02's log holds no start line (its early generations were rotated away) and
+        # bench-validator-03 has no log at all: both are named, and the check fails.
+        run = self.make_run(STANDARD)
+        (run / "logs" / "bench-validator-02-unit-stdout.log").write_text(
+            'ts=2026-01-01T01:00:00.000000000Z level=INFO target=consensus message="subdag committed" round=900\n')
+        scan = P.scan_run(str(run))
+        listed = [{"name": "bench-validator-01", "role": "validator"}, {"name": "bench-validator-02", "role": "validator"},
+                  {"name": "bench-validator-03", "role": "validator"}, {"name": "bench-observer-11", "role": "observer"},
+                  {"name": "load-a", "role": "blaster"}]   # a load generator runs no node: never expected
+        cs = {"due": 1767225600, "nodes": 4, "started": 4, "skipped_running": 0, "spread_secs": 0, "max_late_secs": 0}
+        r = P.check(scan, manifest_for(instances=listed, coordinated_start=cs))
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["problems"], ["no start line for bench-validator-02", "no start line for bench-validator-03"])
+        # Every listed node started: ok. No list: nothing to compare, as before.
+        self.assertTrue(P.check(scan, manifest_for(instances=[listed[0], listed[3]], coordinated_start=cs))["ok"])
+        self.assertTrue(P.check(scan, manifest_for())["ok"])
+        self.assertEqual(P.listed_instances({"instances": listed + [
+            {"role": "validator"}, {"name": " ", "role": "observer"}, {"name": "bench-validator-04"}, "bench-validator-05"]}),
+            ["bench-observer-11", "bench-validator-01", "bench-validator-02", "bench-validator-03"])
+        self.assertEqual(P.listed_instances(None), [])
 
     def test_no_expected_sha_not_ok(self):
         r = P.check(self.scan(), {})
@@ -361,6 +401,12 @@ class CliTests(RunDirCase):
         p = self.cli(run, "--expect-sha", OTHER, "--json")
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertFalse(json.loads(p.stdout)["ok"])
+        listed = self.make_run(STANDARD, name="listed", manifest=manifest_for(instances=[
+            {"name": "bench-validator-01", "role": "validator"}, {"name": "bench-observer-11", "role": "observer"},
+            {"name": "bench-validator-09", "role": "validator"}]))
+        p = self.cli(listed)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout.splitlines()[-2:], ["PROBLEMS:", "  - no start line for bench-validator-09"])
         empty = self.make_run({"deploy-20260101T000000Z.log": ("deploy-output.txt", False)},
                               manifest=manifest_for(), name="no-node-logs")
         p = self.cli(empty)

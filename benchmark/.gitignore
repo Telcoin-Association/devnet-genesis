@@ -4,7 +4,7 @@ genesis/
 # Written by `telcoin genesis` at deploy step 6; the committed timing file is consensus-parameters.yaml.
 parameters.yaml
 results/
-logs/
+/logs/
 work/
 .secrets/
 # Operator-only notes and drafts that never get published.

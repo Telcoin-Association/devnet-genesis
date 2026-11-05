@@ -70,11 +70,12 @@ def pct(xs, q):
 
 
 def best_window_mean(vals: List[float], width: int) -> Optional[float]:
-    """Highest mean over any `width` consecutive seconds (aggregate.py best_window_mean)."""
-    if not vals:
+    """Highest mean over any `width` consecutive seconds (aggregate.py best_window_mean), or None
+    when there are fewer than `width` samples: no such window exists. aggregate.py returns the
+    plain mean of a shorter series, which would publish a short window as a best-`width`-s figure
+    (windows.best_60s_tps returns None there too)."""
+    if not vals or len(vals) < width:
         return None
-    if len(vals) <= width:
-        return sum(vals) / len(vals)
     cur = best = sum(vals[:width])
     for i in range(width, len(vals)):
         cur += vals[i] - vals[i - width]
@@ -285,12 +286,17 @@ def _chain_kpis(combined: dict, windows: dict, caveats: List[str]) -> List[dict]
             f"Chain transactions per block-timestamp second, summed over the {secs}-s window when every load "
             "generator was in its mixed phase and divided by its length.",
             value=sum(chain) / max(secs, 1)))
-        out.append(_kpi(
-            "best_60s_chain_tps_all_generators", "Best 60 seconds, all load generators running",
-            "Best 60 s TPS", "tx/s", W_ALL, "combined.series.per_second[chain_tx]",
-            "Highest mean chain tx/s over any 60 consecutive seconds inside the all-generators window "
-            "(aggregate.py best_window_mean).",
-            value=best_window_mean(chain, SUSTAIN_SECS)))
+        best = best_window_mean(chain, SUSTAIN_SECS)
+        if best is None:
+            caveats.append(f"the all-generators window is {secs} s, shorter than {SUSTAIN_SECS} s: "
+                           f"best-{SUSTAIN_SECS}-s chain throughput not computed")
+        else:
+            out.append(_kpi(
+                "best_60s_chain_tps_all_generators", "Best 60 seconds, all load generators running",
+                "Best 60 s TPS", "tx/s", W_ALL, "combined.series.per_second[chain_tx]",
+                "Highest mean chain tx/s over any 60 consecutive seconds inside the all-generators window "
+                "(aggregate.py best_window_mean).",
+                value=best))
 
     landed = ((combined or {}).get("totals") or {}).get("landed_chain")
     if landed is None:

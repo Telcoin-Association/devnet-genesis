@@ -126,7 +126,10 @@ class HelperTests(unittest.TestCase):
 
     def test_best_window_mean(self):
         self.assertIsNone(kpis.best_window_mean([], 60))
-        self.assertEqual(kpis.best_window_mean([1, 2, 3], 60), 2.0)  # shorter than the width: plain mean
+        # Fewer samples than the width: no such window, so no figure (aggregate.py would give the plain mean).
+        self.assertIsNone(kpis.best_window_mean([1, 2, 3], 60))
+        self.assertIsNone(kpis.best_window_mean([5] * 59, 60))
+        self.assertEqual(kpis.best_window_mean([5] * 60, 60), 5.0)  # exactly one window
         self.assertEqual(kpis.best_window_mean([0, 0, 6, 6, 0], 2), 6.0)
         self.assertEqual(kpis.best_window_mean([1, 5, 1, 1], 3), 7 / 3)
 
@@ -298,6 +301,22 @@ class ComputeTests(Fixture):
         self.assertEqual(ids, list(kpis.DECIMALS)[2:])
         self.assertEqual(kpis.headline_id(out["kpis"]), "landed_total")
         self.assertTrue(any(c.startswith("all-generators window undefined") for c in out["caveats"]))
+
+    def test_all_generators_window_shorter_than_60s_has_no_best_60s(self):
+        short = {"merged": WINDOWS["merged"], "all_generators": {"start_unix": T0 + 100, "end_unix": T0 + 145, "secs": 45}}
+        out = self.compute(windows=short)
+        ids = [k["id"] for k in out["kpis"]]
+        self.assertNotIn("best_60s_chain_tps_all_generators", ids)
+        self.assertEqual(ids, [i for i in kpis.DECIMALS if i != "best_60s_chain_tps_all_generators"])
+        self.assertEqual(kpis.headline_id(out["kpis"]), kpis.HEADLINE_ID)  # the average still stands
+        self.assertIn("the all-generators window is 45 s, shorter than 60 s: best-60-s chain throughput not computed",
+                      out["caveats"])
+        # A 60-s window is one window: its mean is the figure, and no caveat.
+        sixty = {"merged": WINDOWS["merged"], "all_generators": {"start_unix": T0 + 100, "end_unix": T0 + 160, "secs": 60}}
+        out = self.compute(windows=sixty)
+        best = self.by_id(out)["best_60s_chain_tps_all_generators"]["value"]
+        self.assertEqual(best, self.by_id(out)["avg_chain_tps_all_generators"]["value"])
+        self.assertFalse(any("shorter than 60 s" in c for c in out["caveats"]))
 
     def test_without_any_window_only_run_kpis_remain(self):
         out = self.compute(windows={})

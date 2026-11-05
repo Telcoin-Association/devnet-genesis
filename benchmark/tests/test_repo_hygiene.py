@@ -50,10 +50,22 @@ PRIVATE_PREFIXES = ("benchmark/private/", "benchmark/results/", "benchmark/genes
 PRIVATE_FILES = ("benchmark/parameters.yaml",)
 MUST_BE_IGNORED = ("benchmark/private/x", "benchmark/work/x", "benchmark/results/x", "benchmark/genesis/x",
                    "benchmark/.secrets/x", "benchmark/parameters.yaml", "dist/x", "tasks/checkpoint-pub-x.md",
-                   "benchmark/report/__pycache__/x.pyc")
+                   "benchmark/report/__pycache__/x.pyc",
+                   # the root drivers' run logs, a root archive/ and the binary; the bench's own logs/
+                   "logs/x", "archive/x", "telcoin", "benchmark/logs/x")
 MUST_NOT_BE_IGNORED = ("benchmark/consensus-parameters.yaml", "benchmark/node-image-contract.txt",
                        "benchmark/report/make_bundle.py", "benchmark/report/scrub.py",
-                       "benchmark/tests/test_repo_hygiene.py")
+                       "benchmark/tests/test_repo_hygiene.py",
+                       # logs / archive / telcoin are ignored at the top only, never deeper down
+                       "tasks/archive/x.md", "benchmark/tests/fixtures/logs/x", "benchmark/tests/fixtures/x/logs/y",
+                       "benchmark/tests/fixtures/archive/x", "benchmark/tests/fixtures/x/telcoin",
+                       "benchmark/tests/fixtures/x/telcoin/y",
+                       # bench 4 harness files: checked by name, so a file not yet written passes too
+                       "benchmark/pull-lib.sh", "benchmark/tests/test_pull_logs.py", "benchmark/tests/test_tunnel.py",
+                       "benchmark/tests/test_iap_retry.py", "benchmark/tests/test_keygen.py",
+                       "benchmark/tests/test_network_config.py", "benchmark/tests/fixtures/pull/x",
+                       "benchmark/tests/fixtures/tunnel/x", "benchmark/tests/fixtures/iap-retry/x",
+                       "benchmark/tests/fixtures/keygen/x", "benchmark/tests/fixtures/network-config/x")
 
 
 def git(*args, **kwargs):

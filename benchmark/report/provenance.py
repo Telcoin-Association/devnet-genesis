@@ -34,6 +34,8 @@ The run directory's logs/ holds, per instance (see bench-lib.sh, bench_pull_node
     <inst>-telcoin-<stamp>.log.gz               a second pull of the current container log
     <inst>-telcoin-<label>-<stamp>.log.gz       log saved before a kill/restart/pause
     <inst>-unit-{stdout,stderr}[-<stamp>].log.gz  the systemd unit's append files
+    <inst>-unit-<stream>[-<stamp>].rotated-<N>.log.gz  a generation logrotate moved aside on the
+                                                node (the stamp only when that name was taken)
 The unit files repeat the container logs' lines, so scan_run() drops repeated starts (same
 instance, timestamp, version and sha). Other files in logs/ (deploy-*, blast-*, create-*) are
 not node logs and are skipped.
@@ -108,8 +110,9 @@ _CANDIDATE_MARKERS = (b"starting", b"et to", b"ET TO", b"chedule", b"CHEDULE")
 
 # Node log file names (bench-lib.sh). The instance part is greedy (the last "-telcoin" /
 # "-unit-" starts the suffix), so an instance name containing "-telcoin" still parses; a saved
-# log's label is always followed by a UTC stamp. A unit log rotated on the node and rescued at
-# teardown keeps its rotation number: <inst>-unit-<stream>.rotated-<N>.log.gz.
+# log's label is always followed by a UTC stamp. A unit log rotated on the node and pulled at
+# teardown keeps its rotation number: <inst>-unit-<stream>.rotated-<N>.log.gz, or
+# <inst>-unit-<stream>-<stamp>.rotated-<N>.log.gz when the first name was already taken.
 _STAMP = r"\d{8}T\d{6}Z"
 _NODE_LOG_RE = re.compile(
     r"^(?P<inst>[A-Za-z0-9][A-Za-z0-9._-]*)-"
@@ -471,13 +474,33 @@ def expected_param_values(manifest: Optional[Dict[str, Any]], instance: str, key
     return sorted(out)
 
 
+# manifest["instances"] roles that run a telcoin-network node (older manifests list the load
+# generators there too, as role "blaster").
+NODE_ROLES = ("validator", "observer")
+
+
+def listed_instances(manifest: Optional[Dict[str, Any]]) -> List[str]:
+    """Sorted names of the nodes a run's manifest lists: manifest["instances"][] entries whose
+    role is a NODE_ROLES one. The coordinated start (manifest["coordinated_start"]) started every
+    one of them; it records counts only (nodes, started), so the names come from "instances"."""
+    out = set()
+    for entry in (manifest or {}).get("instances") or []:
+        if not isinstance(entry, dict) or entry.get("role") not in NODE_ROLES:
+            continue
+        name = entry.get("name")
+        if isinstance(name, str) and name.strip():
+            out.add(name.strip())
+    return sorted(out)
+
+
 def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: Optional[str] = None) -> Dict[str, Any]:
     """Check a scan_run() result against the expected build and the manifest.
 
-    ok iff (a) at least one start was found; (b) every start's sha is the expected sha
-    (expect_sha, else manifest["node_git_sha"]; a short sha matches by prefix); (c) when the
-    logs carry a fork schedule and the manifest has "node_fork_schedule", every logged schedule
-    equals it; (d) when the logs carry parameters and the manifest has
+    ok iff (a) at least one start was found, and one for every instance the manifest lists
+    (listed_instances; each one without is named: "no start line for <inst>"); (b) every start's
+    sha is the expected sha (expect_sha, else manifest["node_git_sha"]; a short sha matches by
+    prefix); (c) when the logs carry a fork schedule and the manifest has "node_fork_schedule",
+    every logged schedule equals it; (d) when the logs carry parameters and the manifest has
     "consensus_parameters", every logged value of each parameter present on both sides equals
     the manifest's; when the manifest records per-node values (consensus_parameters.overrides or
     param_arms) and the scan has "param_events", per instance and line: the fleet value, that
@@ -496,6 +519,12 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
     # (a)
     if not starts:
         problems.append("no node start line (\"telcoin-network <version> (<sha>) starting\") in the node logs")
+    # A listed node without a start line ran a build its logs cannot vouch for (the early log was
+    # rotated away or never pulled): a gap, not a pass.
+    expected_instances = set(listed_instances(manifest))
+    started = {s.get("instance") for s in starts if s.get("instance")}
+    for inst in sorted(expected_instances - started):
+        problems.append("no start line for %s" % inst)
 
     # (b)
     expected = expect_sha if expect_sha else manifest.get("node_git_sha")

@@ -797,6 +797,11 @@ class AssembleHelperTests(unittest.TestCase):
                             "a": "2026-01-01T01:00:00Z", "bad": "x"}}
         self.assertEqual(mb.run_times(m), ("2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"))
         self.assertEqual(mb.run_times({}), (None, None))
+        # The teardown's end is the run's end when recorded, even with a later stamp (a --note after it).
+        m["timestamps"].update(teardown_start="2026-01-01T01:30:00Z", teardown_done="2026-01-01T01:45:00+00:00")
+        self.assertEqual(mb.run_times(m), ("2026-01-01T00:00:00Z", "2026-01-01T01:45:00Z"))
+        m["timestamps"]["teardown_done"] = "not a time"  # unreadable: the latest stamp, as without one
+        self.assertEqual(mb.run_times(m), ("2026-01-01T00:00:00Z", "2026-01-01T02:00:00Z"))
         title, summary = mb.default_title("r1", {"validators": 3, "observers": 1, "machine_type": "n2"},
                                           {"mixed_secs": 2400})
         self.assertEqual((title, summary), ("Benchmark run r1", "3 validators and 1 observer(s) on n2, "
@@ -1042,7 +1047,7 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="tb2-asm-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def build(self, backfill):
+    def build(self, backfill, all_generators_secs=None):
         manifest = enriched_synthetic_manifest()
         metrics, combined = load_json(SYNTH / "metrics.json"), load_json(SYNTH / "combined.json")
         a = mb.parse_args(["--run", "r20260101-synth", "--analysis-sha", "abcdef0"])
@@ -1050,6 +1055,10 @@ class OfflineAssemblyTests(unittest.TestCase):
         def run():
             prov = mb.provenance_step(self.tmp, manifest, backfill, False)
             built, tps5, series = mb.windows_step(str(SYNTH), combined)
+            if all_generators_secs is not None:
+                start = built["all_generators"]["start_unix"]
+                built["all_generators"] = {"start_unix": start, "end_unix": start + all_generators_secs,
+                                           "secs": all_generators_secs}
             kp, head, rec, kc = mb.kpis_step(str(SYNTH), combined, metrics, manifest, built, backfill)
             report = mb.report_block(str(PAGE_REPORT), None, backfill)
             docs = mb.win.load_blasters(str(SYNTH / "blasters"))
@@ -1089,6 +1098,21 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.assertEqual(mb.hscrub.scan_dir(out, manifest), [])
         series = load_json(os.path.join(out, "series", "tps-1s.json"))
         self.assertEqual((series["step_s"], len(series["rows"])), (1, 700))
+
+    def test_short_all_generators_window_is_a_caveat_not_a_best_60s(self):
+        # Fewer than 60 s with every generator running: no best-60-s figure (the old code published the
+        # window's plain mean under that label); run.json says why instead.
+        _, doc, out, _ = self.build({"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}},
+                                    all_generators_secs=45)
+        ids = [k["id"] for k in doc["kpis"]]
+        self.assertNotIn("best_60s_chain_tps_all_generators", ids)
+        self.assertEqual(len(ids), 12)
+        self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
+        self.assertEqual(doc["windows"]["all_generators"]["secs"], 45)
+        self.assertIn("The all-generators window is 45 s, shorter than 60 s: best-60-s chain throughput not computed.",
+                      doc["caveats"])
+        if SITE_SCRUB.is_file():
+            self.assertEqual(load_site_scrub().validate_run(load_json(os.path.join(out, "run.json"))), [])
 
     def test_placeholders_without_title(self):
         _, doc, _, err = self.build({})
@@ -1285,9 +1309,13 @@ class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
         shutil.copytree(str(SYNTH), results)
         write_json(os.path.join(results, "manifest.json"), enriched_synthetic_manifest())
         self.logs = os.path.join(results, "logs")
+        # One start per node the manifest lists (val-1..3, obs-1; the load-* blasters run no node).
         write_text(os.path.join(self.logs, "val-1-telcoin.log"), node_log(SHA, vote_timeout=5000))
         with gzip.open(os.path.join(self.logs, "val-2-telcoin.log.gz"), "wt") as fh:
             fh.write(node_log(SHA, vote_timeout=5000))
+        with gzip.open(os.path.join(self.logs, "val-3-unit-stdout.rotated-1.log.gz"), "wt") as fh:
+            fh.write(node_log(SHA, vote_timeout=5000))
+        write_text(os.path.join(self.logs, "obs-1-telcoin.log"), node_log(SHA, vote_timeout=5000))
         self.site = os.path.join(self.tmp, "site")
         os.makedirs(self.site)
         shutil.copyfile(str(SITE_SCRUB), os.path.join(self.site, "scrub.py"))
@@ -1300,7 +1328,7 @@ class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
         rc, out, err = self.main("--run", self.RUN, "--backfill", self.backfill, "--out", self.out,
                                  "--txgen-bench", TXGEN_BENCH, "--analysis-sha", "abcdef0", BENCH_SITE_REPO=self.site)
         self.assertEqual(rc, 0, err[-3000:])
-        self.assertIn("2 provenance: 2 log files, 2 starts", out)
+        self.assertIn("2 provenance: 4 log files, 4 starts", out)
         self.assertIn("gates: site scrub.py: scrub: 0 error(s)", out)
         scratch = os.path.join(self.work_root, self.RUN)
         self.assertFalse(os.path.lexists(os.path.join(scratch, "logs")))
@@ -1312,7 +1340,7 @@ class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
         doc = json.loads(text)
         self.assertEqual(doc["upstream"], {
             "repo": mb.UPSTREAM_REPO, "sha": SHA, "short": SHA[:9], "branch": None, "evidence": "verified",
-            "evidence_detail": ["2 node starts across 2 instances logged telcoin-network 0.1.0 (%s)" % SHA]})
+            "evidence_detail": ["4 node starts across 4 instances logged telcoin-network 0.1.0 (%s)" % SHA]})
         self.assertEqual(doc["consensus"], {
             "max_header_delay_ms": 3000, "min_header_delay_ms": 1000, "max_batch_delay_ms": 1000,
             "vote_timeout_ms": 5000, "file": mb.LOGS_PARAMS_FILE, "confirmed_by": mb.LOGS_CONFIRMED_BY})
@@ -1324,6 +1352,23 @@ class SyntheticEndToEndTests(TmpMixin, unittest.TestCase):
             "commit_latency_p95_s": [2.0, 2.5], "execution_time_per_output_s": [0.11, 0.22],
             "disk_write_p95_mibps_busiest": 24.0, "disk_write_iops_p95_busiest": 1200, "cpu_p95_pct_busiest": 60.0,
             "rss_p95_gib_busiest": 3.0, "psi_io_max_pct": [7.3, 12.5]})
+
+    def test_a_node_without_a_start_line_is_refused_unless_allowed(self):
+        # D20: obs-1's log lost its boot (rotated away before the pull). The logged starts all match, but
+        # they do not vouch for obs-1, so the bundle refuses; allowed, it says so in a caveat.
+        os.unlink(os.path.join(self.logs, "obs-1-telcoin.log"))
+        argv = ["--run", self.RUN, "--backfill", self.backfill, "--out", self.out, "--txgen-bench", TXGEN_BENCH,
+                "--analysis-sha", "abcdef0"]
+        rc, out, err = self.main(*argv, BENCH_SITE_REPO=self.site)
+        self.assertEqual(rc, 1, out[-2000:])
+        self.assertIn("provenance check failed", err)
+        self.assertIn("no start line for obs-1", err)
+        self.assertFalse(os.path.lexists(self.out))
+        rc, out, err = self.main(*(argv + ["--force", "--allow-provenance-mismatch"]), BENCH_SITE_REPO=self.site)
+        self.assertEqual(rc, 0, err[-3000:])
+        doc = load_json(os.path.join(self.out, "run.json"))
+        self.assertEqual((doc["upstream"]["evidence"], doc["upstream"]["sha"]), ("inferred", SHA))
+        self.assertIn("The node logs did not confirm the upstream commit: no start line for obs-1.", doc["caveats"])
 
 
 # --------------------------------------------------------------------------- page-only end to end
@@ -1521,9 +1566,21 @@ class Run20260929IntegrationTests(unittest.TestCase):
         self.assertEqual(head["value"], 4177.2)
         self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
         self.assertEqual([k["provenance"] for k in doc["kpis"]].count("published"), 1)
-        self.assertEqual(doc["upstream"]["evidence"], "verified")
         self.assertEqual(doc["upstream"]["short"], "e85bd7a3f")
-        self.assertEqual(doc["consensus"]["vote_timeout_ms"], 5000)
+        # The run's node logs may have moved to the archive bucket, leaving only the .pulled markers here.
+        # With them, provenance_step checks every listed node's start line (a gap would refuse the bundle:
+        # this test passes no --allow-provenance-mismatch) and the delays come from the logs. Without them
+        # nothing is checked: the backfill's sha is published as inferred, with no provenance caveat, and
+        # this manifest predates consensus_parameters, so no consensus block is published.
+        if mb.provenance.node_log_files(str(RESULTS_29)):
+            self.assertEqual(doc["upstream"]["evidence"], "verified")
+            self.assertEqual(doc["consensus"]["vote_timeout_ms"], 5000)
+        else:
+            self.assertEqual(doc["upstream"]["evidence"], "inferred")
+            self.assertEqual([c for c in doc["caveats"] if "did not confirm the upstream commit" in c], [])
+            self.assertIsNone(doc["consensus"])
+            self.assertIn("Consensus parameters are not published for this run: max_header_delay_ms, "
+                          "min_header_delay_ms, max_batch_delay_ms not recorded.", doc["caveats"])
         self.assertEqual(doc["fleet"]["validators"], 10)
         series = load_json(os.path.join(out, "series", "tps-1s.json"))
         secs = doc["windows"]["merged_mixed"]["secs"]

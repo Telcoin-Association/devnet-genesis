@@ -1,7 +1,5 @@
-# binary
-telcoin
-# ... but not the bench test fixtures that mirror a node's /etc/telcoin and /usr/local/libexec/telcoin
-!benchmark/tests/fixtures/**/telcoin
+# binary (the repo root only: fixture dirs that mirror a node's /etc/telcoin stay tracked)
+/telcoin
 
 # validator configs
 telcoin-network.yaml
@@ -16,9 +14,10 @@ telcoin-network.yaml
 .env
 .env.makefile
 
-# one-off logs from update.sh
-logs
-archive
+# run logs of the root drivers (devnet-*.sh write <repo>/logs/<stamp>-<step>/), and a root archive/;
+# anchored, so a fixture or tasks/archive/ file of that name is not swallowed
+/logs/
+/archive/
 **/.DS_Store
 
 # local build output (publish bundles); never committed

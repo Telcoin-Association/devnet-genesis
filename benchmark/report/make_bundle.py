@@ -1092,8 +1092,13 @@ def chaos_block(manifest):
 
 
 def run_times(manifest):
+    """(started, ended): the deploy start, and the end of the run's last teardown
+    (timestamps.teardown_done), else the latest timestamp the manifest records."""
     ts = manifest.get("timestamps") or {}
     started = _utc(ts.get("deploy_start"))
+    done = _utc(ts.get("teardown_done"))
+    if done:
+        return started, done
     stamps = sorted(t for t in (_utc(v) for v in ts.values()) if t)
     return started, (stamps[-1] if stamps else None)
 
