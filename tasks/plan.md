@@ -84,12 +84,13 @@ tn-transaction-generator:
 ## Wave 3 — live run (D5)
 - [x] preflight clean; run id r20261105-0036
 - [ ] BLOCKED at step 0 (00:37Z): obs-devnet data disk 73 % ≥ 70 % gate — cause = live devnet nodes shipping DEBUG to Loki at ≈ 4 GB/h since 2026-11-02 (not the bench). Relaunch with BENCH_OBS_DISK_MAX_PCT=85 was permission-denied → user decision; resume command in tasks/checkpoint-bench4-live.md
-- [ ] (superseded by Wave C) fresh BENCH_RUN_ID; deploy `--to 12` (gates: OBS_READY, OBSCFG_OK ×11, tunnel target=bench-obs:9090) → idle ≥ 10 min → `--from 13 --to 15` (step 15 prometheus.url = local tunnel) → teardown (bench-obs-prometheus-*.tar.gz pulled, bench-obs deleted, obs-devnet present) → `--reindex`
+- [x] Wave C run r20261105-0803: deploy --to 12 rc 0 (08:03-08:49Z, OBS_READY, OBSCFG_OK ×11), idle, --from 13 --to 15 rc 0 (0 aborts, collector via bench-obs), teardown: logs 11/11 (4 h 19 min pull), OBS_SNAPSHOT pulled, gates passed; attempt 5 TEARDOWN_DONE deleted=12 left=0 at 17:19:37Z (after D34 marker-freshness → trusted markers, D35 gcloud --async → fix 30c944b); --reindex 251 files 91.4 GB; fleet verified gone, obs-devnet untouched
 
 ## Wave 4 — analysis (A1, A2, A3, A4n, A4o, P-backfill, A5 report)
-- [ ] `tasks/bench4-report-<run>.md` + `benchmark/private/followups.md ## <run>`
+- [x] A1-A5 + P done; `tasks/bench4-report-r20261105-0803.md` (reviewed, teardown facts filled, committed 1c96478) + `benchmark/private/followups.md ## r20261105-0803`
 
 ## Wave 5 — publish
-- [ ] backfill json, make_bundle, tn-benchmarks build/scrub/tests, commit+push, HTTP 200
-- [ ] devnet-genesis push main; txgen push main; draft PR on telcoin-network (or `tasks/pr-bench-observability.md`)
-- [ ] memory `bench4-main-v1lazy-obs-run.md` + MEMORY.md; `tasks/todo.md` review section; `tasks/lessons.md`
+- [x] backfill json (committed 9f19486)
+- [x] make_bundle OK (2057 s; provenance verified 496ebefb5; report.html 1.2 MB, 14 charts); site gates: build --check ok, scrub 0/0, 113 tests OK; tn-benchmarks fcd3f12 pushed (HTTP 200 poll running)
+- [x] devnet-genesis main, common devnet/genesis-knobs and txgen main pushed (see the final summary); draft PR text in `tasks/pr-bench-observability.md` (PR not opened: out of scope)
+- [x] memory `bench4-main-v1lazy-obs-run.md` + `devnet-obs-debug-logs.md` + MEMORY.md; `tasks/todo.md` review section; `tasks/lessons.md` (7 new entries)

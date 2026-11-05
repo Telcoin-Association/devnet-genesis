@@ -1348,3 +1348,28 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   down member fails every sample, so the safety is unchanged.
 - Rule: treat a single guard refusal as a sample, not a verdict: resample before deferring, and report which author was missing.
   Follow-up for tn-node-deployment: count authors over the last k commits.
+
+## 2026-11-05 — a log filter is sized by bytes per minute under load, not by target names
+- Bench 4's filter (`engine=debug` among others, chosen by reading which targets the new contract lines use) let two pre-existing engine
+  dumps through: `block executed` prints the whole ExecutedBlock (≈ 716 kB/line) and `executing output` the whole ConsensusOutput
+  (≈ 18.7 MB/line). Idle: 7 MB/min; under load: ≈ 1.16 GB/min per validator → 49 GB unit logs, root disk 7 → 65 % in 50 min (abort
+  at 85 %), and a teardown pull of hours instead of minutes. The 2026-10-07 lesson ("size the teardown from the filter") was applied
+  to the network targets only.
+- Rule: before a run, measure the candidate filter on one node under a short load (bytes/min per target, top messages by bytes) and
+  gate on it (projected bytes per node < the pull budget); dump-style `debug!(?whole_struct)` lines are downgraded to trace or given
+  their own target before they are allowed into a bench filter.
+
+## 2026-11-05 — a background Bash task dies with the session; detach multi-hour fleet actions
+- The teardown re-run (a `run_in_background` Bash) was killed when the Claude Code session restarted, mid-way between the marker
+  acceptance and the deletes; the first attempt's 4-hour pull had already been lost once to a DNS blip. Nothing was deleted
+  (the gates are ordered), but the fleet idled another hour.
+- Rule: a fleet action that runs longer than a few minutes is launched with `nohup setsid … > log 2>&1 &` and a pid file, and
+  watched through its log; the session only observes it. The same for long pulls.
+
+## 2026-11-05 — `$!` of `nohup setsid … &` is the wrapper, not the detached session; record the leader's pid from inside
+- Killing the recorded pid "succeeded" (the wrapper had already exited) while the detached teardown kept running, so a second
+  teardown was started on the same run; both were still in their read-only phase and the fleet was untouched, but only because
+  the gates are ordered.
+- Rule: detach with `nohup setsid bash -c 'echo $$ > <pidfile>; exec …' > log 2>&1 &` (the pid file names the session leader), stop
+  with `kill -- -<pgid>` after `ps -eo pid,pgid,sid,args | grep <script>` confirms the group, and never launch a second fleet action
+  on the same run until `pgrep -f <script>` is empty.

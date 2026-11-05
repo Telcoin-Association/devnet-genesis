@@ -1477,3 +1477,26 @@ base fee after more boundaries) is appended to the verification file when the wa
 - [ ] test_tunnel's TUNNEL_PAT check reads only the teardown's first TUNNEL_PAT line (the obs ports are on the second line, unchecked).
 - [ ] CI: the `common` submodule is private; test_node_image must not need it (U-O2 follow-up in flight); check_mutations skips missing
       common/ paths.
+- [ ] telcoin-network (upstream, pre-existing — NOT from the bench-4 commits): `crates/engine/src/payload_builder.rs:74`
+      `debug!(target: "engine", ?output, "executing output")` dumps the whole ConsensusOutput (≈ 18.7 MB/line) and `:372`
+      `debug!(target: "engine", ?next_canonical_block, "block executed")` the whole ExecutedBlock (≈ 716 kB/line);
+      `crates/tn-reth/src/evm/handler.rs:132/:181` log per transaction. Under load `engine=debug` = ≈ 1.16 GB/min per validator (A4o D23).
+      Fix: downgrade the two struct dumps to `trace!` (or target `engine::dump`) and the per-tx lines to trace; keep the three contract
+      lines (`output execution task finished`, `output executed`, `persisted output`) at debug. Add to the draft PR of the observability branch.
+- [ ] benchmark/config.sh BENCH_NODE_LOG_FILTER: until the upstream fix lands, drop `engine=debug` (→ `engine=info`) or measure bytes/min
+      per target on one node under load before every run (lesson 2026-11-05) and gate the teardown pull on the projection (A4o A1/A4).
+
+## Review — 2026-11-05 obs wave + bench 4 run r20261105-0803 (written at the end of the day)
+What was done: (1) obs-devnet pruned by per-stream Loki retention (DEBUG 24 h; 80 % → 23 %, INFO history intact); (2) the five devnet nodes
+restarted one at a time onto `--log.file.filter info` with the new `devnet-log-filter.sh` (DEBUG volume 3.6 GB → 0 per 15 min); (3) the bench
+harness moved its metrics to a throwaway `bench-obs` VM created/deleted by the run (obs-lib.sh, bundle, deploy/teardown/blast wiring,
+collector `--prom-no-auth`), 843 tests + 34 mutation anchors + three reviews before the run; (4) bench 4 ran: deploy 46 min, blast 40 min,
+0 aborts, 4,578 tx/s (+13.4 % on bench 3), full analysis (A1-A5, P) and a reviewed report tasks/bench4-report-r20261105-0803.md.
+What went wrong and was fixed on the day: the v2 committee guard refuses on one commit's authors (resampling added to the driver); an agent
+rewrote the running driver in place; the Loki `filename` label is the sidecar's path; `engine=debug` wrote 49 GB per validator (upstream
+dump lines; D23) which made the teardown's pull 4 h 19 min; the post-pull marker check applied the 15-min freshness rule to its own
+markers (D34; re-run with trusted markers); gcloud SDK 588 rejects `--async` on instance deletes (D35; fixed 30c944b); a session restart
+and a DNS blip killed detached work (lessons: nohup setsid + the leader's pid; checkpoints on disk made every resume cheap).
+Open (see the 2026-11-05 follow-ups above and the report §6): upstream engine dump lines → trace; tn-node-deployment default filter +
+guard resampling; harness D34 exemption and a skip-certification knob; log transfer via bucket instead of IAP; the gc-window demotion
+of merely slow validators and the promotion loop are node defects that set the liveness margin under load.

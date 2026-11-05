@@ -1,0 +1,20 @@
+BUNDLE_START 2026-11-05T17:26:58Z
+[make_bundle    0.0s] 0 setup: run r20261105-0803 (top level), compare r20261103-1922 (top level) -> /home/drtnarg/coding/telcoin/tn-benchmarks/runs/r20261105-0803 (tools /home/drtnarg/coding/telcoin/tn-transaction-generator/bench)
+[make_bundle    0.7s] 1 scratch: benchmark/work/report/r20261105-0803 <- benchmark/results/r20261105-0803 (10 blasters, 11 sampler csv)
+[make_bundle 2048.6s] 2 provenance: 41 log files, 24 starts, shas 496ebefb5, expected 496ebefb5262 -> verified
+[make_bundle 2049.9s] 3 tools: aggregate.py: wrote combined.json
+[make_bundle 2050.4s] 3 tools: derive-sizing.py -> sizing.json   bench-validator-10: rss_anon run_max 6.53 GB mixed_p95 6.51 | cache max - MB | psi mem/io/cpu max 0.0/10.2/7.8 | oom 0.0
+[make_bundle 2054.3s] 4 scrub: scrubbed 15 files (ip map 22, 16 keys dropped, 32 ips replaced)
+[make_bundle 2054.3s] 5 report (compare r20261103-1922, top level): reusing benchmark/work/report/r20261103-1922
+[make_bundle 2055.0s] 5 report: wrote report.html (1157 KiB; charts: 14; headroom rows: 28) (sha256 1903a8f8503c)
+[make_bundle 2055.6s] 6 windows: merged 2026-11-05T09:10:40Z +2406s, all-generators 2394s, 9 5-min rows, 1203 1-s rows (step 2s)
+[make_bundle 2056.0s] 7 kpis: 13 computed + 0 published, headline avg_chain_tps_all_generators, recovery bench-validator-05 catch-up 2160 s, failed reports 0
+[make_bundle 2056.0s] 5 report: Certification by node table added (3 below threshold)
+[make_bundle 2056.0s] 8 assemble: 13 kpis, 29 caveats, 3 chaos events, consensus set, workload set
+[make_bundle 2056.0s] 9 write: /home/drtnarg/coding/telcoin/tn-benchmarks/runs/.r20261105-0803.tmp-1347302/r20261105-0803: run.json (42683 B), report.html (1192832 B), series/tps-1s.json (44268 B)
+[make_bundle 2056.3s] 10 gates: harness scan_dir: clean
+[make_bundle 2056.9s] 10 gates: site build.py --check runs/.r20261105-0803.tmp-1347302/r20261105-0803: check: ok
+[make_bundle 2056.9s] 11 install: /home/drtnarg/coding/telcoin/tn-benchmarks/runs/r20261105-0803 installed (new bundle)
+[make_bundle 2057.4s] 11 install: site build.py --check runs/r20261105-0803: check: ok
+make_bundle: OK r20261105-0803 in 2057.4s | headline avg_chain_tps_all_generators = 4578.0 tx/s | upstream 496ebefb52627fcf20f4074b58d7b3309b8b4bb8 (verified) | report sha256 eebbcbd82638d1a15822489c0044039463814e54227a2a58249636b01168d5b6
+BUNDLE_EXIT rc=0
