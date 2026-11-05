@@ -16,6 +16,9 @@
 #   tunnels     local `gcloud compute start-iap-tunnel ... 18545` processes
 #   local       benchmark/genesis/ is moved into results/<run>/genesis/
 #
+# First a CREDENTIAL CHECK: `gcloud auth print-access-token` must answer within 60 s, or the
+# teardown stops before any pull or delete and says to run `gcloud auth login` (a long pull that
+# outlives the session cannot finish, and a half-pulled fleet is the worst place to find out).
 # Before the first delete: a Prometheus health table per node (mode, failed batch reports,
 # consensus round; informs, never blocks), then the LOG GATE — every fleet node's logs are
 # pulled to results/<run>/logs/ from three sources (current container, logs saved on the
@@ -25,7 +28,9 @@
 # nodes and deletes anyway. A node is not pulled again only when a marker names the id of the
 # instance that holds its name NOW and every log that marker lists is still here at its listed
 # size; a marker or a log an earlier fleet left under the same name never counts. An instance
-# already gone never blocks. A marker also has to be fresh (pulled at most 15 min ago: after that
+# already gone never blocks. A pull that hits an expired gcloud session stops the rest of the pull
+# (BENCH_PULL_STOP_FILE, touched by the pull helpers); the teardown then stops with nothing deleted
+# and says to run `gcloud auth login`. A marker also has to be fresh (pulled at most 15 min ago: after that
 # the node has logged more than it covers, and the node is pulled again).
 # BENCH_TEARDOWN_TRUST_MARKERS=1 lifts that age rule only, for a re-run after an interrupted
 # teardown: an older marker that is otherwise intact counts, its verdict line ends
@@ -38,7 +43,15 @@
 # Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
 # runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
 # window gets a cert-fail log snapshot saved on the node and pulled, listed in
-# manifest.cert_failures[].logs[]. Then the LOCAL GATE: results/<run>/ is the
+# manifest.cert_failures[].logs[]. Then the COVERAGE GATE: every fleet node's pulled logs must
+# span the run, its earliest line at or before manifest coordinated_start.due and its latest at or
+# after timestamps.blast_end (one LOGCOV line per node from bench_log_coverage_check, recorded as
+# manifest.log_coverage[]). A node whose logs start late or end early stops the teardown with nothing
+# deleted, and so does a live node with no recorded span when the run's start and end are known;
+# otherwise ok=- (a run without a coordinated start or blast end, a node already gone, or
+# BENCH_TEARDOWN_SKIP_LOGS=1) is a note, not a failure. BENCH_TEARDOWN_SKIP_COVERAGE=1 deletes anyway
+# and notes it in the manifest.
+# Then the LOCAL GATE: results/<run>/ is the
 # only copy of the run (no bucket keeps another), so before the first delete it must hold, for every
 # node in INSTANCE_NAMES, a non-empty logs/<node>-telcoin.log.gz, logs/<node>-unit-stdout.log.gz and
 # logs/<node>-recovery-*.tgz, a manifest.json that parses, and every log manifest.cert_failures[]
@@ -46,10 +59,21 @@
 # local, path, verified_at, files, bytes). A missing file stops the teardown with nothing deleted,
 # naming every one; BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes anyway and notes it in the manifest
 # (archive.skipped_gate). The harness never deletes a node log.
+# Deletes: each instance is deleted with --async right after its id is re-checked, then one loop
+# describes every instance still deleting every 10 s until each is gone or
+# BENCH_TEARDOWN_DELETE_WAIT_SECS (default 600) have passed; one still there is reported, listed in
+# manifest teardown_pending[] and counted by the left-nothing checks. manifest timestamps.teardown_start
+# is the first teardown's (written once, just before the first delete); a later teardown of the same
+# run appends {start, done} to teardown_reruns[]; timestamps.teardown_done is written once, by the
+# first teardown whose deletes all finished.
 # After the deletes, report/provenance.py checks the node build the saved logs show against the
 # manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks);
-# then tools/cert-rate.py and tools/block-rate.py write analysis/, and INDEX.md + CHECKSUMS.sha256
-# are written again over the final tree (never blocks).
+# then tools/cert-rate.py and tools/block-rate.py write analysis/ (BENCH_TEARDOWN_SKIP_ANALYSIS=1
+# skips them), and INDEX.md + CHECKSUMS.sha256 are written again over the final tree (never blocks).
+# The last line of a teardown that reaches its end is
+#   TEARDOWN_DONE run=<id> deleted=<instances confirmed gone> left=<items the left-nothing checks
+#   still see> at=<UTC ISO>
+# with " dry_run=1" appended in a dry run.
 #
 # Instance rule: labels.benchmark == "1" AND (name ∈ bench INSTANCE_NAMES OR name ~
 # ^bench-(blaster|funder)) AND name ∉ the devnet denylist (INSTANCE_NAMES of a clean
@@ -99,6 +123,18 @@ case "${MIN_FREE_GB}" in
     0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]) ;;
     *) echo "❌ BENCH_TEARDOWN_MIN_FREE_GB must be a whole number of GB, 0 to 999999 (got '${MIN_FREE_GB}')" >&2; exit 1 ;;
 esac
+# Read by bench-lib.sh's bench_local_analysis; only "1" changes anything there.
+SKIP_ANALYSIS="${BENCH_TEARDOWN_SKIP_ANALYSIS:-0}"
+case "${SKIP_ANALYSIS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_ANALYSIS must be 0 or 1 (got '${SKIP_ANALYSIS}')" >&2; exit 1 ;; esac
+SKIP_COVERAGE="${BENCH_TEARDOWN_SKIP_COVERAGE:-0}"
+case "${SKIP_COVERAGE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_COVERAGE must be 0 or 1 (got '${SKIP_COVERAGE}')" >&2; exit 1 ;; esac
+# Whole seconds, no leading zero, at most 6 digits; 0 = one describe pass, no wait.
+DELETE_WAIT_SECS="${BENCH_TEARDOWN_DELETE_WAIT_SECS:-600}"
+case "${DELETE_WAIT_SECS}" in
+    0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    *) echo "❌ BENCH_TEARDOWN_DELETE_WAIT_SECS must be a whole number of seconds, 0 to 999999 (got '${DELETE_WAIT_SECS}')" >&2; exit 1 ;;
+esac
+DELETE_POLL_SECS=10
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
 
 # --reindex: INDEX.md + CHECKSUMS.sha256 over results/<run>/ as it is now, then exit. Local only:
@@ -176,6 +212,36 @@ if [ ! -d "${BENCH_RESULTS_DIR}" ]; then
     echo "   the run's results directory and never creates it; if ${BENCH_RUN_ID} really is the run, create it first." >&2
     exit 1
 fi
+
+# --- gcloud credentials, before any pull or delete -----------------------------------------
+# The pull takes long enough for a gcloud session to expire under it (bench 3: "Reauthentication
+# failed" mid-pull, a re-run that died at its first call). A token that cannot be printed within
+# 60 s now means every later call fails the same way: stop before the first pull.
+login_hint() {
+    echo "   Run: gcloud auth login   then re-run: benchmark/benchmark-teardown.sh$([ "${CONFIRM}" -eq 1 ] && echo ' --yes') --run ${BENCH_RUN_ID}" >&2
+    echo "   Logs already in ${BENCH_RESULTS_DIR}/logs are kept; a node whose marker vouches for them is not pulled again." >&2
+}
+echo ">>> gcloud credentials: gcloud auth print-access-token (60 s)"
+if ! perl -e 'alarm shift; exec @ARGV' 60 gcloud auth print-access-token </dev/null >/dev/null; then
+    echo "" >&2
+    echo "❌ gcloud has no usable credentials (gcloud auth print-access-token failed or took over 60 s) — NOTHING was pulled or deleted." >&2
+    login_hint
+    exit 1
+fi
+echo "    ✓ gcloud prints an access token"
+# The pull helpers touch BENCH_PULL_STOP_FILE when gcloud needs re-authentication mid-pull, and
+# attempt no further node; the teardown reads it after the pull and after the certification snapshots.
+TD_TMP="$(mktemp -d "${TMPDIR:-/tmp}/tn-bench-teardown.XXXXXX")"
+trap 'rm -rf "${TD_TMP}"' EXIT
+export BENCH_PULL_STOP_FILE="${TD_TMP}/pull-stop"
+# stop_if_reauth <what ran> — exit 1, nothing deleted, when the pull helpers asked to stop.
+stop_if_reauth() {
+    [ -e "${BENCH_PULL_STOP_FILE}" ] || return 0
+    echo "" >&2
+    echo "❌ gcloud needs re-authentication (the session expired during $1) — NOTHING was deleted." >&2
+    login_hint
+    exit 1
+}
 
 VIOLATIONS=()
 violate() { VIOLATIONS+=("$*"); echo "    ✗ VIOLATION: $*" >&2; }
@@ -511,6 +577,7 @@ fi
 pull_rc=0
 if [ "${#PULL_NAMES[@]}" -gt 0 ]; then
     ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs "${LOG_DIR}" ) || pull_rc=$?
+    stop_if_reauth "the log pull"
     if [ "${BENCH_APPLY}" = "1" ]; then
         # Trust the files, not only the exit status: fail closed on anything the helper missed,
         # and on a marker naming any instance but the one listed above.
@@ -569,6 +636,83 @@ echo ""
 echo ">>> certification outcome: ${LOG_DIR} (before the local gate, which requires every log manifest.cert_failures lists)"
 bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
 bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
+stop_if_reauth "the certification snapshots"
+
+# ================================ log coverage (before the local gate) ====================
+# D19: presence is not coverage. logrotate moved bench 3's first hours into telcoin.log.1 and the
+# teardown pulled only the live file, so the nodes were deleted with their logs starting 70-90 min
+# after the coordinated start. Each fleet node's pulled logs must reach back to
+# coordinated_start.due and forward to timestamps.blast_end (unix seconds, "-" when the manifest has
+# none); bench_log_coverage_check reads the span the pull recorded and prints one LOGCOV line.
+# ok=0, or no LOGCOV line at all, stops the teardown. ok=- is a note for a run without both ends,
+# for a node already gone, and under BENCH_TEARDOWN_SKIP_LOGS=1. Otherwise ok=- can only mean
+# there is no logs/<inst>.logspan (the span script prints a line per stream even for a missing
+# file), and a live node whose span was never recorded stops the teardown like ok=0.
+echo ""
+echo ">>> log coverage: ${LOG_DIR} (each node's logs from the coordinated start to the blast end)$([ "${SKIP_COVERAGE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_COVERAGE=1')"
+cov_due="$(jq -r '.coordinated_start.due // empty | tostring' "$(bench_manifest)" 2>/dev/null)" || cov_due=""
+case "${cov_due}" in ''|*[!0-9]*) cov_due="-" ;; esac
+cov_end="$(jq -r '.timestamps.blast_end // empty | fromdateiso8601 | tostring' "$(bench_manifest)" 2>/dev/null)" || cov_end=""
+case "${cov_end}" in ''|*[!0-9]*) cov_end="-" ;; esac
+[ "${cov_due}" != "-" ] || echo "    · the manifest has no coordinated_start.due: no node can be held to the run's start (ok=-)"
+[ "${cov_end}" != "-" ] || echo "    · the manifest has no timestamps.blast_end: no node can be held to the run's end (ok=-)"
+cov_bad=0; cov_unknown=0; COV_BAD=""; COV_LINES=""
+for i in "${!INSTANCE_NAMES[@]}"; do
+    inst="${INSTANCE_NAMES[$i]}"
+    # live: the log gate saw the instance (GATE_IDS has a row for it, with or without an id)
+    cov_live="$(printf '%s' "${GATE_IDS}" | awk -v z="${ZONES[$i]}" -v n="${inst}" '$1 == z && $2 == n { print "live"; exit }')"
+    cov_rc=0
+    cov_out="$(bench_log_coverage_check "${LOG_DIR}" "${inst}" "${cov_due}" "${cov_end}" 2>&1)" || cov_rc=$?
+    [ -z "${cov_out}" ] || printf '%s\n' "${cov_out}"
+    cov_line="$(printf '%s\n' "${cov_out}" | sed -n "s/^[[:space:]]*\(LOGCOV ${inst} .*\)\$/\1/p" | tail -n 1)"
+    case " ${cov_line} " in
+        *" ok=1 "*) ;;
+        *" ok=- "*)
+            if [ "${cov_due}" != "-" ] && [ "${cov_end}" != "-" ] && [ -n "${cov_live}" ] && [ "${SKIP_LOGS}" != "1" ]; then
+                echo "    ✗ ${inst}: no recorded span (logs/${inst}.logspan) for a live node of a run whose start and end are known — counted as not covered"
+                cov_line="${cov_line% ok=-} ok=0"
+                cov_bad=$((cov_bad + 1)); COV_BAD="${COV_BAD} ${inst}"
+            else
+                cov_unknown=$((cov_unknown + 1))
+            fi
+            ;;
+        *" ok=0 "*) cov_bad=$((cov_bad + 1)); COV_BAD="${COV_BAD} ${inst}" ;;
+        *)
+            echo "    ✗ ${inst}: no LOGCOV line from bench_log_coverage_check (rc ${cov_rc}) — counted as not covered"
+            cov_line="LOGCOV ${inst} due=${cov_due} end=${cov_end} ok=0"
+            cov_bad=$((cov_bad + 1)); COV_BAD="${COV_BAD} ${inst}"
+            ;;
+    esac
+    COV_LINES="${COV_LINES}${cov_line}"$'\n'
+done
+if [ "${BENCH_APPLY}" = "1" ]; then
+    cov_json="$(printf '%s' "${COV_LINES}" | jq -R -s -c --arg t "$(bench_now_iso)" '
+        def v: if . == null or . == "" or . == "-" then null elif test("^[0-9]+$") then tonumber else . end;
+        [split("\n")[] | select(startswith("LOGCOV ")) | split(" ") as $w
+         | ([$w[2:][] | capture("^(?<k>[a-z_]+)=(?<v>.*)$")] | map({(.k): .v}) | add // {}) as $f
+         | {inst: $w[1], generations: ($f.gens | v), first_ts: ($f.first | v), last_ts: ($f.last | v),
+            due: ($f.due | v), blast_end: ($f.end | v),
+            ok: (if $f.ok == "1" then true elif $f.ok == "0" then false else null end), checked_at: $t}]')" \
+        && bench_manifest_jq --argjson c "${cov_json}" '.log_coverage = $c' \
+        || bench_warn "manifest.log_coverage not written — the LOGCOV lines above are the record"
+fi
+if [ "${cov_bad}" -gt 0 ] && [ "${SKIP_COVERAGE}" != "1" ]; then
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        echo "" >&2
+        echo "❌ the logs of ${cov_bad} node(s) do not cover the run (LOGCOV ok=0 above) — NOTHING was deleted:${COV_BAD}" >&2
+        echo "   Their earliest line is after the coordinated start, their latest before the blast end, or their span is" >&2
+        echo "   missing or unreadable. Pull the missing generations (telcoin.log.1, telcoin.log.N.gz) from the live nodes, or" >&2
+        echo "   rescue them by hand, and re-run; what is already in ${LOG_DIR} is kept." >&2
+        echo "   Or delete without them: BENCH_TEARDOWN_SKIP_COVERAGE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
+        exit 1
+    fi
+    echo "    ✗ with --yes the teardown stops here, before any delete:${COV_BAD} (BENCH_TEARDOWN_SKIP_COVERAGE=1 deletes without their coverage)"
+elif [ "${cov_bad}" -gt 0 ]; then
+    bench_warn "BENCH_TEARDOWN_SKIP_COVERAGE=1 — deleting although the logs of${COV_BAD} do not cover the run"
+    [ "${BENCH_APPLY}" != "1" ] || bench_manifest_note "teardown: deleted although the logs of${COV_BAD} do not cover the run (BENCH_TEARDOWN_SKIP_COVERAGE=1) at $(bench_now_iso)" || true
+else
+    echo "    ✓ ${#INSTANCE_NAMES[@]} node(s): $((${#INSTANCE_NAMES[@]} - cov_unknown)) cover the run$([ "${cov_unknown}" -eq 0 ] || echo ", ${cov_unknown} unknown (ok=-, a note: no run window, a node already gone, or BENCH_TEARDOWN_SKIP_LOGS=1)")"
+fi
 
 # ================================ local gate (before any delete) ==========================
 # results/<run>/ is the only copy of the run once the fleet is gone (see the header).
@@ -609,12 +753,21 @@ if [ -n "${TUNNEL_PIDS}" ]; then
     bench_run kill ${TUNNEL_PIDS} || true
 fi
 [ "${BENCH_APPLY}" = "1" ] && rm -f "$(bench_tunnel_pidfile)"
-[ "${BENCH_APPLY}" = "1" ] && bench_manifest_ts teardown_start
+# D21: timestamps.teardown_start is the first teardown's; a re-run of a run whose teardown already
+# reached this point appends {start, done} to teardown_reruns[] instead of moving it.
+TD_START="$(bench_now_iso)"
+if [ "${BENCH_APPLY}" = "1" ]; then
+    bench_manifest_jq --arg t "${TD_START}" '
+        if (.timestamps.teardown_start // null) == null then .timestamps.teardown_start = $t
+        else .teardown_reruns = ((.teardown_reruns // []) + [{start: $t, done: null}]) end' \
+        || bench_die "could not record the teardown start in $(bench_manifest) — NOTHING was deleted"
+fi
 # One instance per delete call, each right after a fresh lookup: the instance that holds the name
 # now must be the one the gates passed (same numeric id, GATE_IDS). A name deleted and recreated
 # since has a new id: it is not deleted, and neither is anything after it. A short race remains:
-# an instance replaced between this lookup and its delete call is still deleted.
-DELETED=()
+# an instance replaced between this lookup and its delete call is still deleted. The calls are
+# --async (D22: about 50 s each when serial); the loop after them waits for every one to finish.
+ISSUED=(); ISSUED_NAMES=""   # "<zone> <name> <id>" per delete issued; their names
 for z in $(for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do echo "${c%% *}"; done | sort -u); do
     for c in "${CAND_INST[@]}"; do
         [ "${c%% *}" = "${z}" ] || continue
@@ -626,17 +779,62 @@ for z in $(for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do echo "${c%% *}"; don
             if [ "${now_id}" != "${want}" ]; then
                 echo "" >&2
                 echo "❌ ${n} (${z}) is now instance ${now_id:-not found}; the gates passed instance ${want:-none} — NOT deleted, nor anything after it." >&2
-                echo "   Already deleted: ${DELETED[*]:-none}. Left: ${n}, the instances after it, and every firewall rule," >&2
-                echo "   disk, bucket, secret binding and local item. Re-run the teardown: it checks that name's instance again." >&2
+                echo "   Delete already issued (--async, not waited for):${ISSUED_NAMES:- none}." >&2
+                echo "   Left: ${n}, the instances after it, and every firewall rule, disk, bucket, secret binding and" >&2
+                echo "   local item. Re-run the teardown: it checks that name's instance again." >&2
                 exit 1
             fi
         else
             echo "    (just before this delete: ${n} must still be instance ${want:-?}, else the teardown stops here)"
         fi
-        bench_run gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet
-        DELETED+=("${n}")
+        bench_run gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet --async
+        ISSUED+=("${z} ${n} ${want}"); ISSUED_NAMES="${ISSUED_NAMES} ${n}"
     done
 done
+# delete_state <zone> <name> <id> — "gone" once describe says the instance is not found (or the name
+# now holds another instance), else its status ("?" when describe failed for another reason).
+delete_state() {
+    local out rc=0 st
+    out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "$2" --zone="$1" --project="${PROJECT_ID}" \
+        --format=json </dev/null 2>"${TD_TMP}/describe.err")" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        if grep -q 'not found' "${TD_TMP}/describe.err" 2>/dev/null; then echo gone; else echo "?"; fi
+        return 0
+    fi
+    st="$(printf '%s' "${out}" | jq -r --arg id "$3" 'if (.id // "" | tostring) == $id then (.status // "?") else "gone" end' 2>/dev/null)" || st=""
+    echo "${st:-?}"
+}
+# One describe per instance still deleting, every DELETE_POLL_SECS, until none is left or
+# BENCH_TEARDOWN_DELETE_WAIT_SECS have passed (0: one pass, no wait).
+GONE=(); PENDING=(); TD_PENDING=""   # TD_PENDING: "<zone> <name> <status>" per instance still there at the cap
+if [ "${#ISSUED[@]}" -gt 0 ] && [ "${BENCH_APPLY}" = "1" ]; then
+    echo "    waiting for ${#ISSUED[@]} instance delete(s): a describe each every ${DELETE_POLL_SECS} s, at most ${DELETE_WAIT_SECS} s (BENCH_TEARDOWN_DELETE_WAIT_SECS)"
+    PENDING=("${ISSUED[@]}")
+    wait_t0="$(bench_now_unix)"
+    while :; do
+        still=()
+        for c in "${PENDING[@]}"; do
+            read -r z n want <<< "${c}"
+            st="$(delete_state "${z}" "${n}" "${want}")"
+            if [ "${st}" = "gone" ]; then GONE+=("${n}"); echo "    ✓ ${n} (${z}) deleted"
+            else still+=("${c} ${st}"); fi
+        done
+        PENDING=()
+        for c in "${still[@]+"${still[@]}"}"; do PENDING+=("${c% *}"); done
+        [ "${#PENDING[@]}" -gt 0 ] || break
+        if [ "$(($(bench_now_unix) - wait_t0))" -ge "${DELETE_WAIT_SECS}" ]; then
+            for c in "${still[@]}"; do
+                read -r z n want st <<< "${c}"
+                echo "    ✗ ${n} (${z}) still there after ${DELETE_WAIT_SECS} s (status ${st}) — the left-nothing checks below count it"
+                TD_PENDING="${TD_PENDING}${z} ${n} ${st}"$'\n'
+            done
+            break
+        fi
+        sleep "${DELETE_POLL_SECS}"
+    done
+elif [ "${#ISSUED[@]}" -gt 0 ]; then
+    echo "    (then one describe per instance every ${DELETE_POLL_SECS} s until each is gone, at most ${DELETE_WAIT_SECS} s: BENCH_TEARDOWN_DELETE_WAIT_SECS)"
+fi
 for r in "${CAND_FW[@]+"${CAND_FW[@]}"}"; do
     bench_run gcloud compute firewall-rules delete "${r}" --project="${PROJECT_ID}" --quiet
 done
@@ -697,6 +895,22 @@ if [ -d "${BENCH_DIR}/genesis" ]; then
         bench_run mv "${BENCH_DIR}/genesis" "${BENCH_RESULTS_DIR}/genesis"
     fi
 fi
+# D21: timestamps.teardown_done once (the first teardown whose deletes all finished); this run's
+# teardown_reruns[] entry, when it is one, gets its done time too. An instance still deleting at the
+# BENCH_TEARDOWN_DELETE_WAIT_SECS cap leaves both unset and is listed in teardown_pending[] instead
+# (a re-run that finds nothing left to wait for writes the done time and drops the list).
+if [ "${BENCH_APPLY}" = "1" ] && [ -n "${TD_PENDING}" ]; then
+    bench_manifest_jq --arg p "${TD_PENDING}" --arg t "$(bench_now_iso)" '
+        .teardown_pending = [$p | split("\n")[] | select(. != "") | split(" ")
+                             | {inst: .[1], zone: .[0], status: .[2], at: $t}]' \
+        || bench_warn "could not record teardown_pending in $(bench_manifest)"
+elif [ "${BENCH_APPLY}" = "1" ]; then
+    bench_manifest_jq --arg s "${TD_START}" --arg t "$(bench_now_iso)" '
+        .timestamps.teardown_done = (.timestamps.teardown_done // $t)
+        | if .teardown_reruns then .teardown_reruns |= map(if .start == $s and .done == null then .done = $t else . end) else . end
+        | del(.teardown_pending)' \
+        || bench_warn "could not record the teardown end in $(bench_manifest)"
+fi
 
 # ================================ node startup provenance =================================
 # Informational: which node build the saved logs show each node started (report/provenance.py,
@@ -747,9 +961,10 @@ final_local_index || bench_warn "final local index failed — the gate's INDEX.m
 # ================================ left-nothing checks =====================================
 echo ""
 echo ">>> left-nothing checks$([ "${BENCH_APPLY}" = "1" ] || echo ' (current state — dry run deleted nothing)')"
-lrc=0
-chk() { # <label> <count> [detail]
+lrc=0; LEFT_N=0
+chk() { # <label> <count> [detail] — LEFT_N adds up the counts (TEARDOWN_DONE left=)
     if [ "$2" = "0" ]; then echo "    ✓ $1: none"; else echo "    ✗ $1: $2 ${3:-}"; lrc=1; fi
+    case "$2" in ''|*[!0-9]*) LEFT_N=$((LEFT_N + 1)) ;; *) LEFT_N=$((LEFT_N + $2)) ;; esac
 }
 now_inst="$(gcloud compute instances list --project="${PROJECT_ID}" --format=json)"
 chk "instances labelled benchmark=1" "$(printf '%s' "${now_inst}" | jq '[.[] | select((.labels.benchmark // "") == "1")] | length')" \
@@ -783,8 +998,11 @@ if [ -f "${BENCH_RESULTS_DIR}/pre-firewall.json" ]; then
     b="$(gcloud compute firewall-rules describe devnet-allow-consensus --project="${PROJECT_ID}" --format=json 2>/dev/null | jq -S . || true)"
     if [ "${a}" = "${b}" ]; then echo "    ✓ devnet-allow-consensus identical to the run pre-snapshot"; else echo "    ✗ devnet-allow-consensus differs from the run pre-snapshot"; lrc=1; fi
 fi
+# The last line, for a watcher: deleted = instances confirmed gone, left = the counts above.
 if [ "${BENCH_APPLY}" = "1" ]; then
-    [ "${lrc}" -eq 0 ] && echo "✓ teardown left nothing behind." || { echo "❌ teardown left something behind (✗ above)." >&2; exit 1; }
-else
-    echo "DRY RUN — re-run with --yes to delete the candidates above."
+    [ "${lrc}" -eq 0 ] && echo "✓ teardown left nothing behind." || echo "❌ teardown left something behind (✗ above)." >&2
+    echo "TEARDOWN_DONE run=${BENCH_RUN_ID} deleted=${#GONE[@]} left=${LEFT_N} at=$(bench_now_iso)"
+    exit "${lrc}"
 fi
+echo "DRY RUN — re-run with --yes to delete the candidates above."
+echo "TEARDOWN_DONE run=${BENCH_RUN_ID} deleted=0 left=${LEFT_N} at=$(bench_now_iso) dry_run=1"

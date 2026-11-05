@@ -14,14 +14,17 @@ local IAP tunnel is never seen, or killed). curl fails if anything reaches for t
 The teardown's world: one live bench instance whose logs a fresh pull marker vouches for, its
 run bucket, and the devnet instances it must leave alone.
 """
+import calendar
 import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 import unittest
@@ -47,7 +50,7 @@ MUTATIONS = DELETES + (("storage", "rsync"), ("storage", "cp"), ("storage", "buc
                        ("storage", "buckets", "update"))
 
 # Scripts the teardown sources or runs, relative to the repo root.
-TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/benchmark-teardown.sh", "benchmark/recovery-lib.sh",
         "benchmark/tools/cert-rate.py", "benchmark/tools/block-rate.py")
 
@@ -86,6 +89,41 @@ TRUSTED_NOTE = ("teardown: saved logs accepted from markers older than the fresh
 
 def utc_ago(secs):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - secs))
+
+
+def unix(iso):
+    """Unix seconds of a UTC "YYYY-MM-DDTHH:MM:SSZ"."""
+    return calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+# The run's window as the manifest records it: coordinated_start.due (unix) and timestamps.blast_end.
+DUE_ISO, END_ISO = "2099-12-31T08:00:00Z", "2099-12-31T09:00:00Z"
+COVERS = ("2099-12-31T07:59:30.000001Z", "2099-12-31T09:05:00.000001Z")
+STARTS_LATE = ("2099-12-31T08:40:00.000001Z", "2099-12-31T09:05:00.000001Z")   # bench 3: logrotate ate the start
+LOGCOV_RE = re.compile(r"^LOGCOV (\S+) gens=\S+ first=\S+ last=\S+ due=\S+ end=\S+ ok=([01-])$", re.M)
+DONE_RE = re.compile(r"^TEARDOWN_DONE run=(\S+) deleted=(\d+) left=(\d+) at=(\S+)( dry_run=1)?$")
+LOGSPAN_RE = re.compile(r"^LOGSPAN (\S+) stream=(stdout|stderr) gen=(\d+) file=(\S+) bytes=(\d+) first=(\S+) last=(\S+)$")
+ANCHOR = 'if [ "${cov_bad}" -gt 0 ] && [ "${SKIP_COVERAGE}" != "1" ]; then'
+
+
+def node_lines(start_iso, count, step=300):
+    """<count> node log lines, the first at <start_iso>, <step> s apart, as the node writes them."""
+    t0 = unix(start_iso)
+    return "".join("%s.000001Z  INFO tn_node: line %d\n" % (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t0 + k * step)), k)
+                   for k in range(count)).encode()
+
+
+def logspan_text(inst, first, last):
+    """The span pull's LOGSPAN lines for a node whose stdout generations run from <first> to <last>:
+    telcoin.log.1 up to 08:30 and telcoin.log after it, or telcoin.log alone when <first> is later."""
+    mid = "2099-12-31T08:30:00.000001Z"
+    rows = []
+    if first < mid:
+        rows.append("stdout gen=1 file=/var/log/telcoin/telcoin.log.1 bytes=900 first=%s last=%s" % (first, mid))
+        first = mid
+    rows.append("stdout gen=0 file=/var/log/telcoin/telcoin.log bytes=700 first=%s last=%s" % (first, last))
+    rows.append("stderr gen=0 file=/var/log/telcoin/telcoin-error.log bytes=0 first=- last=-")
+    return "".join("LOGSPAN %s stream=%s\n" % (inst, r) for r in rows)
 
 
 def marker_text(inst, node_id, pulled, files, end=True):
@@ -167,7 +205,7 @@ class FakeCloud(object):
     def env(self, **extra):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(self.root), "TMPDIR": str(self.tmp), "FAKE_ROOT": str(self.state),
-               "STUB_LOG": str(self.root / "curl.log")}
+               "STUB_LOG": str(self.root / "curl.log"), "TN_IAP_RETRIES": "0"}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -180,6 +218,17 @@ class FakeCloud(object):
             (self.state / "labels").mkdir(exist_ok=True)
             (self.state / "labels" / (name + ".json")).write_text(json.dumps(labels))
         write_tree(self.state / "gcs" / name, files or {})
+
+    def node(self, inst, files):
+        """A sandbox node for <inst> (fake-gcloud.py runs its pull sessions there): <files> are
+        {node path: bytes}, e.g. "/var/log/telcoin/telcoin.log"; docker.log is the container's log."""
+        base = self.state / "nodes" / inst
+        (base / "bin").mkdir(parents=True)
+        for name, src in (("sudo", FIX / "node-sudo.sh"), ("docker", FIX / "node-docker.sh")):
+            shutil.copyfile(str(src), str(base / "bin" / name))
+            (base / "bin" / name).chmod(0o755)
+        write_tree(base, {rel.lstrip("/"): data for rel, data in files.items()})
+        return base
 
     def objects(self, bucket):
         base = self.state / "gcs" / bucket
@@ -435,6 +484,27 @@ class TeardownSourceOrderTests(unittest.TestCase):
                        "worktree remove", "branch -D", 'bench_run mv "${BENCH_DIR}/genesis"'):
             self.assertLess(gate, self.line_of(needle), needle)
 
+    def test_credentials_before_the_first_listing_and_the_pull(self):
+        creds = self.line_of("perl -e 'alarm shift; exec @ARGV' 60 gcloud auth print-access-token </dev/null >/dev/null")
+        self.assertLess(creds, self.line_of('ALL_INST="$(gcloud compute instances list'))
+        self.assertLess(creds, self.line_of('bench_pull_node_logs "${LOG_DIR}"'))
+        self.assertLess(self.line_of('bench_pull_node_logs "${LOG_DIR}"'), self.line_of('stop_if_reauth "the log pull"'))
+
+    def test_coverage_gate_after_certification_and_before_the_local_gate(self):
+        self.assertEqual(TEARDOWN.count(ANCHOR), 1)
+        cert = self.line_of("bench_cert_failures_snapshot ")
+        cov = self.line_of(ANCHOR)
+        self.assertLess(cert, self.line_of("bench_log_coverage_check "))
+        self.assertLess(self.line_of("bench_log_coverage_check "), cov)
+        self.assertLess(cov, self.line_of('if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then'))
+
+    def test_deletes_are_async_and_polled_before_the_disks(self):
+        delete = self.line_of("bench_run gcloud compute instances delete")
+        self.assertIn("--quiet --async", TEARDOWN.splitlines()[delete])
+        self.assertLess(self.line_of("now_id=\"$(bench_instance_json"), delete)
+        self.assertLess(delete, self.line_of('st="$(delete_state '))
+        self.assertLess(self.line_of('st="$(delete_state '), self.line_of("bench_run gcloud compute disks delete"))
+
     def test_final_index_after_provenance_and_before_the_checks(self):
         prov = self.line_of("node_startup_check || ")
         final = self.line_of("final_local_index || ")
@@ -530,6 +600,30 @@ class TeardownLocalGateTests(unittest.TestCase):
     def manifest(self):
         return json.loads((self.results / "manifest.json").read_text())
 
+    def run_window(self, **extra):
+        """The manifest of a run with a coordinated start (DUE_ISO) and a blast end (END_ISO)."""
+        (self.results / "manifest.json").write_bytes(manifest_bytes(
+            coordinated_start={"due": unix(DUE_ISO), "nodes": 11, "started": 11},
+            timestamps=dict({"blast_end": END_ISO}, **extra)))
+
+    def spans(self, first_last, **per_node):
+        """logs/<node>.logspan for every fleet node: <first_last>, or per_node[<node with _ for ->]."""
+        for inst in self.fleet():
+            first, last = per_node.get(inst.replace("-", "_"), first_last)
+            (self.results / "logs" / (inst + ".logspan")).write_text(logspan_text(inst, first, last))
+
+    def done_line(self, p):
+        """The TEARDOWN_DONE fields of the last stdout line (it must be one)."""
+        last = p.stdout.rstrip("\n").splitlines()[-1]
+        m = DONE_RE.match(last)
+        self.assertTrue(m, "last line is not TEARDOWN_DONE: %r" % last)
+        self.assertRegex(m.group(4), ISO_RE)
+        return m.group(1), int(m.group(2)), int(m.group(3)), bool(m.group(5))
+
+    def recorded(self, name):
+        p = self.cloud.state / name
+        return p.read_text().split() if p.exists() else []
+
     def age_marker(self, secs=9 * 3600):
         """The live node's marker, as if pulled <secs> ago (an interrupted teardown's). Its pull time."""
         m = self.results / "logs" / (INST + ".pulled")
@@ -596,6 +690,300 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertEqual(a["bytes"], sum(len(files[rel]) for rel in sums))
         self.assertNotIn("skipped_gate", a)
         self.assertIn("· results/%s/ kept, the only copy" % RUN, out)
+        self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
+
+    def test_coverage_short_log_stops_before_any_delete(self):
+        # Every node's logs reach back to the coordinated start but the live node's: logrotate
+        # left its oldest line 40 min after it (bench 3, D19). Its logs are all present, so the
+        # local gate alone would pass.
+        self.give_every_node_its_logs()
+        self.run_window()
+        self.spans(COVERS, bench_validator_01=STARTS_LATE)
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        verdicts = dict(LOGCOV_RE.findall(p.stdout))
+        self.assertEqual(set(verdicts), set(self.fleet()), "one LOGCOV line per fleet node")
+        self.assertEqual(verdicts.pop(INST), "0")
+        self.assertEqual(set(verdicts.values()), {"1"})
+        self.assertIn("LOGCOV %s gens=1 first=%s last=%s due=%s end=%s ok=0"
+                      % (INST, STARTS_LATE[0], STARTS_LATE[1], DUE_ISO, END_ISO), p.stdout)
+        self.assertIn("❌ the logs of 1 node(s) do not cover the run (LOGCOV ok=0 above) — NOTHING was deleted: %s"
+                      % INST, p.stderr)
+        self.assertIn("BENCH_TEARDOWN_SKIP_COVERAGE=1 benchmark/benchmark-teardown.sh --yes --run " + RUN, p.stderr)
+        self.assertLess(p.stdout.index(">>> certification outcome"), p.stdout.index(">>> log coverage"))
+        self.assertNotIn(">>> local gate", p.stdout)
+        self.assert_nothing_deleted(p)
+        m = self.manifest()
+        self.assertNotIn("archive", m)
+        self.assertNotIn("teardown_start", m["timestamps"])
+        cov = {c["inst"]: c for c in m["log_coverage"]}
+        self.assertEqual(set(cov), set(self.fleet()))
+        self.assertEqual(cov[INST], {"inst": INST, "generations": 1, "first_ts": STARTS_LATE[0],
+                                     "last_ts": STARTS_LATE[1], "due": DUE_ISO, "blast_end": END_ISO,
+                                     "ok": False, "checked_at": cov[INST]["checked_at"]})
+        self.assertRegex(cov[INST]["checked_at"], ISO_RE)
+        self.assertEqual({c["ok"] for i, c in cov.items() if i != INST}, {True})
+
+    def test_coverage_of_every_node_is_recorded_and_the_teardown_deletes(self):
+        self.give_every_node_its_logs()
+        self.run_window()
+        self.spans(COVERS)
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✓ %d node(s): %d cover the run" % (len(self.fleet()), len(self.fleet())), p.stdout)
+        self.assertLess(p.stdout.index(">>> log coverage"), p.stdout.index(">>> local gate"))
+        self.assertNotIn(INST, self.instance_names())
+        cov = self.manifest()["log_coverage"]
+        self.assertEqual(sorted(c["inst"] for c in cov), sorted(self.fleet()))
+        for c in cov:
+            self.assertEqual((c["generations"], c["first_ts"], c["last_ts"], c["due"], c["blast_end"], c["ok"]),
+                             (2, COVERS[0], COVERS[1], DUE_ISO, END_ISO, True), c["inst"])
+        self.assertIn("logs/%s.logspan" % INST, read_checksums(self.results))
+
+    def test_unknown_coverage_is_a_note_not_a_failure(self):
+        # A run with no coordinated start or blast end recorded, and nodes without a recorded span.
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("the manifest has no coordinated_start.due", p.stdout)
+        self.assertIn("the manifest has no timestamps.blast_end", p.stdout)
+        self.assertEqual(set(LOGCOV_RE.findall(p.stdout)), {(i, "-") for i in self.fleet()})
+        self.assertIn("%d unknown (ok=-, a note" % len(self.fleet()), p.stdout)
+        cov = self.manifest()["log_coverage"]
+        self.assertEqual({(c["inst"], c["ok"], c["due"], c["blast_end"]) for c in cov},
+                         {(i, None, None, None) for i in self.fleet()})
+
+    def test_coverage_a_live_node_without_a_span_stops_before_any_delete(self):
+        # The run's start and end are known; the live node has no recorded span (its span session
+        # answered nothing, or it was never pulled), a gone node has none either.
+        self.give_every_node_its_logs()
+        self.run_window()
+        self.spans(COVERS)
+        gone = [i for i in self.fleet() if i != INST][0]
+        for inst in (INST, gone):
+            (self.results / "logs" / (inst + ".logspan")).unlink()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        verdicts = dict(LOGCOV_RE.findall(p.stdout))
+        self.assertEqual((verdicts[INST], verdicts[gone]), ("-", "-"))
+        self.assertIn("✗ %s: no recorded span (logs/%s.logspan) for a live node of a run whose start and end are "
+                      "known — counted as not covered" % (INST, INST), p.stdout)
+        self.assertNotIn("✗ %s: no recorded span" % gone, p.stdout)
+        self.assertIn("— NOTHING was deleted: %s\n" % INST, p.stderr)
+        self.assert_nothing_deleted(p)
+        cov = {c["inst"]: c["ok"] for c in self.manifest()["log_coverage"]}
+        self.assertEqual((cov[INST], cov[gone]), (False, None))
+        # Under BENCH_TEARDOWN_SKIP_LOGS=1 a missing span is a note again.
+        p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_LOGS="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertNotIn("no recorded span", p.stdout)
+        self.assertNotIn(INST, self.instance_names())
+
+    def sandbox_node(self):
+        """INST as a sandbox node with three generations of its unit log (telcoin.log, .1, .2.gz),
+        an empty error log and a container log; every other fleet node covers the run already."""
+        self.give_every_node_its_logs()
+        self.age_marker()   # so the pull really runs
+        self.run_window()
+        self.spans(COVERS)
+        (self.results / "logs" / (INST + ".logspan")).unlink()   # this one must come from the pull
+        files = {
+            "/var/log/telcoin/telcoin.log": node_lines("2099-12-31T08:30:00Z", 8),      # 08:30 .. 09:05
+            "/var/log/telcoin/telcoin.log.1": node_lines("2099-12-31T07:59:30Z", 7),    # 07:59:30 .. 08:29:30
+            "/var/log/telcoin/telcoin.log.2.gz": gzip.compress(node_lines("2099-12-31T07:30:00Z", 6), mtime=0),
+            "/var/log/telcoin/telcoin-error.log": b"",
+            "docker.log": node_lines("2099-12-31T08:50:00Z", 4)}
+        self.cloud.node(INST, files)
+        return files
+
+    def new_logs(self, pattern):
+        return sorted(p.name for p in (self.results / "logs").glob(pattern))
+
+    def test_the_pull_records_every_generation_end_to_end(self):
+        files = self.sandbox_node()
+        p = self.teardown("--yes", BENCH_TEARDOWN_MIN_FREE_GB="0")
+        self.assertEqual(p.returncode, 0, p.stdout[-4000:] + p.stderr[-4000:])
+        logs = self.results / "logs"
+        # The span: every generation on the node, with its first (and, for 0 and 1, last) line.
+        span = (logs / (INST + ".logspan")).read_text().splitlines()
+        rows = [LOGSPAN_RE.match(line) for line in span]
+        self.assertTrue(all(rows), span)
+        self.assertEqual([(r.group(2), r.group(3), r.group(4), r.group(6), r.group(7)) for r in rows], [
+            ("stdout", "0", "/var/log/telcoin/telcoin.log", "2099-12-31T08:30:00Z", "2099-12-31T09:05:00Z"),
+            ("stdout", "1", "/var/log/telcoin/telcoin.log.1", "2099-12-31T07:59:30Z", "2099-12-31T08:29:30Z"),
+            ("stdout", "2", "/var/log/telcoin/telcoin.log.2.gz", "2099-12-31T07:30:00Z", "-"),
+            ("stderr", "0", "/var/log/telcoin/telcoin-error.log", "-", "-")])
+        # The rotated generations and this pull's copies of the unit and container logs (stamped:
+        # the earlier instance's copies are here under the plain names).
+        r1, r2 = logs / (INST + "-unit-stdout.rotated-1.log.gz"), logs / (INST + "-unit-stdout.rotated-2.log.gz")
+        self.assertEqual(gzip.decompress(r1.read_bytes()), files["/var/log/telcoin/telcoin.log.1"])
+        self.assertEqual(r2.read_bytes(), files["/var/log/telcoin/telcoin.log.2.gz"])
+        unit = self.new_logs(INST + "-unit-stdout-*.log.gz")
+        cont = self.new_logs(INST + "-telcoin-*.log.gz")
+        self.assertEqual(len(unit), 1, unit)
+        self.assertEqual(len(cont), 1, cont)
+        self.assertEqual(gzip.decompress((logs / unit[0]).read_bytes()), files["/var/log/telcoin/telcoin.log"])
+        self.assertEqual(gzip.decompress((logs / cont[0]).read_bytes()), files["docker.log"])
+        self.assertEqual(self.new_logs(INST + "-unit-stderr*"), [], "an empty error log is not copied")
+        # The new marker vouches for exactly those, at their sizes.
+        markers = self.new_logs(INST + ".pulled-*")
+        self.assertEqual(len(markers), 1, markers)
+        listed = dict((name, int(size)) for size, name in
+                      re.findall(r"^file (\d+) (\S+)$", (logs / markers[0]).read_text(), re.M))
+        self.assertEqual(listed, {n: (logs / n).stat().st_size for n in (r1.name, r2.name, unit[0], cont[0])})
+        self.assertIn("LOGCOV %s gens=3 first=2099-12-31T07:30:00Z last=2099-12-31T09:05:00Z due=%s end=%s ok=1"
+                      % (INST, DUE_ISO, END_ISO), p.stdout)
+        self.assertNotIn(INST, self.instance_names())
+        for name in (r1.name, r2.name, INST + ".logspan", markers[0]):
+            self.assertIn("logs/" + name, read_checksums(self.results))
+
+    def test_a_failed_rotated_pull_leaves_no_marker_and_deletes_nothing(self):
+        self.sandbox_node()
+        p = self.teardown("--yes", BENCH_TEARDOWN_MIN_FREE_GB="0", BENCH_IAP_RETRIES="2",
+                          FAKE_SSH_FAIL="# bench-pull: rotated")
+        self.assertEqual(p.returncode, 1, p.stdout[-4000:] + p.stderr[-4000:])
+        rotated = [c for c in self.cloud.calls() if is_call(c, ("compute", "ssh"))
+                   and c["stdin"].startswith("# bench-pull: rotated")]
+        self.assertEqual(len(rotated), 2, "every attempt of the rotated pull fails")
+        self.assertIn("✗ %s: rotated unit logs: not all pulled" % INST, p.stderr)
+        self.assertEqual(self.new_logs(INST + ".pulled-*"), [], "no marker for a node missing a generation")
+        self.assertEqual(self.new_logs(INST + "-unit-stdout.rotated-*"), [])
+        self.assertIn("node logs not saved — NOTHING was deleted", p.stderr)
+        self.assertNotIn((INST, "1"), LOGCOV_RE.findall(p.stdout))
+        self.assert_nothing_deleted(p)
+
+    def test_skip_coverage_deletes_and_says_so(self):
+        self.give_every_node_its_logs()
+        self.run_window()
+        self.spans(COVERS, bench_validator_01=STARTS_LATE)
+        p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_COVERAGE="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("BENCH_TEARDOWN_SKIP_COVERAGE=1 — deleting although the logs of %s do not cover the run" % INST,
+                      p.stderr)
+        self.assertNotIn(INST, self.instance_names())
+        m = self.manifest()
+        self.assertTrue([n for n in m["notes"] if "BENCH_TEARDOWN_SKIP_COVERAGE=1" in n and INST in n], m["notes"])
+        self.assertIs({c["inst"]: c["ok"] for c in m["log_coverage"]}[INST], False)
+
+    def test_credentials_are_checked_before_anything_else(self):
+        self.give_every_node_its_logs()
+        before = tree_files(self.results)
+        p = self.teardown("--yes", FAKE_AUTH="fail")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("❌ gcloud has no usable credentials (gcloud auth print-access-token failed or took over 60 s)"
+                      " — NOTHING was pulled or deleted.", p.stderr)
+        self.assertIn("Run: gcloud auth login   then re-run: benchmark/benchmark-teardown.sh --yes --run " + RUN, p.stderr)
+        self.assertEqual([c["argv"] for c in self.cloud.calls()], [["auth", "print-access-token"]])
+        self.assertEqual(self.cloud.calls()[0]["stdin"], "")
+        self.assertEqual(self.recorded("alarms"), ["60", "gcloud"])
+        self.assertEqual(tree_files(self.results), before)
+        self.assertIn(INST, self.instance_names())
+        # The same check passes when gcloud prints a token, and goes first.
+        p = self.teardown()
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✓ gcloud prints an access token", p.stdout)
+        self.assertEqual(self.cloud.calls()[1]["argv"], ["auth", "print-access-token"])
+
+    def test_reauth_during_the_pull_stops_before_any_delete(self):
+        self.give_every_node_its_logs()
+        self.age_marker()   # the node needs a pull
+        # Every ssh fails as an expired session does: pull-lib's stream helper touches the stop file.
+        p = self.teardown("--yes", FAKE_REAUTH_SSH="1", BENCH_TEARDOWN_MIN_FREE_GB="0")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("❌ gcloud needs re-authentication (the session expired during the log pull) — NOTHING was deleted.",
+                      p.stderr)
+        self.assertIn("Run: gcloud auth login", p.stderr)
+        self.assertTrue(self.log_pulls() or any(is_call(c, ("compute", "ssh")) for c in self.cloud.calls()))
+        self.assertNotIn(">>> certification outcome", p.stdout)
+        self.assertFalse(list((self.results / "logs").glob(INST + "-recovery-*.tgz")), "stopped before the evidence")
+        self.assert_nothing_deleted(p)
+        self.assertEqual([n for n in os.listdir(str(self.cloud.tmp)) if n.startswith("tn-bench-teardown.")], [],
+                         "the stop file's directory is removed on exit")
+
+    def test_deletes_are_async_then_polled_until_gone(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", FAKE_DELETE_POLLS="2")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        calls = self.cloud.calls()
+        deletes = indices(calls, ("compute", "instances", "delete"))
+        self.assertEqual(len(deletes), 1)
+        self.assertEqual([a for a in calls[deletes[0]]["argv"] if a.startswith("--") and "=" not in a],
+                         ["--quiet", "--async"])
+        before = [i for i in indices(calls, ("compute", "instances", "describe")) if i < deletes[0]]
+        after = [i for i in indices(calls, ("compute", "instances", "describe")) if i > deletes[0]]
+        self.assertTrue(before, "the id is re-checked before the delete")
+        self.assertEqual(len(after), 3, "STOPPING, STOPPING, not found")
+        self.assertTrue(all(INST in calls[i]["argv"] for i in after))
+        self.assertLess(after[-1], indices(calls, ("compute", "firewall-rules", "list"))[-1])
+        self.assertEqual(self.recorded("sleeps"), ["10", "10"])
+        self.assertIn("waiting for 1 instance delete(s): a describe each every 10 s, at most 600 s", p.stdout)
+        self.assertIn("✓ %s (%s) deleted" % (INST, ZONE), p.stdout)
+        self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
+        self.assertNotIn(INST, self.instance_names())
+
+    def test_an_instance_still_deleting_after_the_wait_is_left(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", FAKE_DELETE_POLLS="never", BENCH_TEARDOWN_DELETE_WAIT_SECS="0")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✗ %s (%s) still there after 0 s (status STOPPING) — the left-nothing checks below count it"
+                      % (INST, ZONE), p.stdout)
+        self.assertEqual(self.recorded("sleeps"), [])
+        self.assertIn("❌ teardown left something behind", p.stderr)
+        self.assertEqual(self.done_line(p), (RUN, 0, 2, False))   # labelled benchmark=1, named bench-*
+        m = self.manifest()
+        self.assertRegex(m["timestamps"]["teardown_start"], ISO_RE)
+        self.assertNotIn("teardown_done", m["timestamps"], "the deletes did not all finish")
+        self.assertEqual([{k: v for k, v in e.items() if k != "at"} for e in m["teardown_pending"]],
+                         [{"inst": INST, "zone": ZONE, "status": "STOPPING"}])
+        self.assertRegex(m["teardown_pending"][0]["at"], ISO_RE)
+        # The instance goes in the end; the re-run finds nothing left to wait for and writes the done time.
+        (self.cloud.state / "deleting.json").write_text(json.dumps({"%s/%s" % (ZONE, INST): 0}))
+        subprocess.run([str(self.cloud.bin / "gcloud"), "compute", "instances", "describe", INST, "--zone=" + ZONE],
+                       env=self.cloud.env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertNotIn(INST, self.instance_names())
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        m = self.manifest()
+        self.assertRegex(m["timestamps"]["teardown_done"], ISO_RE)
+        self.assertNotIn("teardown_pending", m)
+        self.assertEqual(m["teardown_reruns"][0]["done"], m["timestamps"]["teardown_done"])
+
+    def test_timestamps_first_teardown_and_reruns(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        ts = self.manifest()["timestamps"]
+        self.assertRegex(ts["teardown_start"], ISO_RE)
+        self.assertRegex(ts["teardown_done"], ISO_RE)
+        self.assertLessEqual(ts["teardown_start"], ts["teardown_done"])
+        self.assertNotIn("teardown_reruns", self.manifest())
+        self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
+        # A re-run (the fleet is gone): the first start and done stay, the re-run is appended.
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        m = self.manifest()
+        self.assertEqual((m["timestamps"]["teardown_start"], m["timestamps"]["teardown_done"]),
+                         (ts["teardown_start"], ts["teardown_done"]))
+        self.assertEqual(len(m["teardown_reruns"]), 1)
+        r = m["teardown_reruns"][0]
+        self.assertEqual(sorted(r), ["done", "start"])
+        self.assertRegex(r["start"], ISO_RE)
+        self.assertRegex(r["done"], ISO_RE)
+        self.assertLessEqual(ts["teardown_done"], r["start"])
+        self.assertEqual(self.done_line(p), (RUN, 0, 0, False))
+
+    def test_a_rerun_after_an_interrupted_teardown_writes_the_done_time(self):
+        # The first teardown recorded its start, deleted some of the fleet and was killed (bench 3).
+        self.give_every_node_its_logs()
+        self.run_window(teardown_start="2099-12-31T10:00:00Z")
+        self.spans(COVERS)
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        m = self.manifest()
+        self.assertEqual(m["timestamps"]["teardown_start"], "2099-12-31T10:00:00Z")
+        self.assertEqual(len(m["teardown_reruns"]), 1)
+        self.assertEqual(m["teardown_reruns"][0]["done"], m["timestamps"]["teardown_done"])
+        self.assertLessEqual(m["teardown_reruns"][0]["start"], m["teardown_reruns"][0]["done"])
 
     def test_missing_unit_log_stops_before_any_delete(self):
         self.give_every_node_its_logs()
@@ -699,6 +1087,25 @@ class TeardownLocalGateTests(unittest.TestCase):
                 self.assertFalse(is_call(c, words), "dry run executed gcloud " + " ".join(c["argv"]))
         self.assertEqual(tree_files(self.results), before)
         self.assertNotIn("archive", self.manifest())
+        self.assertLess(out.index(">>> log coverage"), gate_at)
+        self.assertEqual(set(LOGCOV_RE.findall(out)), {(i, "-") for i in self.fleet()})
+        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async" % (INST, ZONE, PROJECT),
+                      out)
+        self.assertIn("(then one describe per instance every 10 s until each is gone, at most 600 s", out)
+        self.assertEqual(self.done_line(p), (RUN, 0, 3, True))   # the live instance (labelled, named) + the run bucket
+        self.assertEqual(self.recorded("sleeps"), [])
+
+    def test_dry_run_says_where_the_coverage_gate_would_stop(self):
+        self.give_every_node_its_logs()
+        self.run_window()
+        self.spans(COVERS, bench_validator_01=STARTS_LATE)
+        before = tree_files(self.results)
+        p = self.teardown()
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✗ with --yes the teardown stops here, before any delete: %s (BENCH_TEARDOWN_SKIP_COVERAGE=1 "
+                      "deletes without their coverage)" % INST, p.stdout)
+        self.assertEqual(tree_files(self.results), before, "a dry run records no log_coverage")
+        self.assertTrue(self.done_line(p)[3])
 
     def test_reindex_indexes_files_written_after_the_teardown_and_calls_nothing(self):
         # As a teardown leaves it: the archive record, an index; then analysis written by hand.
@@ -844,14 +1251,102 @@ class TeardownLocalGateTests(unittest.TestCase):
                 ("BENCH_TEARDOWN_MIN_FREE_GB", "08", "got '08'"),
                 ("BENCH_TEARDOWN_MIN_FREE_GB", "-1", "got '-1'"),
                 ("BENCH_TEARDOWN_MIN_FREE_GB", "1.5", "got '1.5'"),
-                ("BENCH_TEARDOWN_MIN_FREE_GB", "1000000", "got '1000000'")):
+                ("BENCH_TEARDOWN_MIN_FREE_GB", "1000000", "got '1000000'"),
+                ("BENCH_TEARDOWN_SKIP_ANALYSIS", "yes", "BENCH_TEARDOWN_SKIP_ANALYSIS must be 0 or 1 (got 'yes')"),
+                ("BENCH_TEARDOWN_SKIP_COVERAGE", "true", "BENCH_TEARDOWN_SKIP_COVERAGE must be 0 or 1 (got 'true')"),
+                ("BENCH_TEARDOWN_SKIP_COVERAGE", "2", "BENCH_TEARDOWN_SKIP_COVERAGE must be 0 or 1 (got '2')"),
+                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "10m", "got '10m'"),
+                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "060", "got '060'"),
+                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "-5", "got '-5'"),
+                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "1000000", "got '1000000'")):
             with self.subTest(knob=knob, value=value):
                 p = self.teardown("--yes", **{knob: value})
                 self.assertEqual(p.returncode, 1)
                 self.assertIn(needle, p.stderr)
                 if knob.endswith("MIN_FREE_GB"):
                     self.assertIn("BENCH_TEARDOWN_MIN_FREE_GB must be a whole number of GB, 0 to 999999", p.stderr)
+                if knob.endswith("DELETE_WAIT_SECS"):
+                    self.assertIn("BENCH_TEARDOWN_DELETE_WAIT_SECS must be a whole number of seconds, 0 to 999999",
+                                  p.stderr)
         self.assertEqual(self.cloud.calls(), [])
+
+
+class FakeGcloudTests(unittest.TestCase):
+    """The fake's answers the teardown's pull relies on: the two `# bench-pull:` sessions (told apart
+    by the first line of the script on stdin), the credential check and an --async delete."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="fake-gcloud-")
+        self.cloud = FakeCloud(Path(self._tmp.name))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def gcloud(self, args, stdin="", **extra):
+        return subprocess.run([str(self.cloud.bin / "gcloud")] + args, input=stdin.encode(),
+                              env=self.cloud.env(**extra), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+
+    def ssh(self, header, **extra):
+        return self.gcloud(["compute", "ssh", INST, "--zone=" + ZONE, "--project=p", "--ssh-flag=-T",
+                            "--command=sudo bash -s"], header + "\nset -eu\necho from the script\n", **extra)
+
+    def test_span_session_prints_logspan_lines(self):
+        p = self.ssh("# bench-pull: span")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        lines = p.stdout.decode().splitlines()
+        self.assertTrue(lines)
+        rows = [LOGSPAN_RE.match(line) for line in lines]
+        self.assertTrue(all(rows), lines)
+        self.assertEqual({r.group(1) for r in rows}, {INST})
+        self.assertEqual({(r.group(2), r.group(3)) for r in rows}, {("stdout", "0"), ("stdout", "1"), ("stderr", "0")})
+        (self.cloud.state / "logspan").mkdir()
+        (self.cloud.state / "logspan" / INST).write_text(logspan_text(INST, *STARTS_LATE))
+        p = self.ssh("# bench-pull: span")
+        self.assertEqual(p.stdout.decode(), logspan_text(INST, *STARTS_LATE))
+
+    def test_rotated_session_writes_a_tar_of_gzip_files(self):
+        p = self.ssh("# bench-pull: rotated")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        with tarfile.open(fileobj=io.BytesIO(p.stdout), mode="r:") as tar:
+            members = {m.name: tar.extractfile(m).read() for m in tar.getmembers()}
+        self.assertTrue(members)
+        for name, data in members.items():
+            self.assertRegex(name, r"^unit-(stdout|stderr)\.rotated-\d+\.log\.gz$")
+            self.assertIn(INST.encode(), gzip.decompress(data))
+
+    def test_other_scripts_get_the_recovery_tar_and_reauth_fails_every_ssh(self):
+        p = self.ssh("set -e -o pipefail")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        with tarfile.open(fileobj=io.BytesIO(p.stdout), mode="r:gz") as tar:
+            self.assertEqual(tar.getnames(), ["./telcoin.journal"])
+        for header in ("# bench-pull: span", "# bench-pull: rotated", "set -e -o pipefail"):
+            p = self.ssh(header, FAKE_REAUTH_SSH="1")
+            self.assertEqual((p.returncode, p.stdout), (1, b""), header)
+            self.assertIn(b"Reauthentication failed", p.stderr)
+            self.assertIn(b"gcloud auth login", p.stderr)
+
+    def test_auth_token_switch(self):
+        p = self.gcloud(["auth", "print-access-token"])
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, b"fake-access-token"))
+        p = self.gcloud(["auth", "print-access-token"], FAKE_AUTH="fail")
+        self.assertEqual((p.returncode, p.stdout), (1, b""))
+        self.assertIn(b"gcloud auth login", p.stderr)
+
+    def test_async_delete_is_found_for_n_describes_then_not_found(self):
+        zone_url = "projects/p/zones/" + ZONE
+        (self.cloud.state / "instances.json").write_text(json.dumps([{"name": INST, "zone": zone_url, "id": INST_ID,
+                                                                      "status": "RUNNING"}]))
+        where = [INST, "--zone=" + ZONE, "--project=p"]
+        self.assertEqual(self.gcloud(["compute", "instances", "delete"] + where + ["--quiet", "--async"],
+                                     FAKE_DELETE_POLLS="2").returncode, 0)
+        for _ in range(2):
+            p = self.gcloud(["compute", "instances", "describe"] + where + ["--format=json"])
+            self.assertEqual((p.returncode, json.loads(p.stdout)["status"]), (0, "STOPPING"))
+            self.assertIn(INST, self.gcloud(["compute", "instances", "list"]).stdout.decode())
+        p = self.gcloud(["compute", "instances", "describe"] + where + ["--format=json"])
+        self.assertEqual(p.returncode, 1)
+        self.assertIn(b"was not found", p.stderr)
+        self.assertEqual(json.loads(self.gcloud(["compute", "instances", "list"]).stdout), [])
 
 
 if __name__ == "__main__":
