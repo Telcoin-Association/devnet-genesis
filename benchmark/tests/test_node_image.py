@@ -48,8 +48,12 @@ ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 # Scripts the bash under test sources or runs, relative to the repo root.
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
-        "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
+        "benchmark/obs-lib.sh", "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
         "benchmark/node-image-contract.txt")
+# What the bench-obs functions (obs-lib.sh) read from the tree: the bundle. The VM's startup script and
+# the Grafana dashboards live in the `common` submodule, which a CI checkout lacks: every test points
+# BENCH_OBS_STARTUP_SCRIPT and BENCH_OBS_DASHBOARDS_DIR at fixtures instead (BashCase.env).
+OBS_BUNDLE = "benchmark/obs"
 # Contract stand-ins appended to the sandbox copy of bench-lib.sh, each defined only when the real
 # function is absent (the owning unit has not landed it yet); production code never carries them.
 LIB_SHIMS = r'''
@@ -90,6 +94,7 @@ def make_tree(root):
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, dst)
+    shutil.copytree(str(REPO / OBS_BUNDLE), str(root / OBS_BUNDLE))
     with open(str(root / "benchmark/bench-lib.sh"), "a") as f:
         f.write(LIB_SHIMS)
     return root / "benchmark"
@@ -149,7 +154,10 @@ class BashCase(unittest.TestCase):
                "BENCH_RUN_ID": "rtest-node-image", "BENCH_APPLY": "0", "BENCH_TXGEN_SHA": "abcdef1",
                "TN_IAP_RETRIES": "0",   # the lib's transport retry is off: ssh attempts are counted exactly
                "BENCH_PARAMETERS_FILE": str(self.params), "STUB_LOG": str(self.log),
-               "STUB_IMAGE_DIR": str(self.image), "STUB_DIGEST": DIGEST}
+               "STUB_IMAGE_DIR": str(self.image), "STUB_DIGEST": DIGEST,
+               # bench-obs's startup script and dashboards without the `common` submodule
+               "BENCH_OBS_STARTUP_SCRIPT": str(FIX / "obs-startup-stub.sh"),
+               "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards")}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -791,6 +799,7 @@ class FleetCase(BashCase):
         super().setUp()
         install(self.bin, "gcloud", "stub-gcloud-v2-node.sh")
         install(self.bin, "v2-node-run.sh", "v2-node-run.sh")
+        install(self.bin, "stub-gcloud.sh", "stub-gcloud.sh")   # the bench-obs VM's calls (steps 2, 8)
         self.params.write_text(STEP9_PARAMS)
         self.run_dir = self.bench / "results" / self.RUN
         self.run_dir.mkdir(parents=True)
@@ -945,6 +954,119 @@ class NoteTests(BashCase):
                 self.assertEqual(p.returncode, 1, p.stdout)
                 self.assertIn(phrase, p.stdout)
         self.assertEqual(len(json.loads((run / "manifest.json").read_text())["notes"]), 2)
+
+
+class Step8Tests(FleetCase):
+    """`benchmark-deploy.sh --yes --only 8`: bench-obs up first (obs-lib.sh's bench_obs_ensure against the stub
+    gcloud: create, serial marker, bring-up, two supervised forwards), then every validator CvvActive, then one
+    session per node: a throwaway token
+    on stdin, setup-observability.sh, bench-obs's /-/ready from the node, the Alloy relabel to
+    http://<bench-obs internal IP>:9090/api/v1/write. No secret is read and obs-devnet is never named."""
+
+    OBS_IP = "192.0.2.50"     # the stub's bench-obs internal IP (stub-gcloud.sh STUB_OBSVM_IP)
+
+    def node_args(self, inst):
+        # setup-observability.sh's own relabel (TN_CHAIN=devnet, the black hole), as step 8 finds Alloy mid-session
+        return {"start": v2_cmdline(), "label": "devnet"}
+
+    def setUp(self):
+        super().setUp()
+        install(self.bin, "curl", "stub-curl-bench-obs.sh")   # the forwards, for the real bench_obs_tunnel_up
+        for node in self.nodes.values():
+            obs = node.root / "opt/telcoin-node-scripts/setup-observability.sh"
+            shutil.copyfile(FIX / "stub-v2-setup-observability.sh", obs)
+            obs.chmod(0o755)
+
+    def tearDown(self):
+        # The real bench_obs_tunnel_up leaves supervised forwards (setsid; the stub ssh sleeps): end them.
+        for pidf in self.run_dir.glob("tunnel*.pid"):
+            try:
+                os.killpg(int(pidf.read_text().strip()), signal.SIGKILL)
+            except (ValueError, OSError):
+                pass
+        super().tearDown()
+
+    def deploy8(self, **env):
+        return self.deploy(8, STUB_OBS_EVENTS=str(FIX / "obs-events-ok.jsonl"), STUB_OBSVM_IP=self.OBS_IP,
+                           STUB_TUNNEL_SECS="30", BENCH_FLEET_READY_SETTLE_SECS="0", **env)
+
+    def obscfg_targets(self):
+        return [c.split()[3] for c in self.calls() if c.startswith("gcloud compute ssh ") and c.endswith(" bench-obscfg")]
+
+    def test_bench_obs_first_then_every_node_ships_to_it(self):
+        p = self.deploy8()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        out = p.stdout
+        self.assertIn(">>> Step 8: per-node observability, metrics only → bench-obs, labelled network=bench", out)
+        ready = re.search(r"(?m)^\s*OBS_READY inst=bench-obs ip=192\.0\.2\.50 ", out)
+        self.assertIsNotNone(ready, out)
+        self.assertIn("    metrics -> http://192.0.2.50:9090/api/v1/write\n", out)
+        self.assertLess(ready.start(), out.index("fleet ready (step8)"))
+        self.assertLess(out.index("fleet ready (step8)"), out.index("OBSCFG_OK bench-validator-01 "))
+        self.assertEqual(self.obscfg_targets(), NODES)
+        # The token is openssl's, not a secret: no Secret Manager call, nothing of obs-devnet's.
+        calls = self.calls()
+        self.assertFalse([c for c in calls if " secrets " in c], calls)
+        self.assertNotIn("obs-devnet", "\n".join(calls))
+        tokens = set()
+        for inst, node in self.nodes.items():
+            with self.subTest(inst=inst):
+                self.assertIn("OBSCFG_OK %s restarted=none " % inst, out)
+                self.assertEqual(node.alloy.read_text(), "TN_CHAIN=bench\nTN_NODE=%s\nOBS_METRICS_PUSH_URL=http://%s:9090/api/v1/write\n"
+                                 % (inst, self.OBS_IP))
+                nc = node.calls()
+                ready_call = "curl -sf --max-time 5 http://%s:9090/-/ready" % self.OBS_IP
+                self.assertLess(nc.index(ready_call), nc.index("systemctl stop telcoin-alloy.service"))
+                tok = (node.root / "state" / "obs-stdin").read_text()
+                self.assertRegex(tok, r"^[0-9a-f]{32}\n$")
+                tokens.add(tok.strip())
+        self.assertEqual(len(tokens), 1)    # one throwaway token for the step
+        tok = tokens.pop()
+        self.assertNotIn(tok, out)
+        self.assertNotIn(tok, "\n".join(calls))
+        m = self.m()
+        self.assertEqual(m["obs"]["internal_ip"], self.OBS_IP)
+        self.assertTrue(m["fleet_ready"]["ok"], m["fleet_ready"])
+
+    def test_unreachable_bench_obs_stops_at_the_first_node(self):
+        p = self.deploy8(STUB_OBS_READY="0")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("OBSCFG_FAIL bench-validator-01 bench-obs unreachable", p.stdout)
+        self.assertIn("observability failed on bench-validator-01", p.stdout)
+        self.assertEqual(self.obscfg_targets(), ["bench-validator-01"])
+        first = self.nodes["bench-validator-01"]
+        self.assertIn("TN_CHAIN=devnet\n", first.alloy.read_text())
+        self.assertNotIn("systemctl stop telcoin-alloy.service", first.calls())
+
+    def test_a_failed_bring_up_still_ends_with_the_result_line(self):
+        # obs-lib dies inside the bring-up: the deploy dies again in its own shell with the resume, and the
+        # EXIT trap still has fd 5 for BENCH_DEPLOY_RESULT (the last line), naming obs-lib's own cause.
+        p = self.deploy8(STUB_OBSVM_STACK="fail")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        last = p.stdout.rstrip("\n").splitlines()[-1]
+        self.assertTrue(last.startswith("BENCH_DEPLOY_RESULT rc=1 last_step=8 first_error=❌ "), last)
+        self.assertIn("❌ bench-obs is not up (above) — re-run with --only 8, then your segment "
+                      "(--from 10 --to 12 or --from 13 --to 15)", p.stdout)
+        self.assertLess(p.stdout.index("OBS_STACK_FAIL"), p.stdout.index("❌ bench-obs is not up"))
+        self.assertEqual(self.obscfg_targets(), [])
+        self.assertEqual((self.status()["rc"], self.status()["last_step"]), ("1", "8"))
+
+    def test_a_missing_startup_script_fails_the_gate_before_any_gcloud_call(self):
+        p = self.deploy8(BENCH_OBS_STARTUP_SCRIPT=str(self.root / "no-such-startup-obs.sh"))
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("    ✗ bench-obs startup script %s is missing or unreadable" % (self.root / "no-such-startup-obs.sh"),
+                      p.stdout)
+        self.assertIn("❌ prerequisites missing — nothing was started", p.stdout)
+        self.assertIn("    ✓ bench-obs bring-up session (bundle ", p.stdout)   # the other two checks still ran
+        self.assertEqual([c for c in self.calls() if c.startswith("gcloud ")], [])
+
+    def test_an_existing_bench_obs_of_this_run_is_kept(self):
+        # --from 8 after step 2: the run's own VM is kept, not created again.
+        p = self.deploy8(STUB_OBSVM_EXISTS="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^\s*OBS_CREATE inst=bench-obs zone=us-west2-a ip=192\.0\.2\.50 id=\S+ existing=1$")
+        self.assertFalse([c for c in self.calls() if c.startswith("gcloud compute instances create ")], self.calls())
+        self.assertEqual(self.obscfg_targets(), NODES)
 
 
 class Step9Tests(FleetCase):
@@ -1358,17 +1480,22 @@ class NodeJobsRunnerTests(BashCase):
 
 
 class ObsScriptTests(BashCase):
-    """Step 8's session (--print-obs-script): the ingest token on stdin only, setup-observability.sh
-    with --metrics already on the node command (no restart), then the same-session Alloy relabel."""
+    """Step 8's session (--print-obs-script): the token on stdin only, setup-observability.sh with
+    --metrics already on the node command (no restart), bench-obs's /-/ready from the node, then the
+    same-session Alloy relabel to bench-obs (metrics only; obs-devnet is never a target)."""
 
     INST = "bench-validator-03"
     TOKEN = "tok-3f9b0709-not-a-secret"
+    PLACEHOLDER = "bench-obs-internal-ip.invalid"    # no BENCH_OBS_INTERNAL_IP: the print's stand-in host
+
+    def print_obs(self, **env):
+        return subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-obs-script", self.INST],
+                              env=self.env(**env), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                              universal_newlines=True)
 
     def setUp(self):
         super().setUp()
-        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-obs-script", self.INST],
-                           env=self.env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
-                           universal_newlines=True)
+        p = self.print_obs()
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(self.calls(), [])
         self.printed = p.stdout
@@ -1380,13 +1507,17 @@ class ObsScriptTests(BashCase):
         obs = self.node.root / "opt/telcoin-node-scripts/setup-observability.sh"
         shutil.copyfile(FIX / "stub-v2-setup-observability.sh", obs)
         obs.chmod(0o755)
-        # The two obs-devnet URLs, as config.sh gives them to the script.
+        # The log push URL handed to setup-observability.sh (the black hole: logs stay off) and the bench-obs
+        # remote-write URL the relabel writes.
         self.config = {"OBS_PUSH_URL": re.search(r"--push-url '([^']+)'", self.body).group(1),
                        "OBS_METRICS_PUSH_URL": re.search(r"grep -qx 'OBS_METRICS_PUSH_URL=([^']+)'", self.body).group(1)}
 
     def session(self, events="obs-events-ok.jsonl", stdin=None, **env):
-        return self.node.run(self.body, stdin=self.TOKEN + "\n" if stdin is None else stdin, name="bench-obs",
+        return self.node.run(self.body, stdin=self.TOKEN + "\n" if stdin is None else stdin, name="bench-obscfg",
                              STUB_OBS_EVENTS=str(FIX / events), **env)
+
+    def ready_call(self, ip=PLACEHOLDER):
+        return "curl -sf --max-time 5 http://%s:9090/-/ready" % ip
 
     def state(self, name):
         f = self.node.root / "state" / name
@@ -1411,6 +1542,55 @@ class ObsScriptTests(BashCase):
         self.assertIn("printf '%s\\n' \"${TOKEN}\" | DEVNET_RPC_URL='" + GUARD_RPC + "' ", self.body)
         self.assertIn(" --token-stdin ", self.body)
         self.assertNotRegex(self.body, r"--token[ =]")
+        # bench-obs, not obs-devnet: the remote-write URL is the VM's internal IP (here the placeholder), and
+        # its /-/ready is asked from the node after setup-observability.sh and before Alloy is touched.
+        self.assertEqual(self.config["OBS_METRICS_PUSH_URL"], "http://%s:9090/api/v1/write" % self.PLACEHOLDER)
+        ready = 'curl -sf --max-time 5 "http://%s:9090/-/ready" >/dev/null || fail "bench-obs unreachable"' % self.PLACEHOLDER
+        self.assertEqual(self.body.count(ready), 1, self.body)
+        self.assertLess(self.body.index("setup-observability.sh' --json"), self.body.index(ready))
+        self.assertLess(self.body.index(ready), self.body.index("systemctl stop telcoin-alloy.service"))
+        self.assertIn("# bench-obs: %s (BENCH_OBS_INTERNAL_IP, else the placeholder)" % self.PLACEHOLDER, self.header)
+
+    def test_no_obs_devnet_endpoint_reaches_the_node(self):
+        # setup-observability.sh gets the black hole for its log push URL too (logs stay off), so neither
+        # config.sh's OBS_PUSH_URL nor any obs-devnet host is in the session or lands in Alloy's env.
+        p = self.bash('source "$1/bench-lib.sh"; printf "%s" "${OBS_PUSH_URL}"', self.bench)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        devnet_push = p.stdout.strip()
+        self.assertIn("obs." + "devnet", devnet_push)   # what config.sh carries for the live devnet
+        self.assertNotIn(devnet_push, self.printed)
+        self.assertNotIn("obs." + "devnet", self.printed)
+        self.assertEqual(self.config["OBS_PUSH_URL"], "http://127.0.0.1:9/bench-hold")
+        p, lines = self.session()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("OBS_PUSH_URL=http://127.0.0.1:9/bench-hold\n", self.state("obs-env"))
+        for where, text in (("setup env", self.state("obs-env")), ("setup argv", self.state("obs-argv")),
+                            ("alloy env", self.node.alloy.read_text())):
+            self.assertNotIn("obs." + "devnet", text, where)
+
+    def test_print_uses_the_bench_obs_ip_when_known(self):
+        p = self.print_obs(BENCH_OBS_INTERNAL_IP="192.0.2.50")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("OBS_METRICS_PUSH_URL=http://192.0.2.50:9090/api/v1/write#", p.stdout)
+        self.assertIn('curl -sf --max-time 5 "http://192.0.2.50:9090/-/ready"', p.stdout)
+        self.assertNotIn(self.PLACEHOLDER, p.stdout)
+
+    def test_print_obs_bringup_is_obs_libs_session_and_contacts_nothing(self):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-obs-bringup"], env=self.env(),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(p.stdout.splitlines()[0], "# bench-obs: bringup")
+        self.assertIn("OBS_STACK_OK bench-obs ", p.stdout)
+        syntax = subprocess.run(["bash", "-n"], input=p.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                universal_newlines=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stdout)
+        self.assertFalse((self.bench / "results").exists())
+        bad = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--no-such-flag"], env=self.env(),
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, universal_newlines=True)
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("--print-obs-script INST, --print-obs-bringup, --print-postconfig INST)", bad.stdout)
 
     def test_remote_command_is_the_printed_script(self):
         fns = shell_functions(self.bench / "benchmark-deploy.sh", "obs_script", "obs_remote_cmd")
@@ -1418,7 +1598,7 @@ class ObsScriptTests(BashCase):
                   'obs_remote_cmd "$3" "$(tn_region_from_zone "$4")"\n')
         p = self.bash(script, self.bench, fns, self.INST, self.zone)
         self.assertEqual(p.returncode, 0, p.stdout)
-        m = re.fullmatch(r'sudo bash -c "\$\(printf %s ([A-Za-z0-9+/=]+) \| base64 -d\)" bench-obs', p.stdout.strip())
+        m = re.fullmatch(r'sudo bash -c "\$\(printf %s ([A-Za-z0-9+/=]+) \| base64 -d\)" bench-obscfg', p.stdout.strip())
         self.assertIsNotNone(m, p.stdout)
         self.assertEqual(base64.b64decode(m.group(1)).decode(), self.body)
         self.assertEqual(self.calls(), [])
@@ -1431,17 +1611,17 @@ class ObsScriptTests(BashCase):
         self.assertEqual(self.state("obs-stdin"), self.TOKEN + "\n")
         argv = self.state("obs-argv").splitlines()
         self.assertEqual(argv, ["--json", "--enable-metrics", "--region", self.zone.rsplit("-", 1)[0], "--token-stdin",
-                                "--push-url", self.config["OBS_PUSH_URL"], "--metrics-push-url",
+                                "--push-url", "http://127.0.0.1:9/bench-hold", "--metrics-push-url",
                                 "http://127.0.0.1:9/bench-hold"])
         env = self.state("obs-env")
         self.assertIn("DEVNET_RPC_URL=%s\n" % GUARD_RPC, env)
         for where, text in (("argv", "\n".join(argv)), ("env", env), ("node calls", "\n".join(self.node.calls())),
                             ("session output", p.stdout)):
             self.assertNotIn(self.TOKEN, text, where)
-        # No restart; Alloy stopped, its WAL wiped, relabelled, started, all in this session.
+        # No restart; bench-obs ready, then Alloy stopped, its WAL wiped, relabelled, started, all in this session.
         self.assertFalse([c for c in self.node.calls() if re.match(r"systemctl (start|stop|restart) telcoin$", c)])
-        self.assertEqual([c for c in self.node.calls() if re.match(r"systemctl (start|stop) ", c)],
-                         ["systemctl stop telcoin-alloy.service", "systemctl start telcoin-alloy.service"])
+        self.assertEqual([c for c in self.node.calls() if re.match(r"systemctl (start|stop) ", c) or c == self.ready_call()],
+                         [self.ready_call(), "systemctl stop telcoin-alloy.service", "systemctl start telcoin-alloy.service"])
         self.assertEqual(list((self.node.root / "var/lib/telcoin-alloy").iterdir()), [])
         self.assertEqual(self.node.alloy.read_text(), "TN_CHAIN=bench\nTN_NODE=%s\nOBS_METRICS_PUSH_URL=%s\n"
                          % (self.INST, self.config["OBS_METRICS_PUSH_URL"]))
@@ -1455,6 +1635,18 @@ class ObsScriptTests(BashCase):
         # The Alloy env still points at the black hole: nothing labelled devnet goes anywhere.
         self.assertIn("TN_CHAIN=devnet\n", self.node.alloy.read_text())
         self.assertNotIn("TN_NODE=%s\n" % self.INST, self.node.alloy.read_text())
+
+    def test_unreachable_obs_fails_before_alloy_restarts(self):
+        # bench-obs gone, a wrong IP or no internal path: the node's /-/ready fails, and the session stops with
+        # Alloy as setup-observability.sh left it (running, on the black hole, its WAL kept), never restarted.
+        p, lines = self.session(STUB_OBS_READY="0")
+        self.assertObsFails("bench-obs unreachable", p, lines)
+        calls = self.node.calls()
+        self.assertIn(self.ready_call(), calls)
+        self.assertFalse([c for c in calls if c.startswith("systemctl ") and "telcoin-alloy" in c
+                          and re.search(r" (stop|start|restart) ", c)], calls)
+        self.assertTrue((self.node.root / "var/lib/telcoin-alloy/wal").exists())
+        self.assertNotIn("OBSCFG_OK", p.stdout)
 
     def test_done_ok_false_fails(self):
         p, lines = self.session("obs-events-fail.jsonl")
@@ -1489,7 +1681,7 @@ class ObsScriptTests(BashCase):
     def test_a_stderr_line_holding_the_token_is_withheld(self):
         p, lines = self.session("obs-events-fail.jsonl", STUB_OBS_ERR_LINES="1", STUB_OBS_LEAK="1")
         self.assertObsFails('done event: {"event":"done","ok":false,', p, lines)
-        self.assertIn(self.TOKEN, (self.node.root / "tmp/bench-obs.err").read_text())   # the stub did leak it
+        self.assertIn(self.TOKEN, (self.node.root / "tmp/bench-obscfg.err").read_text())   # the stub did leak it
         self.assertEqual(self.err_lines(p.stdout)[-2:], [
             "OBSCFG_ERR %s   [ERROR] alloy check 1 failed" % self.INST,
             "OBSCFG_ERR %s (line withheld: it holds the ingest token)" % self.INST])
@@ -1568,6 +1760,34 @@ class PlanTests(BashCase):
         # A dry run executes nothing and leaves no trace: no GCP call, no results directory.
         self.assertEqual(self.calls(), [])
         self.assertFalse((self.bench / "results").exists())
+
+    def test_plan_names_bench_obs_its_forwards_and_never_reads_obs_devnet(self):
+        p, steps = self.plan()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("  metrics  -> http://bench-obs-internal-ip.invalid:9090/api/v1/write as network=\"bench\" (bench-obs: "
+                      "bench-obs, e2-standard-4 in us-west2-a, metrics only; obs-devnet is never touched)\n", p.stdout)
+        self.assertIn("forwards 127.0.0.1:19090 -> bench-obs:9090 (Prometheus, http://127.0.0.1:19090/api/v1), "
+                      "127.0.0.1:13000 -> bench-obs:3000 (Grafana, http://127.0.0.1:13000)", p.stdout)
+        zero = "\n".join(steps[0])
+        self.assertIn("e2-standard-4 must exist in every zone it is created in (us-west2-a)", zero)
+        self.assertIn("us-west2: C3_CPUS 16, CPUS 6, IN_USE_ADDRESSES 4, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, "
+                      "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 90", zero)
+        self.assertIn("(and bench-obs in us-west2)", zero)
+        self.assertIn("bench_obs_create: bench-obs", "\n".join(steps[2]))
+        eight = "\n".join(steps[8])
+        for phrase in ("bench_obs_ensure", "--print-obs-bringup", "127.0.0.1:19090 -> :9090", "127.0.0.1:13000 -> :3000",
+                       "openssl rand -hex 16", "/-/ready", "bench-obs unreachable", "obs-devnet never touched",
+                       "OBS_METRICS_PUSH_URL=http://bench-obs-internal-ip.invalid:9090/api/v1/write"):
+            self.assertIn(phrase, eight)
+        self.assertLess(eight.index("bench_obs_ensure"), eight.index("bench_fleet_ready 0"))
+        self.assertIn("bench_obs_require", "\n".join(steps[10]))
+        self.assertIn("bench_obs_require", "\n".join(steps[13]))
+        self.assertIn("--prom-url http://127.0.0.1:19090/api/v1 --prom-no-auth", "\n".join(steps[15]))
+        # obs-devnet is not a gate any more: no df over IAP, no disk threshold on devnet's VM.
+        self.assertNotIn("obs-devnet df", p.stdout)
+        self.assertNotIn("df over IAP", zero)
+        self.assertNotIn("obs-devnet /mnt/obs-data", p.stdout)
+        self.assertEqual(self.calls(), [])
 
 
 @unittest.skipUnless(subprocess.run(["python3", "-c", "import yaml"], stdout=subprocess.DEVNULL,
@@ -1879,6 +2099,11 @@ class ZoneFallbackTests(FleetCase):
                       self.calls())
         self.assertEqual(len(list((self.run_dir / "logs").glob("create-instances-*.log"))), 2)
         self.assertIn("⚠ bench-validator-05: us-east4-b is out of c3-highcpu-8 (stockout) — it moves to us-east4-c", p.stdout)
+        # Then the run's own bench-obs (bench_obs_create, after manifest.instances[]) -> manifest.obs.
+        obs = re.search(r"(?m)^\s*OBS_CREATE inst=bench-obs zone=us-west2-a ip=192\.0\.2\.50 id=\S+ existing=0$", p.stdout)
+        self.assertIsNotNone(obs, p.stdout)
+        self.assertLess(p.stdout.index("✓ manifest.instances[] recorded (11)"), obs.start())
+        self.assertEqual(self.m()["obs"]["internal_ip"], "192.0.2.50")
         # Every later script of the run (they all source config.sh) sees the new zone.
         z = self.bash(ZONES_OF, self.bench, BENCH_RUN_ID=self.RUN)
         self.assertIn("ZONES %s\n" % " ".join(moved), z.stdout)
@@ -1946,6 +2171,8 @@ source "$1/bench-lib.sh"
 BENCH_APPLY=1
 eval "$2"
 bench_tunnel_up() { echo "TUNNEL_UP fd5=$( { : >&5; } 2>/dev/null && echo open || echo closed)"; }
+bench_obs_require() { echo "OBS_REQUIRE"; }   # its forwards close fd 5/6 themselves (_bench_tunnel_start)
+bench_obs_exists() { echo "OBS_EXISTS"; [ "${TEST_OBS_EXISTS:-1}" = 1 ]; }
 bench_fleet_ready() { echo "FLEET_READY $*"; [ "${TEST_READY:-1}" = 1 ]; }
 # the n-th read of a node's mode answers the n-th word of TEST_MODES (the last one from then on)
 bench_node_mode() {
@@ -1984,15 +2211,18 @@ class PromWindowTests(BashCase):
         (stubs / "cgm.py").write_text(COLLECTOR)
         (stubs / "benchmark-blast.sh").write_text(BLAST_COLLECT)
         (stubs / "benchmark-blast.sh").chmod(0o755)
-        fns = shell_functions(self.bench / "benchmark-deploy.sh", "prom_window_wait", "step_15")
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "obs_or_die", "prom_window_wait", "step_15")
         env.setdefault("BENCH_NODE_BACK_SECS", "1")
         p = self.bash(STEP15, self.bench, "PROM_WINDOW_ARGS=()\n" + fns, stubs, **env)
         cgm = [json.loads(l[4:]) for l in p.stdout.splitlines() if l.startswith("CGM ")]
         return p, json.loads((run / "manifest.json").read_text()), cgm
 
-    def collector_argv(self, extra=()):
+    def collector_argv(self, extra=(), prom=True):
+        """The collector's argv: the window flags <extra>, then (BENCH_PROM_AUTH=0, the default) bench-obs's
+        Prometheus through its local forward, no auth."""
         run = self.bench / "results" / "rtest-node-image"
-        return ["--manifest", str(run / "manifest.json"), "--out", str(run / "metrics.json")] + list(extra)
+        return (["--manifest", str(run / "manifest.json"), "--out", str(run / "metrics.json")] + list(extra)
+                + (["--prom-url", "http://127.0.0.1:19090/api/v1", "--prom-no-auth"] if prom else []))
 
     def test_landed_kill_waits_for_the_fleet_and_passes_the_window(self):
         p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", BENCH_FLEET_READY_MAX_WAIT_SECS="1500")
@@ -2006,7 +2236,29 @@ class PromWindowTests(BashCase):
         self.assertIn("MODE_READ 1 bench-validator-05", p.stdout)   # the killed node, read again after the confirm wait
         self.assertEqual(cgm, [self.collector_argv(["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])])
         self.assertLess(p.stdout.index("BLAST collect --yes"), p.stdout.index("FLEET_READY"))
-        self.assertLess(p.stdout.index("FLEET_READY"), p.stdout.index("CGM "))
+        self.assertLess(p.stdout.index("FLEET_READY"), p.stdout.index("OBS_REQUIRE"))
+        self.assertLess(p.stdout.index("OBS_REQUIRE"), p.stdout.index("CGM "))
+        self.assertIn(" --start 2026-01-01T00:00:00Z --end %s --prom-url http://127.0.0.1:19090/api/v1 --prom-no-auth\n"
+                      % m["prom_window"]["end"], p.stdout)   # the printed command is the argv
+
+    def test_bench_obs_gone_at_collect_names_the_lost_series(self):
+        # The VM held the run's only copy of its series: the stop says so, and never sends the operator to
+        # --from 8 (an empty VM, then a re-fund and a re-blast). Nothing reads Prometheus after it.
+        p, m, cgm = self.step15(TEST_OBS_EXISTS="0")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("❌ bench-obs is gone: the run's Prometheus series went with it; do NOT --from 8 (it would "
+                      "re-fund and re-blast) — collect without Prometheus (--no-prom) or accept the gap", p.stdout)
+        self.assertLess(p.stdout.index("BLAST collect --yes"), p.stdout.index("OBS_EXISTS"))
+        self.assertNotIn("OBS_REQUIRE", p.stdout)
+        self.assertEqual(cgm, [])
+
+    def test_prom_auth_keeps_the_collectors_own_prometheus_path(self):
+        # BENCH_PROM_AUTH=1 (the Grafana proxy path): no --prom-url / --prom-no-auth, bench-obs still required.
+        p, m, cgm = self.step15(BENCH_PROM_AUTH="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(cgm, [self.collector_argv(prom=False)])
+        self.assertIn("OBS_REQUIRE", p.stdout)
+        self.assertNotIn("--prom-no-auth", p.stdout)
 
     def test_fleet_not_ready_is_a_warning_and_ends_at_the_cap(self):
         p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", TEST_READY="0")
@@ -2015,7 +2267,7 @@ class PromWindowTests(BashCase):
         self.assertNotIn("MODE_READ", p.stdout)   # never ready: no confirm read
         self.assertNotIn("❌", p.stdout)
         self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("max_wait", None))
-        self.assertEqual(cgm[0][-4:], ["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])
+        self.assertEqual(cgm, [self.collector_argv(["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])])
 
     def test_a_transient_promotion_does_not_end_the_window(self):
         # Bench 3's target was promoted and demoted again within seconds, 11 times: one CvvActive reading
@@ -2027,7 +2279,7 @@ class PromWindowTests(BashCase):
         self.assertIn("⚠ step 15: CvvActive did not hold 1 s later: bench-validator-05=CvvInactive", p.stdout)
         self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("fleet_ready", 1))
         self.assertGreaterEqual(m["prom_window"]["waited_secs"], 2)
-        self.assertEqual(cgm[0][-4:], ["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])
+        self.assertEqual(cgm, [self.collector_argv(["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])])
 
     def test_a_target_that_never_holds_ends_at_the_cap(self):
         p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", TEST_MODES="CvvInactive",
@@ -2036,7 +2288,7 @@ class PromWindowTests(BashCase):
         self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("max_wait", None))
         self.assertIn("⚠ step 15: no confirmed rejoin within 3 s", p.stdout)
         self.assertLessEqual(m["prom_window"]["waited_secs"], 5)
-        self.assertEqual(cgm[0][-2], "--end")
+        self.assertEqual(cgm, [self.collector_argv(["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])])
 
     def test_no_landed_kill_or_knob_off_keeps_the_manifest_window(self):
         failed_kill = dict(self.KILL, rc=1)
@@ -2114,8 +2366,8 @@ esac
 """
 FLEET_REGIONS = ["asia-east2", "asia-northeast1", "asia-northeast3", "asia-south1", "asia-southeast1",
                  "australia-southeast1", "europe-west2", "europe-west4", "us-east4", "us-west2"]
-PREFLIGHT_FNS = ("fleet_zones", "validator_zones", "fleet_regions", "disk_type_check", "machine_type_check",
-                 "machine_vcpus", "region_needs", "hdb_headroom", "quota_check")
+PREFLIGHT_FNS = ("fleet_zones", "validator_zones", "fleet_regions", "quota_regions", "disk_type_check",
+                 "machine_type_check", "machine_vcpus", "region_needs", "hdb_headroom", "quota_check")
 
 
 def shell_functions(script, *names):
@@ -2221,8 +2473,9 @@ class PreflightTests(FakeGcloudCase):
         self.assertEqual(p.returncode, 0, p.stdout)
         self.assertEqual(self.calls(), [])
         self.assertIn("gcloud compute machine-types describe c3-highcpu-8 --zone=<each zone>", p.stdout)
-        self.assertIn("      us-west2: C3_CPUS 16, CPUS 2, IN_USE_ADDRESSES 3, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, "
-                      "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 20\n", p.stdout)
+        # us-west2 holds bench-obs too (e2-standard-4: CPUS +4, one address, 20 GB boot + 50 GB data SSD_TOTAL_GB).
+        self.assertIn("      us-west2: C3_CPUS 16, CPUS 6, IN_USE_ADDRESSES 4, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, "
+                      "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 90\n", p.stdout)
         self.assertIn("      asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, ", p.stdout)
         self.assertEqual(p.stdout.count("(dry run — not executed)"), 3)
 
@@ -2249,9 +2502,9 @@ class PreflightTests(FakeGcloudCase):
     def test_quota_check_passes_with_headroom(self):
         p = self.preflight("quota_check")
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertIn("✓ us-west2 need/headroom: C3_CPUS 16/300, CPUS 2/1500, IN_USE_ADDRESSES 3/575, "
+        self.assertIn("✓ us-west2 need/headroom: C3_CPUS 16/300, CPUS 6/1500, IN_USE_ADDRESSES 4/575, "
                       "HDB_TOTAL_GB 200/40960, HDB_TOTAL_IOPS 40000/unlimited, HDB_TOTAL_THROUGHPUT 1600/unlimited, "
-                      "SSD_TOTAL_GB 20/40960", p.stdout)
+                      "SSD_TOTAL_GB 90/40960", p.stdout)
         self.assertEqual(p.stdout.count("need/headroom:"), 10)
         calls = self.calls()
         self.assertEqual(sorted(c.split()[4] for c in calls if c.startswith("gcloud compute regions describe ")),
@@ -2281,8 +2534,8 @@ class PreflightTests(FakeGcloudCase):
             ["asia-south1", "HDB_TOTAL_GB", "100", "50"],
             ["europe-west2", "HDB_TOTAL_IOPS", "20000", "15000"],
             ["europe-west4", "HDB_TOTAL_GB", "100", "60"],
-            ["us-west2", "CPUS", "2", "1"],
-            ["us-west2", "IN_USE_ADDRESSES", "3", "2"]]))
+            ["us-west2", "CPUS", "6", "1"],
+            ["us-west2", "IN_USE_ADDRESSES", "4", "2"]]))
         # All ten regions were read before the die.
         self.assertEqual(len([c for c in self.calls() if c.startswith("gcloud compute regions describe ")]), 10)
 
@@ -2293,11 +2546,36 @@ class PreflightTests(FakeGcloudCase):
                            BENCH_BLASTER_MACHINE_TYPES="e2-medium")
         self.assertEqual(p.returncode, 0, p.stdout)
         lines = [l for l in p.stdout.splitlines() if l and l[0].isupper()]
-        self.assertEqual(lines, ["CPUS 10", "IN_USE_ADDRESSES 3", "SSD_TOTAL_GB 220",
+        # us-west2 adds bench-obs: CPUS +4 (e2-standard-4, from its name), one address, 20 + 50 GB SSD.
+        self.assertEqual(lines, ["CPUS 14", "IN_USE_ADDRESSES 4", "SSD_TOTAL_GB 290",
                                  "CPUS 6", "IN_USE_ADDRESSES 2", "SSD_TOTAL_GB 120", "SHARED 2"])
         # e2-medium's name carries no vCPU count: an alarmed describe answered it.
         self.assertTrue(any(c.startswith("gcloud compute machine-types describe e2-medium --zone=")
                             and "guestCpus" in c for c in self.calls()), self.calls())
+
+    def test_bench_obs_in_a_region_of_its_own_is_checked_there(self):
+        # BENCH_OBS_ZONE outside the fleet's regions: one more region read, with bench-obs alone in it.
+        p = self.preflight("quota_check", TEST_APPLY="0", BENCH_OBS_ZONE="europe-north1-a", BENCH_OBS_DISK_GB="100")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("      europe-north1: CPUS 4, IN_USE_ADDRESSES 1, SSD_TOTAL_GB 120\n", p.stdout)
+        self.assertIn("      us-west2: C3_CPUS 16, CPUS 2, IN_USE_ADDRESSES 3, ", p.stdout)
+        self.assertIn("(and bench-obs in europe-north1)", p.stdout)
+        self.assertEqual(self.calls(), [])
+        p = self.preflight("quota_check", BENCH_OBS_ZONE="europe-north1-a", BENCH_OBS_MACHINE_TYPE="e2-standard-8")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("✓ europe-north1 need/headroom: CPUS 8/1500, IN_USE_ADDRESSES 1/575, SSD_TOTAL_GB 70/40960", p.stdout)
+        self.assertEqual(sorted(c.split()[4] for c in self.calls() if c.startswith("gcloud compute regions describe ")),
+                         sorted(FLEET_REGIONS + ["europe-north1"]))
+
+    def test_machine_type_check_for_bench_obs_asks_its_zone_only(self):
+        p = self.preflight('machine_type_check "${BENCH_OBS_MACHINE_TYPE}" BENCH_OBS_MACHINE_TYPE "${BENCH_OBS_ZONE}"',
+                           STUB_MT_MISSING="us-west2-a")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("e2-standard-4 cannot be created in every zone it needs — change ZONES (benchmark/config.sh) or "
+                      "BENCH_OBS_MACHINE_TYPE:\n     us-west2-a: not offered in this zone", p.stdout)
+        self.assertEqual([c for c in self.calls() if c.startswith("gcloud compute machine-types describe ")],
+                         ["gcloud compute machine-types describe e2-standard-4 --zone=us-west2-a --project=%s "
+                          "--format=value(name)" % ("tn-" + "devnet")])
 
 
 BLAST = r'''

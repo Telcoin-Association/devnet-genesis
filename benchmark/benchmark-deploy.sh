@@ -21,18 +21,20 @@
 #                        deployments-bench.json that the selected steps need
 #    0  preflight        auth + tools + python3 PyYAML + TN_NODE_SCRIPTS_REF a full 40-hex sha +
 #                        no leftover bench-*/benchmark=1 resources + accounts file +
-#                        empty benchmark/genesis + firewall/tag hygiene + obs-devnet disk < 70% +
-#                        MACHINE_TYPE in every fleet zone and the first blaster type in every validator
-#                        zone + a hyperdisk-* disk type offered in every fleet zone + quota headroom per
-#                        region (vCPUs per family metric, addresses, disk); one die lists every failure;
-#                        pre-snapshots
+#                        empty benchmark/genesis + firewall/tag hygiene +
+#                        MACHINE_TYPE in every fleet zone, the first blaster type in every validator
+#                        zone and BENCH_OBS_MACHINE_TYPE in BENCH_OBS_ZONE + a hyperdisk-* disk type
+#                        offered in every fleet zone + quota headroom per region (vCPUs per family
+#                        metric, addresses, disk; the bench-obs VM counted in its region); one die lists
+#                        every failure; pre-snapshots. obs-devnet is not read: the bench has its own obs VM
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
 #    2  instances        common/create-instances.sh on the bench profile (-> logs/create-instances-<UTC>.log);
 #                        on a stockout that node moves to its next BENCH_ZONE_FALLBACKS zone (zones.env,
 #                        manifest.zone_fallbacks[]) and the create runs again, at most 3 rounds; assert tag
 #                        bench-node + label benchmark=1 on every node; label boot disks; manifest.instances[],
-#                        zones_used
+#                        zones_used; then bench_obs_create: the run's own bench-obs VM (metrics only,
+#                        create-or-keep; one of another run is refused) -> manifest.obs
 #    3  bootstrap        serial-console marker "devnet-startup.sh complete" on every node
 #    4  firewall         benchmark-firewall.sh apply --yes
 #    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE) -> logs/keygen-<UTC>.log;
@@ -54,14 +56,18 @@
 #                        and accepts flags already set, start-all skips RUNNING nodes and the first start
 #                        stays the record (later ones: manifest.coordinated_start_reruns). A unit RUNNING
 #                        before any coordinated start stops the step (stop it by hand, then re-run).
-#    8  observability    every validator CvvActive (bench_fleet_ready 0), then per node ONE IAP
-#                        session, no node restart: the ingest token on the session's stdin only ->
-#                        setup-observability.sh --json --enable-metrics --token-stdin aimed at a
-#                        black-hole URL (done ok:true, "Node already serves a metrics endpoint
-#                        (--metrics).", container StartedAt unchanged, NRestarts=0), then (same
-#                        session) stop Alloy, wipe its WAL, set TN_CHAIN=bench TN_NODE=<instance> +
-#                        the real obs-devnet URL, start Alloy — no sample labelled network="devnet"
-#                        ever leaves a bench node. Never create-obs-instance.sh, never devnet-observability.sh.
+#    8  observability    bench_obs_ensure: bench-obs up (created if absent, booted, Prometheus +
+#                        Grafana brought up, forwards 127.0.0.1:19090 -> :9090 and 127.0.0.1:13000 ->
+#                        :3000), then every validator CvvActive (bench_fleet_ready 0), then per node ONE
+#                        IAP session, no node restart: a throwaway token (openssl rand -hex 16; bench-obs
+#                        takes no ingest auth) on the session's stdin only -> setup-observability.sh
+#                        --json --enable-metrics --token-stdin aimed at a black-hole URL (done ok:true,
+#                        "Node already serves a metrics endpoint (--metrics).", container StartedAt
+#                        unchanged, NRestarts=0), then (same session) bench-obs's /-/ready must answer
+#                        from the node, stop Alloy, wipe its WAL, set TN_CHAIN=bench TN_NODE=<instance> +
+#                        http://<bench-obs internal IP>:9090/api/v1/write, start Alloy — metrics only, no
+#                        sample labelled network="devnet" ever leaves a bench node. obs-devnet is never
+#                        touched (never create-obs-instance.sh, never devnet-observability.sh).
 #    9  post-config      per node, ONE IAP session each, verify only (no restart, no start-script
 #                        edit): the running container's args (--http.addr/--ws.addr 0.0.0.0, --metrics,
 #                        log filters), <DATA_DIR from .node-meta>/parameters.yaml, the bench Alloy
@@ -70,7 +76,8 @@
 #                        — an idle chain stays at block 0), its boot lines (git sha, max/min header +
 #                        max batch delay, fork schedule) against manifest.json -> manifest.node_startup;
 #                        install node-sampler
-#   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id == 32286, Prometheus
+#   10  health gate      wait_healthy x11, IAP tunnel -> cast chain-id == 32286, bench_obs_require
+#                        (bench-obs exists, its forwards answer; disk use warn-only), bench-obs Prometheus
 #                        min by (node)(tn_primary_round{network="bench"}) rising on all 11,
 #                        Prometheus: count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11
 #                        and no bench node has any series labelled network="devnet";
@@ -79,10 +86,12 @@
 #                        -> manifest.admission + fleet_modes
 #   11  contracts        (--with-contracts) tn-contracts worktree bench/<run> -> devnet-contracts.sh
 #   12  IAM + bucket     secretAccessor on the bench secrets for the compute SA; gs://<bucket>
-#   13  fund             every validator CvvActive (bench_fleet_ready, waits up to one epoch boundary
+#   13  fund             bench_obs_require, every validator CvvActive (bench_fleet_ready, waits up to one epoch boundary
 #                        -> manifest.fleet_ready), then benchmark-blast.sh fund --yes
 #   14  blast            benchmark-blast.sh run --yes
-#   15  collect          benchmark-blast.sh collect --yes + tn-transaction-generator/bench/collect-gcp-metrics.py;
+#   15  collect          benchmark-blast.sh collect --yes, bench_obs_require, then
+#                        tn-transaction-generator/bench/collect-gcp-metrics.py (--prom-url BENCH_PROM_URL
+#                        --prom-no-auth while BENCH_PROM_AUTH=0: bench-obs's Prometheus through its forward);
 #                        after a chaos kill that landed (BENCH_COLLECT_WAIT_REJOIN=1) the Prometheus window
 #                        ends once every validator is CvvActive again (--start/--end; manifest.prom_window)
 #   16  teardown         (--with-teardown) benchmark-teardown.sh --yes
@@ -104,7 +113,9 @@
 #   BENCH_DOCKER_IMAGE naming any other image is refused.
 #   Review aids (print a remote script and exit; no GCP call):
 #   benchmark/benchmark-deploy.sh --print-prestart <instance>     # step 7's pre-start config script
-#   benchmark/benchmark-deploy.sh --print-obs-script <instance>   # step 8's session (token: PLACEHOLDER-TOKEN)
+#   benchmark/benchmark-deploy.sh --print-obs-script <instance>   # step 8's session (token: PLACEHOLDER-TOKEN;
+#       bench-obs IP: BENCH_OBS_INTERNAL_IP, else the placeholder bench-obs-internal-ip.invalid)
+#   benchmark/benchmark-deploy.sh --print-obs-bringup             # step 8's bench-obs bring-up (bench_obs_bringup_script)
 #   benchmark/benchmark-deploy.sh --print-postconfig <instance>   # step 9's verify script
 
 set -euo pipefail
@@ -112,6 +123,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
 CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""; PRINT_PRESTART=""
+PRINT_OBS_BRINGUP=""
 PROBE_ONLY=0; PROBE_REF=""; NOTE=""; NOTE_GIVEN=0; RUN_GIVEN=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -131,10 +143,11 @@ while [ $# -gt 0 ]; do
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
         --print-prestart) PRINT_PRESTART="${2:?--print-prestart needs an instance}"; shift ;;        # review aid: step 7's pre-start config script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
+        --print-obs-bringup) PRINT_OBS_BRINGUP=1 ;;                                                 # review aid: step 8's bench-obs bring-up script
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --note TEXT (with --run), --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-postconfig INST)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --note TEXT (with --run), --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-obs-bringup, --print-postconfig INST)" >&2; exit 1 ;;
     esac
     shift
 done
@@ -166,7 +179,7 @@ deploy_status_write() {
     return 0
 }
 if [ "${CONFIRM}" -eq 1 ] && [ "${PROBE_ONLY}" -eq 0 ] && [ "${NOTE_GIVEN}" -eq 0 ] \
-    && [ -z "${PRINT_POSTCONFIG}${PRINT_PRESTART}${PRINT_OBS}" ]; then
+    && [ -z "${PRINT_POSTCONFIG}${PRINT_PRESTART}${PRINT_OBS}${PRINT_OBS_BRINGUP}" ]; then
     case "${BENCH_RUN_ID}" in
         ''|r*[!a-z0-9-]*|[!r]*) ;;   # config.sh refuses it (no status file for a run id that cannot exist)
         *)
@@ -292,6 +305,12 @@ fleet_regions() {
     printf '%s' "${r% }"
 }
 
+# quota_regions — the fleet's regions and BENCH_OBS_ZONE's (the bench-obs VM), space-separated, sorted.
+quota_regions() {
+    local r; r="$( { fleet_regions | tr ' ' '\n'; echo; tn_region_from_zone "${BENCH_OBS_ZONE}"; echo; } | grep . | sort -u | tr '\n' ' ')"
+    printf '%s' "${r% }"
+}
+
 # disk_type_check — a hyperdisk-* boot disk type must be offered in every zone the fleet uses;
 # dies naming the zones that lack it. The query goes through bench_run, so a dry run (the plan)
 # prints it and nothing else. Other disk types: no-op.
@@ -402,9 +421,12 @@ machine_vcpus() {
 # when nodes and blasters share it; every node and blaster holds one external address; the blasters'
 # pd-balanced boot disks count against SSD_TOTAL_GB; the node disks against HDB_TOTAL_{GB,IOPS,
 # THROUGHPUT} (hyperdisk-balanced; the IOPS/throughput only when provisioned), SSD_TOTAL_GB (pd-ssd,
-# pd-balanced) or DISKS_TOTAL_GB (pd-standard). A need is "?" when a vCPU count is unknown.
+# pd-balanced) or DISKS_TOTAL_GB (pd-standard). The bench-obs VM (BENCH_OBS_MACHINE_TYPE in
+# BENCH_OBS_ZONE) counts in its own region: its vCPUs, one external address, its pd-balanced boot disk
+# (obs_boot_gb: bench_obs_create's fixed 20 GB) and BENCH_OBS_DISK_GB pd-ssd data disk against
+# SSD_TOTAL_GB. A need is "?" when a vCPU count is unknown.
 region_needs() {
-    local region="$1" i z="" nodes=0 vals=0 bt nc bc
+    local region="$1" i z="" nodes=0 vals=0 bt nc bc oc obs_boot_gb=20
     for i in "${!ZONES[@]}"; do
         [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
         z="${ZONES[$i]}"; nodes=$((nodes + 1))
@@ -414,18 +436,26 @@ region_needs() {
     nc="$(machine_vcpus "${MACHINE_TYPE}" "${z}")"; nc="${nc:+$(( nodes * nc ))}"
     bc="$(machine_vcpus "${bt}" "${z}")"; bc="${bc:+$(( vals * bc ))}"
     {
-        echo "$(bench_cpu_quota_metric "${MACHINE_TYPE}") ${nc:-?}"
-        [ "${vals}" -eq 0 ] || echo "$(bench_cpu_quota_metric "${bt}") ${bc:-?}"
-        echo "IN_USE_ADDRESSES $(( nodes + vals ))"
-        case "${NODE_DISK_TYPE}" in
-            hyperdisk-balanced)
-                echo "HDB_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))"
-                [ -z "${NODE_DISK_IOPS}" ] || echo "HDB_TOTAL_IOPS $(( nodes * NODE_DISK_IOPS ))"
-                [ -z "${NODE_DISK_THROUGHPUT}" ] || echo "HDB_TOTAL_THROUGHPUT $(( nodes * NODE_DISK_THROUGHPUT ))" ;;
-            pd-ssd|pd-balanced) echo "SSD_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
-            pd-standard) echo "DISKS_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
-        esac
-        [ "${vals}" -eq 0 ] || echo "SSD_TOTAL_GB $(( vals * BENCH_BLASTER_BOOT_DISK_GB ))"
+        if [ "${nodes}" -gt 0 ]; then   # a region with bench-obs alone (quota_regions) has no node lines
+            echo "$(bench_cpu_quota_metric "${MACHINE_TYPE}") ${nc:-?}"
+            [ "${vals}" -eq 0 ] || echo "$(bench_cpu_quota_metric "${bt}") ${bc:-?}"
+            echo "IN_USE_ADDRESSES $(( nodes + vals ))"
+            case "${NODE_DISK_TYPE}" in
+                hyperdisk-balanced)
+                    echo "HDB_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))"
+                    [ -z "${NODE_DISK_IOPS}" ] || echo "HDB_TOTAL_IOPS $(( nodes * NODE_DISK_IOPS ))"
+                    [ -z "${NODE_DISK_THROUGHPUT}" ] || echo "HDB_TOTAL_THROUGHPUT $(( nodes * NODE_DISK_THROUGHPUT ))" ;;
+                pd-ssd|pd-balanced) echo "SSD_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+                pd-standard) echo "DISKS_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
+            esac
+            [ "${vals}" -eq 0 ] || echo "SSD_TOTAL_GB $(( vals * BENCH_BLASTER_BOOT_DISK_GB ))"
+        fi
+        if [ "$(tn_region_from_zone "${BENCH_OBS_ZONE}")" = "${region}" ]; then
+            oc="$(machine_vcpus "${BENCH_OBS_MACHINE_TYPE}" "${BENCH_OBS_ZONE}")"
+            echo "$(bench_cpu_quota_metric "${BENCH_OBS_MACHINE_TYPE}") ${oc:-?}"
+            echo "IN_USE_ADDRESSES 1"
+            echo "SSD_TOTAL_GB $(( obs_boot_gb + BENCH_OBS_DISK_GB ))"
+        fi
     } | awk '{ if (!($1 in n)) { o[++k] = $1; n[$1] = 0 } if ($2 == "?") u[$1] = 1; else n[$1] += $2 }
              END { for (i = 1; i <= k; i++) print o[i], ((o[i] in u) ? "?" : n[o[i]]) }'
 }
@@ -462,10 +492,11 @@ hdb_headroom() {
 # Quotas API (HDB-TOTAL-{GB,IOPS,THROUGHPUT}-per-project-region) and their usage from the disks
 # list. Every shortfall is listed in one die; a quota that cannot be read is a warning. Every gcloud
 # call is under an alarm. A dry run (the plan) prints the needs and the queries and calls nothing.
+# The regions are the fleet's plus bench-obs's (quota_regions).
 quota_check() {
     local regions r m need have json qgb="" qiops="" qtput="" disks="[]" q qj ok short=""
-    regions="$(fleet_regions)"
-    echo "    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator:"
+    regions="$(quota_regions)"
+    echo "    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator (and ${BENCH_OBS_INSTANCE} in $(tn_region_from_zone "${BENCH_OBS_ZONE}")):"
     for r in ${regions}; do
         echo "      ${r}: $(region_needs "${r}" | awk '{ printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2 }')"
     done
@@ -534,6 +565,22 @@ step7_local_problems() {
     esac
 }
 
+# obs_or_die <resume hint> <fn> [args] — an obs-lib.sh function (bench-obs create / ensure / require) in a
+# subshell, with errexit in force inside it (it is not the left side of `||`, where bash switches errexit
+# off). When it fails (its own ❌ line is above) this shell dies with <resume hint>, so the EXIT trap
+# prints BENCH_DEPLOY_RESULT on fd 5 as on any other stop. No fd is closed here: the forwards it starts
+# are born with fd 5/6 closed (bench-lib _bench_tunnel_start's nohup). What the function exports stays
+# in the subshell; the manifest carries what later steps need (bench_obs_urls reads manifest.obs.internal_ip).
+obs_or_die() {
+    local hint="$1" rc
+    shift
+    set +e
+    ( set -e; "$@" )
+    rc=$?
+    set -e
+    [ "${rc}" -eq 0 ] || bench_die "${hint}"
+}
+
 # ================================ steps ==============================================
 step_0() {
     echo ">>> Step 0: preflight"
@@ -573,15 +620,11 @@ step_0() {
         '.[] | select((.targetTags // []) | index("bench-node")) | select(.name as $n | $ours | index($n) | not) | .name')"
     [ -z "${foreign}" ] || bench_die "non-bench firewall rules target bench-node: ${foreign}"
     echo "    ✓ no non-bench firewall rule targets bench-node"
-    local obs_pct
-    obs_pct="$(tn_iap_ssh "${OBS_INSTANCE_NAME}" "${OBS_ZONE}" "df --output=pcent /mnt/obs-data | tail -1" 2>/dev/null | tr -dc '0-9' || true)"
-    [ -n "${obs_pct}" ] || bench_die "could not read obs-devnet /mnt/obs-data usage over IAP"
-    # Bench nodes ship metrics only (a few hundred MB per run into Prometheus); the guard exists
-    # so a Loki disk that is already nearly full is fixed before, not during, a run.
-    [ "${obs_pct}" -lt "${BENCH_OBS_DISK_MAX_PCT:-70}" ] || bench_die "obs-devnet data disk is ${obs_pct}% (>= ${BENCH_OBS_DISK_MAX_PCT:-70}%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate"
-    echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
+    # No obs-devnet read: the bench ships metrics only, to its own bench-obs VM (step 2 creates it, step 8
+    # brings it up); a bench-obs left by an earlier run is a leftover above, like any bench-*.
     machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
     machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+    machine_type_check "${BENCH_OBS_MACHINE_TYPE}" BENCH_OBS_MACHINE_TYPE "${BENCH_OBS_ZONE}"
     zone_fallback_check
     disk_type_check
     quota_check
@@ -763,6 +806,10 @@ step_2() {
     done
     bench_manifest_jq --argjson a "${insts}" '.instances = $a'
     echo "    ✓ manifest.instances[] recorded (${#INSTANCE_NAMES[@]})"
+    # The run's own obs VM (metrics only; obs-lib.sh): created, or kept when this run already has it
+    # (a re-run with --from 2); one that belongs to another run is refused. Step 8 brings it up.
+    obs_or_die "bench-obs could not be created or kept (above) — re-run with --from 2 (nodes are kept, this run's VM is adopted)" \
+        bench_obs_create
 }
 
 step_3() {
@@ -998,18 +1045,26 @@ step_7() {
 }
 
 # obs_script <instance> <region> — step 8's remote script for one node. It holds no secret: the
-# ingest token is the one line on the session's stdin (step_8 pipes it in; tn_iap_ssh_cmd_stdin runs
-# the script with `sudo bash -c`, see obs_remote_cmd), read once into a plain shell variable (never
+# token is the one line on the session's stdin (step_8 pipes it in; tn_iap_ssh_cmd_stdin runs the
+# script with `sudo bash -c`, see obs_remote_cmd), read once into a plain shell variable (never
 # exported, never on a command line, no set -x), and handed to setup-observability.sh on ITS stdin
-# (--token-stdin) by the printf builtin, nowhere else.
+# (--token-stdin) by the printf builtin, nowhere else. bench-obs's Prometheus takes no ingest auth:
+# the token is a throwaway (openssl rand -hex 16) that setup-observability.sh requires, and it is
+# still kept off every command line and log as a real one would be.
 #
+# The metrics go to bench-obs (the run's own VM; obs-devnet is never touched) at
+# http://<BENCH_OBS_INTERNAL_IP>:9090/api/v1/write over the VPC (default-allow-internal); a print
+# (--print-obs-script) without the IP shows the placeholder bench-obs-internal-ip.invalid.
 # setup-observability.sh derives TN_CHAIN from the node's NETWORK=devnet (DEVNET_CHAIN_NAME is
 # readonly in tn-node-deployment), so left alone the node would remote-write
-# network="devnet" chain="devnet" samples into obs-devnet. To make that impossible rather than
-# brief, setup-observability.sh is pointed at a black-hole metrics URL (127.0.0.1:9, refused);
-# then, in the same session and before anything can reach obs-devnet, Alloy is stopped, its WAL
-# (which holds the devnet-labelled samples) is wiped, the env gets TN_CHAIN/TN_NODE/the real URL,
-# and Alloy starts again. The first sample obs-devnet ever sees from a bench node is network=bench.
+# network="devnet" chain="devnet" samples. To make that impossible rather than brief,
+# setup-observability.sh is pointed at a black hole (127.0.0.1:9, refused) for both its metrics URL and
+# its log push URL (logs stay off, TN_OBS_ENABLE_LOGS=0; no obs-devnet endpoint ever lands in the
+# node's Alloy env); then, in the
+# same session, bench-obs's /-/ready must answer from this node (else OBSCFG_FAIL, Alloy untouched and
+# still on the black hole), Alloy is stopped, its WAL (which holds the devnet-labelled samples) is
+# wiped, the env gets TN_CHAIN/TN_NODE/the bench-obs URL, and Alloy starts again. The first sample
+# bench-obs ever sees from a bench node is network=bench.
 #
 # No node restart (D1): step 7's pre-start config put `--metrics 127.0.0.1:<port>` on the node
 # command, so --enable-metrics finds it and changes nothing (tn-node-deployment
@@ -1023,13 +1078,15 @@ step_7() {
 # (BENCH_GUARD_PUBLIC_RPC) so a bench node never asks the live devnet. Last line:
 #   OBSCFG_OK <instance> restarted=none <setup-observability.sh's done event>
 obs_script() {
-    local inst="$1" region="$2" hold="http://127.0.0.1:9/bench-hold"
+    local inst="$1" region="$2" hold="http://127.0.0.1:9/bench-hold" ip url
+    ip="${BENCH_OBS_INTERNAL_IP:-bench-obs-internal-ip.invalid}"
+    url="http://${ip}:9090/api/v1/write"
     cat <<EOS
 set -euo pipefail
 # ERRTAIL: the last lines of setup-observability.sh's stderr once it has run (each OBSCFG_ERR on a failure)
 ERRTAIL=""
 fail() { [ -z "\${ERRTAIL}" ] || printf '%s' "\${ERRTAIL}" | sed 's/^/OBSCFG_ERR ${inst} /'; echo "OBSCFG_FAIL ${inst} \$*"; exit 1; }
-# the ingest token: this session's one stdin line, into a plain variable; nothing else reads stdin
+# the token: this session's one stdin line, into a plain variable; nothing else reads stdin
 TOKEN=""
 IFS= read -r TOKEN || [ -n "\${TOKEN}" ] || fail "no ingest token on stdin"
 TOKEN="\${TOKEN%\$'\\r'}"
@@ -1048,20 +1105,20 @@ grep -v '^[[:space:]]*#' "\${S}" | grep -E -- '(^|[[:space:]])--metrics[[:space:
 ! grep -qx 'ENABLE_OBSERVABILITY=true' "\${M}" \\
     || fail "contract drift: \${M} has ENABLE_OBSERVABILITY=true; log shipping would add JSON log flags and restart the node"
 rc=0
-printf '%s\\n' "\${TOKEN}" | DEVNET_RPC_URL='${BENCH_GUARD_PUBLIC_RPC}' OBS_PUSH_URL='${OBS_PUSH_URL}' OBS_METRICS_PUSH_URL='${hold}' \\
+printf '%s\\n' "\${TOKEN}" | DEVNET_RPC_URL='${BENCH_GUARD_PUBLIC_RPC}' OBS_PUSH_URL='${hold}' OBS_METRICS_PUSH_URL='${hold}' \\
     '${TN_NODE_SCRIPTS_DIR}/setup-observability.sh' --json --enable-metrics --region '${region}' --token-stdin \\
-    --push-url '${OBS_PUSH_URL}' --metrics-push-url '${hold}' > /tmp/bench-obs.json 2>/tmp/bench-obs.err || rc=\$?
+    --push-url '${hold}' --metrics-push-url '${hold}' > /tmp/bench-obscfg.json 2>/tmp/bench-obscfg.err || rc=\$?
 # its last 5 stderr lines (ANSI stripped) for a failure report; setup-observability.sh never prints the
 # token, and a line that held it anyway is withheld (a bash pattern match: the token is in no argv)
 while IFS= read -r l; do
     case "\${l}" in *"\${TOKEN}"*) l="(line withheld: it holds the ingest token)" ;; esac
     ERRTAIL="\${ERRTAIL}\${l}
 "
-done < <(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obs.err 2>/dev/null | tail -5 || true)
+done < <(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obscfg.err 2>/dev/null | tail -5 || true)
 TOKEN=""
 unset TOKEN
 # after: the done event says ok, the node command already had --metrics, and the node did not restart
-DONE="\$(grep -F '"event":"done"' /tmp/bench-obs.json 2>/dev/null | tail -1 || true)"
+DONE="\$(grep -F '"event":"done"' /tmp/bench-obscfg.json 2>/dev/null | tail -1 || true)"
 case "\${DONE}" in
     *'"ok":true'*) ;;
     *) fail "setup-observability.sh rc \${rc}, done event: \${DONE:-none}" ;;
@@ -1071,16 +1128,19 @@ T1="\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
 N1="\$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
 [ "\${T1}" = "\${T0}" ] || fail "the node restarted: container StartedAt \${T0} -> \${T1:-none}"
 [ "\${N1}" = 0 ] || fail "telcoin NRestarts=\${N1:-?} after setup-observability.sh, expected 0"
-sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obs.err /tmp/bench-obs.json | grep -F 'Node already serves a metrics endpoint (--metrics).' >/dev/null \\
-    || fail "contract drift: setup-observability.sh did not report 'Node already serves a metrics endpoint (--metrics).' (no restart fallback; see /tmp/bench-obs.err on the node)"
+sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obscfg.err /tmp/bench-obscfg.json | grep -F 'Node already serves a metrics endpoint (--metrics).' >/dev/null \\
+    || fail "contract drift: setup-observability.sh did not report 'Node already serves a metrics endpoint (--metrics).' (no restart fallback; see /tmp/bench-obscfg.err on the node)"
+# bench-obs must answer this node before Alloy is pointed at it (gone, wrong IP, no internal path):
+# a failure here leaves Alloy as setup-observability.sh left it, on the black hole
+curl -sf --max-time 5 "http://${ip}:9090/-/ready" >/dev/null || fail "bench-obs unreachable"
 systemctl stop telcoin-alloy.service
 rm -rf /var/lib/telcoin-alloy/* 2>/dev/null || true
 E=/etc/telcoin/alloy/telcoin-alloy.env
 [ -f "\$E" ] || fail "no \$E"
 sed -i -e 's/^TN_CHAIN=.*/TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}/' -e 's/^TN_NODE=.*/TN_NODE=${inst}/' \\
-    -e 's#^OBS_METRICS_PUSH_URL=.*#OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}#' "\$E"
+    -e 's#^OBS_METRICS_PUSH_URL=.*#OBS_METRICS_PUSH_URL=${url}#' "\$E"
 grep -qx 'TN_CHAIN=${BENCH_PROM_NETWORK_LABEL}' "\$E" && grep -qx 'TN_NODE=${inst}' "\$E" \\
-    && grep -qx 'OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}' "\$E" || fail "alloy env not rewritten"
+    && grep -qx 'OBS_METRICS_PUSH_URL=${url}' "\$E" || fail "alloy env not rewritten"
 systemctl start telcoin-alloy.service
 systemctl is-active --quiet telcoin-alloy.service || fail "telcoin-alloy not active"
 echo "OBSCFG_OK ${inst} restarted=none \${DONE}"
@@ -1090,38 +1150,50 @@ EOS
 # obs_remote_cmd <instance> <region> — the remote command of step 8's session: obs_script, base64
 # (so no quote of it is parsed twice; lessons 2026-10-06), decoded on the node and run by
 # `sudo bash -c`, which inherits the session's stdin: the token line (tn_iap_ssh_cmd_stdin, -T).
+# Its $0 is bench-obscfg (the VM is bench-obs; the session is not).
 obs_remote_cmd() {
     local b64
     b64="$(obs_script "$1" "$2" | base64 | tr -d '\n')"
-    printf 'sudo bash -c "$(printf %%s %s | base64 -d)" bench-obs' "${b64}"
+    printf 'sudo bash -c "$(printf %%s %s | base64 -d)" bench-obscfg' "${b64}"
 }
 
 # obs_print <instance> — --print-obs-script: the session as step 8 runs it, the token replaced by
-# PLACEHOLDER-TOKEN (comments, then the script; `| bash -n` parses it).
+# PLACEHOLDER-TOKEN (comments, then the script; `| bash -n` parses it). The bench-obs IP is
+# BENCH_OBS_INTERNAL_IP when set, else the placeholder bench-obs-internal-ip.invalid (no gcloud).
 obs_print() {
     local i
     i="$(bench_index_of "$1")" || bench_die "$1 is not a bench instance"
     cat <<EOH
 # step 8 session for $1 (--print-obs-script). Sent as:
-#   printf '%s\n' PLACEHOLDER-TOKEN | tn_iap_ssh_cmd_stdin $1 ${ZONES[$i]} 'sudo bash -c "\$(printf %s <base64 of the script below> | base64 -d)" bench-obs'
-# PLACEHOLDER-TOKEN stands for the ingest token: the session's only stdin line, read into TOKEN below
-# and piped to setup-observability.sh --token-stdin; it is never on a command line or in an environment.
+#   printf '%s\n' PLACEHOLDER-TOKEN | tn_iap_ssh_cmd_stdin $1 ${ZONES[$i]} 'sudo bash -c "\$(printf %s <base64 of the script below> | base64 -d)" bench-obscfg'
+# PLACEHOLDER-TOKEN stands for the token (step 8: openssl rand -hex 16; bench-obs takes no ingest auth):
+# the session's only stdin line, read into TOKEN below and piped to setup-observability.sh --token-stdin;
+# it is never on a command line or in an environment.
+# bench-obs: ${BENCH_OBS_INTERNAL_IP:-bench-obs-internal-ip.invalid} (BENCH_OBS_INTERNAL_IP, else the placeholder)
 EOH
     obs_script "$1" "$(tn_region_from_zone "${ZONES[$i]}")"
 }
 
 step_8() {
-    echo ">>> Step 8: per-node observability, metrics only -> ${OBS_METRICS_PUSH_URL}, labelled network=${BENCH_PROM_NETWORK_LABEL} before the first push; no node restarts"
-    # Never common/create-obs-instance.sh (and never --wipe-data): obs-devnet is devnet's.
-    # Not devnet-observability.sh either: it cannot relabel inside the setup session (see obs_script).
+    echo ">>> Step 8: per-node observability, metrics only → bench-obs, labelled network=${BENCH_PROM_NETWORK_LABEL} before the first push; no node restarts"
+    # obs-devnet is devnet's and is never touched: no create-obs-instance.sh, no devnet-observability.sh
+    # (it cannot relabel inside the setup session either; see obs_script), no obs-devnet secret.
     local token i inst out line
+    # bench-obs up: created if absent (an --only 8 after it was lost), booted, Prometheus + Grafana
+    # brought up, the two forwards (manifest.obs). Then OBS_METRICS_PUSH_URL from manifest.obs.internal_ip.
+    obs_or_die "bench-obs is not up (above) — re-run with --only 8, then your segment (--from 10 --to 12 or --from 13 --to 15)" \
+        bench_obs_ensure
+    bench_obs_urls
+    echo "    metrics -> ${OBS_METRICS_PUSH_URL}"
     bench_fleet_ready 0 step8 \
         || bench_die "step 8: not every validator is CvvActive (above; manifest.fleet_ready). A validator that started too late after the coordinated start sits out until the next epoch boundary, and no restart helps inside the epoch: resume with --from 8 after the boundary, or tear down"
-    token="$(tn_secret "${OBS_SECRET_NAME}")" || true
-    [ -n "${token}" ] || bench_die "obs ingest token (${OBS_SECRET_NAME}) is empty"
+    # setup-observability.sh needs a token; bench-obs takes no ingest auth, so it is a throwaway, and
+    # it still goes on the session's stdin only.
+    token="$(openssl rand -hex 16)" || token=""
+    [ -n "${token}" ] || bench_die "openssl rand gave no token for setup-observability.sh"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: setup-observability.sh --enable-metrics --token-stdin (token on stdin only) + same-session relabel; no restart"
+        echo "    ${inst}: setup-observability.sh --enable-metrics --token-stdin (token on stdin only) + bench-obs ready check + same-session relabel; no restart"
         out="$(printf '%s\n' "${token}" | tn_iap_ssh_cmd_stdin "${inst}" "${ZONES[$i]}" "$(obs_remote_cmd "${inst}" "$(tn_region_from_zone "${ZONES[$i]}")")" 2>&1 | tr -d '\r' || true)"
         printf '%s\n' "${out}" | grep -E 'OBSCFG_(OK|FAIL|ERR)' | cut -c1-300 | sed 's/^/      /' || true
         line="$(printf '%s\n' "${out}" | grep -F "OBSCFG_OK ${inst} restarted=none " | tail -1 || true)"
@@ -1443,6 +1515,8 @@ step_10() {
             || bench_die "${INSTANCE_NAMES[$i]} not healthy"
     done
     bench_tunnel_up 5>&- 6>&- || bench_die "IAP tunnel failed"
+    # bench-obs (the Prometheus every read below queries): it must exist and its forwards answer
+    obs_or_die "step 10: bench-obs is not usable (above)" bench_obs_require
     local cid
     cid="$(cast chain-id --rpc-url "${RPC_URL}")"
     [ "${cid}" = "${CHAIN_ID}" ] || bench_die "tunnel RPC reports chain ${cid}, expected ${CHAIN_ID}"
@@ -1482,7 +1556,7 @@ step_10() {
         raw="$(bench_prom_query "${q}" || true)"
         printf '%s' "${raw}" | jq -e '.status == "success"' >/dev/null 2>&1 || bench_die "Prometheus query failed: ${q}"
         leak="$(printf '%s' "${raw}" | jq -r '.data.result[0].value[1] // "0"')"
-        [ "${leak}" = "0" ] || bench_die "${leak} bench node(s) have series labelled network=\"devnet\" in obs-devnet (${q})"
+        [ "${leak}" = "0" ] || bench_die "${leak} bench node(s) have series labelled network=\"devnet\" in bench-obs (${q})"
     done
     echo "    ✓ Prometheus: no network=\"devnet\" series from bench nodes"
     # Admission: every node runs Closed (primary + worker networks) with fallback 0, read from its
@@ -1544,6 +1618,7 @@ step_12() {
 step_13() {
     echo ">>> Step 13: fund senders (every validator CvvActive first)"
     bench_tunnel_up 5>&- 6>&- || bench_die "IAP tunnel failed"
+    obs_or_die "step 13: bench-obs is not usable (above)" bench_obs_require   # the blast's evidence goes to it
     bench_fleet_ready "${BENCH_FLEET_READY_MAX_WAIT_SECS}" step13 \
         || bench_die "step 13: not every validator is CvvActive after waiting up to ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (above; manifest.fleet_ready) — nothing was funded"
     "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-
@@ -1627,16 +1702,26 @@ prom_window_wait() {
     echo "    Prometheus window: ${start:-?} -> ${end:-?} (${reason}, waited ${waited} s)"
 }
 
+# step_15 — the blast's collect, the Prometheus window, then the collector against bench-obs's
+# Prometheus (bench_obs_exists first: a lost VM is named as lost data, never a --from 8; then
+# bench_obs_require: its forward answers): with BENCH_PROM_AUTH=0 the
+# collector gets --prom-url ${BENCH_PROM_URL} --prom-no-auth (no Grafana proxy, no password).
 step_15() {
-    local wargs=""
+    local wargs="" pargs=()
     echo ">>> Step 15: collect"
     "${DIR}/benchmark-blast.sh" collect --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-
     prom_window_wait
+    # bench-obs holds the run's only copy of its Prometheus series: gone now is gone for good, and a
+    # --from 8 would recreate an empty VM and then re-fund and re-blast.
+    bench_obs_exists || bench_die "bench-obs is gone: the run's Prometheus series went with it; do NOT --from 8 (it would re-fund and re-blast) — collect without Prometheus (--no-prom) or accept the gap"
+    obs_or_die "step 15: bench-obs is not usable (above) — re-run with --only 15 once its forward answers" bench_obs_require
     [ "${#PROM_WINDOW_ARGS[@]}" -eq 0 ] || wargs=" ${PROM_WINDOW_ARGS[*]}"
+    [ "${BENCH_PROM_AUTH:-0}" != 0 ] || pargs=(--prom-url "${BENCH_PROM_URL}" --prom-no-auth)
+    [ "${#pargs[@]}" -eq 0 ] || wargs="${wargs} ${pargs[*]}"
     if [ -f "${COLLECT_METRICS_PY}" ]; then
         echo "    + python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json${wargs}"
         python3 "${COLLECT_METRICS_PY}" --manifest "$(bench_manifest)" --out "${BENCH_RESULTS_DIR}/metrics.json" \
-            ${PROM_WINDOW_ARGS[@]+"${PROM_WINDOW_ARGS[@]}"}
+            ${PROM_WINDOW_ARGS[@]+"${PROM_WINDOW_ARGS[@]}"} ${pargs[@]+"${pargs[@]}"}
     else
         bench_warn "${COLLECT_METRICS_PY} not found — metrics.json not produced (re-run --only 15 once it exists)"
         bench_manifest_note "collect: ${COLLECT_METRICS_PY} missing at $(bench_now_iso)"
@@ -1732,6 +1817,7 @@ plan_harness() {
 
 print_plan() {
     local i
+    bench_obs_urls   # no gcloud: BENCH_OBS_INTERNAL_IP (or manifest.obs.internal_ip, else the placeholder)
     cat <<EOP
 PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
 
@@ -1743,7 +1829,8 @@ PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
 $(plan_node_params)
   harness  $(plan_harness)
   genesis  workspace ${GENESIS_WORKSPACE}, accounts ${GENESIS_WORKSPACE}/testnet_accounts.yaml
-  metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (obs-devnet, metrics only)
+  metrics  -> ${OBS_METRICS_PUSH_URL} as network="${BENCH_PROM_NETWORK_LABEL}" (bench-obs: ${BENCH_OBS_INSTANCE}, ${BENCH_OBS_MACHINE_TYPE} in ${BENCH_OBS_ZONE}, metrics only; obs-devnet is never touched)
+           forwards 127.0.0.1:${BENCH_OBS_PROM_LOCAL_PORT} -> ${BENCH_OBS_INSTANCE}:9090 (Prometheus, ${BENCH_PROM_URL}), 127.0.0.1:${BENCH_OBS_GRAFANA_LOCAL_PORT} -> ${BENCH_OBS_INSTANCE}:3000 (Grafana, ${BENCH_GRAFANA_URL})
   load     ${BENCH_TXGEN_IMAGE}, COS blasters x ${BENCH_SENDERS} senders on ${BENCH_BLASTER_MACHINE_TYPES// / -> } (next type on a zone stockout), bucket gs://${BENCH_BUCKET}
   results  ${BENCH_RESULTS_DIR}
 EOP
@@ -1757,13 +1844,15 @@ EOP
                      manifest.json (+ node_* probe fields, consensus_parameters), pinned txgen image,
                      ${BENCH_TXGEN_CLOUDBUILD}, ${BENCH_TXGEN_CONFIG}, deployments-bench.json
    0  preflight      tools, auth, NO leftover bench-*/benchmark=1 instance|disk|rule|bucket, accounts, empty genesis/,
-                     bench-node tag hygiene, obs-devnet df over IAP (< 70%),
-                     machine types, disk type and quota headroom (below; every failure listed in one die),
+                     bench-node tag hygiene (an existing ${BENCH_OBS_INSTANCE} is a leftover too; obs-devnet is not read),
+                     machine types (${BENCH_OBS_MACHINE_TYPE} for ${BENCH_OBS_INSTANCE} in ${BENCH_OBS_ZONE}), disk type and quota headroom
+                     (below, ${BENCH_OBS_INSTANCE} counted in its region; every failure listed in one die),
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
 EOP
     {
         machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
         machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+        machine_type_check "${BENCH_OBS_MACHINE_TYPE}" BENCH_OBS_MACHINE_TYPE "${BENCH_OBS_ZONE}"
         zone_fallback_check
         disk_type_check
         quota_check
@@ -1776,6 +1865,8 @@ EOP
                      stockout: that node moves to its next zone of BENCH_ZONE_FALLBACKS (${BENCH_ZONE_FALLBACKS:-none}), zones.env,
                      create again (existing nodes skipped; at most ${ZONE_FALLBACK_MAX_ROUNDS} rounds); any other failure stops; manifest.zones_used
                      assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=${BENCH_LABELS},tn-role=<role>
+                     bench_obs_create: ${BENCH_OBS_INSTANCE} (create-or-keep; one of another run is refused) -> manifest.obs
+$(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
    3  bootstrap      serial marker 'devnet-startup.sh complete' (${BOOTSTRAP_TIMEOUT_SECS}s/node)
    4  firewall       benchmark/benchmark-firewall.sh apply --yes   (${BENCH_FIREWALL_RULES[*]} -> tag bench-node)
    5  keygen         ${REPO_ROOT}/devnet-keygen.sh           -> ${GENESIS_WORKSPACE}/genesis/{validators,observers}/
@@ -1795,9 +1886,13 @@ $(plan_prestart_lines)
                      re-run (--from 7) converges: PRESTAGED/RUNNING nodes are skipped, flags already set are accepted,
                      the first start stays manifest.coordinated_start (later ones: coordinated_start_reruns);
                      a unit RUNNING before any coordinated start stops the step (stop it by hand first)
-   8  observability  bench_fleet_ready 0: every validator CvvActive (manifest.fleet_ready), else stop; then per node, one IAP session, no restart:
-                     ingest token on stdin only -> setup-observability.sh --json --enable-metrics --token-stdin -> black hole 127.0.0.1:9;
+   8  observability  bench_obs_ensure: ${BENCH_OBS_INSTANCE} created if absent, booted, Prometheus + Grafana up (--print-obs-bringup),
+                     forwards 127.0.0.1:${BENCH_OBS_PROM_LOCAL_PORT} -> :9090 and 127.0.0.1:${BENCH_OBS_GRAFANA_LOCAL_PORT} -> :3000 -> manifest.obs; metrics only -> bench-obs, obs-devnet never touched
+$(bench_obs_plan_lines 8 | sed 's/^[[:space:]]*/                       /')
+                     bench_fleet_ready 0: every validator CvvActive (manifest.fleet_ready), else stop; then per node, one IAP session, no restart:
+                     throwaway token (openssl rand -hex 16) on stdin only -> setup-observability.sh --json --enable-metrics --token-stdin -> black hole 127.0.0.1:9 (push + metrics URLs);
                      needs done ok:true + 'Node already serves a metrics endpoint (--metrics).' + container StartedAt unchanged + NRestarts=0;
+                     curl http://<bench-obs internal IP>:9090/-/ready from the node (else OBSCFG_FAIL "bench-obs unreachable", Alloy untouched);
                      stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy;
                      OBSCFG_OK <instance> restarted=none (the whole session: --print-obs-script <instance>)
    9  post-config    per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, verify only (no restart, no start-script edit): docker inspect telcoin args
@@ -1808,7 +1903,8 @@ $(plan_prestart_lines)
                      (the whole script: --print-postconfig <instance>; step 7's pre-start script: --print-prestart <instance>)
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; RPC tunnel to ${RPC_URL}:
                      $(plan_tunnel_line)
-                     cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
+                     bench_obs_require: ${BENCH_OBS_INSTANCE} exists (else stop: re-run with --only 8), forwards up, ${BENCH_PROM_URL}/query answers, disk >= ${BENCH_OBS_DISK_MAX_PCT}% a warning;
+                     cast chain-id == ${CHAIN_ID}; bench-obs Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
                      ${PROM_LEAK_QUERY} == 0 (and the same over every metric);
                      python3 recovery-schedule.py --rpc-url ${RPC_URL}: registry epoch duration == ${EPOCH_DURATION_SECS} -> manifest.registry_probe;
@@ -1817,10 +1913,10 @@ $(plan_prestart_lines)
                      $([ "${WITH_CONTRACTS}" -eq 1 ] && echo "devnet-contracts.sh --yes (DEPLOYMENTS_JSON=deployments/deployments-testnet.json EXPECTED_CHAIN_ID=${CHAIN_ID}) -> ${BENCH_RESULTS_DIR}/deployments-bench.json")
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
-  13  fund           bench_fleet_ready ${BENCH_FLEET_READY_MAX_WAIT_SECS}: every validator CvvActive, waiting up to one epoch boundary (manifest.fleet_ready)
+  13  fund           bench_obs_require; bench_fleet_ready ${BENCH_FLEET_READY_MAX_WAIT_SECS}: every validator CvvActive, waiting up to one epoch boundary (manifest.fleet_ready)
                      benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
   14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
-  15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
+  15  collect        benchmark/benchmark-blast.sh collect --yes; ${BENCH_OBS_INSTANCE} gone = its series lost (stop, never --from 8); bench_obs_require; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json$([ "${BENCH_PROM_AUTH:-0}" != 0 ] || printf ' --prom-url %s --prom-no-auth' "${BENCH_PROM_URL}")
                      $([ "${BENCH_COLLECT_WAIT_REJOIN:-0}" = "1" ] && echo "after a landed chaos kill: bench_fleet_ready + the killed node still CvvActive ${BENCH_NODE_BACK_SECS:-180} s later, within ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (warn only), then --start <manifest window start> --end <then> (manifest.prom_window)" || echo "Prometheus window = the manifest's (BENCH_COLLECT_WAIT_REJOIN is not 1; manifest.prom_window end_reason knob_off)")
                      tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
   16  teardown       $([ "${WITH_TEARDOWN}" -eq 1 ] && echo "benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" || echo "SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)")
@@ -1966,6 +2062,10 @@ if [ -n "${PRINT_OBS}" ]; then
     obs_print "${PRINT_OBS}"
     exit 0
 fi
+if [ -n "${PRINT_OBS_BRINGUP}" ]; then
+    bench_obs_bringup_script   # obs-lib.sh: step 8's root session on bench-obs (stdin -> sudo bash -s)
+    exit 0
+fi
 if [ "${BENCH_APPLY}" = "1" ]; then deploy_log_start; fi
 echo "=========================================="
 echo "benchmark deploy — run ${BENCH_RUN_ID}, project ${PROJECT_ID}, chain ${CHAIN_ID}"
@@ -2016,6 +2116,26 @@ gate() {
             bad=1
         else
             echo "    ✓ every node's effective parameters pass the node's startup checks${BENCH_NODE_PARAM_OVERRIDES:+ (overrides: ${BENCH_NODE_PARAM_OVERRIDES})}"
+        fi
+    fi
+    if in_range 2 || in_range 8; then
+        # bench-obs (step 2 creates it, step 8 brings it up), locally: the knobs, the VM's startup script,
+        # and the whole bring-up session built from the bundle + dashboards (no gcloud)
+        local oerr
+        if oerr="$( ( _bench_obs_knobs_ok ) 2>&1 )"; then
+            echo "    ✓ bench-obs knobs (${BENCH_OBS_INSTANCE}, ${BENCH_OBS_MACHINE_TYPE} in ${BENCH_OBS_ZONE})"
+        else
+            printf '%s\n' "${oerr}" | sed 's/^❌ */    ✗ bench-obs: /' >&2; bad=1
+        fi
+        if [ -r "${BENCH_OBS_STARTUP_SCRIPT}" ]; then
+            echo "    ✓ bench-obs startup script ${BENCH_OBS_STARTUP_SCRIPT}"
+        else
+            echo "    ✗ bench-obs startup script ${BENCH_OBS_STARTUP_SCRIPT} is missing or unreadable (is the common submodule checked out?)" >&2; bad=1
+        fi
+        if oerr="$( ( bench_obs_bringup_script >/dev/null ) 2>&1 )"; then
+            echo "    ✓ bench-obs bring-up session (bundle ${BENCH_OBS_BUNDLE_DIR}, dashboards ${BENCH_OBS_DASHBOARDS_DIR})"
+        else
+            printf '%s\n' "${oerr:-bench_obs_bringup_script failed}" | sed 's/^❌ */    ✗ bench-obs: /' >&2; bad=1
         fi
     fi
     [ "${bad}" -eq 0 ] || bench_die "prerequisites missing — nothing was started"
