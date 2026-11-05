@@ -28,11 +28,15 @@
 #                        pre-snapshots
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
-#    2  instances        common/create-instances.sh on the bench profile; assert tag bench-node +
-#                        label benchmark=1 on every node; label boot disks; manifest.instances[]
+#    2  instances        common/create-instances.sh on the bench profile (-> logs/create-instances-<UTC>.log);
+#                        on a stockout that node moves to its next BENCH_ZONE_FALLBACKS zone (zones.env,
+#                        manifest.zone_fallbacks[]) and the create runs again, at most 3 rounds; assert tag
+#                        bench-node + label benchmark=1 on every node; label boot disks; manifest.instances[],
+#                        zones_used
 #    3  bootstrap        serial-console marker "devnet-startup.sh complete" on every node
 #    4  firewall         benchmark-firewall.sh apply --yes
-#    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE)
+#    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE) -> logs/keygen-<UTC>.log;
+#                        its KEYGEN_DONE lines -> manifest.keygen_timing + node_info_rpc
 #    6  genesis          ../devnet-genesis-build.sh    (workspace benchmark/, chain 32286)
 #    7  finalize         ONE coordinated start; no node runs before every node is configured:
 #                        network-config    ../devnet-network-config.sh --yes (Closed admission on all
@@ -78,7 +82,9 @@
 #   13  fund             every validator CvvActive (bench_fleet_ready, waits up to one epoch boundary
 #                        -> manifest.fleet_ready), then benchmark-blast.sh fund --yes
 #   14  blast            benchmark-blast.sh run --yes
-#   15  collect          benchmark-blast.sh collect --yes + tn-transaction-generator/bench/collect-gcp-metrics.py
+#   15  collect          benchmark-blast.sh collect --yes + tn-transaction-generator/bench/collect-gcp-metrics.py;
+#                        after a chaos kill that landed (BENCH_COLLECT_WAIT_REJOIN=1) the Prometheus window
+#                        ends once every validator is CvvActive again (--start/--end; manifest.prom_window)
 #   16  teardown         (--with-teardown) benchmark-teardown.sh --yes
 #
 # Usage:
@@ -87,6 +93,8 @@
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 9          # resume
 #   benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --only 15         # one step
 #   BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts --to 12   # stop after step N
+#   benchmark/benchmark-deploy.sh --run r20260923-0100 --note "v05 restarted by hand at 00:12Z"   # add a
+#       deviation to manifest.notes ("<text> (operator note, <UTC>)") and exit; nothing else runs
 #   benchmark/benchmark-deploy.sh --probe-node-image [REF]   # the gate's node image probe alone (local,
 #       no run dir, no manifest; REF defaults to the configured image; with --yes a local image is
 #       refused unless its repo digest is the registry's, exactly as at the gate). Expectations:
@@ -104,10 +112,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
 CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""; PRINT_PRESTART=""
-PROBE_ONLY=0; PROBE_REF=""
+PROBE_ONLY=0; PROBE_REF=""; NOTE=""; NOTE_GIVEN=0; RUN_GIVEN=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes) CONFIRM=1 ;;
+        --note) NOTE="${2?--note needs a text}"; NOTE_GIVEN=1; shift ;;   # with --run: append to manifest.notes, then exit
+        --note=*) NOTE="${1#*=}"; NOTE_GIVEN=1 ;;
         --from) FROM="${2:?--from needs a step number}"; shift ;;
         --from=*) FROM="${1#*=}" ;;
         --to) TO="${2:?--to needs a step number}"; shift ;;
@@ -116,15 +126,15 @@ while [ $# -gt 0 ]; do
         --only=*) ONLY="${1#*=}" ;;
         --with-contracts) WITH_CONTRACTS=1 ;;
         --with-teardown) WITH_TEARDOWN=1 ;;
-        --run) BENCH_RUN_ID="${2:?--run needs an id}"; shift ;;
-        --run=*) BENCH_RUN_ID="${1#*=}" ;;
+        --run) BENCH_RUN_ID="${2:?--run needs an id}"; RUN_GIVEN=1; shift ;;
+        --run=*) BENCH_RUN_ID="${1#*=}"; RUN_GIVEN=1 ;;
         --print-postconfig) PRINT_POSTCONFIG="${2:?--print-postconfig needs an instance}"; shift ;;  # review aid: print step 9's remote script
         --print-prestart) PRINT_PRESTART="${2:?--print-prestart needs an instance}"; shift ;;        # review aid: step 7's pre-start config script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-postconfig INST)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --note TEXT (with --run), --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-postconfig INST)" >&2; exit 1 ;;
     esac
     shift
 done
@@ -135,6 +145,39 @@ is_step "${TO}" || { echo "❌ --to must be 0..${LAST_STEP}" >&2; exit 1; }
 [ -z "${ONLY}" ] || is_step "${ONLY}" || { echo "❌ --only must be 0..${LAST_STEP}" >&2; exit 1; }
 [ "${PROBE_ONLY}" -eq 0 ] || [ -n "${BENCH_RUN_ID:-}" ] || BENCH_RUN_ID="r00000000-0000"   # config.sh needs one
 export BENCH_RUN_ID="${BENCH_RUN_ID:-}"
+DEPLOY_SCOPE="$([ -n "${ONLY}" ] && echo "step ${ONLY}" || echo "steps ${FROM}..${TO}")"
+
+# results/<run>/last-deploy.status from the first moment of an applied deploy (--yes; not a probe, a
+# note or a review print): rc=- (running), last_step=starting, started=<now>, so a watcher never reads
+# the previous invocation's outcome as this one's (watchers key on started >= their own launch). run_step
+# rewrites it with each step's number; an exit before the deploy log starts (an argument, a pinned image,
+# config.sh or bench-lib refusing) rewrites it with that exit's rc; deploy_log_stop writes the final one.
+# A kill -9 leaves rc=- with the step it was in.
+DEPLOY_STATUS_FILE=""; DEPLOY_STARTED=""; DEPLOY_LOG_FILE=""; DEPLOY_LAST_STEP=""
+# deploy_status_write <rc> <last step> <ended> — the status file, replaced atomically (no-op without one).
+deploy_status_write() {
+    local f="${DEPLOY_STATUS_FILE}" tmp
+    [ -n "${f}" ] || return 0
+    tmp="$(mktemp "${f}.XXXXXX" 2>/dev/null)" || return 0
+    if printf 'rc=%s\nlast_step=%s\nfirst_error=-\nstarted=%s\nended=%s\nscope=%s\nlog=%s\n' "$1" "$2" \
+            "${DEPLOY_STARTED:--}" "$3" "${DEPLOY_SCOPE:--}" "${DEPLOY_LOG_FILE:--}" > "${tmp}" && mv -f "${tmp}" "${f}"; then :; else
+        rm -f "${tmp}"
+    fi
+    return 0
+}
+if [ "${CONFIRM}" -eq 1 ] && [ "${PROBE_ONLY}" -eq 0 ] && [ "${NOTE_GIVEN}" -eq 0 ] \
+    && [ -z "${PRINT_POSTCONFIG}${PRINT_PRESTART}${PRINT_OBS}" ]; then
+    case "${BENCH_RUN_ID}" in
+        ''|r*[!a-z0-9-]*|[!r]*) ;;   # config.sh refuses it (no status file for a run id that cannot exist)
+        *)
+            if mkdir -p "${DIR}/results/${BENCH_RUN_ID}" 2>/dev/null; then
+                DEPLOY_STATUS_FILE="${DIR}/results/${BENCH_RUN_ID}/last-deploy.status"
+                DEPLOY_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                deploy_status_write - starting -
+                trap 'deploy_status_write "$?" starting "$(date -u +%Y-%m-%dT%H:%M:%SZ)"' EXIT
+            fi ;;
+    esac
+fi
 # A resumed run keeps the image step 1 verified (the generator checkout may have moved on).
 if [ -z "${BENCH_TXGEN_SHA:-}" ] && [ -n "${BENCH_RUN_ID}" ] && [ -f "${DIR}/results/${BENCH_RUN_ID}/manifest.json" ]; then
     BENCH_TXGEN_SHA="$(jq -r '.txgen_git_sha // empty' "${DIR}/results/${BENCH_RUN_ID}/manifest.json" 2>/dev/null || true)"
@@ -162,6 +205,18 @@ fi
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
 source "${DIR}/bench-lib.sh"   # exports CONFIG_FILE=benchmark/config.sh for every sub-script
+
+# --run <id> --note <text>: a deviation noted while the run is in flight (a hand fix, a re-run, a zone
+# move) goes into manifest.notes as "<text> (operator note, <UTC>)"; nothing else runs, nothing is
+# contacted.
+if [ "${NOTE_GIVEN}" -eq 1 ]; then
+    [ "${RUN_GIVEN}" -eq 1 ] || bench_die "--note needs --run <id>: the run whose manifest.notes it extends"
+    [ -n "${NOTE}" ] || bench_die "--note needs a non-empty text"
+    [ -f "$(bench_manifest)" ] || bench_die "run ${BENCH_RUN_ID} has no manifest ($(bench_manifest)) — nothing to note"
+    bench_manifest_note "${NOTE} (operator note, $(bench_now_iso))" || bench_die "could not add the note to $(bench_manifest)"
+    echo "✓ manifest.notes += $(jq -c '.notes[-1]' "$(bench_manifest)")"
+    exit 0
+fi
 
 # --probe-node-image [REF]: the gate's node image probe alone — local, no run directory, no manifest.
 if [ "${PROBE_ONLY}" -eq 1 ]; then
@@ -285,6 +340,46 @@ machine_type_check() {
     done
     [ -z "${bad}" ] || bench_die "${t} cannot be created in every zone it needs — change ZONES (benchmark/config.sh) or ${knob}:${bad}"
     echo "    ✓ ${t} offered in all ${n} zones"
+}
+
+# zone_fallback_zones — the distinct BENCH_ZONE_FALLBACKS zones, space-separated, sorted.
+zone_fallback_zones() {
+    local item z
+    z="$(for item in ${BENCH_ZONE_FALLBACKS:-}; do printf '%s\n' "${item#*:}" | tr ',' '\n'; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# zone_fallback_check — every BENCH_ZONE_FALLBACKS zone should offer MACHINE_TYPE: a fallback is tried
+# only after a stockout, in the middle of step 2, so a zone that cannot host the type is reported now.
+# One alarmed describe per zone; each failure is a warning (⚠), never a stop — the run needs its planned
+# zones, not these. A dry run (the plan) prints the query and calls nothing.
+zone_fallback_check() {
+    local zones z rc out bad=0 n=0
+    zones="$(zone_fallback_zones)"
+    if [ -z "${zones}" ]; then
+        echo "    no zone fallbacks (BENCH_ZONE_FALLBACKS is empty): a stockout in step 2 stops the run"
+        return 0
+    fi
+    echo "    zone fallbacks ${BENCH_ZONE_FALLBACKS}: ${MACHINE_TYPE} should exist in ${zones} (warning only)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe ${MACHINE_TYPE} --zone=<each fallback zone> --project=${PROJECT_ID} --format='value(name)'"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    for z in ${zones}; do
+        rc=0; n=$((n + 1))
+        out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "${MACHINE_TYPE}" --zone="${z}" \
+            --project="${PROJECT_ID}" --format='value(name)' </dev/null 2>&1)" || rc=$?
+        [ "${rc}" -ne 0 ] || continue
+        case "${rc}:${out}" in
+            142:*) out="no answer within 60 s" ;;
+            *"was not found"*) out="not offered in this zone" ;;
+            *) out="describe failed (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200)" ;;
+        esac
+        bad=$((bad + 1))
+        bench_warn "zone fallback ${z}: ${MACHINE_TYPE} ${out} — a stockout that falls back there would fail again; fix BENCH_ZONE_FALLBACKS"
+    done
+    [ "${bad}" -gt 0 ] || echo "    ✓ ${MACHINE_TYPE} offered in all ${n} fallback zones"
 }
 
 # machine_vcpus <machine-type> <zone> — its vCPU count: from the name when the name carries it
@@ -487,6 +582,7 @@ step_0() {
     echo "    ✓ obs-devnet /mnt/obs-data ${obs_pct}%"
     machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
     machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+    zone_fallback_check
     disk_type_check
     quota_check
     mkdir -p "${BENCH_RESULTS_DIR}"
@@ -522,12 +618,119 @@ step_1() {
         '.txgen_image = $i | .txgen_image_digest = $d | .txgen_git_sha = $s'
 }
 
+# create_failed_names <run log> — the instances common/create-instances.sh reported failed ("❌ Error:
+# Failed to create instance <name> - See <file> for details"), one per line, first report order.
+create_failed_names() {
+    sed -n 's/^.*Failed to create instance \([^ ]*\) - See .* for details.*$/\1/p' "$1" | awk '!seen[$0]++'
+}
+
+# create_fail_log <run log> <instance> — the file that holds <instance>'s own create failure: the
+# per-instance log named on its "Failed to create instance" line. create-instances.sh runs in REPO_ROOT
+# (cd) and names it ./logs/..., so a relative path is REPO_ROOT's. rc 1 when there is no such line or
+# the file cannot be read: a node is never judged on the round log, where another node's stockout text
+# would pass for its own.
+create_fail_log() {
+    local f
+    f="$(sed -n "s/^.*Failed to create instance $2 - See \(.*\) for details.*\$/\1/p" "$1" | tail -1)"
+    case "${f}" in
+        '') return 1 ;;
+        /*) ;;
+        *) f="${REPO_ROOT}/${f#./}" ;;
+    esac
+    [ -r "${f}" ] || return 1
+    printf '%s' "${f}"
+}
+
+# zone_fallback_next <index> — the first BENCH_ZONE_FALLBACKS zone of node <index> it has not been in
+# (its zone now, or a zone_fallbacks[] from/to of it in the manifest); "" when none is left.
+zone_fallback_next() {
+    local idx="$1" item z tried
+    tried=" ${ZONES[$idx]} $(jq -r --arg i "${INSTANCE_NAMES[$idx]}" \
+        '[(.zone_fallbacks // [])[] | objects | select(.inst == $i) | .from, .to] | join(" ")' "$(bench_manifest)" 2>/dev/null || true) "
+    for item in ${BENCH_ZONE_FALLBACKS:-}; do
+        [ "${item%%:*}" = "${idx}" ] || continue
+        for z in $(printf '%s' "${item#*:}" | tr ',' ' '); do
+            case "${tried}" in *" ${z} "*) ;; *) printf '%s' "${z}"; return 0 ;; esac
+        done
+    done
+    return 0
+}
+
+# zone_fallback_record <index> <from> <to> — node <index> moves to zone <to> after a stockout in <from>:
+# ZONES here, manifest zone_fallbacks[] {inst, from, to, reason: "stockout", ts} and a note (the run's
+# latency figures for that node are not the planned zone's).
+zone_fallback_record() {
+    local inst="${INSTANCE_NAMES[$1]}" ts
+    ts="$(bench_now_iso)"
+    ZONES[$1]="$3"
+    bench_warn "${inst}: ${2} is out of ${MACHINE_TYPE} (stockout) — it moves to ${3} (BENCH_ZONE_FALLBACKS)"
+    bench_manifest_jq --arg i "${inst}" --arg f "$2" --arg t "$3" --arg ts "${ts}" \
+        '.zone_fallbacks = ((.zone_fallbacks // []) + [{inst: $i, from: $f, to: $t, reason: "stockout", ts: $ts}])' \
+        || bench_die "could not record zone_fallbacks in $(bench_manifest)"
+    bench_manifest_note "zone fallback: ${inst} runs in ${3}, not ${2} (${MACHINE_TYPE} stockout, ${ts}); its latency is that zone's, a comparability caveat" \
+        || bench_die "could not add a note to $(bench_manifest)"
+}
+
+# zones_env_write — ${BENCH_RESULTS_DIR}/zones.env from ZONES (replaced atomically): the
+# BENCH_ZONES_USED line benchmark/config.sh reads into ZONES for every later script of the run.
+zones_env_write() {
+    local f="${BENCH_RESULTS_DIR}/zones.env" tmp
+    tmp="$(mktemp "${f}.XXXXXX")" || bench_die "cannot write ${f}"
+    if printf '# benchmark-deploy.sh step 2 (stockout fallback): the zone of each INSTANCE_NAMES entry, in order\nBENCH_ZONES_USED=%s\n' \
+            "${ZONES[*]}" > "${tmp}" && mv -f "${tmp}" "${f}"; then
+        echo "    ✓ ${f}: BENCH_ZONES_USED=${ZONES[*]}"
+    else
+        rm -f "${tmp}"
+        bench_die "cannot write ${f}"
+    fi
+}
+
+# zones_used_record — manifest zones_used = {instance: the zone it was created in}.
+zones_used_record() {
+    local i z
+    z="$(for i in "${!INSTANCE_NAMES[@]}"; do printf '%s\t%s\n' "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}"; done \
+        | jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]}) | from_entries')" \
+        || bench_die "could not list the fleet's zones"
+    bench_manifest_jq --argjson z "${z}" '.zones_used = $z' || bench_die "could not record zones_used in $(bench_manifest)"
+}
+
+# step_2 — common/create-instances.sh, its output copied to logs/create-instances-<UTC>.log per round.
+# When it fails, every instance it names must have failed on a stockout (bench_is_stockout; any other
+# failure stops the step): each moves to its next BENCH_ZONE_FALLBACKS zone (zone_fallbacks[] + note),
+# zones.env is written, and the create runs again — it skips the instances that exist — for at most
+# ZONE_FALLBACK_MAX_ROUNDS rounds. manifest.zones_used records where every node was created.
+ZONE_FALLBACK_MAX_ROUNDS=3
 step_2() {
     echo ">>> Step 2: create the bench instances (common/create-instances.sh, bench profile)"
-    echo "    + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/common/create-instances.sh"
-    "${REPO_ROOT}/common/create-instances.sh"
+    local i inst zone j bad=0 round=0 rc rlog clog name idx from to failed
+    while :; do
+        round=$((round + 1))
+        rlog="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" create-instances)" || bench_die "cannot create a log in ${BENCH_RESULTS_DIR}/logs"
+        echo "    + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/common/create-instances.sh   (copy: ${rlog})"
+        rc=0
+        "${REPO_ROOT}/common/create-instances.sh" 2>&1 | tee -a "${rlog}" || rc=$?
+        [ "${rc}" -ne 0 ] || break
+        failed="$(create_failed_names "${rlog}")"
+        [ -n "${failed}" ] || bench_die "common/create-instances.sh exited ${rc} without naming a failed instance (${rlog})"
+        for name in ${failed}; do
+            clog="$(create_fail_log "${rlog}" "${name}")" \
+                || bench_die "${name}: create failed and its own create log (named in ${rlog}) cannot be read — not judged a stockout"
+            bench_is_stockout "$(cat "${clog}")" || bench_die "${name}: create failed for another reason than a stockout (${clog})"
+        done
+        [ "${round}" -lt "${ZONE_FALLBACK_MAX_ROUNDS}" ] \
+            || bench_die "common/create-instances.sh still hits stockouts after ${round} rounds ($(printf '%s' "${failed}" | tr '\n' ' ')) — pick other zones (BENCH_ZONE_FALLBACKS) and re-run with --from 2"
+        for name in ${failed}; do
+            idx="$(bench_index_of "${name}")" || bench_die "create-instances.sh named '${name}', not a bench instance (${rlog})"
+            from="${ZONES[$idx]}"
+            to="$(zone_fallback_next "${idx}")"
+            [ -n "${to}" ] || bench_die "${name}: ${from} is out of ${MACHINE_TYPE} (stockout) and BENCH_ZONE_FALLBACKS has no zone left for index ${idx} — add one and re-run with --from 2"
+            zone_fallback_record "${idx}" "${from}" "${to}"
+        done
+        zones_env_write
+        echo "    round $((round + 1)) of at most ${ZONE_FALLBACK_MAX_ROUNDS}: create-instances.sh again (it skips the instances that exist)"
+    done
+    zones_used_record
     echo "    asserting tags == [bench-node] and labels.benchmark == 1 on every node"
-    local i inst zone j bad=0
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
         j="$(bench_instance_json "${inst}" "${zone}")"
@@ -573,7 +776,41 @@ step_3() {
 }
 
 step_4()  { echo ">>> Step 4: bench firewall rules"; "${DIR}/benchmark-firewall.sh" apply --yes --run "${BENCH_RUN_ID}"; }
-step_5()  { echo ">>> Step 5: keygen";               "${REPO_ROOT}/devnet-keygen.sh"; }
+# keygen_record <log> — manifest keygen_timing {inst: {secs, reused}} and node_info_rpc {inst: {http, ws}}
+# from the KEYGEN_DONE lines devnet-keygen.sh prints with KEYGEN_REPORT=1
+#   KEYGEN_DONE <inst> rc=<n> secs=<n> reused=<0|1> rpc_http=<url|-> rpc_ws=<url|->
+# (a node's last line wins; node_info_rpc only from rc=0 lines; "-" or a missing field: null), merged
+# over what an earlier step 5 recorded. No line, no change; never fatal.
+keygen_record() {
+    local j n
+    j="$(tr -d '\r' < "$1" | sed -nE 's/^[[:space:]]*(KEYGEN_DONE[[:space:]].*)$/\1/p' | jq -R -s -c '
+        def kv: [.[] | capture("^(?<k>[a-z_]+)=(?<v>.*)$")?] | map({(.k): .v}) | add // {};
+        def num: if . != null and test("^[0-9]+(\\.[0-9]+)?$") then tonumber else null end;
+        def flag: if . == "1" or . == "true" or . == "yes" then true elif . == "0" or . == "false" or . == "no" then false else null end;
+        def url: if . == null or . == "" or . == "-" then null else . end;
+        split("\n") | map(select(length > 0) | split(" ") | map(select(length > 0)) | {inst: .[1], f: (.[2:] | kv)})
+        | map(select(.inst != null))
+        | {timing: (map({key: .inst, value: {secs: (.f.secs | num), reused: (.f.reused | flag)}}) | from_entries),
+           rpc: (map(select(.f.rc == "0")) | map({key: .inst, value: {http: (.f.rpc_http | url), ws: (.f.rpc_ws | url)}}) | from_entries)}' 2>/dev/null)" || j=""
+    n="$(printf '%s' "${j}" | jq -r '.timing | length' 2>/dev/null || true)"
+    case "${n}" in ''|0) echo "    · no KEYGEN_DONE line in ${1} (KEYGEN_REPORT=${KEYGEN_REPORT:-unset}): keygen_timing not recorded"; return 0 ;; esac
+    bench_manifest_jq --argjson j "${j}" '.keygen_timing = ((.keygen_timing // {}) + $j.timing)
+        | .node_info_rpc = ((.node_info_rpc // {}) + $j.rpc)' \
+        || { bench_warn "could not record keygen_timing / node_info_rpc in $(bench_manifest)"; return 0; }
+    echo "    ✓ manifest.keygen_timing: ${n} node(s); node_info_rpc: $(printf '%s' "${j}" | jq -c '.rpc | length') node(s)"
+}
+
+# step_5 — devnet-keygen.sh (bench profile), its output copied to logs/keygen-<UTC>.log; then
+# keygen_record from that copy, also when keygen failed (the nodes it finished are recorded).
+step_5() {
+    local log rc=0
+    echo ">>> Step 5: keygen"
+    log="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" keygen)" || bench_die "cannot create a log in ${BENCH_RESULTS_DIR}/logs"
+    echo "    + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-keygen.sh   (copy: ${log})"
+    "${REPO_ROOT}/devnet-keygen.sh" 2>&1 | tee -a "${log}" || rc=$?
+    keygen_record "${log}"
+    [ "${rc}" -eq 0 ] || bench_die "devnet-keygen.sh exited ${rc} (${log})"
+}
 step_6()  { echo ">>> Step 6: genesis (chain ${CHAIN_ID}, workspace ${GENESIS_WORKSPACE})"; "${REPO_ROOT}/devnet-genesis-build.sh"; }
 
 # coordinated_start_record <COORDINATED_START line> — manifest.coordinated_start (C4b) from the marker
@@ -625,6 +862,84 @@ EOF
     echo "    ✓ manifest.coordinated_start: due ${due}, ${started}/${nodes} started (${skipped} already running), spread ${spread} s, latest ${late} s after due"
 }
 
+# node_startup_merge <inst> <json object> — manifest node_startup[<inst>] += <object> (its keys replace
+# the record's, the others stay). Inline (a plain loop) it edits the manifest at once. Inside a node job of
+# bench_node_jobs_run (NODE_JOBS_SPOOL set) it only appends the object to <spool>/<inst>.node_startup.jsonl;
+# the parent applies those in fleet order once every job has ended, so jobs side by side never edit
+# manifest.json themselves and no update can be lost. Non-zero when the write fails (the caller dies).
+NODE_JOBS_SPOOL=""
+node_startup_merge() {
+    if [ -n "${NODE_JOBS_SPOOL:-}" ]; then
+        printf '%s\n' "$2" >> "${NODE_JOBS_SPOOL}/$1.node_startup.jsonl"
+        return
+    fi
+    bench_manifest_jq --arg i "$1" --argjson o "$2" '.node_startup[$i] = ((.node_startup[$i] // {}) + $o)'
+}
+
+# bench_node_jobs_run <jobs> <label> <fn> <idx…> — <fn> <idx> for every node index given, in that order.
+# jobs 1 (or one node): inline, a plain loop: the output, and the stop at the first node whose <fn>
+# dies, are a serial loop's. jobs > 1: batches of <jobs> nodes, each <fn> in its own subshell with its
+# output (stdout + stderr) in <tmp>/<idx>.out and NODE_JOBS_SPOOL=<tmp>. Once all have ended, the
+# node_startup records they spooled are applied to the manifest in the order given (node_startup_merge),
+# the outputs are printed in that order, and the run dies naming every node whose <fn> failed (its own
+# error is in its output) or whose record could not be applied. A <fn> run this way writes the manifest
+# only through node_startup_merge.
+bench_node_jobs_run() {
+    local jobs="$1" label="$2" fn="$3" dir i p o inst failed="" unrecorded="" n=0
+    local -a pids
+    shift 3
+    case "${jobs}" in ''|*[!0-9]*) jobs=1 ;; esac
+    if [ "${jobs}" -le 1 ] || [ "$#" -le 1 ]; then
+        for i in "$@"; do "${fn}" "${i}"; done
+        return 0
+    fi
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/bench-node-jobs.XXXXXX")" || bench_die "${label}: cannot create a temp directory"
+    pids=()
+    for i in "$@"; do
+        ( NODE_JOBS_SPOOL="${dir}"; "${fn}" "${i}" ) > "${dir}/${i}.out" 2>&1 &
+        pids[${#pids[@]}]="$!:${i}"
+        n=$((n + 1))
+        if [ "${n}" -ge "${jobs}" ]; then
+            for p in "${pids[@]}"; do wait "${p%%:*}" || failed="${failed} ${p#*:}"; done
+            pids=(); n=0
+        fi
+    done
+    for p in ${pids[@]+"${pids[@]}"}; do wait "${p%%:*}" || failed="${failed} ${p#*:}"; done
+    for i in "$@"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        [ -f "${dir}/${inst}.node_startup.jsonl" ] || continue
+        while IFS= read -r o; do
+            [ -n "${o}" ] || continue
+            node_startup_merge "${inst}" "${o}" || { unrecorded="${unrecorded} ${inst}"; break; }
+        done < "${dir}/${inst}.node_startup.jsonl"
+    done
+    for i in "$@"; do cat "${dir}/${i}.out"; done
+    rm -rf "${dir}"
+    [ -z "${unrecorded}" ] || echo "❌ ${label}: could not record node_startup in $(bench_manifest) for:${unrecorded}" >&2
+    [ -z "${failed}" ] || echo "❌ ${label}: failed on$(for i in ${failed}; do printf ' %s' "${INSTANCE_NAMES[$i]}"; done) (each node's own error is in its output above)" >&2
+    [ -z "${failed}${unrecorded}" ] || exit 1
+}
+
+# prestart_node <index> — step 7's pre-start config on one node, one IAP session: skipped when
+# stage-only reported the node RUNNING (STEP7_RUNNING); dies without its PRECFG_OK line, else
+# records node_startup[<inst>].logrotate_size ("20G"|null) and .params_bak ("written"|"kept"|null)
+# from that line's logrotate= / paramsbak= fields ("-" or absent: null).
+STEP7_RUNNING=""
+prestart_node() {
+    local inst="${INSTANCE_NAMES[$1]}" out line lr pb o
+    case " ${STEP7_RUNNING}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; return 0 ;; esac
+    out="$(bench_prestart_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "${out}" | grep -E 'PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
+    line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
+    [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
+    lr="$(postcfg_field "${line}" logrotate)"; pb="$(postcfg_field "${line}" paramsbak)"
+    case "${pb}" in written|kept) ;; *) pb="" ;; esac
+    o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" '
+        def str: if . == "" or . == "-" then null else . end;
+        {logrotate_size: ($lr|str), params_bak: ($pb|str)}')" || bench_die "${inst}: cannot build its node_startup record"
+    node_startup_merge "${inst}" "${o}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+}
+
 # step_7 — the fleet's one coordinated start (D1: no validator runs while the committee is
 # incomplete; no node restarts after the start). Every node is configured while its unit is
 # stopped, then devnet-finalize.sh starts them all at one due time on the nodes' clocks:
@@ -639,7 +954,7 @@ EOF
 # value, and start-all skips RUNNING nodes. A unit RUNNING before any coordinated start ran alone: the
 # step stops and asks for it to be stopped first.
 step_7() {
-    local logs="${BENCH_RESULTS_DIR}/logs" log i inst out line rc running="" marker spread
+    local logs="${BENCH_RESULTS_DIR}/logs" log rc running="" marker spread jobs
     echo ">>> Step 7: finalize — network-config, stage-only, pre-start config, start-all (one coordinated start)"
     mkdir -p "${logs}"
 
@@ -661,15 +976,11 @@ step_7() {
     fi
     [ -z "${running}" ] || bench_warn "stage-only found these units already running after the coordinated start: ${running}— their pre-start config is not repeated (it ran before that start); step 8 refuses a node whose start script lacks it, and step 9 checks what each runs"
 
-    echo "    pre-start config: per node, one IAP session (bench_prestart_script; review: --print-prestart <instance>)"
-    for i in "${!INSTANCE_NAMES[@]}"; do
-        inst="${INSTANCE_NAMES[$i]}"
-        case " ${running}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; continue ;; esac
-        out="$(bench_prestart_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
-        printf '%s\n' "${out}" | grep -E 'PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
-        line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
-        [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
-    done
+    jobs="${BENCH_NODE_JOBS:-1}"
+    case "${jobs}" in ''|*[!0-9]*|0) jobs=1 ;; esac
+    echo "    pre-start config: per node, one IAP session (bench_prestart_script; review: --print-prestart <instance>)$([ "${jobs}" -le 1 ] || printf ', up to %s at a time' "${jobs}")"
+    STEP7_RUNNING="${running}"
+    bench_node_jobs_run "${jobs}" "pre-start config (no node has been started; re-run with --from 7)" prestart_node "${!INSTANCE_NAMES[@]}"
 
     log="${logs}/finalize-start-$(date -u +%Y%m%dT%H%M%SZ).log"
     echo "    start-all: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --start-all   (copy: ${log})"
@@ -923,8 +1234,18 @@ commits() {
 # The container's json-file log is capped (50 MB x 3) and step 9 runs 30-55 min after the start, so
 # the boot block may have rotated out of it. Then the source is the unit's append file (UF), which
 # holds the stage-only run and then this one: its lines from the LAST 'starting' line on, so every
-# field comes from this container's run.
+# field comes from this container's run. logrotate may have moved that block on too (copytruncate,
+# delaycompress): the first of UF, UF.1, UF.2.gz that holds a 'starting' line is read (ufgen).
 sha=""; mhd=""; nhd=""; mbd=""; vt=""; forks=""; FB=""
+ufgen() {
+    local g
+    for g in "\$UF" "\$UF.1"; do
+        if LC_ALL=C grep -aqiE 'telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\([^()[:space:]]+\)[[:space:]]+starting' "\$g" 2>/dev/null; then
+            cat "\$g"; return 0
+        fi
+    done
+    zcat "\$UF.2.gz" 2>/dev/null || true
+}
 delay() { printf '%s\n' "\$1" | grep -ioE "\$2 set to [0-9]+ ?ms" | tail -1 | grep -oE '[0-9]+' | head -1 || true; }
 prov() {
     local L fl
@@ -934,7 +1255,7 @@ prov() {
         [ -n "\$sha" ] || FB=1   # rotated out: from now on every field comes from the unit file
     fi
     if [ -n "\$FB" ]; then
-        L="\$({ LC_ALL=C grep -aiE 'telcoin-network|delay set to|vote timeout set to|fork schedule' "\$UF" 2>/dev/null || true; } \\
+        L="\$({ ufgen | LC_ALL=C grep -aiE 'telcoin-network|delay set to|vote timeout set to|fork schedule' || true; } \\
             | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \\
             | awk 'tolower(\$0) ~ /telcoin-network[ \t]+[^ \t]+[ \t]+\([^() \t]+\)[ \t]+starting/ { n = 0 } { b[++n] = \$0 } END { for (i = 1; i <= n; i++) print b[i] }' || true)"
         [ -n "\$sha" ] || sha="\$(printf '%s\n' "\$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
@@ -974,7 +1295,7 @@ done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the coordinated start"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
-[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF"
+[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF (nor its .1 / .2.gz generation)"
 # 5. still the same container and no restart while this ran
 [ "\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)" = "\$STARTED" ] || fail "the telcoin container restarted while step 9 ran"
 # 6. node sampler (systemd, root)
@@ -1011,7 +1332,7 @@ postcfg_field() { printf '%s\n' "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p" | tail 
 # threshold are this node's (run_expect <field> <node-index>: an override, else the manifest's). vt is
 # compared only with a vote_timeout override; the log fields only when BENCH_NODE_LOG_FILTER is set.
 step9_node_check() {
-    local idx="$1" line="$2" w_sha="$3" w_forks="$4" inst sha mhd nhd mbd vt forks pmax pmin pbatch pthr pvote lf lmf
+    local idx="$1" line="$2" w_sha="$3" w_forks="$4" inst sha mhd nhd mbd vt forks pmax pmin pbatch pthr pvote lf lmf o
     local w_mhd w_nhd w_mbd w_vt w_thr src
     inst="${INSTANCE_NAMES[$idx]}"
     w_mhd="$(run_expect mhd "${idx}")"; w_nhd="$(run_expect nhd "${idx}")"; w_mbd="$(run_expect mbd "${idx}")"
@@ -1022,18 +1343,17 @@ step9_node_check() {
     pmax="$(postcfg_field "${line}" max)"; pmin="$(postcfg_field "${line}" min)"; pbatch="$(postcfg_field "${line}" batch)"
     pthr="$(postcfg_field "${line}" thr)"; pvote="$(postcfg_field "${line}" vote)"
     lf="$(postcfg_field "${line}" filter)"; lmf="$(postcfg_field "${line}" maxfiles)"
-    bench_manifest_jq --arg i "${inst}" --arg sha "${sha}" --arg mhd "${mhd}" --arg nhd "${nhd}" \
+    o="$(jq -n -c --arg sha "${sha}" --arg mhd "${mhd}" --arg nhd "${nhd}" \
         --arg mbd "${mbd}" --arg vt "${vt}" --arg forks "${forks}" --arg pmax "${pmax}" --arg pmin "${pmin}" \
         --arg pbatch "${pbatch}" --arg pthr "${pthr}" --arg pvote "${pvote}" --arg lf "${lf}" --arg lmf "${lmf}" '
         def num: if test("^[0-9]+$") then tonumber else null end;
         def str: if . == "" or . == "?" or . == "-" then null else . end;
-        .node_startup[$i] = ((.node_startup[$i] // {}) + {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num),
-                             mbd: ($mbd|num), vt: ($vt|num), forks: ($forks|str),
-                             params: {max_header_delay_ms: ($pmax|num), min_header_delay_ms: ($pmin|num),
-                                      max_batch_delay_ms: ($pbatch|num), header_num_of_batches_threshold: ($pthr|num),
-                                      vote_timeout_ms: ($pvote|num)},
-                             log_filter: ($lf|str), log_max_files: ($lmf|num)})' \
-        || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+        {sha: ($sha|str), mhd: ($mhd|num), nhd: ($nhd|num), mbd: ($mbd|num), vt: ($vt|num), forks: ($forks|str),
+         params: {max_header_delay_ms: ($pmax|num), min_header_delay_ms: ($pmin|num),
+                  max_batch_delay_ms: ($pbatch|num), header_num_of_batches_threshold: ($pthr|num),
+                  vote_timeout_ms: ($pvote|num)},
+         log_filter: ($lf|str), log_max_files: ($lmf|num)}')" || bench_die "${inst}: cannot build its node_startup record"
+    node_startup_merge "${inst}" "${o}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
     local stop="— stopping step 9 (it restarts nothing; the node keeps running)"
     src="manifest consensus_parameters"
     [ -z "$(bench_node_overrides "${idx}")" ] || src="${src} + BENCH_NODE_PARAM_OVERRIDES"
@@ -1061,9 +1381,23 @@ step9_node_check() {
     echo "      ✓ ${inst}: boot git ${sha}, delays ${mhd}/${nhd}/${mbd} ms, vote timeout ${vt:-?}, forks ${forks}, yaml threshold ${pthr}, log filter ${lf} — as expected"
 }
 
+# step9_node <index> — step 9 on one node: its verify session (postconfig_script, one IAP session),
+# then step9_node_check against STEP9_W_SHA / STEP9_W_FORKS; dies on the first problem.
+STEP9_W_SHA=""; STEP9_W_FORKS=""
+step9_node() {
+    local i="$1" inst="${INSTANCE_NAMES[$1]}" out line
+    echo "    ${inst}: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ), alloy labels, chain-id ${CHAIN_ID_HEX} on internal IP, progress since the coordinated start, boot lines + readback, sampler"
+    out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
+    line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
+    [ -n "${line}" ] || bench_die "post-config verification failed on ${inst} (POSTCFG_FAIL above; the whole script: --print-postconfig ${inst}) — stopping step 9; nothing was restarted"
+    step9_node_check "${i}" "${line}" "${STEP9_W_SHA}" "${STEP9_W_FORKS}"
+}
+
 step_9() {
-    echo ">>> Step 9: post-config, verify only (no restart): one IAP session per node, serially"
-    local i inst out line w_sha w_mhd w_nhd w_mbd w_forks
+    local jobs="${BENCH_NODE_JOBS:-1}" w_sha w_mhd w_nhd w_mbd w_forks
+    case "${jobs}" in ''|*[!0-9]*|0) jobs=1 ;; esac
+    echo ">>> Step 9: post-config, verify only (no restart): one IAP session per node, $([ "${jobs}" -le 1 ] && echo serially || echo "up to ${jobs} at a time")"
     w_sha="$(run_expect sha | tr 'ABCDEF' 'abcdef')"; w_forks="$(run_expect forks)"
     w_mhd="$(run_expect mhd)"; w_nhd="$(run_expect nhd)"; w_mbd="$(run_expect mbd)"
     if [ -z "${w_sha}" ] || [ -z "${w_forks}" ] || [ -z "${w_mhd}" ] || [ -z "${w_nhd}" ] || [ -z "${w_mbd}" ]; then
@@ -1072,15 +1406,8 @@ step_9() {
     echo "    every node must boot git ${w_sha}, header delay max ${w_mhd} / min ${w_nhd} ms, batch delay ${w_mbd} ms, forks ${w_forks}"
     [ -z "${BENCH_NODE_PARAM_OVERRIDES}" ] || echo "    except where BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' sets that node's own values"
     echo "    node log filter: ${BENCH_NODE_LOG_FILTER:-untouched (BENCH_NODE_LOG_FILTER is empty)}${BENCH_NODE_LOG_FILTER:+, --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}}"
-    for i in "${!INSTANCE_NAMES[@]}"; do
-        inst="${INSTANCE_NAMES[$i]}"
-        echo "    ${inst}: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ), alloy labels, chain-id ${CHAIN_ID_HEX} on internal IP, progress since the coordinated start, boot lines + readback, sampler"
-        out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
-        printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
-        line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
-        [ -n "${line}" ] || bench_die "post-config verification failed on ${inst} (POSTCFG_FAIL above; the whole script: --print-postconfig ${inst}) — stopping step 9; nothing was restarted"
-        step9_node_check "${i}" "${line}" "${w_sha}" "${w_forks}"
-    done
+    STEP9_W_SHA="${w_sha}"; STEP9_W_FORKS="${w_forks}"
+    bench_node_jobs_run "${jobs}" "post-config verification (nothing was restarted)" step9_node "${!INSTANCE_NAMES[@]}"
 }
 
 # bench_registry_probe — read the ConsensusRegistry over the tunnel with recovery-schedule.py (the
@@ -1115,7 +1442,7 @@ step_10() {
         HEALTH_POLL_SECS=15 HEALTH_TIMEOUT_SECS=180 wait_healthy "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}" "$(tn_service_for_role "${NODE_ROLES[$i]}")" \
             || bench_die "${INSTANCE_NAMES[$i]} not healthy"
     done
-    bench_tunnel_up || bench_die "IAP tunnel failed"
+    bench_tunnel_up 5>&- 6>&- || bench_die "IAP tunnel failed"
     local cid
     cid="$(cast chain-id --rpc-url "${RPC_URL}")"
     [ "${cid}" = "${CHAIN_ID}" ] || bench_die "tunnel RPC reports chain ${cid}, expected ${CHAIN_ID}"
@@ -1184,7 +1511,7 @@ step_11() {
     # Chain 32286 routes tn-contracts to deployments-testnet.json (DeploymentsResolver.sol);
     # seed it with the devnet address book so the same CREATE2 addresses are expected.
     bench_run cp "${wt}/deployments/deployments-devnet.json" "${wt}/deployments/deployments-testnet.json"
-    bench_tunnel_up || bench_die "IAP tunnel failed"
+    bench_tunnel_up 5>&- 6>&- || bench_die "IAP tunnel failed"
     echo "    + TN_CONTRACTS_DIR=${wt} TN_CONTRACTS_BRANCH=${br} DEPLOYMENTS_JSON=deployments/deployments-testnet.json DEVNET_RPC=${RPC_URL} EXPECTED_CHAIN_ID=${CHAIN_ID} devnet-contracts.sh --yes"
     TN_CONTRACTS_DIR="${wt}" TN_CONTRACTS_BRANCH="${br}" DEPLOYMENTS_JSON="deployments/deployments-testnet.json" \
         DEVNET_RPC="${RPC_URL}" EXPECTED_CHAIN_ID="${CHAIN_ID}" "${REPO_ROOT}/devnet-contracts.sh" --yes
@@ -1216,19 +1543,100 @@ step_12() {
 # member missing would measure the wrong committee. The tunnel serves the boundary computation.
 step_13() {
     echo ">>> Step 13: fund senders (every validator CvvActive first)"
-    bench_tunnel_up || bench_die "IAP tunnel failed"
+    bench_tunnel_up 5>&- 6>&- || bench_die "IAP tunnel failed"
     bench_fleet_ready "${BENCH_FLEET_READY_MAX_WAIT_SECS}" step13 \
         || bench_die "step 13: not every validator is CvvActive after waiting up to ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (above; manifest.fleet_ready) — nothing was funded"
-    "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}"
+    "${DIR}/benchmark-blast.sh" fund --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-
 }
-step_14() { echo ">>> Step 14: blast";        "${DIR}/benchmark-blast.sh" run --yes --run "${BENCH_RUN_ID}"; }
+step_14() { echo ">>> Step 14: blast";        "${DIR}/benchmark-blast.sh" run --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-; }
+
+# prom_window_wait — step 15's Prometheus window: manifest prom_window = {start, end, end_reason,
+# waited_secs} and PROM_WINDOW_ARGS = the collector's --start/--end (or nothing). The collector's own
+# window (collect-gcp-metrics.py window_from_manifest) runs from the earliest of
+# timestamps.nodes_healthy / fund_start / blast_start_at and phases[].start to the latest of
+# timestamps.blast_end / collect_start and phases[].end; in bench 3 that ended before the chaos target
+# rejoined. With BENCH_COLLECT_WAIT_REJOIN=1 and a chaos kill that landed (a manifest.chaos[] entry
+# with rc 0 whose action names kill), it waits — at most BENCH_FLEET_READY_MAX_WAIT_SECS in all — for
+# every validator to be CvvActive (bench_tunnel_up for the boundary read, then bench_fleet_ready) AND
+# for each killed node to still read CvvActive BENCH_NODE_BACK_SECS later: bench 3's target was
+# promoted and demoted again 11 times, so one CvvActive reading is not a rejoin. A target that falls
+# back starts the wait over. The window ends then: end_reason fleet_ready (both reads, confirm_secs
+# between them), or max_wait when the cap came first (a warning, never a stop); the same start is
+# passed as --start and the wait's end as --end (they win over the manifest window). Otherwise
+# (end_reason knob_off or no_chaos, waited_secs 0) nothing is passed and the record holds the
+# manifest window.
+PROM_WINDOW_ARGS=()
+prom_window_wait() {
+    local m start end reason waited=0 t0 deadline left back confirm=null targets="" inst idx mode bad
+    local sq='[(.timestamps // {}) | .nodes_healthy, .fund_start, .blast_start_at] + [(.phases // [])[] | objects | .start]'
+    local eq='[(.timestamps // {}) | .blast_end, .collect_start] + [(.phases // [])[] | objects | .end]'
+    local num='map(select(type == "string") | fromdateiso8601?)'
+    m="$(bench_manifest)"
+    PROM_WINDOW_ARGS=()
+    start="$(jq -r "${sq} | ${num} | if length > 0 then (min | todate) else empty end" "${m}" 2>/dev/null || true)"
+    end="$(jq -r "${eq} | ${num} | if length > 0 then (max | todate) else empty end" "${m}" 2>/dev/null || true)"
+    if [ "${BENCH_COLLECT_WAIT_REJOIN:-0}" != "1" ]; then
+        reason=knob_off
+    elif ! jq -e '[(.chaos // [])[] | objects | select(.rc == 0 and ((.action // "") | test("(^|[^a-z])kill([^a-z]|$)")))] | length > 0' \
+            "${m}" >/dev/null 2>&1; then
+        reason=no_chaos
+    else
+        echo "    Prometheus window: a chaos kill landed — it ends once every validator is CvvActive again (BENCH_COLLECT_WAIT_REJOIN=1, at most ${BENCH_FLEET_READY_MAX_WAIT_SECS} s)"
+        t0="$(bench_now_unix)"
+        deadline=$((t0 + BENCH_FLEET_READY_MAX_WAIT_SECS))
+        back="${BENCH_NODE_BACK_SECS:-180}"
+        case "${back}" in ''|*[!0-9]*) back=180 ;; esac
+        for inst in $(jq -r '[(.chaos // [])[] | objects | select(.rc == 0 and ((.action // "") | test("(^|[^a-z])kill([^a-z]|$)"))) | .node]
+                | unique | .[]' "${m}" 2>/dev/null || true); do
+            if idx="$(bench_index_of "${inst}")"; then targets="${targets} ${idx}"; fi
+        done
+        bench_tunnel_up 5>&- 6>&- \
+            || bench_warn "step 15: the RPC tunnel is not up; the fleet-ready wait cannot read the next epoch boundary and may wait its whole cap"
+        reason=max_wait
+        while :; do
+            left=$((deadline - $(bench_now_unix)))
+            [ "${left}" -gt 0 ] || break
+            bench_fleet_ready "${left}" step15 || break
+            # the killed node(s) must still be CvvActive one BENCH_NODE_BACK_SECS later
+            left=$((deadline - $(bench_now_unix)))
+            [ "${left}" -ge "${back}" ] || { echo "    no time left to confirm the rejoin (${left} s < ${back} s)"; break; }
+            echo "    every validator CvvActive; confirming${targets:+ the chaos target(s)} in ${back} s"
+            sleep "${back}"
+            bad=""
+            for idx in ${targets}; do
+                mode="$(_bench_ro_retry bench_node_mode "${idx}")" || mode=""
+                [ "${mode}" = "CvvActive" ] || bad="${bad} ${INSTANCE_NAMES[$idx]}=${mode:-unreadable}"
+            done
+            if [ -z "${bad}" ]; then reason=fleet_ready; confirm="${back}"; break; fi
+            bench_warn "step 15: CvvActive did not hold ${back} s later:${bad} — waiting on (a transient promotion is not a rejoin)"
+        done
+        [ "${reason}" = fleet_ready ] \
+            || bench_warn "step 15: no confirmed rejoin within ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (manifest.fleet_ready, prom_window); collecting up to now anyway"
+        waited=$(( $(bench_now_unix) - t0 ))
+        end="$(bench_now_iso)"
+        if [ -n "${start}" ]; then
+            PROM_WINDOW_ARGS=(--start "${start}" --end "${end}")
+        else
+            bench_warn "step 15: the manifest has no window start (timestamps, phases); the collector derives its own window"
+        fi
+    fi
+    bench_manifest_jq --arg s "${start}" --arg e "${end}" --arg r "${reason}" --argjson w "${waited}" --argjson c "${confirm}" '
+        def str: if . == "" then null else . end;
+        .prom_window = {start: ($s|str), end: ($e|str), end_reason: $r, waited_secs: $w, confirm_secs: $c}' \
+        || bench_warn "step 15: could not record prom_window in $(bench_manifest)"
+    echo "    Prometheus window: ${start:-?} -> ${end:-?} (${reason}, waited ${waited} s)"
+}
 
 step_15() {
+    local wargs=""
     echo ">>> Step 15: collect"
-    "${DIR}/benchmark-blast.sh" collect --yes --run "${BENCH_RUN_ID}"
+    "${DIR}/benchmark-blast.sh" collect --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-
+    prom_window_wait
+    [ "${#PROM_WINDOW_ARGS[@]}" -eq 0 ] || wargs=" ${PROM_WINDOW_ARGS[*]}"
     if [ -f "${COLLECT_METRICS_PY}" ]; then
-        echo "    + python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json"
-        python3 "${COLLECT_METRICS_PY}" --manifest "$(bench_manifest)" --out "${BENCH_RESULTS_DIR}/metrics.json"
+        echo "    + python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json${wargs}"
+        python3 "${COLLECT_METRICS_PY}" --manifest "$(bench_manifest)" --out "${BENCH_RESULTS_DIR}/metrics.json" \
+            ${PROM_WINDOW_ARGS[@]+"${PROM_WINDOW_ARGS[@]}"}
     else
         bench_warn "${COLLECT_METRICS_PY} not found — metrics.json not produced (re-run --only 15 once it exists)"
         bench_manifest_note "collect: ${COLLECT_METRICS_PY} missing at $(bench_now_iso)"
@@ -1246,7 +1654,7 @@ step_16() {
         return 0
     fi
     bench_tunnel_down
-    "${DIR}/benchmark-teardown.sh" --yes --run "${BENCH_RUN_ID}"
+    "${DIR}/benchmark-teardown.sh" --yes --run "${BENCH_RUN_ID}" 5>&- 6>&-
 }
 
 # ================================ dry-run plan ==========================================
@@ -1302,6 +1710,18 @@ plan_prestart_lines() {
     [ "${n}" -gt 0 ] || echo "                                       no per-node parameters (BENCH_NODE_PARAM_OVERRIDES is empty)"
 }
 
+# plan_tunnel_line — the RPC tunnel bench_tunnel_up opens, as this shell's BENCH_TUNNEL_MODE has it:
+# ssh (default) = one IAP ssh session carrying a port forward under a restarting supervisor;
+# websocket = gcloud compute start-iap-tunnel (a websocket per connection).
+plan_tunnel_line() {
+    case "${BENCH_TUNNEL_MODE:-ssh}" in
+        ssh) printf 'gcloud compute ssh %s --zone=%s --tunnel-through-iap -- -N -L localhost:%s:127.0.0.1:8545 (BENCH_TUNNEL_MODE=ssh: one IAP ssh port-forward, restarted by its supervisor, which gives up after %s consecutive failures; tunnel.log)' \
+            "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${BENCH_TUNNEL_PORT}" "${BENCH_TUNNEL_MAX_FAILS:-5}" ;;
+        *) printf 'gcloud compute start-iap-tunnel %s 8545 --local-host-port=localhost:%s --zone=%s (BENCH_TUNNEL_MODE=%s: a websocket per connection; tunnel.log)' \
+            "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${BENCH_TUNNEL_MODE}" ;;
+    esac
+}
+
 # plan_harness — this checkout's HEAD, ",dirty" when tracked files differ from it (local git only).
 plan_harness() {
     local sha st
@@ -1344,6 +1764,7 @@ EOP
     {
         machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
         machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
+        zone_fallback_check
         disk_type_check
         quota_check
     } | sed 's/^    /                     /'
@@ -1351,18 +1772,21 @@ EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
                      if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}
                      then docker run --rm --platform linux/amd64 <image> blast --help must list: ${BENCH_TXGEN_CONTRACT_FLAGS}
-   2  instances      CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh
+   2  instances      CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh -> ${BENCH_RESULTS_DIR}/logs/create-instances-<utc>.log
+                     stockout: that node moves to its next zone of BENCH_ZONE_FALLBACKS (${BENCH_ZONE_FALLBACKS:-none}), zones.env,
+                     create again (existing nodes skipped; at most ${ZONE_FALLBACK_MAX_ROUNDS} rounds); any other failure stops; manifest.zones_used
                      assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=${BENCH_LABELS},tn-role=<role>
    3  bootstrap      serial marker 'devnet-startup.sh complete' (${BOOTSTRAP_TIMEOUT_SECS}s/node)
    4  firewall       benchmark/benchmark-firewall.sh apply --yes   (${BENCH_FIREWALL_RULES[*]} -> tag bench-node)
    5  keygen         ${REPO_ROOT}/devnet-keygen.sh           -> ${GENESIS_WORKSPACE}/genesis/{validators,observers}/
+                     (-> ${BENCH_RESULTS_DIR}/logs/keygen-<utc>.log; KEYGEN_DONE lines -> manifest.keygen_timing, node_info_rpc)
    6  genesis        ${REPO_ROOT}/devnet-genesis-build.sh    -> ${GENESIS_FILE}
    7  finalize       one coordinated start: every node is configured while stopped, then all start together
                      network-config    CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/devnet-network-config.sh --yes
                                        (Closed admission on all ${#INSTANCE_NAMES[@]}; rendered under ${GENESIS_WORKSPACE}/genesis/network-config/)
                      stage-only        ${REPO_ROOT}/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
-                     pre-start config  per node, one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
+                     pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
                                        --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }parameters.yaml overrides; PRECFG_OK <instance>
 $(plan_prestart_lines)
                      start-all         ${REPO_ROOT}/devnet-finalize.sh --start-all (every unit at one due time, node clocks)
@@ -1376,13 +1800,14 @@ $(plan_prestart_lines)
                      needs done ok:true + 'Node already serves a metrics endpoint (--metrics).' + container StartedAt unchanged + NRestarts=0;
                      stop alloy, wipe /var/lib/telcoin-alloy, TN_CHAIN=${BENCH_PROM_NETWORK_LABEL} TN_NODE=<instance> OBS_METRICS_PUSH_URL=${OBS_METRICS_PUSH_URL}, start alloy;
                      OBSCFG_OK <instance> restarted=none (the whole session: --print-obs-script <instance>)
-   9  post-config    per node, serial, one IAP session, verify only (no restart, no start-script edit): docker inspect telcoin args
+   9  post-config    per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, verify only (no restart, no start-script edit): docker inspect telcoin args
                      --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>${BENCH_NODE_LOG_FILTER:+, log filters == BENCH_NODE_LOG_FILTER}; <DATA_DIR from .node-meta>/parameters.yaml;
                      bench alloy labels; NRestarts=0; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing since the coordinated
                      start (blocks rose OR docker logs 'subdag committed|quorum reached'); boot lines (git sha, delays, fork schedule)
                      == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service; POSTCFG_OK ... back=-
                      (the whole script: --print-postconfig <instance>; step 7's pre-start script: --print-prestart <instance>)
-  10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; gcloud compute start-iap-tunnel ${INSTANCE_NAMES[0]} 8545 --local-host-port=localhost:${BENCH_TUNNEL_PORT};
+  10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; RPC tunnel to ${RPC_URL}:
+                     $(plan_tunnel_line)
                      cast chain-id == ${CHAIN_ID}; Prometheus ${PROM_COUNT_QUERY} == ${#INSTANCE_NAMES[@]};
                      min by (node)(tn_primary_round{network="${BENCH_PROM_NETWORK_LABEL}"}) rises on every node (samples 30 s apart);
                      ${PROM_LEAK_QUERY} == 0 (and the same over every metric);
@@ -1396,6 +1821,7 @@ $(plan_prestart_lines)
                      benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
   14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
   15  collect        benchmark/benchmark-blast.sh collect --yes; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json
+                     $([ "${BENCH_COLLECT_WAIT_REJOIN:-0}" = "1" ] && echo "after a landed chaos kill: bench_fleet_ready + the killed node still CvvActive ${BENCH_NODE_BACK_SECS:-180} s later, within ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (warn only), then --start <manifest window start> --end <then> (manifest.prom_window)" || echo "Prometheus window = the manifest's (BENCH_COLLECT_WAIT_REJOIN is not 1; manifest.prom_window end_reason knob_off)")
                      tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)
   16  teardown       $([ "${WITH_TEARDOWN}" -eq 1 ] && echo "benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" || echo "SKIPPED (pass --with-teardown; or run benchmark-teardown.sh later)")
 
@@ -1422,39 +1848,106 @@ EOP
 }
 
 # ================================ output copy (--yes) ===================================
-# deploy_log_start — from here on, everything the script prints (stdout and stderr merged, so
-# the order holds) also goes to ${BENCH_RESULTS_DIR}/logs/deploy-<UTC stamp>.log. Each invocation
-# creates its own file (noclobber), so a --from resume never truncates an earlier log. tee reads
-# a FIFO as a background job, not a process substitution: bash 3.2 cannot wait for the latter.
-# It ignores HUP INT TERM PIPE and ends at EOF, once this script and every child writing to the
-# FIFO have exited: after a closed terminal or a TERM to the process group it keeps copying what
-# the step-14 blast prints during its exit cleanup, and a write to a gone terminal fails inside
-# tee instead of ending it (the blast's own copy ignores a dead FIFO the same way).
-deploy_log_start() {
-    local dir="${BENCH_RESULTS_DIR}/logs" stamp f n=0 tmp
-    mkdir -p "${dir}"
+# deploy_new_log <dir> <prefix> — create and print a new, empty <dir>/<prefix>-<UTC stamp>.log
+# (noclobber; -1, -2, ... when that name exists), so no invocation ever appends to another's copy.
+deploy_new_log() {
+    local stamp f n=0
+    mkdir -p "$1" || return 1
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    f="${dir}/deploy-${stamp}.log"
+    f="$1/$2-${stamp}.log"
     until ( set -C; : > "${f}" ) 2>/dev/null; do
-        [ -e "${f}" ] || bench_die "cannot create ${f}"
-        n=$((n + 1)); f="${dir}/deploy-${stamp}-${n}.log"
+        [ -e "${f}" ] || { echo "❌ cannot create ${f}" >&2; return 1; }
+        n=$((n + 1)); f="$1/$2-${stamp}-${n}.log"
     done
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/bench-deploy.XXXXXX")"
-    mkfifo "${tmp}/out"
-    ( trap '' HUP INT TERM PIPE; exec tee -a "${f}" ) < "${tmp}/out" &
-    DEPLOY_TEE_PID=$!
-    trap deploy_log_stop EXIT
-    exec > "${tmp}/out" 2>&1
-    rm -f "${tmp}/out"; rmdir "${tmp}"
-    echo "output copied to ${f}"
+    printf '%s' "${f}"
 }
 
-# deploy_log_stop — EXIT trap: close our end of the FIFO so tee reads EOF, wait up to 10 s for it
-# to drain (a leftover child still holding stdout must not block the exit), keep the status.
+# deploy_log_start — from here on, everything the script prints (stdout and stderr merged, so
+# the order holds) also goes to ${BENCH_RESULTS_DIR}/logs/deploy-<UTC stamp>.log, each line there
+# prefixed with the UTC time it was read (HH:MM:SSZ), while the terminal gets it unchanged. Each
+# invocation creates its own file (noclobber), so a --from resume never truncates an earlier log.
+# The copier (perl, line by line, both outputs unbuffered) reads a FIFO as a background job, not
+# a process substitution: bash 3.2 cannot wait for the latter. It ignores HUP INT TERM PIPE and
+# ends at EOF, once this script and every child writing to the FIFO have exited: after a closed
+# terminal or a TERM to the process group it keeps copying what the step-14 blast prints during
+# its exit cleanup, and a write to a gone terminal fails inside the copier instead of ending it
+# (the blast's own copy ignores a dead FIFO the same way).
+# fd 5 / fd 6 keep the invocation's own stdout / stderr: deploy_log_stop prints the result line
+# there once the copy has drained. A process that outlives this script (the RPC tunnel's
+# supervisor, started by bench_tunnel_up here or in benchmark-blast.sh) must not hold them, or a
+# pipeline reading this script's output would never see its end: those calls run with 5>&- 6>&-.
+deploy_log_start() {
+    local tmp
+    DEPLOY_LOG_FILE="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" deploy)" || bench_die "cannot create a deploy log in ${BENCH_RESULTS_DIR}/logs"
+    DEPLOY_STARTED="${DEPLOY_STARTED:-$(bench_now_iso)}"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/bench-deploy.XXXXXX")"
+    mkfifo "${tmp}/out"
+    # shellcheck disable=SC2016  # perl code, not shell: $f, $l and $| are perl's
+    ( trap '' HUP INT TERM PIPE; exec perl -MPOSIX=strftime -e '
+        open(my $f, ">>", $ARGV[0]) or die "cannot append to $ARGV[0]: $!\n";
+        select((select($f), $| = 1)[0]); $| = 1;
+        while (my $l = <STDIN>) { print STDOUT $l; print $f strftime("%H:%M:%SZ ", gmtime), $l; }' "${DEPLOY_LOG_FILE}" ) < "${tmp}/out" &
+    DEPLOY_TEE_PID=$!
+    trap deploy_log_stop EXIT
+    exec 5>&1 6>&2
+    exec > "${tmp}/out" 2>&1
+    rm -f "${tmp}/out"; rmdir "${tmp}"
+    echo "output copied to ${DEPLOY_LOG_FILE}"
+}
+
+# deploy_result_record <rc> <first error|""> <ended> — the outcome of this applied invocation:
+# ${BENCH_RESULTS_DIR}/last-deploy.status (key=value lines rc, last_step, first_error, started,
+# ended, scope, log; replaced atomically) and manifest deploy_result = {rc, last_step, first_error,
+# started, ended, scope, log} (log relative to the run directory; null for an unknown field), also
+# appended to deploy_runs[]. A run whose manifest does not exist yet (the gate stopped a new run)
+# gets the status file only. Never fails.
+deploy_result_record() {
+    local rc="$1" err="$2" ended="$3" st tmp rel
+    st="${DEPLOY_STATUS_FILE:-${BENCH_RESULTS_DIR}/last-deploy.status}"
+    rel="${DEPLOY_LOG_FILE#"${BENCH_RESULTS_DIR}/"}"
+    tmp="$(mktemp "${st}.XXXXXX" 2>/dev/null)" || tmp=""
+    if [ -n "${tmp}" ] && printf 'rc=%s\nlast_step=%s\nfirst_error=%s\nstarted=%s\nended=%s\nscope=%s\nlog=%s\n' \
+            "${rc}" "${DEPLOY_LAST_STEP:--}" "${err:--}" "${DEPLOY_STARTED:--}" "${ended}" "${DEPLOY_SCOPE:--}" \
+            "${DEPLOY_LOG_FILE:--}" > "${tmp}" && mv -f "${tmp}" "${st}"; then :; else
+        [ -z "${tmp}" ] || rm -f "${tmp}"
+        echo "⚠ could not write ${st}" >&6
+    fi
+    [ -f "$(bench_manifest)" ] || return 0
+    bench_manifest_jq --argjson rc "${rc}" --arg ls "${DEPLOY_LAST_STEP:-}" --arg e "${err}" --arg s "${DEPLOY_STARTED:-}" \
+        --arg t "${ended}" --arg sc "${DEPLOY_SCOPE:-}" --arg l "${rel}" '
+        def str: if . == "" then null else . end;
+        {rc: $rc, last_step: ($ls | if test("^[0-9]+$") then tonumber else str end), first_error: ($e|str),
+         started: ($s|str), ended: $t, scope: ($sc|str), log: ($l|str)} as $r
+        | .deploy_result = $r | .deploy_runs = ((.deploy_runs // []) + [$r])' >/dev/null 2>&6 \
+        || echo "⚠ could not record deploy_result in $(bench_manifest)" >&6
+}
+
+# deploy_log_stop — EXIT trap: close our end of the FIFO so the copier reads EOF, wait up to 10 s for it
+# to drain and end (a leftover child still holding stdout must not block the exit: after the cap the
+# copier is killed, so no copied line can follow the result line), record the outcome
+# (deploy_result_record; first_error = the first ❌ line of this invocation's log, at most 300
+# characters, its time prefix dropped), print
+#   BENCH_DEPLOY_RESULT rc=<n> last_step=<step|gate|-> first_error=<text|-> log=<deploy log>
+# to the invocation's own stdout (fd 5) as its last line, and keep the status. An EXIT handler
+# never aborts half-way: set -e is off in here.
 deploy_log_stop() {
-    local rc=$? n=0
+    local rc=$? n=0 f="${DEPLOY_LOG_FILE:-}" first_error ended
+    set +e
+    ended="$(bench_now_iso)"
     exec >&- 2>&-
     while kill -0 "${DEPLOY_TEE_PID}" 2>/dev/null && [ "${n}" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    # A child still holding the FIFO keeps the copier alive past the cap: stop it (it ignores TERM), so
+    # nothing it copies can land after the result line; what that child prints later is not copied.
+    if kill -0 "${DEPLOY_TEE_PID}" 2>/dev/null; then
+        kill -KILL "${DEPLOY_TEE_PID}" 2>/dev/null
+        echo "⚠ the deploy log copier was still busy 10 s after the end (a leftover child holds its input) — stopped; ${f} may lack that child's last lines" >&6
+    fi
+    wait "${DEPLOY_TEE_PID}" 2>/dev/null
+    first_error="$(grep -m1 -F '❌' "${f}" 2>/dev/null | cut -c1-300)"
+    first_error="${first_error#[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z }"
+    deploy_result_record "${rc}" "${first_error}" "${ended}"
+    printf 'BENCH_DEPLOY_RESULT rc=%s last_step=%s first_error=%s log=%s\n' "${rc}" "${DEPLOY_LAST_STEP:--}" \
+        "${first_error:--}" "${f:--}" >&5
     exit "${rc}"
 }
 
@@ -1645,14 +2138,20 @@ gate_manifest() {
     fi
 }
 
+DEPLOY_LAST_STEP="gate"
+deploy_status_write - gate -
 gate
 # Creates manifest.json, or keeps the existing one (a resume). A failure is fatal, not hidden.
 bench_manifest_init || bench_die "cannot initialise $(bench_manifest)"
 jq -e '.schema == "tn-bench-manifest/v1"' "$(bench_manifest)" >/dev/null 2>&1 \
     || bench_die "$(bench_manifest) is not a readable tn-bench-manifest/v1 file — inspect it before re-running"
 gate_manifest
+# run_step <n> — step <n>, then timestamps.step_<n>_done. DEPLOY_LAST_STEP names the step running
+# (deploy_log_stop reports it).
 run_step() {
     local n="$1"
+    DEPLOY_LAST_STEP="${n}"
+    deploy_status_write - "${n}" -
     echo ""
     echo "##########################################"
     "step_${n}"

@@ -12,6 +12,7 @@ R="${1:?node root}"
 relocate() {
     sed -e "s#/etc/telcoin/#${R}/etc/telcoin/#g" \
         -e "s#/etc/systemd/system/#${R}/etc/systemd/system/#g" \
+        -e "s#/etc/logrotate.d/#${R}/etc/logrotate.d/#g" \
         -e "s#/usr/local/libexec/telcoin/#${R}/usr/local/libexec/telcoin/#g" \
         -e "s#/usr/local/bin/bench-node-sampler.sh#${R}/usr/local/bin/bench-node-sampler.sh#g" \
         -e "s#/opt/telcoin-node-scripts#${R}/opt/telcoin-node-scripts#g" \

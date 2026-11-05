@@ -18,14 +18,17 @@ the GNU `sed -i` they target.
 """
 import base64
 import functools
+import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 BENCH = Path(__file__).resolve().parents[1]
@@ -44,9 +47,21 @@ NODES = ["bench-validator-%02d" % n for n in range(1, 11)] + ["bench-observer-11
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 # Scripts the bash under test sources or runs, relative to the repo root.
-TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
         "benchmark/node-image-contract.txt")
+# Contract stand-ins appended to the sandbox copy of bench-lib.sh, each defined only when the real
+# function is absent (the owning unit has not landed it yet); production code never carries them.
+LIB_SHIMS = r'''
+# --- test shims (test_node_image.py), only for functions bench-lib.sh does not define ---
+# bench_is_stockout <text> (U-H2): benchmark-blast.sh's is_stockout, whitespace folded.
+declare -F bench_is_stockout >/dev/null || bench_is_stockout() {
+    case "$(printf '%s' "$1" | tr -s ' \t\n' '   ')" in
+        *ZONE_RESOURCE_POOL_EXHAUSTED*|*stockout*|*"does not have enough resources"*) return 0 ;;
+    esac
+    return 1
+}
+'''
 PARAMS_YAML = "max_header_delay: 500ms\nmin_header_delay: 250ms\nmax_batch_delay: 250ms\n"
 
 
@@ -75,6 +90,8 @@ def make_tree(root):
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, dst)
+    with open(str(root / "benchmark/bench-lib.sh"), "a") as f:
+        f.write(LIB_SHIMS)
     return root / "benchmark"
 
 
@@ -443,16 +460,18 @@ class HelperTests(BashCase):
 # from. fixtures/node-image/v2-node-run.sh runs a remote script there, its node paths relocated
 # (RELOCATED, kept in step with the script by test_relocation_list_matches_the_runner).
 V2 = Path(__file__).resolve().parent / "fixtures" / "v2-node"
-RELOCATED = ("/etc/telcoin/", "/etc/systemd/system/", "/usr/local/libexec/telcoin/",
+RELOCATED = ("/etc/telcoin/", "/etc/systemd/system/", "/etc/logrotate.d/", "/usr/local/libexec/telcoin/",
              "/usr/local/bin/bench-node-sampler.sh", "/opt/telcoin-node-scripts", "/var/lib/telcoin-alloy/",
              "/tmp/bench-obs")
 NODE_STUBS = (("systemctl", "stub-v2-node-systemctl.sh"), ("docker", "stub-v2-node-docker.sh"),
               ("date", "stub-v2-node-date.sh"), ("git", "stub-v2-node-git.sh"), ("stat", "stub-v2-node-stat.sh"),
-              ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"))
+              ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"), ("logrotate", "stub-v2-node-logrotate.sh"))
 STARTED = "2026-01-01T00:00:00.000000000Z"     # the container's StartedAt (stub date -d: 1767225600)
 CHAIN_HEX = "0x7e1e"                           # the bench chain 32286, as the nodes' RPC answers it
 GUARD_RPC = "http://127.0.0.1:9"               # BENCH_GUARD_PUBLIC_RPC (contract C5a)
-FILTER = "info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug"
+# benchmark/config.sh's default node log filter (the bench-4 design's D2 string).
+FILTER = ("info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,"
+          "primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info")
 STEP9_PARAMS = PARAMS_YAML + "header_num_of_batches_threshold: 5\n"
 FORK_LINE = "fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
 PRE_SUBSECOND_LINE = "fork schedule: seed_signature, multi_workers, prevrandao, and leader_seeded_ordering active from genesis"
@@ -513,7 +532,7 @@ class V2Node:
         self.root, self.inst = Path(root), inst
         r = str(self.root)
         shutil.rmtree(str(self.root / "state"), ignore_errors=True)   # a node rebuilt in place starts afresh
-        for rel in ("etc/telcoin/alloy", "etc/systemd/system", "usr/local/bin", "usr/local/libexec/telcoin",
+        for rel in ("etc/telcoin/alloy", "etc/systemd/system", "etc/logrotate.d", "usr/local/bin", "usr/local/libexec/telcoin",
                     "var/lib/telcoin", "var/lib/telcoin-alloy", "var/log/telcoin", "opt/telcoin-node-scripts/lib", "tmp",
                     "state", "bin"):
             (self.root / rel).mkdir(parents=True, exist_ok=True)
@@ -608,10 +627,10 @@ class RemoteScriptTests(BashCase):
     def lib_calls(self, op):
         return [l for l in self.node.calls() if l.startswith("lib %s " % op)]
 
-    def precfg_ok(self, filt="-", maxfiles="-", params=0):
+    def precfg_ok(self, filt="-", maxfiles="-", params=0, logrotate="20G", paramsbak="written"):
         return ("PRECFG_OK %s datadir=%s/var/lib/telcoin http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:9101 filter=%s "
-                "maxfiles=%s params=%d owner=root:root mode=755 unit=inactive" % (self.INST, self.node.root, filt,
-                                                                                  maxfiles, params))
+                "maxfiles=%s params=%d owner=root:root mode=755 unit=inactive logrotate=%s paramsbak=%s"
+                % (self.INST, self.node.root, filt, maxfiles, params, logrotate, paramsbak))
 
     def test_default_filter_sets_six_flags_and_reports_precfg_ok(self):
         p, lines = self.node.run(self.script_for())
@@ -624,8 +643,18 @@ class RemoteScriptTests(BashCase):
         self.assertEqual([l.split(" rc=")[1] for l in self.lib_calls("get")], ["0"] * 6)
         # Every lib call sourced lib/common.sh with the guard's black hole exported, never a real RPC.
         sources = self.lib_calls("source")
-        self.assertEqual(len(sources), 12)
+        self.assertGreaterEqual(len(sources), 13)   # 6 setters, 6 readbacks, the logrotate write (+ its reads)
         self.assertEqual(set(sources), {"lib source DEVNET_RPC_URL=" + GUARD_RPC})
+        # 7a: parameters.yaml kept as .bak before any override; 7b: the bench logrotate file, through the lib
+        # (no maxsize, rotating at BENCH_LOGROTATE_SIZE), parsed by logrotate -d.
+        self.assertEqual((self.node.datadir / "parameters.yaml.bak").read_text(), self.staged)
+        lr = self.node.root / "etc/logrotate.d/telcoin"
+        self.assertEqual(self.lib_calls("write"), ["lib write %s 0644 rc=0" % lr])
+        text = lr.read_text()
+        self.assertIn("%s/var/log/telcoin/*.log" % self.node.root, text)
+        self.assertRegex(text, r"(?m)^\s*size 20G\s*$")
+        self.assertNotIn("maxsize", text)
+        self.assertIn("logrotate -d %s" % lr, self.node.calls())
         # The start script is what step 9 will read off the running container; nothing else moved.
         self.assertEqual(self.node.node_command(), v2_cmdline())
         self.assertEqual(self.yaml_text(), self.staged)
@@ -634,9 +663,11 @@ class RemoteScriptTests(BashCase):
         self.assertEqual(unit_calls, ["systemctl is-active telcoin"] * 2)   # read twice, never started
 
     def test_empty_filter_leaves_the_log_flags_alone(self):
-        p, lines = self.node.run(self.script_for(BENCH_NODE_LOG_FILTER=""))
+        p, lines = self.node.run(self.script_for(BENCH_NODE_LOG_FILTER="", BENCH_LOGROTATE_SIZE=""))
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertEqual(lines, [self.precfg_ok()], p.stdout)
+        self.assertEqual(lines, [self.precfg_ok(logrotate="-")], p.stdout)
+        self.assertFalse((self.node.root / "etc/logrotate.d/telcoin").exists())
+        self.assertEqual(self.lib_calls("write"), [])
         self.assertEqual([l.split()[2] for l in self.lib_calls("set")], ["--http.addr", "--ws.addr", "--metrics"])
         self.assertEqual(self.node.node_command(), v2_cmdline(log_filter=None, max_files=None))
 
@@ -652,7 +683,8 @@ class RemoteScriptTests(BashCase):
         (self.node.root / "calls").write_text("")
         p, lines = self.node.run(script)
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertEqual(lines, [self.precfg_ok(FILTER, "20", 3)], p.stdout)
+        self.assertEqual(lines, [self.precfg_ok(FILTER, "20", 3, paramsbak="kept")], p.stdout)
+        self.assertEqual((self.node.datadir / "parameters.yaml.bak").read_text(), self.staged)   # the first copy stays
         self.assertEqual([l.rsplit(" ", 1)[1] for l in self.lib_calls("set")], ["rc=1"] * 6)
         self.assertEqual((self.node.start_script.read_text(), self.yaml_text()), first)
 
@@ -712,9 +744,10 @@ class PreStartScriptTests(BashCase):
             at.append(pos)
             pos += 1
         self.assertEqual(at, sorted(at))
+        # The contract line (bench-4 design D3, PRECFG_OK … unit=$u logrotate=<size|-> paramsbak=<written|kept|->).
         self.assertEqual(lines[-1], 'echo "PRECFG_OK bench-validator-01 datadir=$D http=0.0.0.0 ws=0.0.0.0 '
                          'metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 '
-                         'unit=$u"')
+                         'unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}"')
         self.assertFalse([l for l in lines if re.search(r"systemctl (start|restart|stop)|docker ", l)])
 
     def test_script_differs_per_instance_by_its_overrides(self):
@@ -783,18 +816,135 @@ class FleetCase(BashCase):
         m.update(values)
         self.manifest.write_text(json.dumps(m, indent=2) + "\n")
 
-    def deploy(self, step, **env):
-        return subprocess.run(
-            ["bash", str(self.bench / "benchmark-deploy.sh"), "--run", self.RUN, "--yes", "--only", str(step)],
-            env=self.env(BENCH_RUN_ID=None, STUB_NODES=str(self.root / "nodes"), STUB_SPOOL=str(self.spool),
-                         STUB_CHAIN_HEX=CHAIN_HEX, POSTCFG_WAIT_SECS="10", **env),
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300, universal_newlines=True, errors="replace")
+    def deploy_argv_env(self, step, env):
+        env.setdefault("BENCH_NODE_JOBS", "1")   # the serial loop; JobsTests run the nodes side by side
+        return (["bash", str(self.bench / "benchmark-deploy.sh"), "--run", self.RUN, "--yes", "--only", str(step)],
+                self.env(BENCH_RUN_ID=None, STUB_NODES=str(self.root / "nodes"), STUB_SPOOL=str(self.spool),
+                         STUB_CHAIN_HEX=CHAIN_HEX, POSTCFG_WAIT_SECS="10", **env))
+
+    def deploy(self, step, cwd=None, **env):
+        argv, env = self.deploy_argv_env(step, env)
+        return subprocess.run(argv, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300,
+                              universal_newlines=True, errors="replace")
 
     def ssh_targets(self):
         return [c.split()[3] for c in self.calls() if c.startswith("gcloud compute ssh ")]
 
     def m(self):
         return json.loads(self.manifest.read_text())
+
+    def deploy_logs(self):
+        return sorted((self.run_dir / "logs").glob("deploy-*.log"))
+
+    def status(self):
+        """results/<run>/last-deploy.status as a dict (key=value lines)."""
+        return dict(l.split("=", 1) for l in (self.run_dir / "last-deploy.status").read_text().splitlines())
+
+    def test_result_line_status_file_and_manifest_on_failure(self):
+        # D12: an applied deploy's last line on its own stdout is BENCH_DEPLOY_RESULT, written after
+        # the log copy drained; the same outcome is in last-deploy.status and manifest deploy_result /
+        # deploy_runs[]. The step that failed and the first ❌ line of the log are named.
+        if type(self) is not FleetCase:
+            self.skipTest("runs once, on FleetCase")
+        self.nodes["bench-validator-01"].put("boot.log", boot_log(sha=BAD_SHA))
+        p = self.deploy(9)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        die = [l for l in p.stdout.splitlines() if l.startswith("❌ ")]
+        self.assertTrue(die and "bench-validator-01: boot sha = %s" % BAD_SHA in die[0], p.stdout)
+        logs = self.deploy_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(p.stdout.rstrip("\n").splitlines()[-1],
+                         "BENCH_DEPLOY_RESULT rc=1 last_step=9 first_error=%s log=%s" % (die[0], logs[0]))
+        self.assertEqual(p.stdout.count("BENCH_DEPLOY_RESULT"), 1)
+        self.assertNotIn("BENCH_DEPLOY_RESULT", logs[0].read_text())   # the operator's stream only
+        st = self.status()
+        for key in ("started", "ended"):
+            self.assertRegex(st.pop(key), ISO_RE)
+        self.assertEqual(st, {"rc": "1", "last_step": "9", "first_error": die[0], "scope": "step 9", "log": str(logs[0])})
+        m = self.m()
+        r = m["deploy_result"]
+        self.assertTrue(ISO_RE.match(r.pop("started")) and ISO_RE.match(r.pop("ended")), r)
+        self.assertEqual(r, {"rc": 1, "last_step": 9, "first_error": die[0], "scope": "step 9",
+                             "log": "logs/" + logs[0].name})
+        self.assertEqual(len(m["deploy_runs"]), 1)
+        self.assertEqual(m["deploy_runs"][0]["first_error"], die[0])
+        # D15: the log copy carries the UTC time each line was read; the terminal gets the lines as printed.
+        logged = logs[0].read_text().splitlines()
+        self.assertTrue(logged and all(re.match(r"^\d\d:\d\d:\d\dZ ", l) for l in logged), logged[:3])
+        self.assertEqual([l[10:] for l in logged], p.stdout.splitlines()[:-1])
+
+
+class StatusTests(FleetCase):
+    """results/<run>/last-deploy.status belongs to the newest applied invocation from its first moment
+    (rc=- while it runs), so a watcher never reads an earlier invocation's outcome as this one's."""
+
+    STALE = "rc=0\nlast_step=12\nfirst_error=-\nstarted=2026-01-01T00:00:00Z\nended=2026-01-01T01:00:00Z\nscope=steps 0..12\nlog=x\n"
+
+    def setUp(self):
+        super().setUp()
+        (self.run_dir / "last-deploy.status").write_text(self.STALE)
+        self.t0 = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
+
+    def test_an_exit_before_the_deploy_log_starts_replaces_the_old_status(self):
+        p = self.deploy(9, BENCH_NODE_JOBS="0")   # config.sh refuses the knob before anything runs
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("❌ benchmark/config.sh: BENCH_NODE_JOBS='0'", p.stdout)
+        st = self.status()
+        self.assertGreaterEqual(st.pop("started"), self.t0)
+        self.assertRegex(st.pop("ended"), ISO_RE)
+        self.assertEqual(st, {"rc": "1", "last_step": "starting", "first_error": "-", "scope": "step 9", "log": "-"})
+
+    def test_a_failure_at_step_0_records_rc_1(self):
+        p = self.deploy(0)
+        self.assertEqual(p.returncode, 1, p.stdout)
+        st = self.status()
+        self.assertEqual((st["rc"], st["last_step"]), ("1", "0"), p.stdout)
+        self.assertGreaterEqual(st["started"], self.t0)
+
+    def test_a_killed_deploy_leaves_rc_dash_with_its_start_and_step(self):
+        argv, env = self.deploy_argv_env(9, {"STUB_SSH_HANG": "60"})
+        proc = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+        try:
+            deadline = time.time() + 60
+            while time.time() < deadline and self.status().get("last_step") != "9":
+                time.sleep(0.2)
+        finally:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+        st = self.status()
+        self.assertEqual((st["rc"], st["last_step"], st["ended"]), ("-", "9", "-"))
+        self.assertGreaterEqual(st["started"], self.t0)
+        self.assertTrue(st["log"].endswith(".log") and "/logs/deploy-" in st["log"], st)
+
+
+class NoteTests(BashCase):
+    """`--run <id> --note <text>`: one manifest note, nothing else run or contacted."""
+
+    def note(self, *args, **env):
+        return subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh")] + list(args), env=self.env(**env),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60, universal_newlines=True)
+
+    def test_note_appends_to_the_manifest_and_exits(self):
+        run = self.bench / "results" / "rtest-note"
+        run.mkdir(parents=True)
+        (run / "manifest.json").write_text(json.dumps({"schema": "tn-bench-manifest/v1", "notes": ["first"]}))
+        p = self.note("--run", "rtest-note", "--note", "v05 restarted by hand at 00:12Z", BENCH_RUN_ID=None)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        notes = json.loads((run / "manifest.json").read_text())["notes"]
+        self.assertEqual(notes[0], "first")
+        self.assertRegex(notes[1], r"^v05 restarted by hand at 00:12Z \(operator note, \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\)$")
+        self.assertEqual(len(notes), 2)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(sorted(f.name for f in run.iterdir()), ["manifest.json"])   # no log, no status file
+        for args, phrase in ((("--note", "x"), "--note needs --run <id>"),
+                             (("--run", "rtest-none", "--note", "x"), "run rtest-none has no manifest"),
+                             (("--run", "rtest-note", "--note", ""), "--note needs a non-empty text")):
+            with self.subTest(args=args):
+                p = self.note(*args)
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertIn(phrase, p.stdout)
+        self.assertEqual(len(json.loads((run / "manifest.json").read_text())["notes"]), 2)
 
 
 class Step9Tests(FleetCase):
@@ -946,6 +1096,28 @@ class Step9Tests(FleetCase):
                                  (FULL_SHA, 500, None, "subsecond-from-genesis"))
                 self.assertEqual(self.ssh_targets(), NODES)
 
+    def test_boot_lines_from_a_rotated_unit_file_generation(self):
+        # logrotate moved the boot block on: telcoin.log has no 'starting' line any more, so step 9 reads
+        # telcoin.log.1, else telcoin.log.2.gz (delaycompress), from that file's last 'starting' line on.
+        run1 = boot_log(sha=BAD_SHA, mhd=3000, nhd=1000, mbd=1000, vt=1500, fork=PRE_SUBSECOND_LINE)
+        for gen in ("telcoin.log.1", "telcoin.log.2.gz"):
+            with self.subTest(gen=gen):
+                node = V2Node(self.root / "nodes" / "bench-validator-01", "bench-validator-01", start=v2_cmdline(),
+                              log=self.CONSENSUS_ONLY)
+                node.unit_log.write_text(self.CONSENSUS_ONLY)
+                (node.unit_log.parent / "telcoin.log.1").write_text(self.CONSENSUS_ONLY)
+                data = (run1 + boot_log()).encode()
+                if gen.endswith(".gz"):
+                    (node.unit_log.parent / gen).write_bytes(gzip.compress(data))
+                else:
+                    (node.unit_log.parent / gen).write_bytes(data)
+                self.log.write_text("")
+                p = self.deploy9()
+                self.assertEqual(p.returncode, 0, p.stdout)
+                line = self.node_line(p.stdout, "bench-validator-01")
+                self.assertEqual(len(line), 1, p.stdout)
+                self.assertIn(" sha=%s mhd=500 nhd=250 mbd=250 vt=? forks=subsecond-from-genesis " % FULL_SHA, line[0])
+
     def test_no_starting_line_in_docker_logs_nor_the_unit_file_fails_naming_both(self):
         node = self.nodes["bench-validator-01"]
         node.put("boot.log", self.CONSENSUS_ONLY)
@@ -1027,6 +1199,162 @@ class Step9Tests(FleetCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(relocation_problems(p.stdout), [])
         self.assertTrue(p.stdout.rstrip().endswith('vote=$(ms "$(pv vote_timeout)") filter=${rf:--} maxfiles=${rmf:--} back=-"'))
+
+
+class KeygenTests(FleetCase):
+    """`benchmark-deploy.sh --yes --only 5` over a stub devnet-keygen.sh (D16): the output copied to
+    logs/keygen-<UTC>.log, its KEYGEN_DONE lines -> manifest keygen_timing / node_info_rpc."""
+
+    DONE = ("KEYGEN_DONE bench-validator-01 rc=0 secs=41 reused=0 rpc_http=http://192.0.2.11:8545/ rpc_ws=ws://192.0.2.11:8546/\n"
+            "  KEYGEN_DONE bench-validator-02 rc=0 secs=7 reused=1 rpc_http=http://192.0.2.12:8545/ rpc_ws=ws://192.0.2.12:8546/\r\n"
+            "KEYGEN_DONE bench-validator-03 rc=1 secs=12 reused=0 rpc_http=- rpc_ws=-\n"
+            "unrelated KEYGEN_DONE text in a line\n")
+
+    def setUp(self):
+        super().setUp()
+        install(self.root / "tree", "devnet-keygen.sh", "stub-devnet-keygen.sh")
+
+    def test_keygen_done_lines_are_recorded_even_when_keygen_fails(self):
+        for rc in ("0", "3"):
+            with self.subTest(rc=rc):
+                self.edit_manifest(keygen_timing={"bench-validator-09": {"secs": 5, "reused": False}})
+                p = self.deploy(5, STUB_KEYGEN_OUT=self.DONE, STUB_KEYGEN_RC=rc)
+                # This run's copy (two runs within one second: keygen-<UTC>.log, then keygen-<UTC>-1.log).
+                copy = re.search(r"devnet-keygen\.sh   \(copy: (\S+)\)", p.stdout)
+                self.assertTrue(copy, p.stdout)
+                logs = [Path(copy.group(1))]
+                self.assertEqual(logs[0].parent, self.run_dir / "logs")
+                self.assertIn("KEYGEN_DONE bench-validator-03 rc=1", logs[-1].read_text())
+                m = self.m()
+                self.assertEqual(m["keygen_timing"], {"bench-validator-09": {"secs": 5, "reused": False},
+                                                      "bench-validator-01": {"secs": 41, "reused": False},
+                                                      "bench-validator-02": {"secs": 7, "reused": True},
+                                                      "bench-validator-03": {"secs": 12, "reused": False}})
+                self.assertEqual(m["node_info_rpc"], {
+                    "bench-validator-01": {"http": "http://192.0.2.11:8545/", "ws": "ws://192.0.2.11:8546/"},
+                    "bench-validator-02": {"http": "http://192.0.2.12:8545/", "ws": "ws://192.0.2.12:8546/"}})
+                if rc == "0":
+                    self.assertEqual(p.returncode, 0, p.stdout)
+                    self.assertIn("step_5_done", m["timestamps"])
+                else:
+                    self.assertNotEqual(p.returncode, 0, p.stdout)
+                    self.assertIn("❌ devnet-keygen.sh exited 3 (%s)" % logs[-1], p.stdout)
+        # The bench profile's keygen knobs reach the driver (benchmark/config.sh, only when unset).
+        self.assertIn("KEYGEN_JOBS=4 KEYGEN_REUSE_EXISTING=1 KEYGEN_RPC_ADVERTISE=internal-ip KEYGEN_REPORT=1",
+                      [c for c in self.calls() if c.startswith("devnet-keygen.sh")][0])
+
+    def test_no_report_lines_change_nothing(self):
+        p = self.deploy(5, STUB_KEYGEN_OUT="keyed bench-validator-01")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("keygen_timing", self.m())
+        self.assertIn("no KEYGEN_DONE line in", p.stdout)
+
+
+class JobsTests(FleetCase):
+    """BENCH_NODE_JOBS > 1 (D8): step 9's sessions run side by side and each node's output is printed in
+    fleet order; 1 is the serial loop (Step9Tests, Step7Tests)."""
+
+    def block(self, out):
+        """Step 9's lines from its header to its end, 'serially' / 'up to N at a time' made equal, and
+        the block number (the stub RPC counts up per call) left out."""
+        lines = out.splitlines()
+        s = next(i for i, l in enumerate(lines) if l.startswith(">>> Step 9"))
+        e = next(i for i, l in enumerate(lines) if l == "## step 9 done")
+        return [re.sub(r" block=0x[0-9a-f]+ ", " block=<n> ", re.sub(r"(serially|up to \d+ at a time)$", "<jobs>", l))
+                for l in lines[s:e]]
+
+    def heads(self, out):
+        return [l.split(":")[0].strip() for l in out.splitlines() if re.match(r"^    bench-\S+: running args ", l)]
+
+    def test_side_by_side_output_and_records_match_the_serial_run(self):
+        p1 = self.deploy(9)
+        self.assertEqual(p1.returncode, 0, p1.stdout)
+        self.assertIn("one IAP session per node, serially\n", p1.stdout)
+        serial = (self.block(p1.stdout), self.m()["node_startup"])
+        self.edit_manifest(node_startup={})
+        self.log.write_text("")
+        p4 = self.deploy(9, BENCH_NODE_JOBS="4")
+        self.assertEqual(p4.returncode, 0, p4.stdout)
+        self.assertIn("one IAP session per node, up to 4 at a time\n", p4.stdout)
+        # Every node recorded (no lost manifest update), and the same lines in the same order.
+        self.assertEqual((self.block(p4.stdout), self.m()["node_startup"]), serial)
+        self.assertEqual(self.heads(p4.stdout), NODES)
+        self.assertEqual(sorted(self.ssh_targets()), sorted(NODES))
+        self.assertEqual(list(self.tmpdir.glob("bench-node-jobs.*")), [])   # the job spool is gone
+
+    def test_a_failing_node_does_not_stop_the_others_and_is_named(self):
+        self.nodes["bench-validator-03"].put("boot.log", boot_log(sha=BAD_SHA))
+        p = self.deploy(9, BENCH_NODE_JOBS="4")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(sorted(self.ssh_targets()), sorted(NODES))
+        self.assertEqual(self.heads(p.stdout), NODES)
+        errors = [l for l in p.stdout.splitlines() if l.startswith("❌ ")]
+        self.assertEqual(len(errors), 2, p.stdout)
+        self.assertTrue(errors[0].startswith("❌ bench-validator-03: boot sha = %s" % BAD_SHA), errors)
+        self.assertEqual(errors[1], "❌ post-config verification (nothing was restarted): failed on bench-validator-03 "
+                                    "(each node's own error is in its output above)")
+        self.assertEqual(sorted(self.m()["node_startup"]), sorted(NODES))
+        self.assertNotIn("step_9_done", self.m()["timestamps"])
+        self.assertIn("first_error=%s log=" % errors[0], p.stdout.splitlines()[-1])
+
+
+# bench_node_jobs_run and node_startup_merge as extracted functions over a real manifest: each node's job
+# records {"n": <index>} (rec); TEST_BREAK=spool points that node's spool at a missing directory, manifest
+# turns manifest.json into garbage before the parent applies the records.
+NODE_JOBS = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+eval "$2"
+NODE_JOBS_SPOOL=""
+mkdir -p "${BENCH_RESULTS_DIR}"
+echo '{"schema": "tn-bench-manifest/v1", "node_startup": {"bench-validator-01": {"keep": true}}}' > "$(bench_manifest)"
+rec() {
+    echo "job ${INSTANCE_NAMES[$1]}"
+    case "${TEST_BREAK:-}:$1" in "spool:${TEST_NODE:-}") NODE_JOBS_SPOOL=/nonexistent/spool ;; esac
+    node_startup_merge "${INSTANCE_NAMES[$1]}" "{\"n\": $1}" || bench_die "${INSTANCE_NAMES[$1]}: could not record node_startup"
+    case "${TEST_BREAK:-}" in manifest) echo garbage > "$(bench_manifest)" ;; esac
+}
+bench_node_jobs_run "${TEST_JOBS:-4}" "test step" rec 0 1 2 3 4 5 6 7 8 9 10
+echo DONE
+'''
+
+
+class NodeJobsRunnerTests(BashCase):
+    """The node records of jobs run side by side are spooled per node and applied by the parent after the
+    jobs end: none is lost, and a record that cannot be written fails loudly, naming the node."""
+
+    def run_jobs(self, **env):
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "node_startup_merge", "bench_node_jobs_run")
+        p = self.bash(NODE_JOBS, self.bench, fns, **env)
+        m = self.bench / "results" / "rtest-node-image" / "manifest.json"
+        return p, m
+
+    def test_every_record_lands_inline_and_side_by_side(self):
+        for jobs in ("1", "4", "11"):
+            with self.subTest(jobs=jobs):
+                p, m = self.run_jobs(TEST_JOBS=jobs)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertIn("DONE", p.stdout)
+                self.assertEqual([l[4:] for l in p.stdout.splitlines() if l.startswith("job ")], NODES)
+                want = {n: {"n": i} for i, n in enumerate(NODES)}
+                want["bench-validator-01"]["keep"] = True
+                self.assertEqual(json.loads(m.read_text())["node_startup"], want)
+                self.assertEqual(list(self.tmpdir.glob("bench-node-jobs.*")), [])
+
+    def test_a_record_that_cannot_be_spooled_fails_that_node_loudly(self):
+        p, m = self.run_jobs(TEST_BREAK="spool", TEST_NODE="6")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertNotIn("DONE", p.stdout)
+        self.assertIn("❌ bench-validator-07: could not record node_startup", p.stdout)
+        self.assertIn("❌ test step: failed on bench-validator-07 (each node's own error", p.stdout)
+        got = json.loads(m.read_text())["node_startup"]
+        self.assertEqual(sorted(got), sorted(n for n in NODES if n != "bench-validator-07"))   # the others landed
+
+    def test_a_record_the_parent_cannot_apply_is_named(self):
+        p, m = self.run_jobs(TEST_BREAK="manifest")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertNotIn("DONE", p.stdout)
+        self.assertIn("❌ test step: could not record node_startup in %s for: %s" % (m, " ".join(NODES)), p.stdout)
 
 
 class ObsScriptTests(BashCase):
@@ -1180,12 +1508,11 @@ class ObsScriptTests(BashCase):
 class PlanTests(BashCase):
     """The dry run's step plan (no --yes): what steps 7-10 and 13 will do, and nothing executed."""
 
-    def test_plan_lists_the_coordinated_start_and_the_gates(self):
-        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh")], env=self.env(BENCH_RUN_ID="rtest-plan"),
+    def plan(self, **env):
+        """(process, {step: its plan lines})."""
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh")], env=self.env(BENCH_RUN_ID="rtest-plan", **env),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120, universal_newlines=True,
                            errors="replace")
-        self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertIn("DRY RUN — re-run with --yes to execute.", p.stdout)
         steps, cur = {}, None
         for line in p.stdout.splitlines():
             head = re.match(r"^ {2}([ 0-9]{2})  \S", line)
@@ -1195,6 +1522,33 @@ class PlanTests(BashCase):
                 cur = None
             if cur is not None:
                 steps.setdefault(cur, []).append(line)
+        return p, steps
+
+    def test_plan_names_the_tunnel_of_the_mode_in_use(self):
+        # D11: the step-10 line shows the transport bench_tunnel_up will use, not the old command.
+        p, steps = self.plan()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        ten = "\n".join(steps[10])
+        self.assertIn("gcloud compute ssh bench-validator-01 --zone=us-west2-a --tunnel-through-iap -- -N -L "
+                      "localhost:18545:127.0.0.1:8545 (BENCH_TUNNEL_MODE=ssh", ten)
+        self.assertIn("gives up after 5 consecutive failures", ten)
+        self.assertNotIn("start-iap-tunnel", ten)
+        p, steps = self.plan(BENCH_TUNNEL_MODE="websocket")
+        ten = "\n".join(steps[10])
+        self.assertIn("gcloud compute start-iap-tunnel bench-validator-01 8545 --local-host-port=localhost:18545 "
+                      "--zone=us-west2-a (BENCH_TUNNEL_MODE=websocket", ten)
+        self.assertNotIn("--tunnel-through-iap", ten)
+        # The plan also names the stockout fallbacks (step 2, step 0) and step 15's window wait.
+        self.assertIn("BENCH_ZONE_FALLBACKS (3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a "
+                      "8:asia-northeast3-b)", "\n".join(steps[2]))
+        self.assertIn("zone fallbacks 3:asia-northeast1-c", "\n".join(steps[0]))
+        self.assertIn("after a landed chaos kill: bench_fleet_ready", "\n".join(steps[15]))
+        self.assertNotIn("BENCH_DEPLOY_RESULT", p.stdout)   # a dry run prints no result line
+
+    def test_plan_lists_the_coordinated_start_and_the_gates(self):
+        p, steps = self.plan()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("DRY RUN — re-run with --yes to execute.", p.stdout)
         labels = [m.group(1) for m in (re.match(r"^ {21}(network-config|stage-only|pre-start config|start-all) ", l)
                                        for l in steps[7]) if m]
         self.assertEqual(labels, ["network-config", "stage-only", "pre-start config", "start-all"])
@@ -1252,9 +1606,12 @@ class Step7Tests(FleetCase):
         self.assertRegex(cs.pop("ts"), ISO_RE)
         self.assertEqual(cs, {"due": 1767225660, "nodes": 11, "started": 11, "skipped_running": 0, "spread_secs": 3,
                               "max_late_secs": 1})
+        startup = self.m()["node_startup"]
         for inst, node in self.nodes.items():
             self.assertIn("PRECFG_OK %s datadir=%s/var/lib/telcoin " % (inst, node.root), p.stdout)
             self.assertEqual(node.node_command(), v2_cmdline(), inst)
+            # From the PRECFG_OK line: the bench logrotate size and the parameters.yaml backup.
+            self.assertEqual((startup[inst]["logrotate_size"], startup[inst]["params_bak"]), ("20G", "written"), inst)
         logs = sorted(f.name.split("-")[1] for f in (self.run_dir / "logs").glob("finalize-*.log"))
         self.assertEqual(logs, ["stage", "start"])
         self.assertIn("step_7_done", self.m()["timestamps"])
@@ -1275,7 +1632,8 @@ class Step7Tests(FleetCase):
         self.nodes["bench-validator-04"].put("unit", "active")
         p = self.deploy7(stage="STAGED bench-validator-01 state=inactive enabled=enabled\nRUNNING bench-validator-04")
         self.assertNotEqual(p.returncode, 0, p.stdout)
-        die = [l for l in p.stdout.splitlines() if "stage-only found running unit(s) before any coordinated start" in l]
+        die = [l for l in p.stdout.splitlines()
+               if l.startswith("❌ ") and "stage-only found running unit(s) before any coordinated start" in l]
         self.assertEqual(len(die), 1, p.stdout)
         self.assertIn("bench-validator-04", die[0])
         self.assertIn("--from 7", die[0])
@@ -1321,6 +1679,44 @@ class Step7Tests(FleetCase):
         self.assertEqual([r["line"] for r in m["coordinated_start_reruns"]], [none])
         self.assertIn("step_7_done", m["timestamps"])
 
+    def test_side_by_side_pre_start_failure_configures_the_rest_and_stops_before_start_all(self):
+        self.nodes["bench-validator-05"].put("git-head", "0" * 40)
+        p = self.deploy7(BENCH_NODE_JOBS="4")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("(bench_prestart_script; review: --print-prestart <instance>), up to 4 at a time\n", p.stdout)
+        self.assertEqual(sorted(self.ssh_targets()), sorted(NODES))
+        self.assertIn("❌ pre-start config failed on bench-validator-05", p.stdout)
+        self.assertIn("❌ pre-start config (no node has been started; re-run with --from 7): failed on bench-validator-05 ",
+                      p.stdout)
+        self.assertNotIn("devnet-finalize.sh --start-all", self.sequence())
+        self.assertNotIn("coordinated_start", self.m())
+        # The gate records every node's log_filter; the pre-start record is the configured nodes' only.
+        self.assertEqual(sorted(i for i, v in self.m()["node_startup"].items() if "params_bak" in v),
+                         sorted(n for n in NODES if n != "bench-validator-05"))
+        for inst in NODES:
+            if inst != "bench-validator-05":
+                self.assertEqual(self.nodes[inst].node_command(), v2_cmdline(), inst)
+
+    def test_the_result_line_stays_last_when_a_child_outlives_the_deploy(self):
+        # network-config leaves a child holding the log FIFO for 13 s; the step then fails. After the
+        # 10-s drain cap the copier is stopped, so nothing can be copied after BENCH_DEPLOY_RESULT.
+        p = self.deploy7(STUB_NETCFG_STRAY="13", STUB_STAGE_RC="1")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        lines = p.stdout.rstrip("\n").splitlines()
+        self.assertTrue(lines[-1].startswith("BENCH_DEPLOY_RESULT rc=1 last_step=7 "), lines[-3:])
+        self.assertIn("⚠ the deploy log copier was still busy 10 s after the end", lines[-2])
+        self.assertNotIn("STRAY LINE", p.stdout)
+
+    def test_side_by_side_pre_start_records_every_node_every_time(self):
+        # Repeated runs of the jobs=4 path: every node's PRECFG_OK record reaches node_startup, each time.
+        for n in range(5):
+            with self.subTest(run=n):
+                self.edit_manifest(node_startup={})
+                p = self.deploy7(BENCH_NODE_JOBS="4")
+                self.assertEqual(p.returncode, 0, p.stdout)
+                got = {i: (v.get("logrotate_size"), v.get("params_bak")) for i, v in self.m()["node_startup"].items()}
+                self.assertEqual(got, {i: ("20G", "written" if n == 0 else "kept") for i in NODES})
+
     def test_pre_start_failure_stops_before_start_all(self):
         self.nodes["bench-validator-05"].put("git-head", "0" * 40)
         p = self.deploy7()
@@ -1329,6 +1725,334 @@ class Step7Tests(FleetCase):
         self.assertEqual(self.ssh_targets(), NODES[:5])
         self.assertNotIn("devnet-finalize.sh --start-all", self.sequence())
         self.assertNotIn("coordinated_start", self.m())
+
+
+# --------------------------------------------------------------------------- deploy step 2 + config zones
+FLEET_ZONES = ["us-west2-a", "europe-west2-b", "australia-southeast1-c", "asia-northeast1-b", "us-east4-b",
+               "europe-west4-a", "asia-southeast1-b", "asia-east2-a", "asia-northeast3-a", "asia-south1-c", "us-west2-a"]
+ZONES_OF = r'''
+set -euo pipefail
+. "$1/config.sh"
+echo "ZONES ${ZONES[*]}"
+echo "FALLBACKS ${BENCH_ZONE_FALLBACKS}"
+'''
+
+
+class ConfigTests(BashCase):
+    """benchmark/config.sh: results/<run>/zones.env replaces ZONES (count and characters checked) and
+    BENCH_ZONE_FALLBACKS is validated before anything can use it."""
+
+    def zones(self, zones_env=None, **env):
+        run = self.bench / "results" / "rtest-node-image"
+        if zones_env is not None:
+            run.mkdir(parents=True, exist_ok=True)
+            (run / "zones.env").write_text(zones_env)
+        return self.bash(ZONES_OF, self.bench, **env)
+
+    def test_zones_env_is_validated(self):
+        p = self.zones()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("ZONES %s\n" % " ".join(FLEET_ZONES), p.stdout)
+        moved = list(FLEET_ZONES)
+        moved[4] = "us-east4-c"
+        p = self.zones("# step 2\nBENCH_ZONES_USED=%s\n" % " ".join(moved))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("ZONES %s\n" % " ".join(moved), p.stdout)
+        for text, phrase in (("BENCH_ZONES_USED=%s\n" % " ".join(moved[:-1]), "zones.env lists 10 zone(s), INSTANCE_NAMES has 11."),
+                             ("# nothing\n", "zones.env lists 0 zone(s), INSTANCE_NAMES has 11."),
+                             ("BENCH_ZONES_USED=%s $(id)\n" % " ".join(moved[:-1]), "may hold only zone names")):
+            with self.subTest(phrase=phrase):
+                p = self.zones(text)
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertIn("❌ benchmark/config.sh: ", p.stdout)
+                self.assertIn(phrase, p.stdout)
+                self.assertNotIn("ZONES ", p.stdout)
+
+    KNOBS = r'''
+set -euo pipefail
+. "$1/config.sh"
+for k in BENCH_NODE_LOG_FILTER BENCH_LOGROTATE_SIZE BENCH_CERT_LOG_GLOB BENCH_NODE_JOBS BENCH_COLLECT_WAIT_REJOIN \
+         BENCH_TUNNEL_MAX_FAILS BENCH_TUNNEL_MIN_UP_SECS BENCH_ADMISSION_DENIED_MAX BENCH_CHAOS_REFRESH_SCHEDULE \
+         FINALIZE_JOBS KEYGEN_JOBS NETCFG_JOBS NETCFG_FAST NETCFG_TRUST_OBSERVERS_EVERYWHERE KEYGEN_REUSE_EXISTING \
+         KEYGEN_RPC_ADVERTISE KEYGEN_REPORT; do
+    printf 'KNOB %s=%s exported=%s\n' "$k" "${!k-<unset>}" "$(bash -c "[ -n \"\${$k+x}\" ] && echo 1 || echo 0")"
+done
+'''
+    BENCH = {"BENCH_NODE_LOG_FILTER": FILTER, "BENCH_LOGROTATE_SIZE": "20G",
+             "BENCH_CERT_LOG_GLOB": "bench-validator-*-unit-stdout*.log.gz", "BENCH_NODE_JOBS": "4",
+             "BENCH_COLLECT_WAIT_REJOIN": "1", "BENCH_TUNNEL_MAX_FAILS": "5", "BENCH_TUNNEL_MIN_UP_SECS": "20",
+             "BENCH_ADMISSION_DENIED_MAX": "0", "BENCH_CHAOS_REFRESH_SCHEDULE": "1", "FINALIZE_JOBS": "4",
+             "KEYGEN_JOBS": "4", "NETCFG_JOBS": "4", "NETCFG_FAST": "1", "NETCFG_TRUST_OBSERVERS_EVERYWHERE": "1",
+             "KEYGEN_REUSE_EXISTING": "1", "KEYGEN_RPC_ADVERTISE": "internal-ip", "KEYGEN_REPORT": "1"}
+
+    def knobs(self, **env):
+        p = self.bash(self.KNOBS, self.bench, **env)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        out = {}
+        for line in p.stdout.splitlines():
+            if line.startswith("KNOB "):
+                kv, _, exp = line[5:].rpartition(" exported=")
+                k, _, v = kv.partition("=")
+                out[k] = v
+                self.assertEqual(exp, "1", k)   # every one reaches the drivers the deploy runs
+        return out
+
+    def test_bench_values_are_set_only_when_unset(self):
+        self.assertEqual(self.knobs(), self.BENCH)
+        # An operator's value wins, the root drivers' devnet defaults included; empty turns the
+        # logrotate file and the denied-count check off.
+        mine = self.knobs(KEYGEN_JOBS="1", NETCFG_FAST="0", KEYGEN_RPC_ADVERTISE="domain", BENCH_NODE_JOBS="1",
+                          BENCH_LOGROTATE_SIZE="", BENCH_ADMISSION_DENIED_MAX="")
+        self.assertEqual({k: mine[k] for k in ("KEYGEN_JOBS", "NETCFG_FAST", "KEYGEN_RPC_ADVERTISE", "BENCH_NODE_JOBS",
+                                               "BENCH_LOGROTATE_SIZE", "BENCH_ADMISSION_DENIED_MAX")},
+                         {"KEYGEN_JOBS": "1", "NETCFG_FAST": "0", "KEYGEN_RPC_ADVERTISE": "domain", "BENCH_NODE_JOBS": "1",
+                          "BENCH_LOGROTATE_SIZE": "", "BENCH_ADMISSION_DENIED_MAX": ""})
+        # Without trust-everywhere a denial is expected (the observer's hub-only trust): no check by default.
+        self.assertEqual(self.knobs(NETCFG_TRUST_OBSERVERS_EVERYWHERE="0")["BENCH_ADMISSION_DENIED_MAX"], "")
+        for knob, value in (("BENCH_NODE_JOBS", "0"), ("BENCH_COLLECT_WAIT_REJOIN", "2"), ("BENCH_LOGROTATE_SIZE", "20"),
+                            ("BENCH_LOGROTATE_SIZE", "20g"), ("BENCH_TUNNEL_MAX_FAILS", "x"),
+                            ("BENCH_CHAOS_REFRESH_SCHEDULE", "yes")):
+            with self.subTest(knob=knob, value=value):
+                p = self.bash(self.KNOBS, self.bench, **{knob: value})
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertIn("❌ benchmark/config.sh: %s='%s'" % (knob, value), p.stdout)
+
+    def test_zone_fallbacks_default_and_validation(self):
+        p = self.zones()
+        self.assertIn("FALLBACKS 3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b\n", p.stdout)
+        # Index -> node: 3 = validator-04 (Tokyo), 4 = validator-05 (Ashburn), 7 = validator-08 (Hong Kong),
+        # 8 = validator-09 (Seoul); each fallback stays in or next to its node's region.
+        for idx, zone in ((3, "asia-northeast1-b"), (4, "us-east4-b"), (7, "asia-east2-a"), (8, "asia-northeast3-a")):
+            self.assertEqual(FLEET_ZONES[idx], zone)
+        self.assertEqual(self.zones(BENCH_ZONE_FALLBACKS="").returncode, 0)
+        for value, phrase in (("11:us-east4-c", "index 11 is past the last node (10)"),
+                              ("4:us-east4-c 4:us-east4-a", "index 4 appears twice"),
+                              ("x:us-east4-c", "index 'x' is not a number"),
+                              ("4", "not <index>:<zone>"),
+                              ("4:us-east4-c,US-EAST4", "'US-EAST4' is not a zone name"),
+                              ("4:us-east4", "'us-east4' is not a zone name"),
+                              ("4:*", "holds a glob character")):
+            with self.subTest(value=value):
+                p = self.zones(BENCH_ZONE_FALLBACKS=value)
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertIn("❌ benchmark/config.sh: BENCH_ZONE_FALLBACKS", p.stdout)
+                self.assertIn(phrase, p.stdout)
+
+
+class ZoneFallbackTests(FleetCase):
+    """`benchmark-deploy.sh --yes --only 2` over the stub create-instances.sh (fixtures/node-image/
+    stub-create-instances.sh): a stockout moves that node to its next BENCH_ZONE_FALLBACKS zone and the
+    create runs again; anything else stops."""
+
+    def setUp(self):
+        super().setUp()
+        install(self.root / "tree" / "common", "create-instances.sh", "stub-create-instances.sh")
+        shutil.copyfile(FIX / "stub-create-stockout.txt", self.root / "tree" / "common" / "stub-create-stockout.txt")
+
+    def creates(self):
+        return [c.split(" CONFIG_FILE=")[0].split()[1:] for c in self.calls() if c.startswith("create-instances.sh")]
+
+    def zones_env(self):
+        f = self.run_dir / "zones.env"
+        return f.read_text() if f.exists() else None
+
+    def test_a_stockout_moves_the_node_to_its_fallback_zone(self):
+        p = self.deploy(2, cwd=str(self.root), STUB_STOCKOUT="bench-validator-05")   # not the repo root
+        self.assertEqual(p.returncode, 0, p.stdout)
+        moved = list(FLEET_ZONES)
+        moved[4] = "us-east4-c"
+        self.assertEqual(self.creates(), [["%s@%s" % (n, z) for n, z in zip(NODES, FLEET_ZONES)],
+                                          ["bench-validator-05@us-east4-c"]])
+        self.assertIn("BENCH_ZONES_USED=%s\n" % " ".join(moved), self.zones_env())
+        m = self.m()
+        fb = m["zone_fallbacks"]
+        ts = fb[0].pop("ts")
+        self.assertRegex(ts, ISO_RE)
+        self.assertEqual(fb, [{"inst": "bench-validator-05", "from": "us-east4-b", "to": "us-east4-c", "reason": "stockout"}])
+        self.assertEqual([n for n in m["notes"] if n.startswith("zone fallback: ")],
+                         ["zone fallback: bench-validator-05 runs in us-east4-c, not us-east4-b (c3-highcpu-8 stockout, %s); "
+                          "its latency is that zone's, a comparability caveat" % ts])
+        self.assertEqual(m["zones_used"], dict(zip(NODES, moved)))
+        self.assertEqual([(i["name"], i["zone"]) for i in m["instances"]], list(zip(NODES, moved)))
+        self.assertIn("gcloud compute instances describe bench-validator-05 --zone=us-east4-c --project=%s --format=json"
+                      % ("tn-" + "devnet"),
+                      self.calls())
+        self.assertEqual(len(list((self.run_dir / "logs").glob("create-instances-*.log"))), 2)
+        self.assertIn("⚠ bench-validator-05: us-east4-b is out of c3-highcpu-8 (stockout) — it moves to us-east4-c", p.stdout)
+        # Every later script of the run (they all source config.sh) sees the new zone.
+        z = self.bash(ZONES_OF, self.bench, BENCH_RUN_ID=self.RUN)
+        self.assertIn("ZONES %s\n" % " ".join(moved), z.stdout)
+
+    def test_a_non_stockout_failure_still_stops(self):
+        p = self.deploy(2, STUB_CREATE_FAIL="bench-validator-05")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        # create-instances.sh names it relative to REPO_ROOT, where it runs
+        own = self.root / "tree" / "logs" / "instance-creation" / "bench-validator-05_creation_1.log"
+        self.assertIn("❌ bench-validator-05: create failed for another reason than a stockout (%s)" % own, p.stdout)
+        self.assertEqual(len(self.creates()), 1)
+        self.assertIsNone(self.zones_env())
+        self.assertNotIn("zone_fallbacks", self.m())
+        self.assertNotIn("step_2_done", self.m()["timestamps"])
+
+    def test_each_node_is_judged_on_its_own_log_from_any_working_directory(self):
+        # One round: validator-05 stocks out, validator-06 hits a quota. Run from another directory, each
+        # node's own log (./logs/... under REPO_ROOT) is still what decides: 06 stops the step.
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        p = self.deploy(2, cwd=str(elsewhere), STUB_STOCKOUT="bench-validator-05", STUB_CREATE_FAIL="bench-validator-06")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        own = self.root / "tree" / "logs" / "instance-creation" / "bench-validator-06_creation_1.log"
+        self.assertIn("❌ bench-validator-06: create failed for another reason than a stockout (%s)" % own, p.stdout)
+        self.assertIsNone(self.zones_env())
+        self.assertNotIn("zone_fallbacks", self.m())
+        self.assertFalse((elsewhere / "logs").exists())
+        # A node whose own log cannot be read is never judged on the round log (05's stockout is in it).
+        self.tearDown()
+        self.setUp()
+        p = self.deploy(2, STUB_STOCKOUT="bench-validator-05", STUB_LOSE_LOG="bench-validator-05")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("❌ bench-validator-05: create failed and its own create log (named in ", p.stdout)
+        self.assertIn("cannot be read — not judged a stockout", p.stdout)
+        self.assertIsNone(self.zones_env())
+
+    def test_the_second_fallback_after_two_stockouts_and_the_limits(self):
+        p = self.deploy(2, STUB_STOCKOUT_ZONES="us-east4-b us-east4-c")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual([c[-1] for c in self.creates()], ["bench-observer-11@us-west2-a", "bench-validator-05@us-east4-c",
+                                                           "bench-validator-05@us-east4-a"])
+        self.assertEqual([(f["from"], f["to"]) for f in self.m()["zone_fallbacks"]],
+                         [("us-east4-b", "us-east4-c"), ("us-east4-c", "us-east4-a")])
+        self.assertEqual(self.m()["zones_used"]["bench-validator-05"], "us-east4-a")
+        cases = (("us-east4-b us-east4-c us-east4-a", "still hits stockouts after 3 rounds (bench-validator-05)"),
+                 ("us-west2-a", "bench-validator-01: us-west2-a is out of c3-highcpu-8 (stockout) and BENCH_ZONE_FALLBACKS "
+                                "has no zone left for index 0"))
+        for zones, phrase in cases:
+            with self.subTest(zones=zones):
+                self.tearDown()
+                self.setUp()
+                p = self.deploy(2, STUB_STOCKOUT_ZONES=zones)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(phrase, p.stdout)
+                self.assertNotIn("step_2_done", self.m()["timestamps"])
+
+
+# --------------------------------------------------------------------------- deploy step 15
+# step_15 and prom_window_wait run as extracted functions: the blast collect is a stub script, the
+# collector a stub that prints its argv, and bench_tunnel_up / bench_fleet_ready / the local analysis
+# are test doubles (TEST_READY=0: the fleet is not ready within the cap).
+STEP15 = r'''
+set -euo pipefail
+source "$1/bench-lib.sh"
+BENCH_APPLY=1
+eval "$2"
+bench_tunnel_up() { echo "TUNNEL_UP fd5=$( { : >&5; } 2>/dev/null && echo open || echo closed)"; }
+bench_fleet_ready() { echo "FLEET_READY $*"; [ "${TEST_READY:-1}" = 1 ]; }
+# the n-th read of a node's mode answers the n-th word of TEST_MODES (the last one from then on)
+bench_node_mode() {
+    local n; n=$(( $(cat "${TMPDIR}/modes.n" 2>/dev/null || echo 0) + 1 )); echo "${n}" > "${TMPDIR}/modes.n"
+    echo "MODE_READ ${n} ${INSTANCE_NAMES[$1]}" >&2
+    set -- ${TEST_MODES:-CvvActive}; [ "${n}" -le "$#" ] || n=$#; eval "echo \${${n}}"
+}
+bench_local_analysis() { echo LOCAL_ANALYSIS; }
+bench_local_index() { echo LOCAL_INDEX; }
+DIR="$3"; COLLECT_METRICS_PY="$3/cgm.py"
+exec 5>&1
+step_15
+'''
+COLLECTOR = "import json, sys\nprint('CGM ' + json.dumps(sys.argv[1:]))\n"
+BLAST_COLLECT = "#!/usr/bin/env bash\necho \"BLAST $*\"\n"
+
+
+class PromWindowTests(BashCase):
+    """Step 15's Prometheus window (24): after a chaos kill that landed, wait for the fleet before the
+    window ends; otherwise the collector keeps deriving the manifest's window."""
+
+    TS = {"nodes_healthy": "2026-01-01T00:00:00Z", "fund_start": "2026-01-01T00:05:00Z",
+          "blast_start_at": "2026-01-01T00:10:00Z", "blast_end": "2026-01-01T00:50:00Z",
+          "collect_start": "2026-01-01T00:52:00Z"}
+    KILL = {"ts": "2026-01-01T00:30:00Z", "node": "bench-validator-05", "action": "docker kill -s KILL telcoin",
+            "note": "x", "rc": 0}
+
+    def step15(self, chaos=(), **env):
+        run = self.bench / "results" / "rtest-node-image"
+        run.mkdir(parents=True)
+        (run / "manifest.json").write_text(json.dumps({
+            "schema": "tn-bench-manifest/v1", "timestamps": self.TS, "chaos": list(chaos), "notes": [],
+            "phases": [{"name": "mixed", "start": "2026-01-01T00:12:00Z", "end": "2026-01-01T00:51:00Z"}]}))
+        stubs = self.root / "stubs"
+        stubs.mkdir()
+        (stubs / "cgm.py").write_text(COLLECTOR)
+        (stubs / "benchmark-blast.sh").write_text(BLAST_COLLECT)
+        (stubs / "benchmark-blast.sh").chmod(0o755)
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "prom_window_wait", "step_15")
+        env.setdefault("BENCH_NODE_BACK_SECS", "1")
+        p = self.bash(STEP15, self.bench, "PROM_WINDOW_ARGS=()\n" + fns, stubs, **env)
+        cgm = [json.loads(l[4:]) for l in p.stdout.splitlines() if l.startswith("CGM ")]
+        return p, json.loads((run / "manifest.json").read_text()), cgm
+
+    def collector_argv(self, extra=()):
+        run = self.bench / "results" / "rtest-node-image"
+        return ["--manifest", str(run / "manifest.json"), "--out", str(run / "metrics.json")] + list(extra)
+
+    def test_landed_kill_waits_for_the_fleet_and_passes_the_window(self):
+        p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", BENCH_FLEET_READY_MAX_WAIT_SECS="1500")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("TUNNEL_UP fd5=closed", p.stdout)    # a surviving tunnel never holds fd 5
+        self.assertIn("FLEET_READY 1500 step15", p.stdout)
+        w = dict(m["prom_window"])
+        self.assertRegex(w.pop("end"), ISO_RE)
+        self.assertIsInstance(w.pop("waited_secs"), int)
+        self.assertEqual(w, {"start": "2026-01-01T00:00:00Z", "end_reason": "fleet_ready", "confirm_secs": 1})
+        self.assertIn("MODE_READ 1 bench-validator-05", p.stdout)   # the killed node, read again after the confirm wait
+        self.assertEqual(cgm, [self.collector_argv(["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])])
+        self.assertLess(p.stdout.index("BLAST collect --yes"), p.stdout.index("FLEET_READY"))
+        self.assertLess(p.stdout.index("FLEET_READY"), p.stdout.index("CGM "))
+
+    def test_fleet_not_ready_is_a_warning_and_ends_at_the_cap(self):
+        p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", TEST_READY="0")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("⚠ step 15: no confirmed rejoin within 1500 s", p.stdout)
+        self.assertNotIn("MODE_READ", p.stdout)   # never ready: no confirm read
+        self.assertNotIn("❌", p.stdout)
+        self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("max_wait", None))
+        self.assertEqual(cgm[0][-4:], ["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])
+
+    def test_a_transient_promotion_does_not_end_the_window(self):
+        # Bench 3's target was promoted and demoted again within seconds, 11 times: one CvvActive reading
+        # is not a rejoin. Here the first confirm read finds it fallen back, the wait starts over, and the
+        # second holds.
+        p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", TEST_MODES="CvvInactive CvvActive")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(p.stdout.count("FLEET_READY "), 2, p.stdout)
+        self.assertIn("⚠ step 15: CvvActive did not hold 1 s later: bench-validator-05=CvvInactive", p.stdout)
+        self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("fleet_ready", 1))
+        self.assertGreaterEqual(m["prom_window"]["waited_secs"], 2)
+        self.assertEqual(cgm[0][-4:], ["--start", "2026-01-01T00:00:00Z", "--end", m["prom_window"]["end"]])
+
+    def test_a_target_that_never_holds_ends_at_the_cap(self):
+        p, m, cgm = self.step15(chaos=[self.KILL], BENCH_COLLECT_WAIT_REJOIN="1", TEST_MODES="CvvInactive",
+                                BENCH_FLEET_READY_MAX_WAIT_SECS="3")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual((m["prom_window"]["end_reason"], m["prom_window"]["confirm_secs"]), ("max_wait", None))
+        self.assertIn("⚠ step 15: no confirmed rejoin within 3 s", p.stdout)
+        self.assertLessEqual(m["prom_window"]["waited_secs"], 5)
+        self.assertEqual(cgm[0][-2], "--end")
+
+    def test_no_landed_kill_or_knob_off_keeps_the_manifest_window(self):
+        failed_kill = dict(self.KILL, rc=1)
+        restart = dict(self.KILL, action="systemctl restart telcoin")
+        for chaos, env, reason in (([failed_kill, restart], {"BENCH_COLLECT_WAIT_REJOIN": "1"}, "no_chaos"),
+                                   ([self.KILL], {"BENCH_COLLECT_WAIT_REJOIN": "0"}, "knob_off")):
+            with self.subTest(reason=reason):
+                shutil.rmtree(str(self.bench / "results"), ignore_errors=True)
+                shutil.rmtree(str(self.root / "stubs"), ignore_errors=True)
+                p, m, cgm = self.step15(chaos=chaos, **env)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertNotIn("FLEET_READY", p.stdout)
+                self.assertNotIn("TUNNEL_UP", p.stdout)
+                self.assertEqual(m["prom_window"], {"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:52:00Z",
+                                                    "end_reason": reason, "waited_secs": 0, "confirm_secs": None})
+                self.assertEqual(cgm, [self.collector_argv()])
 
 
 # --------------------------------------------------------------------------- deploy step 0 + blasters
@@ -1501,6 +2225,26 @@ class PreflightTests(FakeGcloudCase):
                       "HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 20\n", p.stdout)
         self.assertIn("      asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, ", p.stdout)
         self.assertEqual(p.stdout.count("(dry run — not executed)"), 3)
+
+    def test_zone_fallback_check_warns_and_never_stops(self):
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "zone_fallback_zones", "zone_fallback_check")
+        body = "zone_fallback_check; echo PASSED"
+        p = self.bash(PREFLIGHT, self.bench, fns, body, STUB_MT_MISSING="asia-east1-a")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("PASSED", p.stdout)
+        self.assertIn("⚠ zone fallback asia-east1-a: c3-highcpu-8 not offered in this zone", p.stdout)
+        self.assertNotIn("❌", p.stdout)
+        described = sorted(c.split()[5] for c in self.calls() if c.startswith("gcloud compute machine-types describe "))
+        self.assertEqual(described, ["--zone=asia-east1-a", "--zone=asia-northeast1-c", "--zone=asia-northeast3-b",
+                                     "--zone=us-east4-a", "--zone=us-east4-c"])
+        self.log.write_text("")
+        p = self.bash(PREFLIGHT, self.bench, fns, body, TEST_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("(dry run — not executed)", p.stdout)
+        p = self.bash(PREFLIGHT, self.bench, fns, body, BENCH_ZONE_FALLBACKS="")
+        self.assertIn("no zone fallbacks (BENCH_ZONE_FALLBACKS is empty)", p.stdout)
+        self.assertEqual(self.calls(), [])
 
     def test_quota_check_passes_with_headroom(self):
         p = self.preflight("quota_check")

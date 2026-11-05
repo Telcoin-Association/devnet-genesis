@@ -1,0 +1,18 @@
+ERROR: (gcloud.beta.compute.instances.create) Could not fetch resource:
+---
+code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS
+errorDetails:
+- localizedMessage:
+    locale: en-US
+    message: A c3-highcpu-8 VM instance is currently unavailable in the @ZONE@
+      zone. Try requesting the VM in another zone. For more information, view the
+      troubleshooting documentation.
+- errorInfo:
+    domain: compute.googleapis.com
+    metadatas:
+      vmType: c3-highcpu-8
+      zone: @ZONE@
+      zonesAvailable: ''
+    reason: stockout
+message: The zone 'projects/tn-fake/zones/@ZONE@' does not have
+  enough resources available to fulfill the request.  '(resource type:compute)'.

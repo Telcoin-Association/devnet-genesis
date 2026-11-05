@@ -8,9 +8,15 @@
 #   tn_launch_flag_set FILE FLAG VALUE  0 set · 1 FLAG already reads VALUE · 3 bad FLAG / VALUE
 #                                       (empty, leading - or #, not one word) · 4 FILE missing
 #   tn_launch_flag_get FILE FLAG        0 printed · 1 absent · 2 no node line · 3 bad FLAG · 4 FILE missing
+#   tn_write_root_file DEST MODE [GROUP] stdin -> DEST with MODE (rc 1: DEST not absolute, a directory or
+#                                       a symlink, MODE not 3-4 octal digits; 2: the write failed)
 # STUB_LIB_FORCE="<op>:<flag>=<rc> ..." makes that call return <rc> untouched (a refused write).
 # Each call logs `lib <op> <flag> [<value>] rc=<rc>` to $STUB_LOG.
 set -euo pipefail
+# The lib's log layout (lib/common.sh: readonly DEFAULT_LOG_DIR, TN_LOG_GROUP), the log dir moved under
+# the sandbox node (STUB_NODE, set by v2-node-run.sh).
+# shellcheck disable=SC2034  # read by the sourcing shell (tnlib eval), as the real lib's are
+readonly DEFAULT_LOG_DIR="${STUB_NODE:-}/var/log/telcoin" TN_LOG_GROUP="telcoin-log"
 printf 'lib source DEVNET_RPC_URL=%s\n' "$(printenv DEVNET_RPC_URL || echo '<unset>')" >> "${STUB_LOG:?}"
 
 _stub_forced() {
@@ -77,5 +83,19 @@ tn_launch_flag_set() {
     if forced="$(_stub_forced set "${2:-}")"; then rc="${forced}"
     else _stub_set "$@" || rc=$?; fi
     printf 'lib set %s %s rc=%s\n' "${2:-}" "${3:-}" "${rc}" >> "${STUB_LOG}"
+    return "${rc}"
+}
+
+tn_write_root_file() {
+    local dest="${1:-}" mode="${2:-}" rc=0
+    case "${dest}" in /*/) rc=1 ;; /*) ;; *) rc=1 ;; esac
+    case "${mode}" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;; *) rc=1 ;; esac
+    if [ "${rc}" = 0 ] && { [ -L "${dest}" ] || [ -d "${dest}" ]; }; then rc=1; fi
+    if [ "${rc}" = 0 ]; then
+        { cat > "${dest}.stub-new" && chmod "${mode}" "${dest}.stub-new" && mv -f "${dest}.stub-new" "${dest}"; } || rc=2
+    else
+        cat > /dev/null
+    fi
+    printf 'lib write %s %s rc=%s\n' "${dest}" "${mode}" "${rc}" >> "${STUB_LOG}"
     return "${rc}"
 }

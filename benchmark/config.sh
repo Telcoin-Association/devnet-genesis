@@ -99,6 +99,15 @@ export ZONES=("us-west2-a" "europe-west2-b" "australia-southeast1-c" "asia-north
 export NODE_NAMES=("bench01" "bench02" "bench03" "bench04" "bench05" "bench06" "bench07" "bench08" "bench09" "bench10" "bench11")
 # From benchmark/.secrets/exec-keys.json (gitignored); validators 01-10, then observer 11.
 export EXECUTION_ADDRESSES=("0xc7d975abd962345e9a6024aab692f6bf19140f03" "0x92862b13608e00925551233f21b6f44f6acc7f91" "0x3205c561e8183aae91ef1ab26a1db3fea83bb120" "0x213aff13862c86b3159a9552cc2424b92f8cfcfc" "0x31faf1673f324c688fff60172099f944171d6ab3" "0xe47fbdfdedadd35501eb7c3f38884238bf251103" "0x58114823ab8b21c4162cc28472ff2a6810e123e2" "0x8e7abe6740a452ade8f02a1f005002976e77fb0a" "0xc2f61840713de91b60e5b5c404350d705877911e" "0x52791a4607b5944ec0da0828d0ee78205b208ef1" "0xe88cc26183754978af15a67c1597324eec9ec806")
+# Stockout fallbacks: space-separated <index>:<zone>[,<zone>...] items, index = position in INSTANCE_NAMES
+# (0-based). When deploy step 2's create fails because a node's zone is out of MACHINE_TYPE, that node moves
+# to its next zone here, step 2 re-runs the create (existing nodes are skipped, at most 3 rounds) and writes
+# results/<run>/zones.env, which every later script of the run reads (below); manifest.zone_fallbacks[] and a
+# note record each move (a comparability caveat: the latency matrices lack the new zone). Step 0 checks that
+# each zone offers MACHINE_TYPE (a warning, not a stop). The defaults are the alternates checked on 2026-10-06
+# and 2026-11-03: 3 = validator-04 (Tokyo b -> c), 4 = validator-05 (Ashburn b -> c, a), 7 = validator-08
+# (Hong Kong -> Taiwan), 8 = validator-09 (Seoul a -> b). An empty value turns fallbacks off.
+export BENCH_ZONE_FALLBACKS="${BENCH_ZONE_FALLBACKS-3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b}"
 
 # Ephemeral external IPs: nothing reserved, nothing to release at teardown.
 export USE_STATIC_IPS=0
@@ -194,11 +203,12 @@ export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
 # <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. Keep in step with
 # tools/params-apply.sh PARAM_KEYS.
 export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
-# Node log filter: step 9 puts --log.stdout.filter <f> --log.file.filter <f> --log.file.max-files <n> on the
-# node's command line. The default logs per-peer vote request/response timing (primary::certifier), the
-# proposer's parents and delays (primary::proposer), the voter side (primary=debug: `Processing vote request
-# from peer`, `Created vote`; the three cert_* =info overrides drop the per-certificate dumps) and the
-# handler's missing-parent lines (tn_primary::network::handler).
+# Node log filter: step 7's pre-start config puts --log.stdout.filter <f> --log.file.filter <f>
+# --log.file.max-files <n> on the node's command line (step 9 checks it). The default (bench 4, the design's
+# D2 filter) logs the whole primary at debug (proposer, certifier and voter: `Processing vote request from
+# peer`, `Created vote`; the three cert_* =info overrides drop the per-certificate dumps), the engine and the
+# consensus subscriber (execution and output timing), the worker's network side and the request-response
+# protocol (batch fetches, AtCapacity denials).
 # The heavy diagnostic targets are opt-in: network=debug (`request received`, the vote request's arrival at
 # the voter, with the full header: the bulk), multistream_select=debug, libp2p_swarm::connection::pool=debug,
 # peer-manager=debug (per-substream negotiation and connection lifecycle, needed once to prove the
@@ -208,8 +218,18 @@ export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote
 # append them to the default:
 #   BENCH_NODE_LOG_FILTER="<default>,multistream_select=debug,libp2p_swarm::connection::pool=debug,peer-manager=debug,network=debug,network-kad=info"
 # BENCH_NODE_LOG_FILTER= (empty) leaves the node's command line as it is.
-export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary::certifier=debug,primary::proposer=debug,primary=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info,tn_primary::network::handler=debug}"
+export BENCH_NODE_LOG_FILTER="${BENCH_NODE_LOG_FILTER-info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info}"
 export BENCH_NODE_LOG_MAX_FILES="${BENCH_NODE_LOG_MAX_FILES:-20}"
+# The node's unit log (/var/log/telcoin/telcoin.log): v2's logrotate cuts it at 100M (and daily), which
+# split bench 3's evidence across generations. Step 7's pre-start config writes the bench's own
+# /etc/logrotate.d/telcoin rotating at this size (no maxsize); empty leaves v2's file alone. The teardown
+# pulls every generation either way.
+export BENCH_LOGROTATE_SIZE="${BENCH_LOGROTATE_SIZE-20G}"
+# Which pulled unit logs the certification check reads (tools/cert-rate.py --node-glob), current and rotated.
+export BENCH_CERT_LOG_GLOB="${BENCH_CERT_LOG_GLOB:-bench-validator-*-unit-stdout*.log.gz}"
+# Per-node sessions of deploy steps 7 (pre-start config) and 9 (verify) run this many at a time; 1 = one
+# after the other, stopping at the first failure.
+export BENCH_NODE_JOBS="${BENCH_NODE_JOBS:-4}"
 # Own BLS keystore passphrase (gitignored); benchmark-deploy.sh step 0 creates it if absent.
 export TN_BLS_PASSPHRASE_FILE="${BENCH_DIR}/.secrets/bls-passphrase"
 
@@ -325,6 +345,19 @@ export BENCH_LABELS="benchmark=1,network=bench,bench-run=${BENCH_RUN_ID}"
 # The only copy of a run: nothing is archived to a bucket. The teardown's local gate checks it holds
 # every node's logs before anything is deleted (bench_local_gate_check); back results/ up by hand.
 export BENCH_RESULTS_DIR="${BENCH_DIR}/results/${BENCH_RUN_ID}"
+# Zones the run's nodes were created in: after a stockout moved a node (BENCH_ZONE_FALLBACKS), deploy step 2
+# writes ${BENCH_RESULTS_DIR}/zones.env, one line BENCH_ZONES_USED=<zone of node 0> ... <zone of node N>. It
+# replaces ZONES for every script of the run (each sources this file), so a moved node is always addressed in
+# its own zone. The file is read, never sourced.
+if [ -f "${BENCH_RESULTS_DIR}/zones.env" ]; then
+    _bench_zones="$(sed -n 's/^BENCH_ZONES_USED=//p' "${BENCH_RESULTS_DIR}/zones.env" | tail -1 | tr -d '"\r')"
+    case "${_bench_zones}" in
+        *[!a-z0-9\ -]*) echo "❌ benchmark/config.sh: ${BENCH_RESULTS_DIR}/zones.env: BENCH_ZONES_USED='${_bench_zones}' may hold only zone names separated by spaces." >&2; exit 1 ;;
+    esac
+    read -r -a _bench_zarr <<< "${_bench_zones}"
+    [ "${#_bench_zarr[@]}" -eq "${#INSTANCE_NAMES[@]}" ] || { echo "❌ benchmark/config.sh: ${BENCH_RESULTS_DIR}/zones.env lists ${#_bench_zarr[@]} zone(s), INSTANCE_NAMES has ${#INSTANCE_NAMES[@]}." >&2; exit 1; }
+    export ZONES=("${_bench_zarr[@]}")
+fi
 # Abort thresholds (benchmark-blast.sh watchers).
 export BENCH_ABORT_DISK_PCT="${BENCH_ABORT_DISK_PCT:-85}"
 export BENCH_ABORT_OBS_MEM_PCT="${BENCH_ABORT_OBS_MEM_PCT:-85}"
@@ -333,6 +366,37 @@ export BENCH_ABORT_STALL_SECS="${BENCH_ABORT_STALL_SECS:-120}"
 # certified fewer than this % of its own headers in a window where it proposed >= 50 goes into
 # manifest.cert_failures, gets a log snapshot, and the teardown's local gate requires its logs.
 export BENCH_CERT_FAIL_PCT="${BENCH_CERT_FAIL_PCT:-90}"
+# Step 15: after a chaos kill that landed, the Prometheus window ends only once every validator is CvvActive
+# again (at most BENCH_FLEET_READY_MAX_WAIT_SECS), so the metrics cover the rejoin. 0: the manifest's window.
+export BENCH_COLLECT_WAIT_REJOIN="${BENCH_COLLECT_WAIT_REJOIN:-1}"
+# benchmark-blast.sh: move the chaos kill to the epoch that is actually closing once it has opened.
+export BENCH_CHAOS_REFRESH_SCHEDULE="${BENCH_CHAOS_REFRESH_SCHEDULE:-1}"
+# The RPC tunnel's supervisor gives up after this many consecutive failed sessions (a session that held at
+# least BENCH_TUNNEL_MIN_UP_SECS resets the count).
+export BENCH_TUNNEL_MAX_FAILS="${BENCH_TUNNEL_MAX_FAILS:-5}"
+export BENCH_TUNNEL_MIN_UP_SECS="${BENCH_TUNNEL_MIN_UP_SECS:-20}"
+# Root drivers the deploy runs (devnet-finalize.sh, devnet-keygen.sh, devnet-network-config.sh): each knob
+# defaults to the devnet behaviour inside its driver; the bench profile sets these only when unset. Parallel
+# nodes (4 at a time), network-config in two sessions a node with every observer trusted by every validator,
+# keygen reusing a node already keyed for its address, advertising its internal-IP RPC (not the
+# unresolvable benchNN.bench.invalid) and printing KEYGEN_DONE per node (deploy step 5 records them).
+export FINALIZE_JOBS="${FINALIZE_JOBS:-4}"
+export KEYGEN_JOBS="${KEYGEN_JOBS:-4}"
+export NETCFG_JOBS="${NETCFG_JOBS:-4}"
+export NETCFG_FAST="${NETCFG_FAST:-1}"
+export NETCFG_TRUST_OBSERVERS_EVERYWHERE="${NETCFG_TRUST_OBSERVERS_EVERYWHERE:-1}"
+export KEYGEN_REUSE_EXISTING="${KEYGEN_REUSE_EXISTING:-1}"
+export KEYGEN_RPC_ADVERTISE="${KEYGEN_RPC_ADVERTISE:-internal-ip}"
+export KEYGEN_REPORT="${KEYGEN_REPORT:-1}"
+# The admission gate (deploy step 10) warns (never stops) for a node whose denied-peer counts exceed this.
+# With every observer trusted everywhere a denial is unexpected, so the bench value is 0; otherwise unset
+# (no check). BENCH_ADMISSION_DENIED_MAX= (empty) turns the check off; the gate names a value that is not a
+# whole number and skips the check (bench-lib.sh bench_admission_gate).
+if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = "1" ]; then
+    export BENCH_ADMISSION_DENIED_MAX="${BENCH_ADMISSION_DENIED_MAX-0}"
+else
+    export BENCH_ADMISSION_DENIED_MAX="${BENCH_ADMISSION_DENIED_MAX:-}"
+fi
 
 # --- self-checks: a mis-edit here must fail before anything reaches GCP ---------
 _bench_n="${#INSTANCE_NAMES[@]}"
@@ -403,12 +467,57 @@ for _bench_item in ${BENCH_NODE_PARAM_OVERRIDES}; do
         echo "❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES item '${_bench_item}': ${_bench_bad}." >&2; exit 1
     fi
 done
+# BENCH_ZONE_FALLBACKS: <index>:<zone>[,<zone>...] items, each index once and a node of the fleet.
+case "${BENCH_ZONE_FALLBACKS}" in
+    *[*?[]*) echo "❌ benchmark/config.sh: BENCH_ZONE_FALLBACKS='${BENCH_ZONE_FALLBACKS}' holds a glob character." >&2; exit 1 ;;
+esac
+_bench_seen=" "
+for _bench_item in ${BENCH_ZONE_FALLBACKS}; do
+    _bench_bad=""
+    _bench_idx="${_bench_item%%:*}"
+    case "${_bench_item}" in *:?*) ;; *) _bench_bad="not <index>:<zone>[,<zone>...]" ;; esac
+    case "${_bench_idx}" in ''|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index '${_bench_idx}' is not a number}" ;; esac
+    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${_bench_n}" ]; then _bench_bad="index ${_bench_idx} is past the last node ($((_bench_n - 1)))"; fi
+    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac
+    _bench_seen="${_bench_seen}${_bench_idx} "
+    _bench_kvs="${_bench_item#*:},"
+    while [ -z "${_bench_bad}" ] && [ -n "${_bench_kvs}" ]; do
+        _bench_v="${_bench_kvs%%,*}"; _bench_kvs="${_bench_kvs#*,}"
+        case "${_bench_v}" in
+            *[!a-z0-9-]*|-*|*-) _bench_bad="'${_bench_v}' is not a zone name" ;;
+            [a-z]*-[a-z]*[0-9]-[a-z]) ;;
+            *) _bench_bad="'${_bench_v}' is not a zone name (<region>-<letter>, e.g. us-east4-c)" ;;
+        esac
+    done
+    if [ -n "${_bench_bad}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_ZONE_FALLBACKS item '${_bench_item}': ${_bench_bad}." >&2; exit 1
+    fi
+done
 case "${BENCH_NODE_LOG_FILTER}" in
     *[!A-Za-z0-9_:,=.-]*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_FILTER='${BENCH_NODE_LOG_FILTER}' may hold only [A-Za-z0-9_:,=.-] (target=level directives)." >&2; exit 1 ;;
 esac
 case "${BENCH_NODE_LOG_MAX_FILES}" in
     ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_NODE_LOG_MAX_FILES='${BENCH_NODE_LOG_MAX_FILES}' must be a positive integer." >&2; exit 1 ;;
 esac
+case "${BENCH_LOGROTATE_SIZE}" in
+    '') ;;
+    *[!0-9KMG]*|0*|[KMG]*|*[KMG]?*|*[0-9]) echo "❌ benchmark/config.sh: BENCH_LOGROTATE_SIZE='${BENCH_LOGROTATE_SIZE}' must be <n>K, <n>M or <n>G (or empty: v2's logrotate stays)." >&2; exit 1 ;;
+esac
+for _bench_knob in BENCH_NODE_JOBS BENCH_TUNNEL_MAX_FAILS; do
+    case "${!_bench_knob}" in
+        ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be a positive integer." >&2; exit 1 ;;
+    esac
+done
+for _bench_knob in BENCH_COLLECT_WAIT_REJOIN BENCH_CHAOS_REFRESH_SCHEDULE; do
+    case "${!_bench_knob}" in
+        0|1) ;;
+        *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
+    esac
+done
+case "${BENCH_TUNNEL_MIN_UP_SECS}" in
+    ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: BENCH_TUNNEL_MIN_UP_SECS='${BENCH_TUNNEL_MIN_UP_SECS}' must be a non-negative integer." >&2; exit 1 ;;
+esac
+
 case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
     e2-*:hyperdisk-*|n1-*:hyperdisk-*)
         echo "❌ benchmark/config.sh: MACHINE_TYPE='${MACHINE_TYPE}' cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
@@ -444,4 +553,4 @@ fi
 if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
     echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
 fi
-unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys
+unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys _bench_zones _bench_zarr
