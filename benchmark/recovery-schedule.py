@@ -66,23 +66,45 @@ def schedule(info, earliest_kill, before_close, downtime):
                 seconds_before_close=before_close, downtime_secs=downtime)
 
 
+def refresh(info, before_close, downtime):
+    """Re-plan the kill from the opened closing epoch's own start, as measured by snapshot().
+
+    schedule() projects a later closing epoch at whole durations from the epoch it measured; a
+    loaded boundary waits for execution (bench 3: 12-26 s without a block), so each epoch in
+    between can open late. Once the closing epoch has opened, the block that opened it is known.
+    """
+    duration = info["duration_secs"]
+    if not 0 < before_close < duration or downtime <= before_close:
+        raise ValueError("kill offset must be within the epoch; downtime must cross the boundary")
+    kill = info["epoch_start_unix"] + info["duration_secs"] - before_close
+    return dict(info, closing_epoch=info["epoch"], kill_unix=kill,
+                boundary_unix=kill + before_close, restart_unix=kill + downtime,
+                seconds_before_close=before_close, downtime_secs=downtime)
+
+
 def main():
-    """Print measured schedule or the block that opened a requested epoch."""
+    """Print a measured schedule, the block that opened a requested epoch, or the kill re-planned
+    in that opened epoch (--epoch with --before-close/--downtime)."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rpc-url", required=True)
     parser.add_argument("--epoch", type=int)
     parser.add_argument("--earliest-kill", type=int)
-    parser.add_argument("--before-close", type=int, default=59)
-    parser.add_argument("--downtime", type=int, default=300)
+    parser.add_argument("--before-close", type=int, help="seconds before the close (default 59)")
+    parser.add_argument("--downtime", type=int, help="seconds down from the kill (default 300)")
     args = parser.parse_args()
     if args.epoch is not None and not 0 <= args.epoch < 2**32:
         parser.error("epoch must fit uint32")
+    replan = args.before_close is not None or args.downtime is not None
+    before_close = 59 if args.before_close is None else args.before_close
+    downtime = 300 if args.downtime is None else args.downtime
     try:
         info = snapshot(args.rpc_url, args.epoch)
         if args.epoch is None:
             if args.earliest_kill is None:
                 parser.error("--earliest-kill is required for a schedule")
-            info = schedule(info, args.earliest_kill, args.before_close, args.downtime)
+            info = schedule(info, args.earliest_kill, before_close, downtime)
+        elif replan:
+            info = refresh(info, before_close, downtime)
         print(json.dumps(info))
     except (ValueError, KeyError, urllib.error.URLError) as error:
         parser.exit(1, f"cannot measure recovery schedule: {error}\n")

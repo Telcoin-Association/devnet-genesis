@@ -107,6 +107,12 @@ case "${BENCH_STALL_NOTE_MAX_ROUNDS}" in ''|*[!0-9]*) bench_die "BENCH_STALL_NOT
 # The kill's session may run BENCH_CHAOS_SAVE_WAIT_SECS past the kill (the log save); it must end
 # before the restart's session opens BENCH_CHAOS_STAGE_SECS ahead of the restart.
 case "${BENCH_CHAOS_SAVE_WAIT_SECS}" in ''|*[!0-9]*) bench_die "BENCH_CHAOS_SAVE_WAIT_SECS='${BENCH_CHAOS_SAVE_WAIT_SECS}' must be a whole number" ;; esac
+case "${BENCH_CHAOS_REFRESH_SCHEDULE:-1}" in 0|1) ;; *) bench_die "BENCH_CHAOS_REFRESH_SCHEDULE='${BENCH_CHAOS_REFRESH_SCHEDULE}' must be 0 or 1" ;; esac
+# The schedule refresh runs inside a poll the guard admitted: its RPC read plus that poll must end
+# before the kill's session opens, so the read is bounded by BENCH_CHAOS_STAGE_SECS at most.
+case "${BENCH_CHAOS_REFRESH_TIMEOUT_SECS:-20}" in ''|*[!0-9]*|0*) bench_die "BENCH_CHAOS_REFRESH_TIMEOUT_SECS='${BENCH_CHAOS_REFRESH_TIMEOUT_SECS}' must be a positive whole number" ;; esac
+[ "${BENCH_CHAOS_REFRESH_TIMEOUT_SECS:-20}" -le "${BENCH_CHAOS_STAGE_SECS}" ] \
+    || bench_die "BENCH_CHAOS_REFRESH_TIMEOUT_SECS=${BENCH_CHAOS_REFRESH_TIMEOUT_SECS} must not exceed BENCH_CHAOS_STAGE_SECS=${BENCH_CHAOS_STAGE_SECS}"
 CHAOS_OUTAGE_SECS="${BENCH_CHAOS_DOWNTIME_SECS}"
 [ "${BENCH_CHAOS_TIMING}" != mixed ] || CHAOS_OUTAGE_SECS=$(( BENCH_CHAOS_BACK_AT_SECS - BENCH_CHAOS_KILL_AT_SECS ))
 [ $(( BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS )) -lt "${CHAOS_OUTAGE_SECS}" ] \
@@ -533,6 +539,7 @@ CHAOS_RC=0        # rc of the last chaos action (its BENCH_CHAOS_END rc, else th
 CHAOS_BEGIN=""    # node-side begin (unix.ms) of the last chaos action; the local time when it reported none
 KILL_ENTRY=""; KILL_BEGIN=""; BACK_BEGIN=""   # the kill's index in .chaos[]; kill and restart begin times
 BOUNDARY_DONE=0   # 1 once the boundary verdict (chaos_boundary_check) is recorded
+SCHEDULE_REFRESHED=0   # 1 once chaos_schedule_refresh has re-planned the kill in the opened closing epoch
 DONE_LINE=()      # per blaster index: its last "BENCH_BLAST_DONE rc=..." serial line
 PREV_ROUNDS=""    # {"<node>": max tn_primary_round} from the previous poll (Prometheus)
 STALL_POLLS=0; LAST_ADVANCE_TS=0
@@ -580,11 +587,15 @@ record_chaos() {
 
 # chaos_do <idx> <remote-cmd> <action-label> <note> [<planned-unix> [<extra-json>]] — the direct
 # path: one --command at once, recorded by record_chaos (staged=false); CHAOS_RC as there.
+# One session, never retried by the transport (TN_IAP_RETRIES=0, here and in chaos_stage_send): a
+# session that drops after the action ran would run it again seconds later, or late, and each
+# caller already owns its retry (the staged path falls back to this one; an owed restart or
+# unpause is tried again at a later poll).
 chaos_do() {
     local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" rc=0 out
     bench_log "CHAOS ${inst}: $3"
     local remote_cmd="printf 'BENCH_CHAOS_BEGIN node=${inst} '; date -u +%s.%N; { $2; }; action_rc=\$?; printf 'BENCH_CHAOS_END node=${inst} rc=%s ' \"\$action_rc\"; date -u +%s.%N; exit \"\$action_rc\""
-    out="$(tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log")" || rc=$?
+    out="$(TN_IAP_RETRIES=0 tn_iap_ssh "${inst}" "${zone}" "${remote_cmd}" | tee -a "${BENCH_RESULTS_DIR}/chaos-remote.log")" || rc=$?
     [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/      /'
     record_chaos "${inst}" "$3" "$4" "${rc}" "${out}" "${5:-}" false "${6:-}"
 }
@@ -679,7 +690,9 @@ EOS
 
 # chaos_stage_send <idx> <kill|start|restart|true> <due-unix> <log-label|""> — CHAOS_STAGE_SCRIPT on
 # the node; its output on stdout, the ssh rc. Each value is checked here, so every CHAOS_* line
-# the node reads is a plain assignment.
+# the node reads is a plain assignment. The session is never retried by the transport
+# (TN_IAP_RETRIES=0): a re-sent script after a drop past BEGIN would fire the action twice, and
+# one re-sent before it would start late; chaos_staged's fallback to the direct path is the retry.
 chaos_stage_send() {
     local inst="${INSTANCE_NAMES[$1]:-}" zone="${ZONES[$1]:-}"
     case "${inst}" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) echo "❌ chaos_stage_send: no node at index '$1'" >&2; return 2 ;; esac
@@ -689,7 +702,7 @@ chaos_stage_send() {
     case "${BENCH_NODE_LOG_DIR}" in ''|*[!A-Za-z0-9/._-]*) echo "❌ chaos_stage_send: log dir '${BENCH_NODE_LOG_DIR}'" >&2; return 2 ;; esac
     printf 'CHAOS_NODE=%s\nCHAOS_ACTION=%s\nCHAOS_DUE=%s\nCHAOS_SAVE=%s\nCHAOS_LOG_DIR=%s\nCHAOS_MAX_WAIT=%s\nCHAOS_SAVE_WAIT=%s\n%s\n' \
         "${inst}" "$2" "$3" "$4" "${BENCH_NODE_LOG_DIR}" "$(( BENCH_CHAOS_STAGE_SECS + 60 ))" "$(( BENCH_CHAOS_SAVE_WAIT_SECS ))" \
-        "${CHAOS_STAGE_SCRIPT}" | tn_iap_ssh_stdin "${inst}" "${zone}"
+        "${CHAOS_STAGE_SCRIPT}" | TN_IAP_RETRIES=0 tn_iap_ssh_stdin "${inst}" "${zone}"
 }
 
 # chaos_save_report <idx> <log-label|""> <remote-output> — the staged log save's outcome, reported
@@ -1004,6 +1017,56 @@ commit_flat_flush() {
     commit_flat_judge
     [ "${FLAT_STATE}" != stall ] || commit_stall_record "${FLAT_UNTIL}" true
     FLAT_BLOCK=""; FLAT_STATE=""
+}
+
+# chaos_schedule_refresh — epoch timing: the kill re-planned in the closing epoch once that epoch
+# has opened, from its own start (recovery-schedule.py --epoch <closing> --before-close --downtime).
+# The first plan projects the closing epoch at whole durations from the epoch it measured, but a
+# loaded boundary waits for execution (bench 3: 12-26 s without a block), so each epoch in between
+# can open late and the planned kill would land that much more than BENCH_CHAOS_BEFORE_CLOSE_SECS
+# before the real close. No epoch opens before its projected start, so nothing is asked before
+# then. Called at each poll while no kill has happened, and only while the kill is more than
+# BENCH_CHAOS_GUARD_SECS + BENCH_CHAOS_STAGE_SECS away (the rest of the poll still ends before the
+# kill's session opens): it moves t_kill, t_back and t_obs and the kill's `planned`, records
+# .chaos_schedule_refresh (.chaos_schedule stays the first plan) and is done. An epoch not opened
+# yet is asked again at the next poll. The read is bounded so it cannot eat into the kill's margin:
+# it runs only through a tunnel already up (starting one waits longer than the margin allows) and
+# under an alarm of BENCH_CHAOS_REFRESH_TIMEOUT_SECS (20); either miss leaves the plan as it was
+# and is tried again at the next poll. BENCH_CHAOS_REFRESH_SCHEDULE=0 keeps the first plan.
+# Reads do_run's recovery_schedule; sets its t_kill, t_back, t_obs and kill_extra.
+chaos_schedule_refresh() {
+    { [ "${BENCH_CHAOS_REFRESH_SCHEDULE:-1}" = 1 ] && [ -n "${recovery_schedule}" ] && [ "${SCHEDULE_REFRESHED}" -eq 0 ] \
+        && [ -z "${ABORTED}" ] && [ "${RUN_DID_KILL}" -eq 0 ]; } || return 0
+    local now epoch opens rec planned kill back start pidf rc=0 bound="${BENCH_CHAOS_REFRESH_TIMEOUT_SECS:-20}"
+    now="$(bench_now_unix)"
+    [ $(( t_kill - now )) -gt $(( BENCH_CHAOS_GUARD_SECS + BENCH_CHAOS_STAGE_SECS )) ] || return 0
+    read -r epoch opens <<< "$(printf '%s' "${recovery_schedule}" | jq -r '"\(.closing_epoch) \(.boundary_unix - .duration_secs)"')" || true
+    case "${epoch}:${opens}" in *[!0-9:]*|:*|*:) return 0 ;; esac
+    [ "${now}" -ge "${opens}" ] || return 0
+    pidf="$(bench_tunnel_pidfile)"
+    if ! { [ -f "${pidf}" ] && kill -0 "$(cat "${pidf}" 2>/dev/null)" 2>/dev/null; }; then
+        echo "    chaos schedule: the RPC tunnel is not up — not refreshed at this poll"
+        return 0
+    fi
+    rec="$(perl -e 'alarm shift; exec @ARGV' "${bound}" python3 "${DIR}/recovery-schedule.py" --rpc-url "${RPC_URL}" \
+        --epoch "${epoch}" --before-close "${BENCH_CHAOS_BEFORE_CLOSE_SECS}" --downtime "${BENCH_CHAOS_DOWNTIME_SECS}")" || rc=$?
+    if [ "${rc}" -eq 142 ]; then
+        echo "    chaos schedule: no answer from the registry within ${bound}s — not refreshed at this poll"
+        return 0
+    elif [ "${rc}" -ne 0 ]; then
+        echo "    chaos schedule: closing epoch ${epoch} not opened (or not readable) yet — asked again at the next poll"
+        return 0
+    fi
+    read -r kill back start <<< "$(printf '%s' "${rec}" | jq -r '"\(.kill_unix) \(.restart_unix) \(.epoch_start_unix)"')" || true
+    case "${kill}:${back}:${start}" in *[!0-9:]*|:*|*:|*::*) echo "    chaos schedule: unreadable re-plan '${rec}' — the first plan stands"; return 0 ;; esac
+    planned="${t_kill}"
+    t_kill="${kill}"; t_back="${back}"; t_obs=$(( back + BENCH_CHAOS_OBS_AFTER_BACK_SECS ))
+    kill_extra="$(printf '%s' "${rec}" | jq -c '{planned: {closing_epoch, boundary_unix, restart_unix}}')" || kill_extra=""
+    SCHEDULE_REFRESHED=1
+    bench_manifest_jq --argjson p "${planned}" --argjson k "${kill}" --argjson e "${epoch}" --argjson s "${start}" \
+        --arg ts "$(bench_now_iso)" '.chaos_schedule_refresh = {planned_kill_unix: $p, kill_unix: $k,
+            drift_secs: ($k - $p), closing_epoch: $e, epoch_start_unix: $s, ts: $ts}' || true
+    echo "    chaos schedule: epoch ${epoch} opened $(bench_iso_from_unix "${start}"); kill moved $(( kill - planned ))s to $(bench_iso_from_unix "${t_kill}"), restart $(bench_iso_from_unix "${t_back}"), observer restart $(bench_iso_from_unix "${t_obs}")"
 }
 
 # chaos_boundary_check [final] — epoch timing, once the restart is confirmed: the block that opened
@@ -1382,6 +1445,7 @@ do_run() {
 
         if [ "${now}" -ge "${next_poll}" ] && ! poll_deferred "${now}"; then
             bench_log "poll: blasters + node status + obs memory"
+            chaos_schedule_refresh
             if poll_blasters; then all_done=1; else all_done=0; fi
             # nodes: disk + FatalDBFailure from the newest BENCH_STATUS (node-sampler.sh, serial
             # console); block= of every sample since the last poll feeds the commit-flat note only.
@@ -1556,7 +1620,7 @@ do_chaos_stage_test() {
         | bash -n || bench_die "the staged chaos script does not parse (bash -n)"
     echo "    ✓ the staged script parses (bash -n)"
     if [ "${BENCH_APPLY}" != "1" ]; then
-        echo "    + chaos_stage_send ${idx} true <now+${BENCH_CHAOS_STAGE_SECS}s> stage-test: CHAOS_* lines + CHAOS_STAGE_SCRIPT | tn_iap_ssh_stdin ${STAGE_INSTANCE} ${ZONES[$idx]}"
+        echo "    + chaos_stage_send ${idx} true <now+${BENCH_CHAOS_STAGE_SECS}s> stage-test: CHAOS_* lines + CHAOS_STAGE_SCRIPT | TN_IAP_RETRIES=0 tn_iap_ssh_stdin ${STAGE_INSTANCE} ${ZONES[$idx]}"
         echo "      (dry run — not executed; --yes runs it)"
         return 0
     fi

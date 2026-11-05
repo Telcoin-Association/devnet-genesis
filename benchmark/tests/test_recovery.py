@@ -1,7 +1,9 @@
 """Boundary scheduling and fleet watchers with local RPC/command fixtures."""
+import contextlib
 import csv
 import gzip
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -64,6 +66,60 @@ class ScheduleTests(unittest.TestCase):
             with mock.patch.object(schedule, "rpc", side_effect=[dict(number="0x50"), recorded]):
                 with self.assertRaisesRegex(ValueError, "has not opened"):
                     schedule.snapshot("unused", 8)
+
+    def test_refresh_uses_the_opened_epochs_start(self):
+        # Planned from epoch 7 (opened 1000, 1200 s): the kill falls in epoch 8, projected to open at
+        # 2200. Epoch 7's close waited for execution, so epoch 8 opened at 2237: the kill follows it.
+        plan = schedule.schedule(dict(epoch=7, epoch_start_unix=1000, duration_secs=1200), 3000, 59, 300)
+        self.assertEqual((plan["closing_epoch"], plan["kill_unix"]), (8, 3341))
+        opened = dict(epoch=8, block_height=99, epoch_start_unix=2237, duration_secs=1200)
+        fresh = schedule.refresh(opened, 59, 300)
+        self.assertEqual((fresh["closing_epoch"], fresh["kill_unix"], fresh["boundary_unix"], fresh["restart_unix"],
+                          fresh["seconds_before_close"], fresh["downtime_secs"]), (8, 3378, 3437, 3678, 59, 300))
+        self.assertEqual((fresh["epoch_start_unix"], fresh["block_height"]), (2237, 99))
+        # An epoch that opened on time re-plans the kill schedule() projected.
+        self.assertEqual(schedule.refresh(dict(opened, epoch_start_unix=2200), 59, 300)["kill_unix"], plan["kill_unix"])
+        for offset, downtime in ((0, 300), (1200, 1500), (59, 59)):
+            with self.assertRaises(ValueError):
+                schedule.refresh(opened, offset, downtime)
+
+    def test_cli_epoch_read_refresh_form_and_schedule_defaults(self):
+        def rpc(url, method, params):
+            if method == "eth_call":
+                return encoded_epoch(height=42, epoch=8, duration=1200)
+            if params[0] == "latest":
+                return dict(number="0x50")
+            return dict(number=params[0], timestamp=hex(2237), hash="0xabc")
+
+        def main(*argv):
+            out, err, code = io.StringIO(), io.StringIO(), 0
+            with mock.patch.object(schedule, "rpc", rpc), \
+                    mock.patch("sys.argv", ["recovery-schedule.py", "--rpc-url", "unused"] + list(argv)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    schedule.main()
+                except SystemExit as stop:
+                    code = stop.code
+            return code, out.getvalue(), err.getvalue()
+
+        # --epoch alone stays the bare read chaos_boundary_check asks for.
+        code, out, _ = main("--epoch", "8")
+        bare = json.loads(out)
+        self.assertEqual((code, bare["epoch_start_unix"]), (0, 2237))
+        self.assertNotIn("kill_unix", bare)
+        code, out, _ = main("--epoch", "8", "--before-close", "59", "--downtime", "300")
+        fresh = json.loads(out)
+        self.assertEqual((code, fresh["closing_epoch"], fresh["kill_unix"], fresh["restart_unix"]), (0, 8, 3378, 3678))
+        code, out, err = main("--epoch", "9", "--before-close", "59", "--downtime", "300")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("epoch 9 has not opened", err)
+        code, out, err = main("--epoch", "8", "--before-close", "1200", "--downtime", "1500")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("kill offset must be within the epoch", err)
+        # The schedule form keeps its defaults (59 s before the close, 300 s down).
+        code, out, _ = main("--earliest-kill", "3000")
+        plan = json.loads(out)
+        self.assertEqual((code, plan["kill_unix"], plan["restart_unix"]), (0, 3378, 3678))
 
 
 class WatcherTests(unittest.TestCase):
@@ -427,6 +483,156 @@ bench_manifest_jq '.chaos = [{"action": "docker kill -s KILL telcoin"}]'
         run = self.boundary("EPOCH_START=1059; chaos_boundary_check final\n", schedule="")
         self.assertEqual((run["calls"], run["manifest"]["chaos"][0], run["manifest"]["notes"]),
                          ("", {"action": "docker kill -s KILL telcoin"}, []))
+
+    # A fake gcloud for the chaos sessions: it logs each session's shape (staged: `sudo bash -s` with
+    # the script on stdin; direct: the action in --command), fails the first FAIL_FIRST with ssh rc
+    # 255 (a transport fault, which devnet-lib retries) and runs the rest here as the node would.
+    GCLOUD = r'''cmd=""; for a in "$@"; do case "$a" in --command=*) cmd="${a#--command=}" ;; esac; done
+n=$(( $(grep -c "^session " "$CALLS" 2>/dev/null) + 1 ))
+if [ "$cmd" = "sudo bash -s" ]; then echo "session staged" >> "$CALLS"; else echo "session direct" >> "$CALLS"; fi
+if [ "$n" -le "$FAIL_FIRST" ]; then cat > /dev/null; echo "ssh: connect to host: Connection timed out" >&2; exit 255; fi
+exec bash -c "$cmd"'''
+
+    def chaos_sessions(self, fail_first):
+        """The kill through devnet-lib's real IAP wrappers; the sessions the fake gcloud saw."""
+        run = run_chaos_shell(self.STAGED + r'''
+PROJECT_ID=bench-test; TN_SSH_TRANSPORT=iap; CONFIG_FILE=/dev/null
+source "@LIB@"
+# devnet-lib's default (2 more attempts on a transport fault) is in force: these tests count the
+# sessions to prove the chaos sessions pin TN_IAP_RETRIES=0 themselves, so it is not pinned here.
+TN_IAP_RETRIES=2; TN_IAP_RETRY_SECS=0; export FAIL_FIRST=@FAIL@
+DUE=$(( $(date +%s) - 1 ))
+chaos_staged 0 kill "$DUE" pre-kill "docker kill -s KILL telcoin" "kill note"
+echo "RC $CHAOS_RC"
+'''.replace("@LIB@", str(BENCH.parent / "devnet-lib.sh")).replace("@FAIL@", str(fail_first)),
+            stubs=dict(NODE_STUBS, gcloud=self.GCLOUD))
+        sessions = [line.split()[1] for line in run["calls"].splitlines() if line.startswith("session ")]
+        return run, sessions
+
+    def test_chaos_sessions_never_retry_the_transport(self):
+        # The staged session drops before BEGIN: no second staged session (a re-sent script could
+        # fire twice, or late); the staged path's own fallback, the direct path, is the retry.
+        run, sessions = self.chaos_sessions(1)
+        self.assertEqual(sessions, ["staged", "direct"])
+        self.assertIn("failed before it began (rc=255)", run["out"])
+        self.assertIn("RC 0", run["out"])
+        entry, = run["manifest"]["chaos"]
+        self.assertEqual((entry["staged"], entry["rc"]), (False, 0))
+        self.assertIn("docker kill -s KILL telcoin", run["calls"])
+        # The direct session drops too: recorded as failed, not sent again; the caller owns that retry.
+        run, sessions = self.chaos_sessions(2)
+        self.assertEqual(sessions, ["staged", "direct"])
+        self.assertIn("RC 255", run["out"])
+        entry, = run["manifest"]["chaos"]
+        self.assertEqual((entry["staged"], entry["rc"], entry["begin_unix"]), (False, 255, None))
+        self.assertNotIn("docker kill", run["calls"])
+
+    # recovery-schedule.py as the refresh runs it (under perl's alarm, so a file, not a function): logs
+    # its argv, sleeps RS_SLEEP, refuses until EPOCH_START is set, then answers with the real refresh().
+    FAKE_RECOVERY_SCHEDULE = r"""
+import importlib.util, json, os, sys, time
+with open(os.environ["CALLS"], "a") as calls:
+    calls.write("recovery-schedule.py " + " ".join(sys.argv[1:]) + "\n")
+time.sleep(float(os.environ["RS_SLEEP"]))
+if not os.environ["EPOCH_START"]:
+    sys.exit("cannot measure recovery schedule: epoch 8 has not opened")
+spec = importlib.util.spec_from_file_location("rs", os.environ["RS_REAL"])
+rs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rs)
+opt = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+info = dict(epoch=8, block_height=99, duration_secs=1200, epoch_start_unix=int(os.environ["EPOCH_START"]))
+print(json.dumps(rs.refresh(info, int(opt["--before-close"]), int(opt["--downtime"]))))
+"""
+    REFRESH = blast_functions("chaos_schedule_refresh", "next_action_due") + r'''
+bench_now_unix() { echo "$NOW"; }
+bench_tunnel_pidfile() { printf '%s' "$WORK/tunnel.pid"; }
+echo "$$" > "$WORK/tunnel.pid"                   # the tunnel is up
+DIR="$WORK"; RPC_URL=http://unused
+cat > "$DIR/recovery-schedule.py" <<'EOF'
+@FAKE@
+EOF
+export EPOCH_START="" RS_SLEEP=0 RS_REAL="@REAL@"
+chaos_on=1; RUN_DID_BACK=0; RUN_DID_OBS=0
+PLAN='{"epoch":7,"duration_secs":1200,"closing_epoch":8,"kill_unix":3341,"boundary_unix":3400,"restart_unix":3641}'
+recovery_schedule="$PLAN"; ABORTED=""; RUN_DID_KILL=0; SCHEDULE_REFRESHED=0
+BENCH_CHAOS_BEFORE_CLOSE_SECS=59; BENCH_CHAOS_DOWNTIME_SECS=300; BENCH_CHAOS_OBS_AFTER_BACK_SECS=300
+t_kill=3341; t_back=3641; t_obs=3941
+kill_extra='{"planned":{"closing_epoch":8,"boundary_unix":3400,"restart_unix":3641}}'
+show() { echo "T $t_kill $t_back $t_obs R $SCHEDULE_REFRESHED X $kill_extra"; }
+bench_manifest_jq '.chaos_schedule = {"kill_unix": 3341}'
+'''.replace("@FAKE@", FAKE_RECOVERY_SCHEDULE.strip()).replace("@REAL@", str(BENCH / "recovery-schedule.py"))
+    ORIGINAL = 'T 3341 3641 3941 R 0 X {"planned":{"closing_epoch":8,"boundary_unix":3400,"restart_unix":3641}}'
+    REFRESHED = 'T 3378 3678 3978 R 1 X {"planned":{"closing_epoch":8,"boundary_unix":3437,"restart_unix":3678}}'
+
+    def test_schedule_refresh_moves_the_kill_once_the_closing_epoch_has_opened(self):
+        run = run_chaos_shell(self.REFRESH + r'''
+NOW=2100; chaos_schedule_refresh; show           # before epoch 8's projected start (2200): not asked
+NOW=2300; chaos_schedule_refresh; show           # asked: not opened yet
+EPOCH_START=2237; NOW=2540; chaos_schedule_refresh; show     # opened 37 s late
+NOW=2800; chaos_schedule_refresh; show           # re-planned once: not asked again
+''')
+        self.assertEqual(run["out"].splitlines(), [
+            self.ORIGINAL,
+            "    chaos schedule: closing epoch 8 not opened (or not readable) yet — asked again at the next poll",
+            self.ORIGINAL,
+            "    chaos schedule: epoch 8 opened 1970-01-01T00:37:17Z; kill moved 37s to 1970-01-01T00:56:18Z, "
+            "restart 1970-01-01T01:01:18Z, observer restart 1970-01-01T01:06:18Z",
+            self.REFRESHED, self.REFRESHED])
+        self.assertEqual(run["calls"].splitlines(),
+                         ["recovery-schedule.py --rpc-url http://unused --epoch 8 --before-close 59 --downtime 300"] * 2)
+        refresh = run["manifest"]["chaos_schedule_refresh"]
+        self.assertRegex(refresh.pop("ts"), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(refresh, dict(planned_kill_unix=3341, kill_unix=3378, drift_secs=37, closing_epoch=8,
+                                       epoch_start_unix=2237))
+        self.assertEqual(run["manifest"]["chaos_schedule"], dict(kill_unix=3341))   # the first plan stays
+        # do_run asks at the start of every poll, before the poll's reads.
+        source = (BENCH / "benchmark-blast.sh").read_text()
+        self.assertRegex(source, r'bench_log "poll: [^"]*"\n\s+chaos_schedule_refresh\n\s+if poll_blasters; then')
+
+    def test_schedule_refresh_skipped_near_the_kill_after_it_and_without_epoch_timing(self):
+        run = run_chaos_shell(self.REFRESH + r'''
+EPOCH_START=2237
+NOW=3221; chaos_schedule_refresh                 # 120 s before the kill: within GUARD 90 + STAGE 30
+NOW=2540
+BENCH_CHAOS_REFRESH_SCHEDULE=0; chaos_schedule_refresh
+BENCH_CHAOS_REFRESH_SCHEDULE=1; RUN_DID_KILL=1; chaos_schedule_refresh
+RUN_DID_KILL=0; ABORTED=quorum-lost; chaos_schedule_refresh
+ABORTED=""; recovery_schedule=""; chaos_schedule_refresh       # mixed timing
+show
+recovery_schedule="$PLAN"; NOW=3220; chaos_schedule_refresh >/dev/null; show   # 121 s: still in time
+''')
+        self.assertEqual(run["out"].splitlines(), [self.ORIGINAL, self.REFRESHED])
+        self.assertEqual(len(run["calls"].splitlines()), 1)
+        self.assertEqual(run["manifest"]["chaos_schedule_refresh"]["drift_secs"], 37)
+
+    def test_schedule_refresh_is_bounded_and_needs_the_tunnel_up(self):
+        # A registry read that hangs past the bound, then a tunnel down (no pid file, then a dead
+        # pid): the poll goes on, nothing is recorded, the kill stays due at the first plan's time;
+        # the next poll that finds the tunnel up and an answer in time re-plans it.
+        run = run_chaos_shell(self.REFRESH + r'''
+BENCH_CHAOS_REFRESH_TIMEOUT_SECS=1; EPOCH_START=2237; NOW=2540; RS_SLEEP=5
+t0=$(date +%s); chaos_schedule_refresh; echo "ELAPSED $(( $(date +%s) - t0 ))"; show
+echo "RECORDED $(jq -c '.chaos_schedule_refresh // "none"' "$MANIFEST")"
+echo "DUE $(next_action_due)"
+RS_SLEEP=0
+rm "$WORK/tunnel.pid"; chaos_schedule_refresh; show
+( exit 0 ) & dead=$!; wait "$dead"; echo "$dead" > "$WORK/tunnel.pid"; chaos_schedule_refresh; show
+echo "$$" > "$WORK/tunnel.pid"; NOW=2780; chaos_schedule_refresh; show
+''')
+        lines = run["out"].splitlines()
+        elapsed = int(lines[1].split()[1])
+        self.assertLess(elapsed, 4)                      # the alarm, not the 5 s hang
+        del lines[1]
+        self.assertEqual(lines, [
+            "    chaos schedule: no answer from the registry within 1s — not refreshed at this poll",
+            self.ORIGINAL, 'RECORDED "none"', "DUE 3341 kill",
+            "    chaos schedule: the RPC tunnel is not up — not refreshed at this poll", self.ORIGINAL,
+            "    chaos schedule: the RPC tunnel is not up — not refreshed at this poll", self.ORIGINAL,
+            "    chaos schedule: epoch 8 opened 1970-01-01T00:37:17Z; kill moved 37s to 1970-01-01T00:56:18Z, "
+            "restart 1970-01-01T01:01:18Z, observer restart 1970-01-01T01:06:18Z",
+            self.REFRESHED])
+        self.assertEqual(len(run["calls"].splitlines()), 2)   # the hung read and the last one
+        self.assertEqual(run["manifest"]["chaos_schedule_refresh"]["kill_unix"], 3378)
 
 
 class CommitFlatTests(unittest.TestCase):
