@@ -334,6 +334,17 @@ class DefaultModeTests(FinalizeCase):
         self.assertEqual(self.pairs(), per_node(PHASE_A, INSTS[1:2])
                          + per_node(PHASE_B[:6] + PHASE_B[5:], INSTS[1:2]))
 
+    def test_unresolvable_external_ip_fails_that_node_only(self):
+        # D4: an API fault on node1's external-IP describe fails node1; the run goes on.
+        self.fault(0, describe_fails={"external": 1})
+        p = self.finalize()
+        self.assertEqual(self.pairs(), per_node(PHASE_A[:7], INSTS[:1]) + per_node(PHASE_A, INSTS[1:])
+                         + per_node(PHASE_B, INSTS[1:]), "the run stopped at node1's describe" + self.why())
+        self.assertExit(1)
+        self.assertIn("❌ [node1] could not resolve external IP for the advertised multiaddrs", p.stdout)
+        self.assertIn("failed (1):\n  - node1: external IP\n", p.stdout)
+        self.assertEqual(self.unit(0), (False, "inactive", ""))
+
 
 class StageOnlyTests(FinalizeCase):
     """--stage-only: phase A, then the stop; PRESTAGED / RUNNING skips; no phase B."""
@@ -469,6 +480,25 @@ class StageOnlyTests(FinalizeCase):
         self.assertEqual(self.pairs(), per_node(STAGE, INSTS[:1]) + per_node(PHASE_A[:-1], INSTS[1:2])
                          + per_node(STAGE, INSTS[2:]))
         self.assertIn("  - node2: finalize", p.stdout)
+
+    def test_unresolvable_internal_ip_fails_that_node_only(self):
+        # U-H7 mutation anchor (D4): `intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""`.
+        # Without the `|| intIP=""`, node2's describe (rc 1, an API error, not a transport
+        # fault) ends the whole run under `set -e`: node3 is never staged and no summary prints.
+        self.fault(1, describe_fails={"internal": 1})
+        p = self.finalize("--stage-only")
+        self.assertEqual([c["kind"] for c in self.calls(inst=INSTS[2])], list(STAGE),
+                         "node3 was not staged after node2's describe failed" + self.why())
+        self.assertExit(1)
+        self.assertIn("❌ [node2] could not resolve internal IP for listener multiaddrs", p.stdout)
+        self.assertIn("Could not fetch resource", p.stderr)
+        self.assertEqual(self.pairs(), per_node(STAGE, INSTS[:1]) + per_node(PHASE_A[:6], INSTS[1:2])
+                         + per_node(STAGE, INSTS[2:]))
+        self.assertEqual([c["drop"] for c in self.calls("describe", INSTS[1])], ["api-rc1"])
+        self.assertEqual(self.lines("STAGED"), ["STAGED %s state=inactive enabled=enabled" % i
+                                                for i in (INSTS[0], INSTS[2])])
+        self.assertEqual(self.unit(1), (False, "inactive", ""))
+        self.assertIn("failed (1):\n  - node2: internal IP\n", p.stdout)
 
 
 class StartAllTests(FinalizeCase):

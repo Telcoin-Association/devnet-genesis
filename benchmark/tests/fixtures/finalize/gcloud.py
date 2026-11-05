@@ -9,6 +9,9 @@ Installed as <sandbox>/bin/gcloud. Every node lives in $FIN_SB:
                        node scripts fetched, keygen done, no unit.
   faults/<inst>.json   what this node does wrong (all optional):
                        "fail255": {"<kind>": N}     the next N calls of that kind exit 255, no output
+                       "describe_fails": {"internal"|"external": N}  the next N describes of
+                                                    that IP exit 1 with an API error on stderr
+                                                    (not a transport fault: never retried)
                        "finalize_fails": true       setup-node.sh's done event says ok:false (rc 1)
                        "nrestarts_after_finalize": N  the unit finalize starts reports NRestarts=N
                        "stop_leaves_failed": true   `systemctl stop` leaves ActiveState=failed (the
@@ -27,7 +30,7 @@ Installed as <sandbox>/bin/gcloud. Every node lives in $FIN_SB:
   calls.jsonl          one JSON object per call, written when the call begins: seq, t, argv,
                        stdin, inst, kind, cmd (the ssh --command), pargs (a probe's arguments),
                        key (a .node-meta read), injected255, drop (connect | drop_after_send |
-                       drop_after_due | "")
+                       drop_after_due | api-rc1 | "")
   node.jsonl           one JSON object (seq, t, inst, argv) per `systemctl` the start-at text runs
   transitions.jsonl    one JSON object per change of a unit's state: seq, t, inst, kind, before,
                        after (each {"active", "enabled", "installed"})
@@ -291,7 +294,11 @@ def main():
 
     with Locked():
         faults = load("faults", inst, {}) if inst else {}
-        if faults.get("fail255", {}).get(kind, 0) > 0:
+        which = ("external" if "natIP" in " ".join(args) else "internal") if kind == "describe" else ""
+        if faults.get("describe_fails", {}).get(which, 0) > 0:
+            faults["describe_fails"][which] -= 1
+            record["drop"] = "api-rc1"
+        elif faults.get("fail255", {}).get(kind, 0) > 0:
             faults["fail255"][kind] -= 1
             record["drop"] = "connect"
         elif kind == "start-at":
@@ -302,8 +309,12 @@ def main():
                     break
         if record["drop"]:
             save("faults", inst, faults)
-            record["injected255"] = True
+            record["injected255"] = record["drop"] != "api-rc1"
         append("calls.jsonl", record)
+    if record["drop"] == "api-rc1":
+        sys.stderr.write("ERROR: (gcloud.compute.instances.describe) Could not fetch resource:\n"
+                         " - fake API fault for %s\n" % inst)
+        return 1
     if record["drop"] == "connect":
         sys.stderr.write("ssh: connection to %s closed by remote host (fake 255)\n" % inst)
         return 255

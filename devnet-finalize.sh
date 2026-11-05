@@ -1072,7 +1072,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     # The node binds its P2P listeners to the INTERNAL IP (mirrors devnet-keygen.sh's
     # --listener-*). v2 writes them to /etc/telcoin/node.env, and finalize refuses to run
     # without both (an empty one would start a node with no listener).
-    intIP="$(tn_node_int_ip "${inst}" "${zone}")"
+    intIP="$(tn_node_int_ip "${inst}" "${zone}")" || intIP=""
     if [ -z "${intIP}" ]; then
         echo "❌ [${node}] could not resolve internal IP for listener multiaddrs"
         failed+=("${node}: internal IP"); continue
@@ -1080,7 +1080,7 @@ for i in ${PHASE_A[@]+"${PHASE_A[@]}"}; do
     # Finalize rewrites PUBLIC_IP / EXTERNAL_PRIMARY_ADDR / EXTERNAL_WORKER_ADDR in
     # .node-meta from its OWN flags (keygen does not keep them), so pass the same values
     # keygen passed or the fields stay empty for the UI and update tooling.
-    extIP="$(tn_node_ext_ip "${inst}" "${zone}")"
+    extIP="$(tn_node_ext_ip "${inst}" "${zone}")" || extIP=""
     if [ -z "${extIP}" ]; then
         echo "❌ [${node}] could not resolve external IP for the advertised multiaddrs"
         failed+=("${node}: external IP"); continue
