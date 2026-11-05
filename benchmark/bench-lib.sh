@@ -121,7 +121,8 @@ _bench_git_head() {
 # bench_manifest_init — write the tn-bench-manifest/v1 skeleton (never overwrites, so a
 # --from resume keeps the timestamps already recorded). harness records this checkout: its HEAD,
 # whether tracked files differ from it (dirty; untracked files do not count), and the HEADs of
-# the common and tn-node-deployment submodules (null when not available).
+# the common and tn-node-deployment submodules (null when not available). prometheus.grafana_url is
+# BENCH_GRAFANA_URL: the local forward to the run's bench-obs Grafana (bench_obs_tunnel_up).
 bench_manifest_init() {
     local f st dirty=null; f="$(bench_manifest)"
     mkdir -p "${BENCH_RESULTS_DIR}"
@@ -177,6 +178,16 @@ if [ ! -r "${BENCH_LIB_DIR}/pull-lib.sh" ]; then
 fi
 # shellcheck source=pull-lib.sh
 . "${BENCH_LIB_DIR}/pull-lib.sh"
+
+# The bench-obs VM (the run's own Prometheus + Grafana: create, boot, bring-up, its two local
+# forwards, the Prometheus snapshot pull) lives beside this file too. Every Prometheus read of the
+# run goes to it, so a missing or unreadable copy stops here the same way.
+if [ ! -r "${BENCH_LIB_DIR}/obs-lib.sh" ]; then
+    echo "❌ bench-lib.sh: ${BENCH_LIB_DIR}/obs-lib.sh is missing or unreadable — refusing to run." >&2
+    exit 1
+fi
+# shellcheck source=obs-lib.sh
+. "${BENCH_LIB_DIR}/obs-lib.sh"
 
 # --- files ------------------------------------------------------------------------------
 # bench_file_sha256 <file> — the file's SHA-256 in lower-case hex (shasum or sha256sum,
@@ -921,14 +932,15 @@ bench_pull_node_logs() {
     echo "    ✓ logs of ${#INSTANCE_NAMES[@]} nodes in ${dest}"
 }
 
-# --- operator-side RPC tunnel (IAP -> bench-validator-01:8545 on localhost) --------
+# --- operator-side tunnels (IAP -> bench-validator-01:8545, bench-obs:9090/3000 on localhost) ----
 bench_tunnel_pidfile() { printf '%s' "${BENCH_RESULTS_DIR}/tunnel.pid"; }
 
-# BENCH_TUNNEL_SUPERVISOR — the ssh-mode tunnel supervisor, run by bench_tunnel_up as
-#   bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor <inst> <zone> <project> <local port>
+# BENCH_TUNNEL_SUPERVISOR — the ssh-mode tunnel supervisor, run by _bench_tunnel_start as
+#   bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor <inst> <zone> <project> <local port> <host:port>
 # in its own session, appending to tunnel.log. One IAP ssh session carries a local port-forward to
-# <inst>:8545, shared by every RPC request. Each start logs
-#   tunnel: start <ISO> mode=ssh target=<inst>:8545 local=<port> pid=<ssh pid>
+# <host:port> as seen from <inst> (the RPC tunnel: 127.0.0.1:8545), shared by every request. Each
+# start logs
+#   tunnel: start <ISO> mode=ssh target=<inst>:<port> local=<local port> pid=<ssh pid>
 # and each exit `tunnel: exit <ISO> rc= up=<s>s fails=<n>/<max>`. A session that stayed up at least
 # BENCH_TUNNEL_MIN_UP_SECS (20) is a drop, not a failure: the count of consecutive failures starts
 # again. After BENCH_TUNNEL_MAX_FAILS (5) consecutive failures it gives up (exit 1). After every exit
@@ -941,12 +953,12 @@ while :; do
     [ "${fails}" -lt "${BENCH_TUNNEL_MAX_FAILS:-5}" ] || { echo "tunnel: giving up after ${fails} consecutive failures at $(date -u +%Y-%m-%dT%H:%M:%SZ)"; exit 1; }
     t0="$(date +%s)"
     gcloud compute ssh "$1" --zone="$2" --project="$3" --tunnel-through-iap \
-        --ssh-flag="-N" --ssh-flag="-L" --ssh-flag="localhost:$4:127.0.0.1:8545" \
+        --ssh-flag="-N" --ssh-flag="-L" --ssh-flag="localhost:$4:$5" \
         --ssh-flag="-o ServerAliveInterval=15" --ssh-flag="-o ServerAliveCountMax=3" \
         --ssh-flag="-o ExitOnForwardFailure=yes" --ssh-flag="-o StrictHostKeyChecking=accept-new" \
         </dev/null &
     child=$!
-    echo "tunnel: start $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=ssh target=$1:8545 local=$4 pid=${child}"
+    echo "tunnel: start $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=ssh target=$1:${5##*:} local=$4 pid=${child}"
     rc=0; wait "${child}" || rc=$?
     up=$(( $(date +%s) - t0 ))
     if [ "${up}" -ge "${BENCH_TUNNEL_MIN_UP_SECS:-20}" ]; then fails=0; else fails=$((fails + 1)); fi
@@ -960,45 +972,77 @@ while :; do
 done
 EOS
 
+# _bench_tunnel_start <pidfile> <inst> <zone> <local-port> <remote-host:port> <probe-cmd> <desc> — one
+# supervised ssh-mode forward, localhost:<local-port> -> <remote-host:port> as seen from <inst>
+# (bench_tunnel_up's RPC tunnel; obs-lib.sh's bench_obs_tunnel_up for bench-obs:9090 and :3000).
+# <pidfile>'s process alive: says so and returns 0. Else prints the plan line; a dry run
+# (BENCH_APPLY != 1) stops there with rc 0. Otherwise BENCH_TUNNEL_SUPERVISOR in its own session
+# (the pidfile holds the supervisor, a session leader, so bench_tunnel_down kills the whole group;
+# its $0 is tn-bench-tunnel-supervisor so the teardown's pgrep finds it), appending to tunnel.log,
+# then up to 45 s for `eval <probe-cmd>` to succeed through it (rc 0 with the ✓ line naming <desc>);
+# a supervisor that exits or a probe that never answers is rc 1. The supervisor outlives its caller,
+# so it is born with fds 5 and 6 closed: the deploy's log descriptors stay the deploy's own, and its
+# EXIT trap can still write its result line to them.
+_bench_tunnel_start() {
+    local pidf="$1" inst="$2" zone="$3" lport="$4" target="$5" probe="$6" desc="$7" pid waited=0
+    local maxf="${BENCH_TUNNEL_MAX_FAILS:-5}" minup="${BENCH_TUNNEL_MIN_UP_SECS:-20}"
+    if [ -f "${pidf}" ] && kill -0 "$(cat "${pidf}")" 2>/dev/null; then
+        echo "    tunnel already up (pid $(cat "${pidf}")) -> ${desc}"; return 0
+    fi
+    case "${maxf}" in ''|*[!0-9]*|0*) bench_warn "BENCH_TUNNEL_MAX_FAILS='${maxf}' is not a positive integer — using 5"; maxf=5 ;; esac
+    case "${minup}" in ''|*[!0-9]*) bench_warn "BENCH_TUNNEL_MIN_UP_SECS='${minup}' is not a whole number of seconds — using 20"; minup=20 ;; esac
+    printf '    + gcloud compute ssh %s --zone=%s --project=%s --tunnel-through-iap --ssh-flag=-N --ssh-flag=-L --ssh-flag=localhost:%s:%s ... &   (supervised: restarted on a drop, gives up after %s consecutive failures shorter than %s s or when the instance is gone; >> %s)\n' \
+        "${inst}" "${zone}" "${PROJECT_ID}" "${lport}" "${target}" "${maxf}" "${minup}" "${BENCH_RESULTS_DIR}/tunnel.log"
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
+    mkdir -p "${BENCH_RESULTS_DIR}"
+    BENCH_TUNNEL_MAX_FAILS="${maxf}" BENCH_TUNNEL_MIN_UP_SECS="${minup}" \
+        nohup setsid bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor \
+        "${inst}" "${zone}" "${PROJECT_ID}" "${lport}" "${target}" \
+        5>&- 6>&- >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    pid=$!
+    echo "${pid}" > "${pidf}"
+    while [ "${waited}" -lt 45 ]; do
+        if eval "${probe}" >/dev/null 2>&1; then
+            echo "    ✓ tunnel up (pid ${pid}) -> ${desc}"; return 0
+        fi
+        kill -0 "${pid}" 2>/dev/null || break
+        sleep 3; waited=$((waited + 3))
+    done
+    echo "❌ IAP tunnel to ${inst}:${target##*:} did not come up; see ${BENCH_RESULTS_DIR}/tunnel.log" >&2
+    return 1
+}
+
 # bench_tunnel_up — the local RPC tunnel to INSTANCE_NAMES[0]:8545 on localhost:BENCH_TUNNEL_PORT.
-# BENCH_TUNNEL_MODE=ssh (default): BENCH_TUNNEL_SUPERVISOR in its own session (the pidfile holds the
-# supervisor, a session leader, so bench_tunnel_down kills the whole group; its $0 is
-# tn-bench-tunnel-supervisor so the teardown's pgrep finds it). Any other value: one
-# `gcloud compute start-iap-tunnel` (a websocket per connection; about 1 connection in 50 was lost on
-# 2026-11-03, SSL WRONG_VERSION_NUMBER on the handshake, which is why ssh is the default). Both append
-# to tunnel.log, one `tunnel: start <ISO> mode= target= local= pid=` line per start. The plan line
-# names the command of the mode in use. Waits up to 45 s for `cast chain-id` through it.
+# BENCH_TUNNEL_MODE=ssh (default): _bench_tunnel_start, probed with `cast chain-id`. Any other
+# value: one `gcloud compute start-iap-tunnel` (a websocket per connection; about 1 connection in 50
+# was lost on 2026-11-03, SSL WRONG_VERSION_NUMBER on the handshake, which is why ssh is the
+# default). Both append to tunnel.log, one `tunnel: start <ISO> mode= target= local= pid=` line per
+# start. The plan line names the command of the mode in use. Waits up to 45 s for `cast chain-id`
+# through it.
 bench_tunnel_up() {
     local pidf pid waited=0 mode="${BENCH_TUNNEL_MODE:-ssh}" maxf="${BENCH_TUNNEL_MAX_FAILS:-5}" minup="${BENCH_TUNNEL_MIN_UP_SECS:-20}"
     pidf="$(bench_tunnel_pidfile)"
+    if [ "${mode}" = "ssh" ]; then
+        # shellcheck disable=SC2016  # the probe is eval'd by _bench_tunnel_start
+        _bench_tunnel_start "${pidf}" "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${BENCH_TUNNEL_PORT}" "127.0.0.1:8545" \
+            'cast chain-id --rpc-url "${RPC_URL}"' "${RPC_URL}"
+        return
+    fi
     if [ -f "${pidf}" ] && kill -0 "$(cat "${pidf}")" 2>/dev/null; then
         echo "    tunnel already up (pid $(cat "${pidf}")) -> ${RPC_URL}"; return 0
     fi
     case "${maxf}" in ''|*[!0-9]*|0*) bench_warn "BENCH_TUNNEL_MAX_FAILS='${maxf}' is not a positive integer — using 5"; maxf=5 ;; esac
     case "${minup}" in ''|*[!0-9]*) bench_warn "BENCH_TUNNEL_MIN_UP_SECS='${minup}' is not a whole number of seconds — using 20"; minup=20 ;; esac
-    if [ "${mode}" = "ssh" ]; then
-        printf '    + gcloud compute ssh %s --zone=%s --project=%s --tunnel-through-iap --ssh-flag=-N --ssh-flag=-L --ssh-flag=localhost:%s:127.0.0.1:8545 ... &   (supervised: restarted on a drop, gives up after %s consecutive failures shorter than %s s or when the instance is gone; >> %s)\n' \
-            "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" "${maxf}" "${minup}" "${BENCH_RESULTS_DIR}/tunnel.log"
-    else
-        printf '    + gcloud compute start-iap-tunnel %s 8545 --local-host-port=localhost:%s --zone=%s --project=%s &   (BENCH_TUNNEL_MODE=%s; >> %s)\n' \
-            "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${PROJECT_ID}" "${mode}" "${BENCH_RESULTS_DIR}/tunnel.log"
-    fi
+    printf '    + gcloud compute start-iap-tunnel %s 8545 --local-host-port=localhost:%s --zone=%s --project=%s &   (BENCH_TUNNEL_MODE=%s; >> %s)\n' \
+        "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${PROJECT_ID}" "${mode}" "${BENCH_RESULTS_DIR}/tunnel.log"
     if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
     mkdir -p "${BENCH_RESULTS_DIR}"
-    if [ "${mode}" = "ssh" ]; then
-        BENCH_TUNNEL_MAX_FAILS="${maxf}" BENCH_TUNNEL_MIN_UP_SECS="${minup}" \
-            nohup setsid bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor \
-            "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" \
-            >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
-        pid=$!
-    else
-        nohup gcloud compute start-iap-tunnel "${INSTANCE_NAMES[0]}" 8545 \
-            --local-host-port="localhost:${BENCH_TUNNEL_PORT}" --zone="${ZONES[0]}" --project="${PROJECT_ID}" \
-            >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
-        pid=$!
-        echo "tunnel: start $(bench_now_iso) mode=websocket target=${INSTANCE_NAMES[0]}:8545 local=${BENCH_TUNNEL_PORT} pid=${pid}" \
-            >> "${BENCH_RESULTS_DIR}/tunnel.log"
-    fi
+    nohup gcloud compute start-iap-tunnel "${INSTANCE_NAMES[0]}" 8545 \
+        --local-host-port="localhost:${BENCH_TUNNEL_PORT}" --zone="${ZONES[0]}" --project="${PROJECT_ID}" \
+        5>&- 6>&- >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    pid=$!
+    echo "tunnel: start $(bench_now_iso) mode=websocket target=${INSTANCE_NAMES[0]}:8545 local=${BENCH_TUNNEL_PORT} pid=${pid}" \
+        >> "${BENCH_RESULTS_DIR}/tunnel.log"
     echo "${pid}" > "${pidf}"
     while [ "${waited}" -lt 45 ]; do
         if cast chain-id --rpc-url "${RPC_URL}" >/dev/null 2>&1; then
@@ -1011,26 +1055,43 @@ bench_tunnel_up() {
     return 1
 }
 
+# bench_tunnel_down — stops every tunnel of the run: the RPC tunnel (bench_tunnel_pidfile) and every
+# other ${BENCH_RESULTS_DIR}/tunnel*.pid (the bench-obs forwards), each pidfile removed after.
 bench_tunnel_down() {
-    local pidf p; pidf="$(bench_tunnel_pidfile)"
-    if [ -f "${pidf}" ]; then
-        p="$(cat "${pidf}")"
+    local rpcf pidf p what; rpcf="$(bench_tunnel_pidfile)"
+    for pidf in "${rpcf}" "${BENCH_RESULTS_DIR}"/tunnel*.pid; do
+        [ -f "${pidf}" ] || continue
+        p="$(cat "${pidf}")"; what=""
+        [ "${pidf}" = "${rpcf}" ] || what=" (${pidf##*/})"
         # the ssh-mode supervisor is a session leader: kill its whole group (supervisor + gcloud + ssh)
-        { kill -- -"${p}" 2>/dev/null || kill "${p}" 2>/dev/null; } && echo "    stopped tunnel pid ${p}"
+        { kill -- -"${p}" 2>/dev/null || kill "${p}" 2>/dev/null; } && echo "    stopped tunnel pid ${p}${what}"
         rm -f "${pidf}"
-    fi
+    done
 }
 
-# --- Prometheus (obs-devnet, through the Grafana datasource proxy) -----------------
-# bench_prom_query <promql> — raw JSON. The Grafana admin password comes from Secret
-# Manager and reaches curl on STDIN (-K -), never on a command line.
+# --- Prometheus (bench-obs through its local forward; obs-devnet through the Grafana proxy) ----
+# bench_prom_query <promql> — raw JSON. BENCH_PROM_AUTH=0 (the default): the run's own bench-obs
+# Prometheus API at BENCH_PROM_URL (the local forward of bench_obs_tunnel_up), no credentials.
+# BENCH_PROM_AUTH=1: through the Grafana datasource proxy at BENCH_GRAFANA_URL; the Grafana admin
+# password comes from Secret Manager and reaches curl on STDIN (-K -), never on a command line.
+# That password is obs-devnet's, so a BENCH_GRAFANA_URL on the local bench-obs forward is refused
+# before the secret is read: it must never be sent to another Grafana.
 bench_prom_query() {
     local pw esc
-    pw="$(tn_secret "${OBS_GRAFANA_SECRET_NAME}")" || return 1
-    esc="$(printf '%s' "${pw}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-    printf 'user = "admin:%s"\n' "${esc}" | curl -sS --max-time 20 -K - --get \
-        --data-urlencode "query=$1" \
-        "${BENCH_GRAFANA_URL}/api/datasources/proxy/uid/${BENCH_PROM_DATASOURCE_UID}/api/v1/query"
+    if [ "${BENCH_PROM_AUTH:-0}" = 0 ]; then
+        curl -sS --max-time 20 --get --data-urlencode "query=$1" "${BENCH_PROM_URL}/query"
+    else
+        case "${BENCH_GRAFANA_URL}" in
+            http://127.0.0.1:*|http://localhost:*)
+                echo "❌ bench_prom_query: BENCH_PROM_AUTH=1 needs BENCH_GRAFANA_URL to point at the obs-devnet Grafana, not the bench-obs forward (${BENCH_GRAFANA_URL})" >&2
+                return 1 ;;
+        esac
+        pw="$(tn_secret "${OBS_GRAFANA_SECRET_NAME}")" || return 1
+        esc="$(printf '%s' "${pw}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        printf 'user = "admin:%s"\n' "${esc}" | curl -sS --max-time 20 -K - --get \
+            --data-urlencode "query=$1" \
+            "${BENCH_GRAFANA_URL}/api/datasources/proxy/uid/${BENCH_PROM_DATASOURCE_UID}/api/v1/query"
+    fi
 }
 
 # bench_prom_rounds <min|max> — {"<node>": epoch*1e8+round, ...} for every bench node from
@@ -1601,6 +1662,8 @@ _bench_index_kind() {
         pre-instances.json|pre-firewall.json) echo "08|pre-instances.json, pre-firewall.json|project snapshot before the run (the teardown compares the devnet rule to it)|benchmark-deploy.sh preflight" ;;
         deployments-bench.json) echo "09|deployments-bench.json|app contract addresses on the bench chain|deploy step 11" ;;
         tunnel.log|tunnel.pid) echo "10|tunnel.log, tunnel.pid|local IAP tunnel to the first node's RPC (tunnel.log is appended: one 'tunnel: start' line per start)|bench_tunnel_up (deploy step 10)" ;;
+        tunnel*.pid) echo "10|tunnel-<forward>.pid|supervisor pid of a local IAP forward to bench-obs (tunnel-obs-prom.pid: Prometheus :9090, tunnel-obs-grafana.pid: Grafana :3000; their starts are in tunnel.log)|bench_obs_tunnel_up (obs-lib.sh: deploy, blast run, teardown)" ;;
+        bench-obs-prometheus-*.tar.gz|logs/bench-obs-prometheus-*.tar.gz) echo "13|${1%bench-obs-prometheus-*}bench-obs-prometheus-<UTC>.tar.gz|snapshot of the bench-obs Prometheus TSDB (admin API), every series of the run; untar and point a Prometheus at it|bench_obs_prom_snapshot_pull (obs-lib.sh: teardown before the local gate)" ;;
         last-deploy.status) echo "08|last-deploy.status|the last deploy invocation's outcome: rc, last step, first error, start and end, scope, log|benchmark-deploy.sh" ;;
         zones.env) echo "08|zones.env|the zone each node was created in (BENCH_ZONES_USED; config.sh reads it back)|benchmark-deploy.sh step 2" ;;
         chaos-remote.log) echo "11|chaos-remote.log|output of the staged chaos sessions on the nodes|benchmark-blast.sh run (chaos)" ;;
@@ -2098,10 +2161,10 @@ bench_leftovers() {
     bench_bucket_names | sed 's/^/bucket /'
 }
 
-# bench_obs_mem_pct — obs-devnet memory used % from the Ops Agent (empty if unavailable).
+# bench_obs_mem_pct — the bench-obs VM's memory used % from the Ops Agent (empty if unavailable).
 bench_obs_mem_pct() {
     local id
-    id="$(gcloud compute instances describe "${OBS_INSTANCE_NAME}" --zone="${OBS_ZONE}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null)" || true
+    id="$(gcloud compute instances describe "${BENCH_OBS_INSTANCE}" --zone="${BENCH_OBS_ZONE}" --project="${PROJECT_ID}" --format='value(id)' 2>/dev/null)" || true
     [ -n "${id}" ] || return 0
     bench_monitoring_max "metric.type=\"agent.googleapis.com/memory/percent_used\" AND metric.labels.state=\"used\" AND resource.labels.instance_id=\"${id}\""
 }

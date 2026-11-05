@@ -7,9 +7,12 @@ State lives under $FAKE_ROOT:
                  up:<s>    hold the forward for <s> seconds, then exit 255 (a drop)
                  gone      mark the instance deleted (the file `gone`), then exit 255
   gone         when it exists, `compute instances describe` fails as gcloud does for a deleted
-               instance ("... was not found", rc 1); otherwise it prints RUNNING
+               instance ("... was not found", rc 1); otherwise it prints $FAKE_INSTANCE_ID (default
+               4242) for --format=value(id), else RUNNING
   ssh-count    how many `compute ssh` calls were made so far
-Every call appends {"argv": [...]} to $FAKE_ROOT/calls.jsonl. `compute start-iap-tunnel` holds its
+Every call appends {"argv": [...]} to $FAKE_ROOT/calls.jsonl. `compute ssh` and `compute start-iap-tunnel`
+(the long-lived tunnel processes) also append {"argv": [...], "open": [...]} to $FAKE_ROOT/fds.jsonl:
+which of the descriptors 5 and 6 they inherited open. `compute start-iap-tunnel` holds its
 port for $FAKE_WS_SECS (default 60) seconds. Anything else fails, so a test notices a call shape it
 does not model.
 """
@@ -26,6 +29,18 @@ with open(os.path.join(root, "calls.jsonl"), "a") as f:
 
 def path(name):
     return os.path.join(root, name)
+
+
+if argv[:2] in (["compute", "ssh"], ["compute", "start-iap-tunnel"]):
+    inherited = []
+    for fd in (5, 6):
+        try:
+            os.fstat(fd)
+            inherited.append(fd)
+        except OSError:
+            pass
+    with open(path("fds.jsonl"), "a") as f:
+        f.write(json.dumps({"argv": argv, "open": inherited}) + "\n")
 
 
 if argv[:2] == ["compute", "ssh"]:
@@ -46,7 +61,7 @@ if argv[:3] == ["compute", "instances", "describe"]:
         print("ERROR: (gcloud.compute.instances.describe) Could not fetch resource:\n"
               " - The resource 'projects/p/zones/z/instances/%s' was not found" % argv[3], file=sys.stderr)
         sys.exit(1)
-    print("RUNNING")
+    print(os.environ.get("FAKE_INSTANCE_ID", "4242") if "--format=value(id)" in argv else "RUNNING")
     sys.exit(0)
 
 if argv[:2] == ["compute", "start-iap-tunnel"]:
