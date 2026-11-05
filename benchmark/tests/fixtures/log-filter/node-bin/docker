@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fake docker for test_log_filter.py RemoteScriptTests: answers the three `docker inspect telcoin
+# --format <fmt>` reads the session scripts make, from files under $LF_NODE/docker/ (args, mounts,
+# started-at). Anything else: rc 1.
+d="${LF_NODE:?LF_NODE is set by test_log_filter}/docker"
+[ "${1:-}" = inspect ] && [ "${2:-}" = telcoin ] && [ "${3:-}" = --format ] || { echo "fake docker: $*" >&2; exit 1; }
+case "${4:-}" in
+    '{{.Args}}') cat "${d}/args" ;;
+    '{{.State.StartedAt}}') cat "${d}/started-at" ;;
+    '{{range .Mounts}}'*) cat "${d}/mounts" ;;
+    *) echo "fake docker: format $4" >&2; exit 1 ;;
+esac

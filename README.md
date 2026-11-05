@@ -141,6 +141,7 @@ Further reading:
 - `./devnet-stake-node5.sh --yes --from-step 6 --watch-epochs 3`: watch node 5's committee membership after staking.
 - `./devnet-network-config.sh --verify`: read-only re-read and validation of every node's installed network-config.
 - `./devnet-dashboards.sh`: install or refresh the Node Manager UI on every node.
+- `./devnet-log-filter.sh --yes`: put `--log.file.filter info` (or `--filter <f>`) on every node's start script, so the JSON file log Alloy ships to Loki stops running at DEBUG. It goes one node at a time, observers first, then validators in index order, and waits 90 s after each node it restarts. A node restarts only when the running container lacks the flag, and only behind v2's committee guard and epoch-boundary wait (`--skip-epoch-wait` skips the wait, `--no-restart` writes the flag only). A refusal is resampled up to 8 times, 10 s apart, before the node is deferred, since one commit can miss a member that is up; a guard that cannot count the committee defers it at once. After a restart it waits for the node to be healthy and checks that the log written since then holds no DEBUG line. A deferred or failed node stops the sweep and prints the resume command. Without `--yes` it prints the plan and opens no ssh. Re-run after any `devnet-finalize.sh` / `devnet-update.sh --finalize|--wipe`, which re-render the launch line.
 
 ### WARNING: not yet v2-aware
 

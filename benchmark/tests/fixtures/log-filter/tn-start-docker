@@ -1,0 +1,15 @@
+#!/bin/bash
+# Telcoin Network node start script. Written by the deployment scripts
+# (tn_write_start_script); a rewrite replaces any hand edit. The BLS passphrase
+# reaches the node on stdin: it is never in this file, on a command line or in
+# an environment.
+set -euo pipefail
+while IFS= read -r tn_line || [[ -n "$tn_line" ]]; do
+    case "$tn_line" in
+        PRIMARY_LISTENER_MULTIADDR=*|WORKER_LISTENER_MULTIADDR=*|TN_RPC_ADDR=*) export "$tn_line" ;;
+    esac
+done < /etc/telcoin/node.env
+: "${PRIMARY_LISTENER_MULTIADDR:?missing from /etc/telcoin/node.env}"
+: "${WORKER_LISTENER_MULTIADDR:?missing from /etc/telcoin/node.env}"
+exec < "${CREDENTIALS_DIRECTORY:?not set: start the node with systemctl}/bls-passphrase"
+exec /usr/bin/docker run -i --rm --name telcoin --user 998:998 -e HOME=/home/nonroot -e PRIMARY_LISTENER_MULTIADDR -e WORKER_LISTENER_MULTIADDR --network=host --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --pids-limit 4096 --memory 28893m --ulimit nofile=65536:65536 --ulimit core=0 --log-driver json-file --log-opt max-size=50m --log-opt max-file=3 --stop-timeout 80 --pull=never -v /var/lib/telcoin:/home/nonroot us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:d43daf0a9c8c7c78e3c50b2d791672b53b8f5bd0f4debaa2f62419242519b67a telcoin node --bls-passphrase-source stdin --datadir /home/nonroot --log.stdout.format log-fmt -vvv --http --http.addr 127.0.0.1 --ws --ws.addr 127.0.0.1 --log.file.format json --log.file.directory /home/nonroot/logs --log.file.max-size 100 --log.file.max-files 5

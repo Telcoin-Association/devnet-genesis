@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Fake systemctl for test_log_filter.py RemoteScriptTests. `is-active telcoin` prints
+# $LF_NODE/systemd/state (default active; rc 0 only when active). `restart telcoin` appends to
+# $LF_NODE/systemd/calls and, as the node would, starts a container from the start script: its
+# arguments become $LF_NODE/docker/args.after when that file exists. Anything else: rc 1.
+s="${LF_NODE:?LF_NODE is set by test_log_filter}/systemd"
+case "${1:-} ${2:-}" in
+    "is-active telcoin")
+        st="$(cat "${s}/state" 2>/dev/null || echo active)"
+        echo "${st}"
+        [ "${st}" = active ] ;;
+    "restart telcoin")
+        echo "restart" >> "${s}/calls"
+        if [ -f "${LF_NODE}/docker/args.after" ]; then cp "${LF_NODE}/docker/args.after" "${LF_NODE}/docker/args"; fi ;;
+    *) echo "fake systemctl: $*" >&2; exit 1 ;;
+esac

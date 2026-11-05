@@ -1,0 +1,8 @@
+{"timestamp":"2026-11-05T06:00:01.000100Z","level":"DEBUG","fields":{"message":"old process at the DEBUG level"},"target":"primary::certifier"}
+{"timestamp":"2026-11-05T06:00:02.000200Z","level":"INFO","fields":{"message":"old process"},"target":"tn_node"}
+{"timestamp":"2026-11-05T06:00:03.000300Z","level":"DEBUG","fields":{"message":"old process at the DEBUG level"},"target":"primary::proposer"}
+{"timestamp":"2026-11-05T06:00:08.000400Z","level":"DEBUG","fields":{"message":"old process, last line, the second the new container starts"},"target":"tn_node"}
+{"timestamp":"2026-11-05T06:00:08.900000Z","level":"INFO","fields":{"message":"telcoin-network starting, the second the new container starts"},"target":"cli"}
+{"timestamp":"2026-11-05T06:00:09.000500Z","level":"INFO","fields":{"message":"new process"},"target":"tn_config::node"}
+{"timestamp":"2026-11-05T06:00:10.000600Z","level":"INFO","fields":{"message":"new process"},"target":"tn_node"}
+{"timestamp":"2026-11-05T06:00:11.000700Z","level":"WARN","fields":{"message":"new process"},"target":"tn_node"}
