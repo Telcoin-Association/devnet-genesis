@@ -68,7 +68,7 @@
 # (archive.skipped_gate). The harness never deletes a node log.
 # Deletes: each instance (bench-obs too, after the local gate and every Prometheus read; its boot and data
 # disks auto-delete with it, else the orphan-disk step deletes them by their bench-run label) is deleted
-# with --async right after its id is re-checked, then one loop
+# in the background right after its id is re-checked, then one loop
 # describes every instance still deleting every 10 s until each is gone or
 # BENCH_TEARDOWN_DELETE_WAIT_SECS (default 600) have passed; one still there is reported, listed in
 # manifest teardown_pending[] and counted by the left-nothing checks. manifest timestamps.teardown_start
@@ -836,8 +836,10 @@ fi
 # now must be the one the gates passed (same numeric id, GATE_IDS). A name deleted and recreated
 # since has a new id: it is not deleted, and neither is anything after it. A short race remains:
 # an instance replaced between this lookup and its delete call is still deleted. The calls are
-# --async (D22: about 50 s each when serial); the loop after them waits for every one to finish.
+# issued in the background (D22: about 50 s each when serial; gcloud has no --async here, D35);
+# the loop after them waits for every one to finish.
 ISSUED=(); ISSUED_NAMES=""   # "<zone> <name> <id>" per delete issued; their names
+DELETE_PIDS=()               # "<pid> <zone> <name>" per background delete (apply mode)
 for z in $(for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do echo "${c%% *}"; done | sort -u); do
     for c in "${CAND_INST[@]}"; do
         [ "${c%% *}" = "${z}" ] || continue
@@ -849,7 +851,7 @@ for z in $(for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do echo "${c%% *}"; don
             if [ "${now_id}" != "${want}" ]; then
                 echo "" >&2
                 echo "❌ ${n} (${z}) is now instance ${now_id:-not found}; the gates passed instance ${want:-none} — NOT deleted, nor anything after it." >&2
-                echo "   Delete already issued (--async, not waited for):${ISSUED_NAMES:- none}." >&2
+                echo "   Delete already issued (in the background, not waited for):${ISSUED_NAMES:- none}." >&2
                 echo "   Left: ${n}, the instances after it, and every firewall rule, disk, bucket, secret binding and" >&2
                 echo "   local item. Re-run the teardown: it checks that name's instance again." >&2
                 exit 1
@@ -857,7 +859,16 @@ for z in $(for c in "${CAND_INST[@]+"${CAND_INST[@]}"}"; do echo "${c%% *}"; don
         else
             echo "    (just before this delete: ${n} must still be instance ${want:-?}, else the teardown stops here)"
         fi
-        bench_run gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet --async
+        # gcloud's instances delete has no --async (SDK 588 rejects it; D35): each delete runs
+        # synchronously in the background, and the describe loop below is what waits for them.
+        if [ "${BENCH_APPLY}" = "1" ]; then
+            printf '    +'; printf ' %q' gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet; printf '\n'
+            ( gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet \
+                </dev/null >"${TD_TMP}/delete-${n}.out" 2>&1 ) &
+            DELETE_PIDS+=("$! ${z} ${n}")
+        else
+            bench_run gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet
+        fi
         ISSUED+=("${z} ${n} ${want}"); ISSUED_NAMES="${ISSUED_NAMES} ${n}"
     done
 done
@@ -901,6 +912,16 @@ if [ "${#ISSUED[@]}" -gt 0 ] && [ "${BENCH_APPLY}" = "1" ]; then
             break
         fi
         sleep "${DELETE_POLL_SECS}"
+    done
+    # Reap the finished delete calls (a failed call shows here; an instance still there is counted
+    # by the left-nothing checks); one still running at the cap is reported, never waited for.
+    for c in "${DELETE_PIDS[@]+"${DELETE_PIDS[@]}"}"; do
+        read -r pid z n <<< "${c}"
+        if kill -0 "${pid}" 2>/dev/null; then
+            echo "    ✗ delete of ${n} (${z}) still running (pid ${pid}) — not waited for"
+        elif ! wait "${pid}"; then
+            echo "    ✗ delete of ${n} (${z}) exited non-zero: $(tail -n 2 "${TD_TMP}/delete-${n}.out" 2>/dev/null | tr '\n' ' ')"
+        fi
     done
 elif [ "${#ISSUED[@]}" -gt 0 ]; then
     echo "    (then one describe per instance every ${DELETE_POLL_SECS} s until each is gone, at most ${DELETE_WAIT_SECS} s: BENCH_TEARDOWN_DELETE_WAIT_SECS)"

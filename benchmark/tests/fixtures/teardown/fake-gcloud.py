@@ -5,7 +5,7 @@ State lives under $FAKE_ROOT:
   gcs/<bucket>/<object name>   objects; a bucket exists when its directory does
   labels/<bucket>.json         bucket labels
   instances.json               the project's instances (compute instances list/describe/delete)
-  deleting.json                {"<zone>/<name>": describes left} for instances deleted with --async
+  deleting.json                {"<zone>/<name>": describes left} for instances being deleted
   disks.json                   the project's disks (compute disks list/delete; absent = no disk)
   scp-attempts                 compute scp attempts so far
   logspan/<instance>           LOGSPAN lines the `# bench-pull: span` session prints (else a default)
@@ -27,7 +27,7 @@ Knobs (environment):
                                 fails as a dropped IAP session does (rc 255)
   FAKE_DESCRIBE_TRANSIENT=<name> `instances describe <name>` fails as an API error does (rc 1, no
                                 "not found"), as fixtures/obs/fake-gcloud.py's describe-transient
-  FAKE_DELETE_POLLS=<n>|never   an `instances delete --async` leaves the instance STOPPING for <n>
+  FAKE_DELETE_POLLS=<n>|never   an `instances delete` leaves the instance STOPPING for <n>
                                 describes (default 1), then describe says not found; never = stays
 
 Remote sessions on stdin are told apart by the script's first line: `# bench-pull: span` prints
@@ -276,15 +276,16 @@ def compute(args, pos, stdin):
                     save_json("deleting.json", deleting)
             print(json.dumps(match[0]))
         elif verb == "delete":
+            # The real delete is synchronous (the teardown backgrounds it); the fake returns at once
+            # and lets describe show STOPPING for FAKE_DELETE_POLLS polls, so the poll loop is exercised.
             if "--async" in args:
-                polls = os.environ.get("FAKE_DELETE_POLLS") or "1"
-                deleting[key] = polls if polls == "never" else int(polls)
-                save_json("deleting.json", deleting)
-                match[0]["status"] = "STOPPING"
-                save_json("instances.json", state)
-                sys.stderr.write("Delete in progress for [%s].\n" % name)
-            else:
-                save_json("instances.json", [i for i in state if i is not match[0]])
+                die("ERROR: (gcloud.compute.instances.delete) unrecognized arguments: --async")
+            polls = os.environ.get("FAKE_DELETE_POLLS") or "1"
+            deleting[key] = polls if polls == "never" else int(polls)
+            save_json("deleting.json", deleting)
+            match[0]["status"] = "STOPPING"
+            save_json("instances.json", state)
+            sys.stderr.write("Deleted [%s].\n" % name)
         else:
             die("fake gcloud: unexpected compute instances %s" % verb)
     elif what == "disks":

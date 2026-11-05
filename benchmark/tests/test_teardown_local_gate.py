@@ -507,9 +507,10 @@ class TeardownSourceOrderTests(unittest.TestCase):
         self.assertLess(self.line_of("bench_log_coverage_check "), cov)
         self.assertLess(cov, self.line_of('if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then'))
 
-    def test_deletes_are_async_and_polled_before_the_disks(self):
+    def test_deletes_are_backgrounded_and_polled_before_the_disks(self):
         delete = self.line_of("bench_run gcloud compute instances delete")
-        self.assertIn("--quiet --async", TEARDOWN.splitlines()[delete])
+        self.assertIn("--quiet", TEARDOWN.splitlines()[delete])
+        self.assertNotIn("--async", TEARDOWN.splitlines()[delete])
         self.assertLess(self.line_of("now_id=\"$(bench_instance_json"), delete)
         self.assertLess(delete, self.line_of('st="$(delete_state '))
         self.assertLess(self.line_of('st="$(delete_state '), self.line_of("bench_run gcloud compute disks delete"))
@@ -736,7 +737,7 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertLess(snap_at, out.index(">>> log coverage"))
         self.assertLess(out.index(">>> log coverage"), out.index(">>> local gate"))
         self.assertLess(out.index(">>> local gate"),
-                        out.index("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async"
+                        out.index("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet"
                                   % (OBS, ZONE, PROJECT)))
         self.assertIn("✓ %s (%s) deleted" % (OBS, ZONE), out)
         snaps = sorted((self.results / "logs").glob("bench-obs-prometheus-*.tar.gz"))
@@ -749,13 +750,13 @@ class TeardownLocalGateTests(unittest.TestCase):
                          (SNAP_NAME, snaps[0].name, snaps[0].stat().st_size))
         self.assertIn("/admin/tsdb/snapshot", self.curl_log())
         # In the calls: the snapshot's pull, then a fresh describe of bench-obs (its id re-check), then
-        # its --async delete.
+        # its background delete.
         calls = self.cloud.calls()
         pulls = self.obs_snapshot_pulls()
         deletes = [i for i in indices(calls, ("compute", "instances", "delete")) if is_call(calls[i], ("compute", "instances", "delete", OBS))]
         self.assertEqual((len(pulls), len(deletes)), (1, 1))
         self.assertIn(OBS_SNAP_CMD + SNAP_NAME + " | gzip -1", calls[pulls[0]]["argv"])
-        self.assertIn("--async", calls[deletes[0]]["argv"])
+        self.assertNotIn("--async", calls[deletes[0]]["argv"])
         self.assertTrue([i for i in indices(calls, ("compute", "instances", "describe", OBS)) if pulls[0] < i < deletes[0]])
         self.assertEqual(sorted(p.name for p in self.results.glob("tunnel*.pid")), [], "every tunnel pidfile is gone")
 
@@ -866,7 +867,7 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertIn("%s/logs/bench-obs-prometheus-" % self.results, snap)
         self.assertIn("'sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots <name> | gzip -1'", snap)
         self.assertIn("      (dry run — not executed)", snap)
-        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async" % (OBS, ZONE, PROJECT),
+        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet" % (OBS, ZONE, PROJECT),
                       out)
         for c in self.cloud.calls():
             for words in MUTATIONS + (("compute", "ssh"),):
@@ -1148,7 +1149,7 @@ class TeardownLocalGateTests(unittest.TestCase):
         deletes = indices(calls, ("compute", "instances", "delete"))
         self.assertEqual(len(deletes), 1)
         self.assertEqual([a for a in calls[deletes[0]]["argv"] if a.startswith("--") and "=" not in a],
-                         ["--quiet", "--async"])
+                         ["--quiet"])
         before = [i for i in indices(calls, ("compute", "instances", "describe")) if i < deletes[0]]
         after = [i for i in indices(calls, ("compute", "instances", "describe")) if i > deletes[0]]
         self.assertTrue(before, "the id is re-checked before the delete")
@@ -1329,7 +1330,7 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertNotIn("archive", self.manifest())
         self.assertLess(out.index(">>> log coverage"), gate_at)
         self.assertEqual(set(LOGCOV_RE.findall(out)), {(i, "-") for i in self.fleet()})
-        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet --async" % (INST, ZONE, PROJECT),
+        self.assertIn("+ gcloud compute instances delete %s --zone=%s --project=%s --quiet" % (INST, ZONE, PROJECT),
                       out)
         self.assertIn("(then one describe per instance every 10 s until each is gone, at most 600 s", out)
         self.assertEqual(self.done_line(p), (RUN, 0, 3, True))   # the live instance (labelled, named) + the run bucket
@@ -1513,7 +1514,7 @@ class TeardownLocalGateTests(unittest.TestCase):
 
 class FakeGcloudTests(unittest.TestCase):
     """The fake's answers the teardown's pull relies on: the two `# bench-pull:` sessions (told apart
-    by the first line of the script on stdin), the credential check and an --async delete."""
+    by the first line of the script on stdin), the credential check and a delete."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="fake-gcloud-")
@@ -1597,7 +1598,7 @@ class FakeGcloudTests(unittest.TestCase):
         (self.cloud.state / "instances.json").write_text(json.dumps([{"name": INST, "zone": zone_url, "id": INST_ID,
                                                                       "status": "RUNNING"}]))
         where = [INST, "--zone=" + ZONE, "--project=p"]
-        self.assertEqual(self.gcloud(["compute", "instances", "delete"] + where + ["--quiet", "--async"],
+        self.assertEqual(self.gcloud(["compute", "instances", "delete"] + where + ["--quiet"],
                                      FAKE_DELETE_POLLS="2").returncode, 0)
         for _ in range(2):
             p = self.gcloud(["compute", "instances", "describe"] + where + ["--format=json"])

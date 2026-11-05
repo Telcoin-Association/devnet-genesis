@@ -1068,7 +1068,7 @@ deletes it with the fleet:
   warns: a failed one leaves no snapshot and the teardown goes on. `BENCH_OBS_PULL_PROM=0` skips
   it. Neither gate requires it.
 - **Delete.** After the local gate and every Prometheus read, `bench-obs` gets a `GATE_IDS` row
-  and the same id re-check and `--async` delete as every other instance. Its boot and data disks
+  and the same id re-check and background delete as every other instance. Its boot and data disks
   auto-delete with it; one left behind is an orphan disk labelled `bench-run=<run>`, which the
   orphan-disk step deletes. The left-nothing checks count `bench-obs`, the disks labelled
   `bench-run=<run>` whatever their name, and the local forwards on 18545, 19090 and 13000.
@@ -1078,7 +1078,7 @@ deletes it with the fleet:
 The dry run lists `bench-obs` with the other instances, prints the two forwards' plan lines and
 the snapshot's argv, and deletes nothing.
 
-Each instance is deleted with `--quiet --async` right after its id is re-checked. One loop then
+Each instance is deleted with `--quiet` in the background (gcloud has no `--async` for instance deletes) right after its id is re-checked. One loop then
 describes every instance still deleting, every 10 s, until each is gone or
 `BENCH_TEARDOWN_DELETE_WAIT_SECS` (default 600; `0` is a single pass) have passed; an instance
 still there is reported, listed in `manifest.teardown_pending[]` (`{inst, zone, status, at}`)
