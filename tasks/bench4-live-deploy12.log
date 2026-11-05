@@ -1,0 +1,44 @@
+output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0036/logs/deploy-20261105T003655Z.log
+==========================================
+benchmark deploy — run r20261105-0036, project tn-devnet, chain 32286
+==========================================
+>>> gate: prerequisites of the selected steps
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-3911723
+    ✓ /home/drtnarg/coding/telcoin/tn-transaction-generator/cloudbuild.yaml
+    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF d9446f720026fa5ce8b64fce9074e56b05b3f4eb (step 7)
+    ✓ every node's effective parameters pass the node's startup checks
+    probing node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ node image digest: sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ pinned ref: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a
+    ✓ version 0.1.0, git sha 496ebefb52627fcf20f4074b58d7b3309b8b4bb8
+    ✓ flags ok: node, genesis, keytool generate validator --help carry every contract flag
+    ✓ fork schedule: subsecond-from-genesis
+    ✓ 12 contract strings checked (10 required, all present)
+    ✓ node image pinned: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a (git 496ebefb52627fcf20f4074b58d7b3309b8b4bb8, forks subsecond-from-genesis)
+    ✓ manifest initialised: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0036/manifest.json
+    ✓ manifest: node_image_pinned, node_git_sha, node_fork_schedule, node_probe
+    ✓ manifest: consensus_parameters {"file":"consensus-parameters.yaml","max_header_delay_ms":1000,"min_header_delay_ms":350,"max_batch_delay_ms":250}
+    ✓ manifest: consensus_parameters.overrides {}, node_startup[*].log_filter info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info
+
+##########################################
+>>> Step 0: preflight
+    fleet: 11 x c3-highcpu-8, 100 GB hyperdisk-balanced (provisioned 20000 IOPS, 800 MiB/s), node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:f6922184c0da9da85ac4c85d4e465f6221ea1f8fe317e43d9ec90fab8f18fd5a (git 496ebefb52627fcf20f4074b58d7b3309b8b4bb8, forks subsecond-from-genesis; image probed at gate)
+    ✓ gcloud
+    ✓ cast
+    ✓ jq
+    ✓ python3
+    ✓ curl
+    ✓ docker
+    ✓ git
+    ✓ openssl
+    ✓ forge
+    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF d9446f720026fa5ce8b64fce9074e56b05b3f4eb (step 7)
+    ✓ gcloud auth (grant@telcoin.org)
+    ✓ no bench-* / benchmark=1 instance, disk, firewall rule or bucket exists
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/testnet_accounts.yaml funds 0xb1F7fB246DDF3F621442368e4122b087b1Ea3C8E
+    ✓ benchmark/genesis empty
+    ✓ bench BLS passphrase present
+    ✓ no non-bench firewall rule targets bench-node
+❌ obs-devnet data disk is 73% (>= 70%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate
+BENCH_DEPLOY_RESULT rc=1 last_step=0 first_error=❌ obs-devnet data disk is 73% (>= 70%) — fix obs-devnet's disk first, or raise BENCH_OBS_DISK_MAX_PCT after checking Loki's growth rate log=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0036/logs/deploy-20261105T003655Z.log
+DEPLOY12_RC=1 secs=25

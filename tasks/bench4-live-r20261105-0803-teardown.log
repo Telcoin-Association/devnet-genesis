@@ -1,0 +1,664 @@
+==========================================
+benchmark teardown — project tn-devnet, run r20261105-0803
+Mode: APPLY (--yes)
+==========================================
+>>> gcloud credentials: gcloud auth print-access-token (60 s)
+    ✓ gcloud prints an access token
+>>> devnet denylist (never deleted): validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet obs-devnet txgen-devnet devnet-indexer
+>>> instance candidates (12):
+    - bench-validator-04 (asia-northeast1-b)
+    - bench-validator-07 (asia-southeast1-b)
+    - bench-validator-05 (us-east4-b)
+    - bench-validator-03 (australia-southeast1-c)
+    - bench-validator-02 (europe-west2-b)
+    - bench-validator-10 (asia-south1-c)
+    - bench-validator-06 (europe-west4-a)
+    - bench-obs (us-west2-a)
+    - bench-observer-11 (us-west2-a)
+    - bench-validator-01 (us-west2-a)
+    - bench-validator-08 (asia-east2-a)
+    - bench-validator-09 (asia-northeast3-a)
+    ✓ no devnet instance is a candidate
+    ✓ every candidate instance is labelled bench-run=r20261105-0803
+>>> firewall candidates (2): bench-allow-consensus bench-allow-iap-rpc
+>>> bucket candidates (1): tn-devnet-bench-r20261105-0803
+>>> disk candidates (13; boot disks auto-delete with their instance):
+    - bench-validator-04 (asia-northeast1-b): deleted once unattached
+    - bench-validator-07 (asia-southeast1-b): deleted once unattached
+    - bench-validator-05 (us-east4-b): deleted once unattached
+    - bench-validator-03 (australia-southeast1-c): deleted once unattached
+    - bench-validator-02 (europe-west2-b): deleted once unattached
+    - bench-validator-10 (asia-south1-c): deleted once unattached
+    - bench-validator-06 (europe-west4-a): deleted once unattached
+    - bench-obs (us-west2-a): deleted once unattached
+    - bench-obs-data (us-west2-a): deleted once unattached
+    - bench-observer-11 (us-west2-a): deleted once unattached
+    - bench-validator-01 (us-west2-a): deleted once unattached
+    - bench-validator-08 (asia-east2-a): deleted once unattached
+    - bench-validator-09 (asia-northeast3-a): deleted once unattached
+>>> IAP tunnel pids: 904458 904462 904535 904612 904617 904661 1289720 1289729 1290934 
+>>> contracts worktree: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts; branches: bench/r20261105-0803
+>>> secrets: bench-txgen-master-key bench-txgen-children-seed — kept; accessor binding for the compute SA removed
+>>> local: move /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/genesis
+
+>>> bench-obs: bench-obs (us-west2-a), the run's Prometheus, read before any delete
+    tunnel already up (pid 904458) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 904612) -> http://127.0.0.1:13000
+
+>>> node health (Prometheus network="bench"; informs, never blocks)
+    node                 role      mode           failed_rpt  epoch/round 
+    bench-validator-01   validator cvv_active              0  6/1240       
+    bench-validator-02   validator cvv_active              0  6/1266       
+    bench-validator-03   validator cvv_active              0  6/1234       
+    bench-validator-04   validator cvv_active              0  6/1227       
+    bench-validator-05   validator cvv_active              0  6/1259       
+    bench-validator-06   validator cvv_active              0  6/1238       
+    bench-validator-07   validator cvv_active              0  6/1260       
+    bench-validator-08   validator cvv_active              0  6/1224       
+    bench-validator-09   validator cvv_active              0  6/1246       
+    bench-validator-10   validator cvv_active              0  6/1247       
+    bench-observer-11    observer  observer                0  6/1252       
+
+>>> node logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (nothing is deleted until these are saved)
+    + bench-validator-01: to pull (instance 8774397131080435265)
+        no marker
+    + bench-validator-02: to pull (instance 4229869012294665822)
+        no marker
+    + bench-validator-03: to pull (instance 476538001883760219)
+        no marker
+    + bench-validator-04: to pull (instance 6551110845064119898)
+        no marker
+    + bench-validator-05: to pull (instance 2287527824283764314)
+        no marker
+    + bench-validator-06: to pull (instance 6204356119255680599)
+        no marker
+    + bench-validator-07: to pull (instance 7004362098180458068)
+        no marker
+    + bench-validator-08: to pull (instance 824550719318230610)
+        no marker
+    + bench-validator-09: to pull (instance 7859566511462123088)
+        no marker
+    + bench-validator-10: to pull (instance 1902222099091654189)
+        no marker
+    + bench-observer-11: to pull (instance 8798158389105493550)
+        no marker
+    ✓ 611.3 GB free under /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (BENCH_TEARDOWN_MIN_FREE_GB=20) for 11 node(s)
+    + bench_pull_unit_span bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01.logspan
+      + tn_iap_ssh bench-validator-01 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-telcoin.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-<file>
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02.logspan
+      + tn_iap_ssh bench-validator-02 europe-west2-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-telcoin.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-<file>
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03.logspan
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-telcoin.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-<file>
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04.logspan
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-telcoin.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-<file>
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05.logspan
+      + tn_iap_ssh bench-validator-05 us-east4-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-telcoin.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-<file>
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+Connection to compute.476538001883760219 closed by remote host.
+client_loop: send disconnect: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-validator-03 --project=tn-devnet --zone=australia-southeast1-c --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-validator-03 --project=tn-devnet --zone=australia-southeast1-c --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-validator-03: bench-validator-03-unit-stdout.log.gz: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-01: no rotated unit log to pull
+      ✓ bench-validator-01: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06.logspan
+      + tn_iap_ssh bench-validator-06 europe-west4-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-telcoin.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-<file>
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-telcoin-pre-kill-20261105T093323Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-04: no rotated unit log to pull
+      ✓ bench-validator-04: current-container log, unit stdout, unit stderr
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-02: no rotated unit log to pull
+      ✓ bench-validator-02: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07.logspan
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-telcoin.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-<file>
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-03: no rotated unit log to pull
+      ✓ bench-validator-03: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08.logspan
+      + tn_iap_ssh bench-validator-08 asia-east2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-telcoin.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-<file>
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09.logspan
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-telcoin.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-<file>
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+Connection to compute.7004362098180458068 closed by remote host.
+client_loop: send disconnect: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-validator-07 --project=tn-devnet --zone=asia-southeast1-b --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-validator-07 --project=tn-devnet --zone=asia-southeast1-b --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-validator-07: bench-validator-07-unit-stdout.log.gz: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-05: no rotated unit log to pull
+      ✓ bench-validator-05: current-container log, 1 saved log(s), unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10.logspan
+      + tn_iap_ssh bench-validator-10 asia-south1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-telcoin.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-<file>
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-06: no rotated unit log to pull
+      ✓ bench-validator-06: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11.logspan
+      + tn_iap_ssh bench-observer-11 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-telcoin.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-<file>
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-unit-stdout.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-07: no rotated unit log to pull
+      ✓ bench-validator-07: current-container log, unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-telcoin-pre-restart-20261105T094324Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-08: no rotated unit log to pull
+      ✓ bench-validator-08: current-container log, unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+Connection to compute.7859566511462123088 closed by remote host.
+client_loop: send disconnect: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-validator-09 --project=tn-devnet --zone=asia-northeast3-a --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-validator-09 --project=tn-devnet --zone=asia-northeast3-a --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-validator-09: bench-validator-09-unit-stdout.log.gz: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+Connection to compute.1902222099091654189 closed by remote host.
+client_loop: send disconnect: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-validator-10 --project=tn-devnet --zone=asia-south1-c --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-validator-10 --project=tn-devnet --zone=asia-south1-c --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-validator-10: bench-validator-10-unit-stdout.log.gz: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+Connection to compute.8798158389105493550 closed by remote host.
+client_loop: send disconnect: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-observer-11 --project=tn-devnet --zone=us-west2-a --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-observer-11 --project=tn-devnet --zone=us-west2-a --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-observer-11: bench-observer-11-unit-stdout.log.gz: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-observer-11: no rotated unit log to pull
+      ✓ bench-observer-11: current-container log, 1 saved log(s), unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-09: no rotated unit log to pull
+      ✓ bench-validator-09: current-container log, unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-10: no rotated unit log to pull
+      ✓ bench-validator-10: current-container log, unit stdout, unit stderr
+    ✓ logs of 11 nodes in /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs
+
+❌ node logs not saved — NOTHING was deleted. Missing:
+   - bench-validator-01 (RUNNING)
+   - bench-validator-02 (RUNNING)
+   - bench-validator-03 (RUNNING)
+   - bench-validator-04 (RUNNING)
+   - bench-validator-05 (RUNNING)
+   - bench-validator-06 (RUNNING)
+   - bench-validator-07 (RUNNING)
+   - bench-validator-08 (RUNNING)
+   Either fix the pull (IAP ssh; a node needs one log from its container, saved logs or unit
+   files, and no failed transfer; logs an earlier instance of the same name left do not count)
+   and re-run; logs already in /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs are kept.
+   Or delete without them: BENCH_TEARDOWN_SKIP_LOGS=1 benchmark/benchmark-teardown.sh --yes --run r20261105-0803

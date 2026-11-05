@@ -1,0 +1,216 @@
+TEARDOWN3_START 2026-11-05T14:52:31Z
+==========================================
+benchmark teardown — project tn-devnet, run r20261105-0803
+Mode: APPLY (--yes)
+==========================================
+>>> gcloud credentials: gcloud auth print-access-token (60 s)
+    ✓ gcloud prints an access token
+>>> devnet denylist (never deleted): validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet obs-devnet txgen-devnet devnet-indexer
+>>> instance candidates (12):
+    - bench-validator-04 (asia-northeast1-b)
+    - bench-validator-07 (asia-southeast1-b)
+    - bench-validator-05 (us-east4-b)
+    - bench-validator-03 (australia-southeast1-c)
+    - bench-validator-02 (europe-west2-b)
+    - bench-validator-10 (asia-south1-c)
+    - bench-validator-06 (europe-west4-a)
+    - bench-obs (us-west2-a)
+    - bench-observer-11 (us-west2-a)
+    - bench-validator-01 (us-west2-a)
+    - bench-validator-08 (asia-east2-a)
+    - bench-validator-09 (asia-northeast3-a)
+    ✓ no devnet instance is a candidate
+    ✓ every candidate instance is labelled bench-run=r20261105-0803
+>>> firewall candidates (2): bench-allow-consensus bench-allow-iap-rpc
+>>> bucket candidates (1): tn-devnet-bench-r20261105-0803
+>>> disk candidates (13; boot disks auto-delete with their instance):
+    - bench-validator-04 (asia-northeast1-b): deleted once unattached
+    - bench-validator-07 (asia-southeast1-b): deleted once unattached
+    - bench-validator-05 (us-east4-b): deleted once unattached
+    - bench-validator-03 (australia-southeast1-c): deleted once unattached
+    - bench-validator-02 (europe-west2-b): deleted once unattached
+    - bench-validator-10 (asia-south1-c): deleted once unattached
+    - bench-validator-06 (europe-west4-a): deleted once unattached
+    - bench-obs (us-west2-a): deleted once unattached
+    - bench-obs-data (us-west2-a): deleted once unattached
+    - bench-observer-11 (us-west2-a): deleted once unattached
+    - bench-validator-01 (us-west2-a): deleted once unattached
+    - bench-validator-08 (asia-east2-a): deleted once unattached
+    - bench-validator-09 (asia-northeast3-a): deleted once unattached
+>>> IAP tunnel pids: none
+>>> contracts worktree: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts; branches: bench/r20261105-0803
+>>> secrets: bench-txgen-master-key bench-txgen-children-seed — kept; accessor binding for the compute SA removed
+>>> local: move /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/genesis
+
+>>> bench-obs: bench-obs (us-west2-a), the run's Prometheus, read before any delete
+    + gcloud compute ssh bench-obs --zone=us-west2-a --project=tn-devnet --tunnel-through-iap --ssh-flag=-N --ssh-flag=-L --ssh-flag=localhost:19090:127.0.0.1:9090 ... &   (supervised: restarted on a drop, gives up after 5 consecutive failures shorter than 20 s or when the instance is gone; >> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/tunnel.log)
+    ✓ tunnel up (pid 994774) -> http://127.0.0.1:19090/api/v1
+    + gcloud compute ssh bench-obs --zone=us-west2-a --project=tn-devnet --tunnel-through-iap --ssh-flag=-N --ssh-flag=-L --ssh-flag=localhost:13000:127.0.0.1:3000 ... &   (supervised: restarted on a drop, gives up after 5 consecutive failures shorter than 20 s or when the instance is gone; >> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/tunnel.log)
+    ✓ tunnel up (pid 994915) -> http://127.0.0.1:13000
+
+>>> node health (Prometheus network="bench"; informs, never blocks)
+    node                 role      mode           failed_rpt  epoch/round 
+    bench-validator-01   validator cvv_active              0  19/3076      
+    bench-validator-02   validator cvv_active              0  19/3103      
+    bench-validator-03   validator cvv_active              0  19/3114      
+    bench-validator-04   validator cvv_active              0  19/3107      
+    bench-validator-05   validator cvv_active              0  19/3096      
+    bench-validator-06   validator cvv_active              0  19/3074      
+    bench-validator-07   validator cvv_active              0  19/3096      
+    bench-validator-08   validator cvv_active              0  19/3104      
+    bench-validator-09   validator cvv_active              0  19/3083      
+    bench-validator-10   validator cvv_active              0  19/3084      
+    bench-observer-11    observer  observer                0  19/3090      
+
+>>> node logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (nothing is deleted until these are saved) — BENCH_TEARDOWN_TRUST_MARKERS=1
+    ✓ bench-validator-01: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-01.pulled: accepted — instance 8774397131080435265 (created 2026-11-05T00:05:02.940-08:00), run r20261105-0803, pulled 2026-11-05T11:31:39Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-02: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-02.pulled: accepted — instance 4229869012294665822 (created 2026-11-05T00:05:05.349-08:00), run r20261105-0803, pulled 2026-11-05T11:38:35Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-03: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-03.pulled: accepted — instance 476538001883760219 (created 2026-11-05T00:05:09.252-08:00), run r20261105-0803, pulled 2026-11-05T12:05:06Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-04: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-04.pulled: accepted — instance 6551110845064119898 (created 2026-11-05T00:05:09.764-08:00), run r20261105-0803, pulled 2026-11-05T11:37:37Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-05: already saved — not pulled again (current-container log, 1 saved log(s), unit stdout, unit stderr)
+        marker bench-validator-05.pulled: accepted — instance 2287527824283764314 (created 2026-11-05T00:05:09.489-08:00), run r20261105-0803, pulled 2026-11-05T12:31:28Z; its 4 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-06: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-06.pulled: accepted — instance 6204356119255680599 (created 2026-11-05T00:05:12.223-08:00), run r20261105-0803, pulled 2026-11-05T12:44:21Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-07: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-07.pulled: accepted — instance 7004362098180458068 (created 2026-11-05T00:05:15.692-08:00), run r20261105-0803, pulled 2026-11-05T13:28:08Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-08: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-08.pulled: accepted — instance 824550719318230610 (created 2026-11-05T00:05:18.048-08:00), run r20261105-0803, pulled 2026-11-05T13:34:54Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-09: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-09.pulled: accepted — instance 7859566511462123088 (created 2026-11-05T00:05:19.438-08:00), run r20261105-0803, pulled 2026-11-05T14:36:17Z; its 3 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    ✓ bench-validator-10: already saved — not pulled again (current-container log, unit stdout, unit stderr)
+        marker bench-validator-10.pulled: accepted — instance 1902222099091654189 (created 2026-11-05T00:05:23.015-08:00), run r20261105-0803, pulled 2026-11-05T14:41:01Z; its 3 log(s) are here at their recorded sizes
+    ✓ bench-observer-11: already saved — not pulled again (current-container log, 1 saved log(s), unit stdout, unit stderr)
+        marker bench-observer-11.pulled: accepted — instance 8798158389105493550 (created 2026-11-05T00:05:21.526-08:00), run r20261105-0803, pulled 2026-11-05T14:28:46Z; its 4 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-01-recovery-8774397131080435265.OxSnqS.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-02-recovery-4229869012294665822.ELji8M.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-03-recovery-476538001883760219.Zo6bT6.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-04-recovery-6551110845064119898.zdKA1P.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-05-recovery-2287527824283764314.poa76j.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-06-recovery-6204356119255680599.SlFHUO.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-07-recovery-7004362098180458068.nGrGuM.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-recovery-824550719318230610.Ci7Qqx.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-recovery-7859566511462123088.dd4VkI.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-recovery-1902222099091654189.T02eRL.tgz
+    recovery evidence already saved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-observer-11-recovery-8798158389105493550.mhjZSU.tgz
+
+>>> certification outcome: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (before the local gate, which requires every log manifest.cert_failures lists)
+    certification -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/analysis/certification.json and manifest.certification (informational)
+      ✓ bench-validator-01: at or above 90 % in every window it was judged in (lowest 95.8 % in phase preamble)
+      ✓ bench-validator-02: at or above 90 % in every window it was judged in (lowest 99.6 % in phase mixed)
+      ✓ bench-validator-03: at or above 90 % in every window it was judged in (lowest 92.4 % in phase warmup)
+      ✓ bench-validator-04: at or above 90 % in every window it was judged in (lowest 99.7 % in phase cooldown)
+      ✓ bench-validator-05: at or above 90 % in every window it was judged in (lowest 99.9 % in phase mixed)
+      ✓ bench-validator-06: at or above 90 % in every window it was judged in (lowest 93.9 % in phase mixed)
+      ✓ bench-validator-07: at or above 90 % in every window it was judged in (lowest 99.9 % in phase mixed)
+      ✗ bench-validator-08: 58.6 % of 215 own headers certified in phase preamble (below 90 % in: phase preamble, phase warmup, run)
+      ✗ bench-validator-09: 80.2 % of 172 own headers certified in phase warmup (below 90 % in: phase warmup, phase mixed, run)
+      ✗ bench-validator-10: 84.7 % of 215 own headers certified in phase preamble (below 90 % in: phase preamble)
+    certification snapshots -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/ (informational; the local gate requires what manifest.cert_failures[].logs lists)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261105T160156Z.log.gz
+      ✓ bench-validator-08: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261105T160156Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: [0] Failed to send all data from [stdin].
+ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe
+
+Recommendation: To check for possible causes of SSH connectivity issues and get
+recommendations, rerun the ssh command with the --troubleshoot option.
+
+gcloud compute ssh bench-validator-08 --project=tn-devnet --zone=asia-east2-a --troubleshoot
+
+Or, to investigate an IAP tunneling issue:
+
+gcloud compute ssh bench-validator-08 --project=tn-devnet --zone=asia-east2-a --troubleshoot --tunnel-through-iap
+
+ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].
+      … bench-validator-08: bench-validator-08-saved.sH8j7A: transport (rc 255) (attempt 1/3); retrying in 10 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-08-telcoin-cert-fail-20261105T160156Z.log.gz
+      ✓ bench-validator-08: snapshot logs/bench-validator-08-telcoin-cert-fail-20261105T160156Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261105T161238Z.log.gz
+      ✓ bench-validator-09: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261105T161238Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-09-telcoin-cert-fail-20261105T161238Z.log.gz
+      ✓ bench-validator-09: snapshot logs/bench-validator-09-telcoin-cert-fail-20261105T161238Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261105T161257Z.log.gz
+      ✓ bench-validator-10: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261105T161257Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-validator-10-telcoin-cert-fail-20261105T161257Z.log.gz
+      ✓ bench-validator-10: snapshot logs/bench-validator-10-telcoin-cert-fail-20261105T161257Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+
+>>> bench-obs Prometheus snapshot -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (informs, never blocks)
+    + curl -sS -XPOST http://127.0.0.1:19090/api/v1/admin/tsdb/snapshot
+    + bench_pull_stream bench-obs us-west2-a gz /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs/bench-obs-prometheus-20261105T161318Z.tar.gz cmd 'sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots <name> | gzip -1'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+OBS_SNAPSHOT inst=bench-obs name=20261105T161318Z-0dd3d5e6d87ba8bc bytes=29514922 file=logs/bench-obs-prometheus-20261105T161318Z.tar.gz
+
+>>> log coverage: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (each node's logs from the coordinated start to the blast end)
+LOGCOV bench-validator-01 gens=1 first=2026-11-05T08:15:48Z last=2026-11-05T10:22:18Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-02 gens=1 first=2026-11-05T08:15:55Z last=2026-11-05T10:22:20Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-03 gens=1 first=2026-11-05T08:16:13Z last=2026-11-05T10:22:22Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-04 gens=1 first=2026-11-05T08:16:05Z last=2026-11-05T10:22:21Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-05 gens=1 first=2026-11-05T08:16:22Z last=2026-11-05T11:31:45Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-06 gens=1 first=2026-11-05T08:16:48Z last=2026-11-05T11:38:44Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-07 gens=1 first=2026-11-05T08:17:27Z last=2026-11-05T12:05:19Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-08 gens=1 first=2026-11-05T08:17:25Z last=2026-11-05T12:05:18Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-09 gens=1 first=2026-11-05T08:17:22Z last=2026-11-05T12:31:38Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-10 gens=1 first=2026-11-05T08:19:21Z last=2026-11-05T12:44:34Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-observer-11 gens=1 first=2026-11-05T08:18:46Z last=2026-11-05T13:28:19Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+    ✓ 11 node(s): 11 cover the run
+
+>>> local gate: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803 (the only copy; nothing is deleted until it holds every node's logs)
+    ✓ 43 required file(s) present and non-empty: logs of 11 node(s) (container, unit stdout, recovery evidence), manifest.json, manifest.cert_failures logs
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/INDEX.md and CHECKSUMS.sha256: 194 file(s), 91311383339 bytes
+
+>>> plan / execution
+    stopped tunnel pid 994915 (tunnel-obs-grafana.pid)
+    stopped tunnel pid 994774 (tunnel-obs-prom.pid)
+    + kill 994774 994777 994862 994915 994919 994970
+/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/bench-lib.sh: line 49: kill: (994774) - No such process
+/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/bench-lib.sh: line 49: kill: (994862) - No such process
+/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/bench-lib.sh: line 49: kill: (994915) - No such process
+/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/bench-lib.sh: line 49: kill: (994970) - No such process
+    + gcloud compute instances delete bench-validator-08 --zone=asia-east2-a --project=tn-devnet --quiet --async
+ERROR: (gcloud.compute.instances.delete) unrecognized arguments: --async 
+
+To search the help text of gcloud commands, run:
+  gcloud help -- SEARCH_TERMS
+TEARDOWN3_EXIT rc=2
