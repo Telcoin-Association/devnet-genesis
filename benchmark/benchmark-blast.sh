@@ -35,10 +35,11 @@
 #            Run it once against a live fleet before a blast relies on the staged path.
 #
 # Abort watchers (each sets manifest.abort and stops the blasters): any bench node's root
-# disk > BENCH_ABORT_DISK_PCT, obs-devnet memory > BENCH_ABORT_OBS_MEM_PCT, a FatalDBFailure
+# disk > BENCH_ABORT_DISK_PCT, bench-obs memory > BENCH_ABORT_OBS_MEM_PCT, a FatalDBFailure
 # in any node's telcoin log (recorded as "batch-cache-cliff" — the batch-cache defect, NOT a
 # hardware limit), or no chain progress for > BENCH_ABORT_STALL_SECS (quorum lost). They read
-# the nodes' BENCH_STATUS serial lines (node-sampler.sh) and Cloud Monitoring — no IAP
+# the nodes' BENCH_STATUS serial lines (node-sampler.sh), Cloud Monitoring and bench-obs's
+# Prometheus (through the local forward `run --yes` opens first, bench_obs_require) — no IAP
 # polling — every BENCH_POLL_SECS (>= 240 s, tasks/lessons.md IAP-throttling lesson).
 #
 # Usage: benchmark/benchmark-blast.sh {fund|run|collect|delete|status|chaos-stage-test} [--yes] [--keep]
@@ -1287,6 +1288,12 @@ do_run() {
     local chaos_on="${BENCH_CHAOS:-1}"
     local t_kill=$(( mixed_start + BENCH_CHAOS_KILL_AT_SECS )) t_back=$(( mixed_start + BENCH_CHAOS_BACK_AT_SECS )) t_obs=$(( mixed_start + BENCH_CHAOS_OBS_AT_SECS ))
     local recovery_schedule=""
+    # Every Prometheus read of the run (quorum-lost watcher, node health, commit-flat judge) goes
+    # to bench-obs through its local forward, whatever the chaos timing: check the VM and open the
+    # forward first. Fatal like the epoch read's tunnel below; no blaster exists yet.
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        bench_obs_require || bench_die "bench-obs Prometheus is not reachable"
+    fi
     if [ "${chaos_on}" = "1" ]; then
         case "${BENCH_CHAOS_TIMING}" in
             epoch)
@@ -1467,9 +1474,9 @@ do_run() {
             commit_flat_check "$(printf '%s' "${POLL_SAMPLES}" | sort -n)"
             node_health_check "${now}" || true
             local mem; mem="$(bench_obs_mem_pct || true)"
-            echo "    obs-devnet memory: ${mem:-n/a}%"
+            echo "    ${BENCH_OBS_INSTANCE} memory: ${mem:-n/a}%"
             if [ -n "${mem}" ] && awk -v m="${mem}" -v t="${BENCH_ABORT_OBS_MEM_PCT}" 'BEGIN{exit !(m>t)}'; then
-                record_abort "obs-memory" "${OBS_INSTANCE_NAME}" "obs-devnet memory ${mem}% > ${BENCH_ABORT_OBS_MEM_PCT}%"
+                record_abort "obs-memory" "${BENCH_OBS_INSTANCE}" "${BENCH_OBS_INSTANCE} memory ${mem}% > ${BENCH_ABORT_OBS_MEM_PCT}%"
             fi
             chaos_boundary_check
             next_poll=$(( now + BENCH_POLL_SECS ))

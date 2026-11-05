@@ -767,6 +767,44 @@ printf 'SAMPLES<%s>\n' "$POLL_SAMPLES"; echo "SEEN ${STATUS_SEEN[0]} ${STATUS_SE
         self.assertIn("SEEN 1120 1100", run["out"])
 
 
+class BenchObsTests(unittest.TestCase):
+    """The run's metrics live on bench-obs (the bench's own obs VM), never on obs-devnet."""
+
+    SOURCE = (BENCH / "benchmark-blast.sh").read_text()
+
+    def test_obs_memory_abort_records_the_bench_obs_instance(self):
+        # The poll's obs-memory block, run as it stands in do_run.
+        block = re.search(r'^ +local mem; mem="\$\(bench_obs_mem_pct \|\| true\)"\n.*?^ +fi\n',
+                          self.SOURCE, re.M | re.S).group()
+        run = run_chaos_shell(r'''
+BENCH_OBS_INSTANCE=bench-obs-7; BENCH_ABORT_OBS_MEM_PCT=85; MEM=""
+bench_obs_mem_pct() { printf '%s' "$MEM"; }
+record_abort() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$ABORT_LOG"; }
+obs_memory() {
+''' + block + r'''
+}
+obs_memory; MEM=85; obs_memory; MEM=91.5; obs_memory
+''')
+        self.assertEqual(run["out"].splitlines(), ["    bench-obs-7 memory: n/a%", "    bench-obs-7 memory: 85%",
+                                                   "    bench-obs-7 memory: 91.5%"])
+        self.assertEqual(run["aborts"], "obs-memory|bench-obs-7|bench-obs-7 memory 91.5% > 85%\n")
+        self.assertNotIn("obs-devnet", self.SOURCE)
+        self.assertNotIn("OBS_INSTANCE_NAME", self.SOURCE)
+
+    def test_run_requires_bench_obs_before_the_chaos_schedule_and_every_prometheus_read(self):
+        body = blast_functions("do_run")
+        # At the function's own level (not inside the chaos or epoch branch), apply mode only, fatal.
+        guard = re.search(r'\n    if \[ "\$\{BENCH_APPLY\}" = "1" \]; then\n'
+                          r'        bench_obs_require \|\| bench_die "[^"]+"\n    fi\n', body)
+        self.assertIsNotNone(guard)
+        self.assertEqual(body.count("bench_obs_require"), 1)
+        at = guard.start()
+        for later in ('if [ "${chaos_on}" = "1" ]; then', 'case "${BENCH_CHAOS_TIMING}" in',
+                      'bench_tunnel_up || bench_die', "trap on_run_exit EXIT", "round_stall_check",
+                      "node_health_check", "commit_flat_check"):
+            self.assertLess(at, body.index(later), later)
+
+
 class SamplerTests(unittest.TestCase):
     def test_csv_upgrade_block_capture_and_minute_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
