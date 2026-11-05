@@ -10,6 +10,7 @@ import gzip
 import io
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import unittest
 
 TESTS = Path(__file__).resolve().parent
 TOOL = TESTS.parent / "tools" / "cert-rate.py"
+LIB = (TESTS.parent / "bench-lib.sh").read_text()
 FIX = TESTS / "fixtures" / "analysis"
 A1 = "A1" + "a" * 30
 B2 = "B2" + "b" * 30
@@ -104,6 +106,40 @@ class CertRateTests(unittest.TestCase):
         self.assertEqual(len(doc["nodes"]["bench-validator-02"]["files"]), 2)
         run = self.window(doc, "run")["nodes"]["bench-validator-02"]
         self.assertEqual((run["proposed"], run["quorum"], run["committed_certs"]), (4, 1, 6))
+
+    def test_the_bench_glob_reads_the_unit_files_and_their_rotated_generations(self):
+        # bench-lib.sh passes --node-glob <BENCH_CERT_LOG_GLOB default> (teardown analysis and the
+        # certification record): the unit's append files, split by logrotate into the live file and
+        # .rotated-<N> generations (one also pulled beside its name, -<UTC>.rotated-<N>), hold the
+        # whole run once; the container logs are not read.
+        m = re.search(r'^_bench_cert_log_glob\(\) \{ printf .*"\$\{BENCH_CERT_LOG_GLOB:-([^}]+)\}"; \}$', LIB, re.M)
+        self.assertIsNotNone(m, "bench-lib.sh _bench_cert_log_glob")
+        glob = m.group(1)
+        self.assertEqual(glob, "bench-validator-*-unit-stdout*.log.gz")
+        whole = self.doc("--windows", str(FIX / "manifest.json"))
+        for src in sorted((FIX / "node-logs").glob("*.log")):
+            node = src.name[:len("bench-validator-01")]
+            lines = src.read_text().splitlines(True)
+            # Rotated at the phase boundary: a subdag's "certificate committed" lines and its "subdag
+            # committed" line stay in one file (cert-rate.py pairs them within a file).
+            half = next(i for i, line in enumerate(lines) if line >= "ts=2026-10-06T06:10")
+            for name, text in (("unit-stdout.rotated-1", lines[:half]), ("unit-stdout", lines[half:]),
+                               ("unit-stdout-20261104T003616Z.rotated-1", lines[:half])):
+                (self.logs / ("%s-%s.log.gz" % (node, name))).write_bytes(gzip.compress("".join(text).encode()))
+            # The container log holds a header the unit files do not: it must not be read.
+            (self.logs / ("%s-telcoin.log.gz" % node)).write_bytes(gzip.compress(
+                (src.read_text() + 'ts=2026-10-06T06:05:00.000000000Z level=info target=consensus::metrics '
+                 'message="header proposed" round=99 epoch=1 num_batches=1 num_parents=7\n').encode()))
+        split = self.doc("--windows", str(FIX / "manifest.json"), "--node-glob", glob)
+        self.assertEqual(sorted(split["nodes"]), sorted(whole["nodes"]))
+        self.assertEqual(len(split["nodes"]["bench-validator-01"]["files"]), 3)
+        for w in whole["windows"]:
+            with self.subTest(window=w["name"]):
+                self.assertEqual(self.window(split, w["name"])["nodes"], w["nodes"])
+        # Without the glob the container log's extra header is counted.
+        every = self.doc("--windows", str(FIX / "manifest.json"))
+        run = self.window(every, "run")["nodes"]["bench-validator-01"]
+        self.assertEqual(run["proposed"], self.window(whole, "run")["nodes"]["bench-validator-01"]["proposed"] + 1)
 
     def test_without_an_authority_the_shares_stay_empty_unless_given(self):
         plain = Path(self._tmp.name) / "plain"

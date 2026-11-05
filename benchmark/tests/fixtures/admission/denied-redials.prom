@@ -1,0 +1,43 @@
+# TYPE tn_network_source_admission_denied_total counter
+tn_network_source_admission_denied_total{network="primary",direction="in",reason="peer_full"} 7
+tn_network_source_admission_denied_total{network="worker-0",direction="out",reason="process_full"} 0
+tn_network_source_admission_denied_total{network="worker-0",direction="in",reason="peer_full"} 2
+tn_network_source_admission_denied_total{network="primary",direction="out",reason="process_full"} 0
+
+# TYPE tn_network_closed_admission_denied_total counter
+tn_network_closed_admission_denied_total{network="worker-0",direction="out"} 0
+tn_network_closed_admission_denied_total{network="primary",direction="in"} 205
+tn_network_closed_admission_denied_total{network="primary",direction="out"} 0
+tn_network_closed_admission_denied_total{network="worker-0",direction="in"} 6
+
+# HELP tn_network_admission_contradicted Identities with a contradicted PeerId binding. They do not change the effective mode.
+# TYPE tn_network_admission_contradicted gauge
+tn_network_admission_contradicted{network="primary"} 0
+tn_network_admission_contradicted{network="worker-0"} 0
+
+# HELP tn_network_admission_fallback Fallback: healthy = 0, missing = 1, stale = 2, contradictory = 3, unresolved = 4.
+# TYPE tn_network_admission_fallback gauge
+tn_network_admission_fallback{network="primary"} 0
+tn_network_admission_fallback{network="worker-0"} 0
+
+# HELP tn_network_connected_peers Currently connected peers.
+# TYPE tn_network_connected_peers gauge
+tn_network_connected_peers{network="worker-0"} 10
+tn_network_connected_peers{network="primary"} 10
+
+# HELP tn_network_admission_mode Effective admission mode: Open = 0, Grace = 1, Closed = 2.
+# TYPE tn_network_admission_mode gauge
+tn_network_admission_mode{network="worker-0"} 2
+tn_network_admission_mode{network="primary"} 2
+
+# HELP tn_network_admission_required_current Minimum authenticated-record quorum for Closed.
+# TYPE tn_network_admission_required_current gauge
+tn_network_admission_required_current{network="primary"} 8
+tn_network_admission_required_current{network="worker-0"} 8
+
+# HELP tn_network_admission_resolved_current Resolved current-committee records, including the local identity.
+# TYPE tn_network_admission_resolved_current gauge
+tn_network_admission_resolved_current{network="primary"} 11
+tn_network_admission_resolved_current{network="worker-0"} 11
+
+NODE_MODE=CvvActive

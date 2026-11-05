@@ -6,7 +6,9 @@ records manifest.certification / .certification_meta / .cert_failures, and snaps
 log of every failing validator into logs/, where the local gate then requires it.
 
 The functions are cut out of bench-lib.sh by name (as test_teardown_local_gate.py does) and run
-under bash. GCP is fixtures/teardown/fake-gcloud.py (instance describe) behind the perl alarm stub.
+under bash, with benchmark/pull-lib.sh (bench_pull_stream, through which the saved-log tar is pulled)
+sourced when it is there. GCP is fixtures/teardown/fake-gcloud.py (instance describe) behind the perl
+alarm stub.
 The node side is real: tn_iap_ssh is a function that runs the harness's remote command string under
 a local bash, with fixtures/certification/ stubs for sudo (maps the node's log dir to a directory
 per fake node) and docker (the container's log is a file). So the save and saved-log tar scripts
@@ -60,16 +62,43 @@ def shell_assignment(source, name):
 
 
 FUNCTIONS = (
-    "bench_warn", "bench_now_iso", "bench_index_of", "_bench_in_lines", "_bench_log_name_ok",
+    "bench_warn", "bench_now_iso", "bench_now_unix", "bench_iso_from_unix", "bench_index_of", "_bench_in_lines",
+    "_bench_log_name_ok", "_bench_unstamp_names", "_bench_log_sources_of", "_bench_marker_verdict",
+    "bench_node_vouched_logs",
     "bench_save_node_log", "_bench_saved_log_cmd_skip", "_bench_saved_log_cmd", "_bench_pull_saved_logs",
-    "bench_local_gate_check", "_bench_index_kind",
+    "bench_local_gate_check", "_bench_index_kind", "_bench_cert_log_glob", "bench_local_analysis",
     "_bench_cert_fail_pct", "_bench_cert_validators_json", "_bench_cert_rel", "_bench_cert_jq", "_bench_cert_insts",
     "bench_certification_record", "_bench_cert_logs_here", "bench_cert_failures_snapshot",
-    "bench_certification_summary")
+    "bench_certification_summary",
+    # the node log pull (NodePullTests)
+    "bench_instance_json", "_bench_instance_ident", "_bench_unit_log_cmd", "_bench_pull_node_log",
+    "_bench_pull_unit_log", "_bench_logs_here", "_bench_write_marker", "_bench_pull_rc", "_bench_pull_node",
+    "bench_pull_node_logs")
+
+# pull-lib.sh (unit U-H1) when it is there; until then a stand-in that keeps its bench_pull_stream
+# contract for the `cmd` form used here: one attempt into a fresh temp file beside <out>, the gzip or
+# tar checked, then renamed to <out>; rc 0 landed, 1 empty, 2 failed. tn_iap_fault_kind is unit
+# U-H6's (devnet-lib.sh), not sourced here: a stand-in with its <rc> <stderr-file> contract.
+PULL_SHIM = (
+    '[ ! -r "${BENCH_DIR}/pull-lib.sh" ] || . "${BENCH_DIR}/pull-lib.sh"\n'
+    "declare -F tn_iap_fault_kind >/dev/null || tn_iap_fault_kind() {\n"
+    "    case \"$1\" in 0) echo ok ;; 255) echo transport ;; *) echo other ;; esac\n"
+    "}\n"
+    "declare -F bench_pull_stream >/dev/null || bench_pull_stream() {\n"
+    "    local tmp rc=0\n"
+    "    tmp=\"$(mktemp \"$4.aXXXXXX\")\" || return 2\n"
+    "    TN_IAP_RETRIES=0 tn_iap_ssh \"$1\" \"$2\" \"$6\" > \"${tmp}\" || rc=$?\n"
+    "    if [ \"${rc}\" -ne 0 ]; then rm -f \"${tmp}\"; return 2; fi\n"
+    "    if [ ! -s \"${tmp}\" ]; then rm -f \"${tmp}\"; return 1; fi\n"
+    "    case \"$3\" in gz) gzip -t \"${tmp}\" 2>/dev/null ;; tar) tar -tf \"${tmp}\" >/dev/null 2>&1 ;; *) true ;; esac \\\n"
+    "        || { rm -f \"${tmp}\"; return 2; }\n"
+    "    mv -f \"${tmp}\" \"$4\"\n"
+    "}\n")
 
 PRELUDE = (
     "set -euo pipefail\n"
     + shell_assignment(LIB, "BENCH_NODE_LOG_DIR") + shell_assignment(LIB, "BENCH_CERT_MIN_PROPOSED")
+    + shell_assignment(LIB, "BENCH_PULL_MARKER_V") + shell_assignment(LIB, "BENCH_MARKER_MAX_AGE_SECS")
     + "INSTANCE_NAMES=(%s %s %s)\nNODE_ROLES=(validator validator observer)\n"
       "ZONES=(us-west2-a europe-west2-b us-west2-a)\n" % (V1, V2, V3)
     # The node's side of IAP ssh: the command string, run by a local bash as the node's shell would.
@@ -78,7 +107,16 @@ PRELUDE = (
       "    case \"$3\" in *\"${FAKE_SSH_FAIL:-@none@}\"*) echo \"ssh: connection to $1 failed\" >&2; return 255 ;; esac\n"
       "    FAKE_NODE=\"$1\" bash -c \"$3\"\n"
       "}\n"
-    + "".join(shell_function(LIB, n) for n in FUNCTIONS))
+    # A script on stdin (`sudo bash -s` on the node): run by a local bash. FAKE_SSH_FAIL fails a session
+    # whose script holds that text; FAKE_SSH_EMPTY makes one answer nothing (rc 0, no output).
+    + "tn_iap_ssh_stdin() {\n"
+      "    local s; s=\"$(cat)\"\n"
+      "    printf '%s\\tstdin %s\\n' \"$1\" \"$(printf '%s\\n' \"$s\" | head -n 1)\" >> \"${FAKE_ROOT}/ssh.log\"\n"
+      "    case \"$s\" in *\"${FAKE_SSH_FAIL:-@none@}\"*) echo \"ssh: connection to $1 failed\" >&2; return 255 ;; esac\n"
+      "    case \"$s\" in *\"${FAKE_SSH_EMPTY:-@none@}\"*) return 0 ;; esac\n"
+      "    printf '%s\\n' \"$s\" | FAKE_NODE=\"$1\" bash -s\n"
+      "}\n"
+    + "".join(shell_function(LIB, n) for n in FUNCTIONS) + PULL_SHIM)
 
 T0 = calendar.timegm((2026, 10, 6, 6, 0, 0))   # the fixture manifest's first phase start
 
@@ -106,8 +144,9 @@ def gz(text):
     return gzip.compress(text.encode())
 
 
-@unittest.skipUnless(shutil.which("jq") and shutil.which("python3") and shutil.which("tar"), "needs jq, python3 and tar")
-class CertificationTests(unittest.TestCase):
+class FakeFleet(unittest.TestCase):
+    """Three fake nodes, their logs in results/<run>/logs, GCP and the node side as described above."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="certification-")
         self.root = Path(self._tmp.name)
@@ -152,7 +191,8 @@ class CertificationTests(unittest.TestCase):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(self.root), "TMPDIR": str(self.root), "FAKE_ROOT": str(self.state),
                "BENCH_APPLY": "1" if apply else "0", "BENCH_DIR": str(BENCH), "BENCH_RESULTS_DIR": str(self.results),
-               "BENCH_RUN_ID": RUN, "PROJECT_ID": PROJECT, "FAKE_NODE_LOG_DIR": "/var/lib/bench-logs"}
+               "BENCH_RUN_ID": RUN, "PROJECT_ID": PROJECT, "FAKE_NODE_LOG_DIR": "/var/lib/bench-logs",
+               "BENCH_IAP_RETRIES": "1"}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -186,6 +226,9 @@ class CertificationTests(unittest.TestCase):
     def files(self):
         return {p.relative_to(self.results).as_posix(): p.read_bytes() for p in self.results.rglob("*") if p.is_file()}
 
+
+@unittest.skipUnless(shutil.which("jq") and shutil.which("python3") and shutil.which("tar"), "needs jq, python3 and tar")
+class CertificationTests(FakeFleet):
     # ------------------------------------------------------------------ record
 
     def test_record_fills_certification_and_failures(self):
@@ -381,6 +424,124 @@ class CertificationTests(unittest.TestCase):
         self.snapshot()
         self.assertEqual(self.run_lib('bench_local_gate_check').returncode, 0)
 
+    # ------------------------------------------------------------------ rotated unit logs, glob, re-runs
+
+    def split_v2(self):
+        """v02's record as logrotate leaves it: warmup in telcoin.log.1 (pulled as unit-stdout.rotated-1),
+        mixed in the live unit file and the container log; an older generation pulled beside a file of
+        that name already here (the -<UTC>.rotated-<N> form); a rotated stderr generation."""
+        lines = self.v2_log.splitlines(True)
+        warmup, mixed = "".join(lines[:120]), "".join(lines[120:])
+        for name, text in (("unit-stdout.rotated-1", warmup), ("unit-stdout", mixed), ("telcoin", mixed),
+                           ("unit-stdout-20261104T003616Z.rotated-2", "ts=2026-10-06T05:00:00Z earlier\n"),
+                           ("unit-stderr.rotated-1", "an error\n")):
+            (self.logs / ("%s-%s.log.gz" % (V2, name))).write_bytes(gz(text))
+
+    def test_rotated_unit_logs_are_listed_for_a_failing_validator(self):
+        self.split_v2()
+        self.record()
+        cert = self.m()["certification"][V2]
+        self.assertEqual((cert["phase warmup"]["proposed"], cert["phase warmup"]["rate_pct"]), (60, 100.0),
+                         "warmup is read from the rotated generation")
+        self.assertEqual((cert["phase mixed"]["proposed"], cert["phase mixed"]["certified"]), (60, 0))
+        p = self.snapshot()
+        logs = self.m()["cert_failures"][0]["logs"]
+        snap = [x for x in logs if SNAP_RE.match(x)]
+        self.assertEqual(len(snap), 1, logs)
+        self.assertEqual(sorted(set(logs) - set(snap)), [
+            "logs/%s-telcoin.log.gz" % V2, "logs/%s-unit-stdout-20261104T003616Z.rotated-2.log.gz" % V2,
+            "logs/%s-unit-stdout.log.gz" % V2, "logs/%s-unit-stdout.rotated-1.log.gz" % V2])
+        self.assertIn("✓ %s: snapshot %s; 5 log(s) listed in cert_failures[].logs: current-container log, "
+                      "1 saved log(s), unit stdout, 2 rotated unit stdout log(s)\n" % (V2, snap[0]), p.stdout)
+        # The local gate requires every listed log, the rotated ones included.
+        (self.logs / ("%s-unit-stdout.rotated-1.log.gz" % V2)).unlink()
+        g = self.run_lib('bench_local_gate_check')
+        self.assertEqual(g.returncode, 1)
+        self.assertIn("✗ missing or empty: logs/%s-unit-stdout.rotated-1.log.gz (manifest.cert_failures)" % V2, g.stdout)
+
+    def test_rotated_names_are_known_to_the_name_helpers_and_the_index(self):
+        stamped = "%s-unit-stdout-20261104T003616Z.rotated-2.log.gz" % V2
+        p = self.run_lib('_bench_unstamp_names "$L/%s" %s-unit-stderr.rotated-1.log.gz %s-telcoin-20261104T003616Z.log.gz'
+                         % (stamped, V2, V2))
+        self.assertEqual(p.stdout.splitlines(), ["%s-unit-stdout.rotated-2.log.gz" % V2,
+                                                 "%s-unit-stderr.rotated-1.log.gz" % V2, "%s-telcoin.log.gz" % V2])
+        p = self.run_lib('_bench_log_sources_of %s %s-unit-stdout.rotated-1.log.gz %s %s-unit-stderr.rotated-3.log.gz '
+                         '%s-unit-stdout.log.gz' % (V2, V2, stamped, V2, V2))
+        self.assertEqual(p.stdout, "unit stdout, 2 rotated unit stdout log(s), 1 rotated unit stderr log(s)\n")
+        self.split_v2()
+        p = self.run_lib('_bench_cert_logs_here "$L" %s' % V2)
+        self.assertEqual(sorted(os.path.basename(x) for x in p.stdout.split()), sorted([
+            "%s-telcoin.log.gz" % V2, stamped, "%s-unit-stdout.log.gz" % V2, "%s-unit-stdout.rotated-1.log.gz" % V2]))
+        rows = self.run_lib(" ".join('_bench_index_kind %s;' % f for f in (
+            "logs/%s" % stamped, "logs/%s-unit-stderr.rotated-1.log.gz" % V2, "logs/%s-unit-stdout.log.gz" % V2,
+            "logs/%s.logspan" % V2, "last-deploy.status", "zones.env", "logs/create-instances-20261104T003616Z.log",
+            "logs/keygen-20261104T003616Z.log", "logs/create-bench-blast-1.log"))).stdout.splitlines()
+        groups = [r.split("|")[1] for r in rows]
+        self.assertEqual(groups[:3], ["logs/<node>-unit-{stdout,stderr}.rotated-<N>.log.gz"] * 2
+                         + ["logs/<node>-unit-{stdout,stderr}.log.gz"])
+        self.assertEqual(groups[3:], ["logs/<node>.logspan", "last-deploy.status", "zones.env",
+                                      "logs/create-instances-<UTC>.log", "logs/keygen-<UTC>.log", "logs/create-<vm>.log"])
+        self.assertFalse([r for r in rows if r.startswith("99|")], rows)
+
+    def test_record_reads_the_unit_logs_only_by_default(self):
+        # A container log holding 60 more proposals of v01 that no unit file has: not read by default.
+        extra = node_log(0, 0).replace("round=", "round=9")
+        (self.logs / ("%s-telcoin.log.gz" % V1)).write_bytes(gz(node_log(60, 60) + extra))
+        self.record()
+        self.assertEqual(self.m()["certification"][V1]["run"]["proposed"], 120)
+        self.record(BENCH_CERT_LOG_GLOB="bench-validator-*.log.gz")
+        self.assertEqual(self.m()["certification"][V1]["run"]["proposed"], 240)
+        # No unit file at all: nothing to read with the default glob, so nothing is recorded.
+        for f in self.logs.glob("bench-validator-*-unit-stdout*.log.gz"):
+            f.unlink()
+        p = self.record()
+        self.assertIn("certification: no validator log in %s yet (the teardown pulls them; glob "
+                      "bench-validator-*-unit-stdout*.log.gz) — not recorded" % self.logs, p.stderr)
+        p = self.run_lib('bench_certification_record "$L" "$M"', apply=False)
+        self.assertIn("--format json --node-glob 'bench-validator-*-unit-stdout*.log.gz' > ", p.stdout)
+
+    def test_local_analysis_skip_knob_and_glob(self):
+        a = self.results / "analysis" / "cert-rate.md"
+        p = self.run_lib("bench_local_analysis", BENCH_TEARDOWN_SKIP_ANALYSIS="1")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("- skipped (BENCH_TEARDOWN_SKIP_ANALYSIS=1)", p.stdout)
+        self.assertFalse((self.results / "analysis").exists())
+        p = self.run_lib("bench_local_analysis", apply=False)
+        self.assertIn("+ python3 %s/tools/cert-rate.py --logs %s --windows %s/manifest.json --node-glob "
+                      "'bench-validator-*-unit-stdout*.log.gz' > " % (BENCH, self.logs, self.results), p.stdout)
+        p = self.run_lib("bench_local_analysis")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("✓ %s" % a, p.stdout)
+        self.assertIn(V2, a.read_text())
+
+    def write_marker(self, inst, inst_id, *names):
+        lines = ["tn-bench-pulled/v2", "instance " + inst, "id %s" % inst_id, "created 2026-10-06T05:00:00Z",
+                 "run " + RUN, "pulled " + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sources test"]
+        lines += ["file %d %s" % ((self.logs / n).stat().st_size, n) for n in names]
+        (self.logs / ("%s.pulled" % inst)).write_text("\n".join(lines + ["end"]) + "\n")
+
+    def test_a_vouched_snapshot_is_not_taken_again(self):
+        self.record()
+        self.snapshot()
+        first = self.m()["cert_failures"][0]["logs"]
+        snap = [x for x in first if SNAP_RE.match(x)][0]
+        saves = len([c for c in self.ssh_calls() if "docker logs telcoin" in c[1]])
+        # The teardown re-run's pull brought it in as a saved log, and its marker (this instance's id) vouches for it.
+        self.write_marker(V2, 101, os.path.basename(snap), "%s-telcoin.log.gz" % V2)
+        p = self.snapshot()
+        self.assertIn("- %s: %s is this instance's snapshot (instance 101; a pull marker vouches for it) — not taken again"
+                      % (V2, snap), p.stdout)
+        self.assertIn("✓ %s: snapshot %s; 3 log(s) listed" % (V2, snap), p.stdout)
+        self.assertEqual(len([c for c in self.ssh_calls() if "docker logs telcoin" in c[1]]), saves, "no new save")
+        self.assertEqual(self.m()["cert_failures"][0]["logs"], first)
+        # A marker of another instance of that name vouches for nothing here: a new snapshot.
+        time.sleep(1.1)
+        self.write_marker(V2, 999, os.path.basename(snap))
+        p = self.snapshot()
+        self.assertNotIn("not taken again", p.stdout)
+        self.assertEqual(len([c for c in self.ssh_calls() if "docker logs telcoin" in c[1]]), saves + 1)
+        self.assertEqual(len([x for x in self.m()["cert_failures"][0]["logs"] if SNAP_RE.match(x)]), 2)
+
     def test_dry_run_changes_nothing(self):
         self.record()
         before = self.files()
@@ -402,6 +563,87 @@ class CertificationTests(unittest.TestCase):
         self.record(BENCH_CERT_FAIL_PCT="0")
         p = self.run_lib('bench_certification_summary "$M"')
         self.assertEqual(p.stdout.strip(), "no validator below 0 % of its own headers certified (2 validator(s))")
+
+
+@unittest.skipUnless(shutil.which("jq") and shutil.which("python3") and shutil.which("tar"), "needs jq, python3 and tar")
+@unittest.skipUnless((BENCH / "pull-lib.sh").exists(), "needs benchmark/pull-lib.sh (unit U-H1)")
+class NodePullTests(FakeFleet):
+    """bench_pull_node_logs / _bench_pull_node on one fake node, with pull-lib.sh's real span and rotated
+    sessions: span first, then container, saved, unit and rotated logs, then the marker. The node's unit
+    files live in a directory of the test (BENCH_NODE_UNIT_LOGS points there)."""
+
+    def setUp(self):
+        super().setUp()
+        self.unit = self.state / "unit"
+        self.unit.mkdir()
+        (self.unit / "telcoin.log").write_text("ts=2026-10-06T06:20:00Z live line\n")
+        (self.unit / "telcoin.log.1").write_text("ts=2026-10-06T06:10:00Z generation 1\n")
+        (self.unit / "telcoin.log.2.gz").write_bytes(gz("ts=2026-10-06T06:00:00Z generation 2\n"))
+        (self.unit / "telcoin-error.log").write_text("an error\n")
+        self.dest = self.root / "pulled"
+
+    def pull(self, **extra):
+        body = ('INSTANCE_NAMES=(%s); ZONES=(europe-west2-b)\n'
+                'BENCH_NODE_UNIT_LOGS="stdout:%s/telcoin.log stderr:%s/telcoin-error.log"\n'
+                'rc=0; bench_pull_node_logs "%s" || rc=$?; echo "RC=${rc}"' % (V2, self.unit, self.unit, self.dest))
+        p = self.run_lib(body, **extra)
+        return p, int(re.search(r"^RC=(\d+)$", p.stdout, re.M).group(1))
+
+    def marker_files(self):
+        m = self.dest / (V2 + ".pulled")
+        return sorted(line.split()[2] for line in m.read_text().splitlines() if line.startswith("file ")) if m.exists() else None
+
+    def test_every_source_lands_and_the_marker_lists_it(self):
+        p, rc = self.pull()
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        span = (self.dest / (V2 + ".logspan")).read_text()
+        self.assertIn("LOGSPAN %s stream=stdout gen=0 " % V2, span)
+        self.assertIn("LOGSPAN %s stream=stdout gen=2 " % V2, span)
+        logs = ["%s-%s.log.gz" % (V2, n) for n in (
+            "telcoin", "telcoin-pre-step9-20261006T055000Z", "unit-stderr", "unit-stdout",
+            "unit-stdout.rotated-1", "unit-stdout.rotated-2")]
+        self.assertEqual(sorted(f.name for f in self.dest.glob("*.log.gz")), sorted(logs))
+        self.assertEqual(self.marker_files(), sorted(logs))
+        read = lambda n: gzip.decompress((self.dest / ("%s-%s.log.gz" % (V2, n))).read_bytes()).decode()
+        self.assertEqual(read("unit-stdout"), "ts=2026-10-06T06:20:00Z live line\n")
+        self.assertEqual(read("unit-stdout.rotated-1"), "ts=2026-10-06T06:10:00Z generation 1\n")
+        self.assertEqual((self.dest / ("%s-unit-stdout.rotated-2.log.gz" % V2)).read_bytes(),
+                         (self.unit / "telcoin.log.2.gz").read_bytes(), "a .N.gz generation is the node's own bytes")
+        self.assertTrue(read("telcoin").startswith("the container log of v02 at the snapshot\n"))
+        self.assertIn("✓ %s: current-container log, 1 saved log(s), unit stdout, unit stderr, "
+                      "2 rotated unit stdout log(s)" % V2, p.stdout)
+        sessions = [c[1] for c in self.ssh_calls()]
+        self.assertTrue(sessions[0].startswith("stdin # bench-pull: span"), sessions)
+        self.assertTrue(sessions[-1].startswith("stdin # bench-pull: rotated"), sessions)
+
+    def test_a_span_that_answers_nothing_fails_the_node_and_drops_an_old_span(self):
+        self.dest.mkdir()
+        (self.dest / (V2 + ".logspan")).write_text("LOGSPAN %s stream=stdout gen=0 an earlier pass\n" % V2)
+        p, rc = self.pull(FAKE_SSH_EMPTY="# bench-pull: span")
+        self.assertEqual(rc, 1, p.stdout)
+        self.assertIn("✗ %s: the span session answered nothing" % V2, p.stderr)
+        self.assertFalse((self.dest / (V2 + ".logspan")).exists(), "a span of an earlier pull is not read as now")
+        self.assertIsNone(self.marker_files(), "no marker")
+        self.assertIn("node logs not pulled from: %s" % V2, p.stderr)
+
+    def test_a_failed_rotated_pull_fails_the_node(self):
+        p, rc = self.pull(FAKE_SSH_FAIL="# bench-pull: rotated")
+        self.assertEqual(rc, 1, p.stdout)
+        self.assertIn("✗ %s: rotated unit logs: not all pulled" % V2, p.stderr)
+        self.assertIsNone(self.marker_files(), "no marker: the record lacks a generation")
+        self.assertFalse(list(self.dest.glob("*rotated*")))
+
+    def test_a_zero_byte_leftover_is_pulled_again_under_its_name(self):
+        self.dest.mkdir()
+        for n in ("telcoin", "unit-stdout"):
+            (self.dest / ("%s-%s.log.gz" % (V2, n))).write_bytes(b"")
+        p, rc = self.pull()
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        self.assertGreater((self.dest / ("%s-telcoin.log.gz" % V2)).stat().st_size, 0)
+        self.assertEqual(gzip.decompress((self.dest / ("%s-unit-stdout.log.gz" % V2)).read_bytes()).decode(),
+                         "ts=2026-10-06T06:20:00Z live line\n")
+        self.assertEqual(len(list(self.dest.glob("*.log.gz"))), 6, "no stamped copy beside the leftovers")
+        self.assertIn("%s-unit-stdout.log.gz" % V2, self.marker_files())
 
 
 class CallSiteTests(unittest.TestCase):

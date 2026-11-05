@@ -64,12 +64,19 @@ Closed means `mode_primary = 2`, `mode_worker = 2`, `fallback_n >= 1` and `fallb
 | `fallback-active.prom` | 8 | 2 | 2 | 1 | 2 | 0 | 0 | CvvActive | `ADM_BAD`: fallback 1 (missing), not 0 |
 | `missing-worker.prom` | 4 | 2 | `-` | 0 | 1 | 0 | 0 | Observer | `ADM_BAD`: no worker series |
 | `reordered-labels-with-ts.prom` | 8 | 2 | 2 | 0 | 2 | 3 | 1 | CvvActive | `ADM_OK`, Closed |
+| `denied-redials.prom` | 8 | 2 | 2 | 0 | 2 | 211 | 0 | CvvActive | `ADM_OK`, Closed; `ADM_WARN` when `BENCH_ADMISSION_DENIED_MAX` < 211 |
 
 The expected `ADM_OK` line for both Closed fixtures is
 `ADM_OK <inst> primary=2 worker=2 fallback=0 denied_in=3 denied_out=1 mode=CvvActive`.
 
 The denial counts are split across networks so the parser has to sum them: `in` is primary 2 plus
 `worker-0` 1, and `out` is primary 1 plus `worker-0` 0.
+
+`denied-redials.prom` is `closed.prom` with the denial counts of a validator that an untrusted
+peer keeps redialling: bench 3 (r20261103-1922, F10) read `denied_in` 195-211 on bench-validator-02
+to -10, the observer's 30-s redials, which only bench-validator-01 trusted. Here `in` is primary 205
+plus `worker-0` 6 and `out` is 0. The node is Closed (`ADM_OK`); the denied counts are judged only
+against `BENCH_ADMISSION_DENIED_MAX`, which warns and never fails the gate.
 
 ## Notes on the not-Closed cases
 

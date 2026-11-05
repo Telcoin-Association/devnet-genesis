@@ -71,6 +71,17 @@ bench_assert_bench_name() {
     if bench_is_protected "$2"; then bench_die "$1 '$2' matches the protected pattern ${BENCH_PROTECTED_RE}."; fi
 }
 
+# bench_is_stockout <gcloud output> — 0 when a create failed because the zone has run out of the
+# machine type (code ZONE_RESOURCE_POOL_EXHAUSTED[_WITH_DETAILS], reason: stockout). gcloud wraps
+# its YAML error ("does not have\n  enough resources"), so whitespace is folded before matching.
+# The same matcher as benchmark-blast.sh's is_stockout (load VMs); this one serves the node creates.
+bench_is_stockout() {
+    case "$(printf '%s' "$1" | tr -s ' \t\n' '   ')" in
+        *ZONE_RESOURCE_POOL_EXHAUSTED*|*stockout*|*"does not have enough resources"*) return 0 ;;
+    esac
+    return 1
+}
+
 # bench_in_list <needle> <hay...>
 bench_in_list() { local n="$1" h; shift; for h in "$@"; do [ "${h}" = "${n}" ] && return 0; done; return 1; }
 
@@ -156,6 +167,16 @@ bench_manifest_ts() { bench_manifest_jq --arg k "$1" --arg v "${2:-$(bench_now_i
 
 # bench_manifest_note <text>
 bench_manifest_note() { bench_manifest_jq --arg n "$1" '.notes += [$n]'; }
+
+# The node-log pull machinery (bench_pull_stream, the unit-log span and rotated generations, the
+# coverage check, the bench logrotate text) lives beside this file. Without it no teardown can pull
+# a complete record, so a missing or unreadable copy stops here.
+if [ ! -r "${BENCH_LIB_DIR}/pull-lib.sh" ]; then
+    echo "❌ bench-lib.sh: ${BENCH_LIB_DIR}/pull-lib.sh is missing or unreadable — refusing to run." >&2
+    exit 1
+fi
+# shellcheck source=pull-lib.sh
+. "${BENCH_LIB_DIR}/pull-lib.sh"
 
 # --- files ------------------------------------------------------------------------------
 # bench_file_sha256 <file> — the file's SHA-256 in lower-case hex (shasum or sha256sum,
@@ -340,29 +361,30 @@ bench_save_node_log() {
 # restart, not the VM. Pairs of <stream>:<node file>; the pull names the copy <inst>-unit-<stream>.log.gz.
 BENCH_NODE_UNIT_LOGS="stdout:/var/log/telcoin/telcoin.log stderr:/var/log/telcoin/telcoin-error.log"
 
-# _bench_pull_node_log <inst> <zone> <remote-cmd> <out> — <remote-cmd>'s stdout over IAP ssh
-# into a temp file beside <out>, renamed to <out> once complete. rc 0 = landed; 1 = nothing to
-# copy (no telcoin container, or its log is empty; normal); 2 = the transfer failed. Only a
-# landed log is kept; otherwise the temp file is dropped.
+# _bench_pull_node_log <inst> <zone> <remote-cmd> <out> — <remote-cmd>'s gzip stream (the current
+# container's log) through bench_pull_stream (pull-lib.sh): every attempt into a fresh temp file,
+# checked with gzip -t, renamed to <out> once complete, so a retried transfer never appends to a
+# cut-off one. A zero-byte <out> (a leftover) is removed first; a non-empty one is never pulled
+# over. rc 0 = landed; 1 = nothing to copy (no telcoin container, or its log is empty; normal);
+# 2 = the transfer failed; 3 = gcloud needs re-authentication (BENCH_PULL_STOP_FILE). Only a
+# landed log is kept.
 _bench_pull_node_log() {
-    local tmp
-    tmp="$(mktemp "$4.XXXXXX")" || return 2
-    if ! tn_iap_ssh "$1" "$2" "$3" > "${tmp}"; then
-        rm -f "${tmp}"
-        echo "      ✗ $1: current-container log: ssh or docker on the node failed" >&2
-        return 2
-    fi
+    local r=0
+    if [ -s "$4" ]; then echo "      ✗ $1: $4 is here already — not pulled over it" >&2; return 2; fi
+    if [ -e "$4" ] && ! rm -f -- "$4"; then echo "      ✗ $1: the empty $4 could not be removed" >&2; return 2; fi
+    bench_pull_stream "$1" "$2" gz "$4" cmd "$3" || r=$?
+    case "${r}" in
+        0) ;;
+        1) echo "      - $1: no current-container log (no telcoin container, or its log is empty)"; return 1 ;;
+        3) echo "      ✗ $1: current-container log: gcloud needs re-authentication — not pulled" >&2; return 3 ;;
+        *) echo "      ✗ $1: current-container log: ssh or docker on the node failed" >&2; return 2 ;;
+    esac
     # gzip of no input is still 20 bytes, so judge the decompressed first byte.
-    if [ "$(gzip -cd "${tmp}" 2>/dev/null | head -c 1 | wc -c)" -ne 1 ]; then
-        rm -f "${tmp}"
+    if [ "$(gzip -cd "$4" 2>/dev/null | head -c 1 | wc -c)" -ne 1 ]; then
+        rm -f "$4"
         echo "      - $1: no current-container log (no telcoin container, or its log is empty)"
         return 1
     fi
-    if [ -s "$4" ]; then
-        echo "      ✗ $1: $4 appeared during the pull; this copy is ${tmp}" >&2
-        return 2
-    fi
-    mv "${tmp}" "$4" || return 2
     echo "      ✓ $1 -> $4"
 }
 
@@ -374,29 +396,22 @@ _bench_unit_log_cmd() {
 }
 
 # _bench_pull_unit_log <inst> <zone> <node-file> <out> — one of BENCH_NODE_UNIT_LOGS, gzipped on
-# the node as it streams, into a temp file beside <out>, renamed to <out>. A non-empty <out> is
-# kept and no ssh is made. rc 0 = landed or already here; 1 = missing or empty on the node
-# (normal); 2 = the transfer failed.
+# the node as it streams, through bench_pull_stream (a fresh temp file per attempt, gzip -t, then the
+# rename to <out>). A non-empty <out> is kept and no ssh is made; a zero-byte one (a leftover) is
+# removed and pulled again. rc 0 = landed or already here;
+# 1 = missing or empty on the node (normal); 2 = the transfer failed; 3 = gcloud needs
+# re-authentication (BENCH_PULL_STOP_FILE).
 _bench_pull_unit_log() {
-    local tmp
+    local r=0
     if [ -s "$4" ]; then return 0; fi
-    tmp="$(mktemp "$4.XXXXXX")" || return 2
-    if ! tn_iap_ssh "$1" "$2" "$(_bench_unit_log_cmd "$3")" > "${tmp}"; then
-        rm -f "${tmp}"
-        echo "      ✗ $1: $3: ssh or gzip on the node failed" >&2
-        return 2
-    fi
-    if [ ! -s "${tmp}" ]; then
-        rm -f "${tmp}"
-        echo "      - $1: $3 is missing or empty on the node"
-        return 1
-    fi
-    if [ -s "$4" ]; then
-        echo "      ✗ $1: $4 appeared during the pull; this copy is ${tmp}" >&2
-        return 2
-    fi
-    mv "${tmp}" "$4" || return 2
-    echo "      ✓ $1 -> $4"
+    if [ -e "$4" ] && ! rm -f -- "$4"; then echo "      ✗ $1: the empty $4 could not be removed" >&2; return 2; fi
+    bench_pull_stream "$1" "$2" gz "$4" cmd "$(_bench_unit_log_cmd "$3")" || r=$?
+    case "${r}" in
+        0) echo "      ✓ $1 -> $4" ;;
+        1) echo "      - $1: $3 is missing or empty on the node"; return 1 ;;
+        3) echo "      ✗ $1: $3: gcloud needs re-authentication — not pulled" >&2; return 3 ;;
+        *) echo "      ✗ $1: $3: ssh or gzip on the node failed" >&2; return 2 ;;
+    esac
 }
 
 # _bench_log_name_ok <name> — 0 for a plain *.log.gz file name: [A-Za-z0-9._-] only, first
@@ -429,30 +444,36 @@ _bench_saved_log_cmd() {
 }
 
 # _bench_unstamp_names [<file>...] — each file name, minus its directory and minus a trailing
-# -<UTC stamp> before .log.gz: the name a copy stamped because its name was taken would have had.
-# One per line; other names unchanged.
+# -<UTC stamp> before .log.gz (or before .rotated-<N>.log.gz): the name a copy stamped because its
+# name was taken would have had. One per line; other names unchanged.
 _bench_unstamp_names() {
-    local n b
+    local n b r
     for n in "$@"; do
-        n="${n##*/}"; b="${n%.log.gz}"
-        case "${b##*-}" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) n="${b%-*}.log.gz" ;; esac
+        n="${n##*/}"; b="${n%.log.gz}"; r=""
+        case "${b##*.}" in
+            rotated-*) case "${b##*.rotated-}" in ''|*[!0-9]*) ;; *) r=".${b##*.}"; b="${b%.*}" ;; esac ;;
+        esac
+        case "${b##*-}" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) n="${b%-*}${r}.log.gz" ;; esac
         printf '%s\n' "${n}"
     done
 }
 
 # _bench_log_sources_of <inst> [<file>...] — what those logs of <inst> are, on one line, e.g.
-# "current-container log, 2 saved log(s), unit stdout, unit stderr" (only those present). Judged
-# by name (a stamped copy by its unstamped name): <inst>-telcoin.log.gz is the current
-# container's, <inst>-unit-<stream>.log.gz a unit file, any other a saved log. Non-zero and no
-# output for none.
+# "current-container log, 2 saved log(s), unit stdout, unit stderr, 1 rotated unit stdout log(s)"
+# (only those present). Judged by name (a stamped copy by its unstamped name):
+# <inst>-telcoin.log.gz is the current container's, <inst>-unit-<stream>.log.gz a unit file,
+# <inst>-unit-<stream>.rotated-<N>.log.gz an earlier generation of one (logrotate), any other a
+# saved log. Non-zero and no output for none.
 _bench_log_sources_of() {
-    local inst="$1" n cur=0 saved=0 uo=0 ue=0 got=""
+    local inst="$1" n cur=0 saved=0 uo=0 ue=0 ur=0 er=0 got=""
     shift
     for n in $(_bench_unstamp_names "$@"); do
         case "${n#"${inst}"-}" in
             telcoin.log.gz) cur=1 ;;
             unit-stdout.log.gz) uo=1 ;;
             unit-stderr.log.gz) ue=1 ;;
+            unit-stdout.rotated-*.log.gz) ur=$((ur + 1)) ;;
+            unit-stderr.rotated-*.log.gz) er=$((er + 1)) ;;
             *) saved=$((saved + 1)) ;;
         esac
     done
@@ -460,6 +481,8 @@ _bench_log_sources_of() {
     [ "${saved}" -eq 0 ] || got="${got:+${got}, }${saved} saved log(s)"
     [ "${uo}" -eq 0 ] || got="${got:+${got}, }unit stdout"
     [ "${ue}" -eq 0 ] || got="${got:+${got}, }unit stderr"
+    [ "${ur}" -eq 0 ] || got="${got:+${got}, }${ur} rotated unit stdout log(s)"
+    [ "${er}" -eq 0 ] || got="${got:+${got}, }${er} rotated unit stderr log(s)"
     [ -n "${got}" ] && printf '%s\n' "${got}"
 }
 
@@ -653,19 +676,22 @@ _bench_write_marker() {
 }
 
 # _bench_pull_saved_logs <inst> <zone> <remote-cmd> <dest> — one ssh session streams a tar of
-# the node's saved logs into a temp file; each member lands as <dest>/<inst>-<file name>
-# through a temp file and a rename, never over a non-empty file. A member whose name is taken
-# (the node was not told to skip it: no marker of this instance vouches for the file here) lands
-# beside it as <inst>-<file name minus .log.gz>-<UTC stamp>.log.gz. Non-zero if the ssh, the tar
-# or any member failed. A node without saved logs is normal (rc 0).
+# the node's saved logs, through bench_pull_stream (a fresh temp file per attempt, tar -tf before
+# it counts); each member lands as <dest>/<inst>-<file name> through a temp file and a rename,
+# never over a non-empty file. A member whose name is taken (the node was not told to skip it: no
+# marker of this instance vouches for the file here) lands beside it as <inst>-<file name minus
+# .log.gz>-<UTC stamp>.log.gz. rc 1 if the ssh, the tar or any member failed; 3 when gcloud needs
+# re-authentication (BENCH_PULL_STOP_FILE). A node without saved logs is normal (rc 0).
 _bench_pull_saved_logs() {
-    local tarf list n out tmp rc=0
+    local tarf list n out tmp rc=0 r=0
     tarf="$(mktemp "$4/$1-saved.XXXXXX")" || return 1
-    if ! tn_iap_ssh "$1" "$2" "$3" > "${tarf}"; then
-        rm -f "${tarf}"
-        echo "      ✗ $1: saved logs: ssh or tar on the node failed" >&2
-        return 1
-    fi
+    bench_pull_stream "$1" "$2" tar "${tarf}" cmd "$3" || r=$?
+    case "${r}" in
+        0) ;;
+        1) rm -f "${tarf}"; return 0 ;;
+        3) rm -f "${tarf}"; echo "      ✗ $1: saved logs: gcloud needs re-authentication — not pulled" >&2; return 3 ;;
+        *) rm -f "${tarf}"; echo "      ✗ $1: saved logs: ssh or tar on the node failed" >&2; return 1 ;;
+    esac
     if [ ! -s "${tarf}" ]; then rm -f "${tarf}"; return 0; fi
     if ! list="$(tar -tf "${tarf}")"; then
         rm -f "${tarf}"
@@ -698,16 +724,35 @@ _bench_pull_saved_logs() {
     return "${rc}"
 }
 
-# _bench_pull_node <inst> <zone> <log-cmd> <out> <saved-cmd> <dest> — one node, three sources:
-# its current container's log, its saved logs, the unit's append files. The instance's id is
-# looked up before and after; no id, or a different one after, fails the node. Only logs this
-# pull wrote, or logs an accepted marker of this instance vouches for, count: a file an earlier
-# instance of the same name left is kept, never counts, and this pull's copy of that source
-# lands beside it under a stamped name (<saved-cmd>, the plan's command, is sent with its skip
-# list narrowed to the vouched names). The node passes when no transfer failed and at least one
-# log counts; only then does it get a marker (see "pull markers"). It says what it got.
+# _bench_pull_rc <rc> — fold one pull's status into the caller's xfer (a transfer failed) and stop
+# (gcloud needs re-authentication: every later session would fail the same way) flags. rc 0 and 1
+# (landed, nothing to copy) change nothing; an existing BENCH_PULL_STOP_FILE (another node's pull
+# found it) stops this node too.
+_bench_pull_rc() {
+    case "$1" in
+        0|1) ;;
+        3) xfer=1; stop=1 ;;
+        *) xfer=1 ;;
+    esac
+    if [ -n "${BENCH_PULL_STOP_FILE:-}" ] && [ -e "${BENCH_PULL_STOP_FILE}" ]; then xfer=1; stop=1; fi
+    return 0
+}
+
+# _bench_pull_node <inst> <zone> <log-cmd> <out> <saved-cmd> <dest> — one node, in this order: the
+# span of its unit logs (bench_pull_unit_span: <dest>/<inst>.logspan, every generation on the node
+# before anything is copied), its current container's log, its saved logs, the unit's append files,
+# and their rotated generations (bench_pull_rotated_logs: <inst>-unit-<stream>.rotated-<N>.log.gz).
+# Every transfer goes through bench_pull_stream (pull-lib.sh). The instance's id is looked up
+# before and after; no id, or a different one after, fails the node. Only logs this pull wrote, or
+# logs an accepted marker of this instance vouches for, count: a file an earlier instance of the
+# same name left is kept, never counts, and this pull's copy of that source lands beside it under a
+# stamped name (<saved-cmd>, the plan's command, is sent with its skip list narrowed to the vouched
+# names). A stamped copy byte-identical to the file it stands beside is dropped
+# (bench_drop_if_identical) and that file counts as this pull's. The node passes when no transfer
+# failed and at least one log counts; only then does it get a marker (see "pull markers"). It says
+# what it got. rc 3 when gcloud needs re-authentication (no further session is opened).
 _bench_pull_node() {
-    local inst="$1" zone="$2" dest="$6" ident ident2 id vouched vbase before after n p r uout skip=() new="" stale=0 got m xfer=0
+    local inst="$1" zone="$2" dest="$6" ident ident2 id vouched vbase before after n u p r uout skip=() rskip=() new="" stale=0 got m xfer=0 stop=0 nl=$'\n'
     ident="$(_bench_instance_ident "${inst}" "${zone}")"
     if [ -z "${ident}" ]; then
         echo "      ✗ ${inst}: its instance id could not be looked up — not pulled (the marker must name it)" >&2
@@ -718,25 +763,69 @@ _bench_pull_node() {
     # shellcheck disable=SC2086  # plain file names
     vbase="$(_bench_unstamp_names ${vouched})"   # a stamped copy stands for the node's file of that name
     before="$(_bench_logs_here "${dest}" "${inst}")"
-    r=0; _bench_pull_node_log "${inst}" "${zone}" "$3" "$4" || r=$?
-    [ "${r}" -le 1 ] || xfer=1
+    # The span script prints a LOGSPAN line per stream even for a missing file, so an empty answer
+    # (rc 1) is a broken session: like any failed span it fails the node (no marker), and a
+    # <inst>.logspan an earlier pass left is removed, so the coverage check never reads it as now.
+    r=0; bench_pull_unit_span "${inst}" "${zone}" "${dest}" || r=$?
+    case "${r}" in
+        0) ;;
+        1) echo "      ✗ ${inst}: the span session answered nothing" >&2; r=2 ;;
+        *) echo "      ✗ ${inst}: the span of its unit logs was not recorded (rc ${r})" >&2 ;;
+    esac
+    if [ "${r}" -ne 0 ] && [ -e "${dest}/${inst}.logspan" ]; then
+        rm -f -- "${dest}/${inst}.logspan" && echo "      - ${inst}: the ${inst}.logspan of an earlier pull is removed (it no longer describes the node)" >&2
+    fi
+    _bench_pull_rc "${r}"
+    if [ "${stop}" -eq 0 ]; then
+        r=0; _bench_pull_node_log "${inst}" "${zone}" "$3" "$4" || r=$?
+        _bench_pull_rc "${r}"
+    fi
     for n in ${vouched} ${vbase}; do skip+=("${n#"${inst}"-}"); done
-    _bench_pull_saved_logs "${inst}" "${zone}" "$(_bench_saved_log_cmd_skip "${skip[@]+"${skip[@]}"}")" "${dest}" || xfer=1
+    if [ "${stop}" -eq 0 ]; then
+        r=0; _bench_pull_saved_logs "${inst}" "${zone}" "$(_bench_saved_log_cmd_skip "${skip[@]+"${skip[@]}"}")" "${dest}" || r=$?
+        _bench_pull_rc "${r}"
+    fi
     for p in ${BENCH_NODE_UNIT_LOGS}; do
+        [ "${stop}" -eq 0 ] || break
         uout="${dest}/${inst}-unit-${p%%:*}.log.gz"
         _bench_in_lines "${uout##*/}" "${vbase}" && continue   # this instance's copy: not copied again
         [ ! -s "${uout}" ] || uout="${dest}/${inst}-unit-${p%%:*}-$(date -u +%Y%m%dT%H%M%SZ).log.gz"
         r=0; _bench_pull_unit_log "${inst}" "${zone}" "${p#*:}" "${uout}" || r=$?
-        [ "${r}" -le 1 ] || xfer=1
+        _bench_pull_rc "${r}"
     done
+    if [ "${stop}" -eq 0 ]; then
+        # The node-side names (unit-<stream>.rotated-<N>.log.gz) this instance's marker vouches for.
+        for n in ${vbase}; do
+            case "${n#"${inst}"-}" in unit-*.rotated-*.log.gz) rskip+=("${n#"${inst}"-}") ;; esac
+        done
+        r=0; bench_pull_rotated_logs "${inst}" "${zone}" "${dest}" "${rskip[@]+"${rskip[@]}"}" || r=$?
+        [ "${r}" -le 1 ] || echo "      ✗ ${inst}: rotated unit logs: not all pulled (rc ${r})" >&2
+        _bench_pull_rc "${r}"
+    fi
     after="$(_bench_logs_here "${dest}" "${inst}")"
     for n in ${after}; do
-        if ! _bench_in_lines "${n}" "${before}"; then new="${new} ${n}"
-        elif ! _bench_in_lines "${n}" "${vouched}"; then stale=$((stale + 1)); fi
+        _bench_in_lines "${n}" "${before}" && continue
+        # A stamped copy that matches the file it stands beside byte for byte (gzip -1 of the same
+        # bytes is the same file): the copy goes, and the file it matches is this pull's.
+        u="$(_bench_unstamp_names "${n}")"
+        if [ "${u}" != "${n}" ] && _bench_in_lines "${u}" "${before}"; then
+            bench_drop_if_identical "${dest}/${n}" "${dest}/${u}" || true
+            if [ ! -e "${dest}/${n}" ]; then
+                echo "      - ${inst}: ${u} counts as this pull's (the copy just pulled was identical)"
+                n="${u}"
+            fi
+        fi
+        _bench_in_lines "${n}" "${new}" || new="${new}${new:+${nl}}${n}"
     done
     vouched="$(bench_node_vouched_logs "${dest}" "${inst}" "${id}")"   # re-read: still here, same sizes
+    for n in ${vouched}; do _bench_in_lines "${n}" "${new}" || new="${new}${new:+${nl}}${n}"; done
+    for n in ${before}; do _bench_in_lines "${n}" "${new}" || stale=$((stale + 1)); done
     # shellcheck disable=SC2086  # plain file names
-    got="$(_bench_log_sources_of "${inst}" ${new} ${vouched})" || got=""
+    got="$(_bench_log_sources_of "${inst}" ${new})" || got=""
+    if [ "${stop}" -ne 0 ]; then
+        echo "      ✗ ${inst}: gcloud needs re-authentication — stopped (got so far: ${got:-nothing})" >&2
+        return 3
+    fi
     if [ "${xfer}" -ne 0 ]; then
         echo "      ✗ ${inst}: a transfer failed (see above) — got so far: ${got:-nothing}" >&2
         return 1
@@ -751,7 +840,7 @@ _bench_pull_node() {
         return 1
     fi
     # shellcheck disable=SC2086  # plain file names
-    m="$(_bench_write_marker "${dest}" "${inst}" "${id}" "${ident#* }" "${got}" ${new} ${vouched})" || return 1
+    m="$(_bench_write_marker "${dest}" "${inst}" "${id}" "${ident#* }" "${got}" ${new})" || return 1
     if ! _bench_marker_verdict "${m}" "${dest}" "${inst}" "${id}" > /dev/null; then
         echo "      ✗ ${inst}: its new marker ${m##*/} does not verify — not saved" >&2
         return 1
@@ -759,21 +848,25 @@ _bench_pull_node() {
     echo "      ✓ ${inst}: ${got}"
 }
 
-# bench_pull_node_logs <dest-dir> — every node's logs, 4 nodes at a time, from three sources:
-# the current container's unfiltered log, gzipped on the node, to <instance>-telcoin.log.gz;
-# every log bench_save_node_log saved on the node to <instance>-<file name>; the unit's append
-# files (BENCH_NODE_UNIT_LOGS), gzipped on the node, to <instance>-unit-{stdout,stderr}.log.gz.
-# A non-empty current-container log already there is kept and the new copy is named
-# <instance>-telcoin-<UTC stamp>.log.gz. A saved log or unit file already there is not copied
-# again when a marker of the same instance (same id) vouches for it; otherwise it is kept and the
-# new copy gets a stamped name (_bench_pull_node). A node passes when no transfer failed and it
-# has at least one log this pull wrote or its marker vouches for; it then gets a marker naming
-# its instance id (see "pull markers"). Per node: two instance lookups (reads), and up to 4 ssh
-# sessions: current log, saved-log tar, one per unit file. Non-zero, naming the nodes, if any
-# node failed. Creates <dest-dir> but never its parent. Dry run: one line per session, no
-# lookup, nothing created.
+# bench_pull_node_logs <dest-dir> — every node's logs, 4 nodes at a time (_bench_pull_node): first
+# the span of its unit logs (<instance>.logspan), then the current container's unfiltered log,
+# gzipped on the node, to <instance>-telcoin.log.gz; every log bench_save_node_log saved on the node
+# to <instance>-<file name>; the unit's append files (BENCH_NODE_UNIT_LOGS), gzipped on the node, to
+# <instance>-unit-{stdout,stderr}.log.gz; and their logrotate generations to
+# <instance>-unit-{stdout,stderr}.rotated-<N>.log.gz. A non-empty current-container log already
+# there is kept and the new copy is named <instance>-telcoin-<UTC stamp>.log.gz. A saved log, unit
+# file or rotated generation already there is not copied again when a marker of the same instance
+# (same id) vouches for it; otherwise it is kept and the new copy gets a stamped name (dropped again
+# when byte-identical). A node passes when no transfer failed and it has at least one log this pull
+# wrote or its marker vouches for; it then gets a marker naming its instance id (see "pull
+# markers"). Every transfer is bench_pull_stream's (pull-lib.sh). When one of them finds that gcloud
+# needs re-authentication it touches BENCH_PULL_STOP_FILE (a temp file of this call when unset): no
+# node is started after that, and the call fails saying how many were not attempted. Non-zero,
+# naming the nodes, if any node failed. Creates <dest-dir> but never its parent. Dry run: one line
+# per session, no lookup, nothing created.
 bench_pull_node_logs() {
-    local dest="${1:-}" jobs=4 stamp i p inst out uout scmd failed="" pids=() names=()
+    local dest="${1:-}" jobs=4 stamp i p inst out uout scmd failed="" pids=() names=() skipped=0 stopd=""
+    local BENCH_PULL_STOP_FILE="${BENCH_PULL_STOP_FILE:-}"
     # No container is normal (rc 0, no output). Any other failed inspect (daemon down, sudo) fails
     # the session: docker exits 1 for both, so they are told apart by its "No such container" text.
     # shellcheck disable=SC2016  # expanded by the remote bash
@@ -785,24 +878,32 @@ bench_pull_node_logs() {
         echo "❌ bench_pull_node_logs: could not create ${dest} (its parent must exist already)" >&2
         return 1
     fi
+    if [ "${BENCH_APPLY}" = "1" ] && [ -z "${BENCH_PULL_STOP_FILE}" ]; then
+        stopd="$(mktemp -d "${TMPDIR:-/tmp}/bench-pull-stop.XXXXXX")" || { echo "❌ bench_pull_node_logs: no temp directory" >&2; return 1; }
+        BENCH_PULL_STOP_FILE="${stopd}/stop"
+    fi
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
         out="${dest}/${inst}-telcoin.log.gz"
         [ -s "${out}" ] && out="${dest}/${inst}-telcoin-${stamp}.log.gz"
         scmd="$(_bench_saved_log_cmd "${dest}" "${inst}")"
         # One printf per line: the workers of earlier nodes print while this loop runs.
-        printf '    +%s > %q\n' "$(printf ' %q' tn_iap_ssh "${inst}" "${ZONES[$i]}" "${cmd}")" "${out}"
+        printf '    + bench_pull_unit_span %q %q %q   # LOGSPAN per unit log generation -> %q\n' "${inst}" "${ZONES[$i]}" "${dest}" "${dest}/${inst}.logspan"
+        printf '      +%s > %q\n' "$(printf ' %q' tn_iap_ssh "${inst}" "${ZONES[$i]}" "${cmd}")" "${out}"
         printf '      +%s | tar -> %q-<file>\n' "$(printf ' %q' tn_iap_ssh "${inst}" "${ZONES[$i]}" "${scmd}")" "${dest}/${inst}"
         for p in ${BENCH_NODE_UNIT_LOGS}; do
             uout="${dest}/${inst}-unit-${p%%:*}.log.gz"
             if [ -s "${uout}" ]; then echo "      - ${uout} already here — not copied again if this instance's marker vouches for it, else copied beside it"; continue; fi
             printf '      +%s > %q\n' "$(printf ' %q' tn_iap_ssh "${inst}" "${ZONES[$i]}" "$(_bench_unit_log_cmd "${p#*:}")")" "${uout}"
         done
+        printf '      + bench_pull_rotated_logs %q %q %q   # each <unit file>.1 gzipped, .<N>.gz as is -> %q-unit-<stream>.rotated-<N>.log.gz\n' \
+            "${inst}" "${ZONES[$i]}" "${dest}" "${dest}/${inst}"
         [ "${BENCH_APPLY}" = "1" ] || continue
         if [ "${#pids[@]}" -ge "${jobs}" ]; then
             wait "${pids[0]}" || failed="${failed} ${names[0]}"
             pids=("${pids[@]:1}"); names=("${names[@]:1}")
         fi
+        if [ -e "${BENCH_PULL_STOP_FILE}" ]; then skipped=$((skipped + 1)); continue; fi
         _bench_pull_node "${inst}" "${ZONES[$i]}" "${cmd}" "${out}" "${scmd}" "${dest}" &
         pids+=("$!"); names+=("${inst}")
     done
@@ -810,6 +911,12 @@ bench_pull_node_logs() {
     for i in "${!pids[@]}"; do
         wait "${pids[$i]}" || failed="${failed} ${names[$i]}"
     done
+    if [ -e "${BENCH_PULL_STOP_FILE}" ]; then
+        [ -z "${stopd}" ] || rm -rf "${stopd}"
+        echo "❌ node logs: gcloud needs re-authentication; ${skipped} node(s) not attempted$([ -z "${failed}" ] || echo "; not pulled from:${failed}") — run: gcloud auth login, then run this again" >&2
+        return 1
+    fi
+    [ -z "${stopd}" ] || rm -rf "${stopd}"
     if [ -n "${failed}" ]; then echo "❌ node logs not pulled from:${failed}" >&2; return 1; fi
     echo "    ✓ logs of ${#INSTANCE_NAMES[@]} nodes in ${dest}"
 }
@@ -817,41 +924,81 @@ bench_pull_node_logs() {
 # --- operator-side RPC tunnel (IAP -> bench-validator-01:8545 on localhost) --------
 bench_tunnel_pidfile() { printf '%s' "${BENCH_RESULTS_DIR}/tunnel.pid"; }
 
+# BENCH_TUNNEL_SUPERVISOR — the ssh-mode tunnel supervisor, run by bench_tunnel_up as
+#   bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor <inst> <zone> <project> <local port>
+# in its own session, appending to tunnel.log. One IAP ssh session carries a local port-forward to
+# <inst>:8545, shared by every RPC request. Each start logs
+#   tunnel: start <ISO> mode=ssh target=<inst>:8545 local=<port> pid=<ssh pid>
+# and each exit `tunnel: exit <ISO> rc= up=<s>s fails=<n>/<max>`. A session that stayed up at least
+# BENCH_TUNNEL_MIN_UP_SECS (20) is a drop, not a failure: the count of consecutive failures starts
+# again. After BENCH_TUNNEL_MAX_FAILS (5) consecutive failures it gives up (exit 1). After every exit
+# it asks GCP for the instance; "not found" (the teardown deleted it) ends the supervisor (exit 0).
+# Otherwise it restarts 3 s later.
+# shellcheck disable=SC2016  # expanded by the supervisor's bash
+IFS= read -r -d '' BENCH_TUNNEL_SUPERVISOR <<'EOS' || true
+fails=0
+while :; do
+    [ "${fails}" -lt "${BENCH_TUNNEL_MAX_FAILS:-5}" ] || { echo "tunnel: giving up after ${fails} consecutive failures at $(date -u +%Y-%m-%dT%H:%M:%SZ)"; exit 1; }
+    t0="$(date +%s)"
+    gcloud compute ssh "$1" --zone="$2" --project="$3" --tunnel-through-iap \
+        --ssh-flag="-N" --ssh-flag="-L" --ssh-flag="localhost:$4:127.0.0.1:8545" \
+        --ssh-flag="-o ServerAliveInterval=15" --ssh-flag="-o ServerAliveCountMax=3" \
+        --ssh-flag="-o ExitOnForwardFailure=yes" --ssh-flag="-o StrictHostKeyChecking=accept-new" \
+        </dev/null &
+    child=$!
+    echo "tunnel: start $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=ssh target=$1:8545 local=$4 pid=${child}"
+    rc=0; wait "${child}" || rc=$?
+    up=$(( $(date +%s) - t0 ))
+    if [ "${up}" -ge "${BENCH_TUNNEL_MIN_UP_SECS:-20}" ]; then fails=0; else fails=$((fails + 1)); fi
+    echo "tunnel: exit $(date -u +%Y-%m-%dT%H:%M:%SZ) rc=${rc} up=${up}s fails=${fails}/${BENCH_TUNNEL_MAX_FAILS:-5}"
+    if perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "$1" --zone="$2" --project="$3" \
+        --format='value(status)' </dev/null 2>&1 >/dev/null | grep -qi 'not found'; then
+        echo "tunnel: $1 is gone (instances describe: not found) at $(date -u +%Y-%m-%dT%H:%M:%SZ); not restarting"
+        exit 0
+    fi
+    [ "${fails}" -ge "${BENCH_TUNNEL_MAX_FAILS:-5}" ] || { echo "tunnel: restarting in 3 s"; sleep 3; }
+done
+EOS
+
+# bench_tunnel_up — the local RPC tunnel to INSTANCE_NAMES[0]:8545 on localhost:BENCH_TUNNEL_PORT.
+# BENCH_TUNNEL_MODE=ssh (default): BENCH_TUNNEL_SUPERVISOR in its own session (the pidfile holds the
+# supervisor, a session leader, so bench_tunnel_down kills the whole group; its $0 is
+# tn-bench-tunnel-supervisor so the teardown's pgrep finds it). Any other value: one
+# `gcloud compute start-iap-tunnel` (a websocket per connection; about 1 connection in 50 was lost on
+# 2026-11-03, SSL WRONG_VERSION_NUMBER on the handshake, which is why ssh is the default). Both append
+# to tunnel.log, one `tunnel: start <ISO> mode= target= local= pid=` line per start. The plan line
+# names the command of the mode in use. Waits up to 45 s for `cast chain-id` through it.
 bench_tunnel_up() {
-    local pidf pid waited=0; pidf="$(bench_tunnel_pidfile)"
+    local pidf pid waited=0 mode="${BENCH_TUNNEL_MODE:-ssh}" maxf="${BENCH_TUNNEL_MAX_FAILS:-5}" minup="${BENCH_TUNNEL_MIN_UP_SECS:-20}"
+    pidf="$(bench_tunnel_pidfile)"
     if [ -f "${pidf}" ] && kill -0 "$(cat "${pidf}")" 2>/dev/null; then
         echo "    tunnel already up (pid $(cat "${pidf}")) -> ${RPC_URL}"; return 0
     fi
-    printf '    + gcloud compute start-iap-tunnel %s 8545 --local-host-port=localhost:%s --zone=%s --project=%s &\n' \
-        "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${PROJECT_ID}"
+    case "${maxf}" in ''|*[!0-9]*|0*) bench_warn "BENCH_TUNNEL_MAX_FAILS='${maxf}' is not a positive integer — using 5"; maxf=5 ;; esac
+    case "${minup}" in ''|*[!0-9]*) bench_warn "BENCH_TUNNEL_MIN_UP_SECS='${minup}' is not a whole number of seconds — using 20"; minup=20 ;; esac
+    if [ "${mode}" = "ssh" ]; then
+        printf '    + gcloud compute ssh %s --zone=%s --project=%s --tunnel-through-iap --ssh-flag=-N --ssh-flag=-L --ssh-flag=localhost:%s:127.0.0.1:8545 ... &   (supervised: restarted on a drop, gives up after %s consecutive failures shorter than %s s or when the instance is gone; >> %s)\n' \
+            "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" "${maxf}" "${minup}" "${BENCH_RESULTS_DIR}/tunnel.log"
+    else
+        printf '    + gcloud compute start-iap-tunnel %s 8545 --local-host-port=localhost:%s --zone=%s --project=%s &   (BENCH_TUNNEL_MODE=%s; >> %s)\n' \
+            "${INSTANCE_NAMES[0]}" "${BENCH_TUNNEL_PORT}" "${ZONES[0]}" "${PROJECT_ID}" "${mode}" "${BENCH_RESULTS_DIR}/tunnel.log"
+    fi
     if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
     mkdir -p "${BENCH_RESULTS_DIR}"
-    if [ "${BENCH_TUNNEL_MODE:-ssh}" = "ssh" ]; then
-        # One IAP ssh session carrying a local port-forward, shared by every RPC request. The
-        # websocket-per-connection `start-iap-tunnel` lost about 1 connection in 50 on 2026-11-03
-        # (SSL WRONG_VERSION_NUMBER on the websocket handshake); each loss reset one client
-        # request and aborted a forge deploy script. A supervisor restarts the session when it
-        # drops; the pidfile holds the supervisor, a session leader, so bench_tunnel_down can
-        # kill the whole group, and its $0 is tn-bench-tunnel-supervisor so the teardown's
-        # pgrep finds it (killing only the ssh child would just make it restart). The plan line
-        # above names the old command; BENCH_TUNNEL_MODE=websocket restores that transport.
-        nohup setsid bash -c '
-            while :; do
-                gcloud compute ssh "$1" --zone="$2" --project="$3" --tunnel-through-iap \
-                    --ssh-flag="-N" --ssh-flag="-L" --ssh-flag="localhost:$4:127.0.0.1:8545" \
-                    --ssh-flag="-o ServerAliveInterval=15" --ssh-flag="-o ServerAliveCountMax=3" \
-                    --ssh-flag="-o ExitOnForwardFailure=yes" --ssh-flag="-o StrictHostKeyChecking=accept-new" \
-                    </dev/null
-                echo "tunnel: ssh forward exited rc $? at $(date -u +%Y-%m-%dT%H:%M:%SZ); restarting in 3 s"
-                sleep 3
-            done' tn-bench-tunnel-supervisor "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" \
-            > "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+    if [ "${mode}" = "ssh" ]; then
+        BENCH_TUNNEL_MAX_FAILS="${maxf}" BENCH_TUNNEL_MIN_UP_SECS="${minup}" \
+            nohup setsid bash -c "${BENCH_TUNNEL_SUPERVISOR}" tn-bench-tunnel-supervisor \
+            "${INSTANCE_NAMES[0]}" "${ZONES[0]}" "${PROJECT_ID}" "${BENCH_TUNNEL_PORT}" \
+            >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+        pid=$!
     else
         nohup gcloud compute start-iap-tunnel "${INSTANCE_NAMES[0]}" 8545 \
             --local-host-port="localhost:${BENCH_TUNNEL_PORT}" --zone="${ZONES[0]}" --project="${PROJECT_ID}" \
-            > "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+            >> "${BENCH_RESULTS_DIR}/tunnel.log" 2>&1 &
+        pid=$!
+        echo "tunnel: start $(bench_now_iso) mode=websocket target=${INSTANCE_NAMES[0]}:8545 local=${BENCH_TUNNEL_PORT} pid=${pid}" \
+            >> "${BENCH_RESULTS_DIR}/tunnel.log"
     fi
-    pid=$!
     echo "${pid}" > "${pidf}"
     while [ "${waited}" -lt 45 ]; do
         if cast chain-id --rpc-url "${RPC_URL}" >/dev/null 2>&1; then
@@ -1453,16 +1600,22 @@ _bench_index_kind() {
         metrics.json) echo "07|metrics.json|Cloud Monitoring + Prometheus series over the run window|deploy step 15 (tn-transaction-generator collect-gcp-metrics.py)" ;;
         pre-instances.json|pre-firewall.json) echo "08|pre-instances.json, pre-firewall.json|project snapshot before the run (the teardown compares the devnet rule to it)|benchmark-deploy.sh preflight" ;;
         deployments-bench.json) echo "09|deployments-bench.json|app contract addresses on the bench chain|deploy step 11" ;;
-        tunnel.log|tunnel.pid) echo "10|tunnel.log, tunnel.pid|local IAP tunnel to the first node's RPC|bench_tunnel_up (deploy step 10)" ;;
+        tunnel.log|tunnel.pid) echo "10|tunnel.log, tunnel.pid|local IAP tunnel to the first node's RPC (tunnel.log is appended: one 'tunnel: start' line per start)|bench_tunnel_up (deploy step 10)" ;;
+        last-deploy.status) echo "08|last-deploy.status|the last deploy invocation's outcome: rc, last step, first error, start and end, scope, log|benchmark-deploy.sh" ;;
+        zones.env) echo "08|zones.env|the zone each node was created in (BENCH_ZONES_USED; config.sh reads it back)|benchmark-deploy.sh step 2" ;;
         chaos-remote.log) echo "11|chaos-remote.log|output of the staged chaos sessions on the nodes|benchmark-blast.sh run (chaos)" ;;
         logs/*.pulled|logs/*.pulled-*) echo "12|logs/<node>.pulled*|pull markers: which instance id each node log came from|teardown log gate (bench_pull_node_logs)" ;;
         logs/*-recovery-*.tgz) echo "13|logs/<node>-recovery-<id>.*.tgz|service journal + sampler files of the node (recovery evidence)|teardown (recovery-lib.sh bench_pull_recovery_evidence)" ;;
         logs/*-telcoin-cert-fail-*.log.gz) echo "16|logs/<node>-telcoin-cert-fail-<UTC>.log.gz|container log of a validator below the certification threshold, saved when the outcome was recorded (listed in manifest.cert_failures[].logs; the local gate requires it)|bench_cert_failures_snapshot (collect, teardown before the local gate)" ;;
-        logs/*-unit-stdout*.log.gz|logs/*-unit-stderr*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.log.gz|the unit's append files /var/log/telcoin/telcoin{,-error}.log: every container run's output since setup|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*-unit-stdout*.rotated-[0-9]*.log.gz|logs/*-unit-stderr*.rotated-[0-9]*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.rotated-<N>.log.gz|earlier generations of the unit's append files (logrotate: telcoin{,-error}.log.1 gzipped on the node, .<N>.gz as they were)|teardown log gate (bench_pull_node_logs: bench_pull_rotated_logs)" ;;
+        logs/*-unit-stdout*.log.gz|logs/*-unit-stderr*.log.gz) echo "14|logs/<node>-unit-{stdout,stderr}.log.gz|the unit's append files /var/log/telcoin/telcoin{,-error}.log: every container run's output since setup (or since the last logrotate)|teardown log gate (bench_pull_node_logs)" ;;
+        logs/*.logspan) echo "12|logs/<node>.logspan|LOGSPAN lines: every unit log generation on the node at the pull (bytes, first and last line time)|teardown log gate (bench_pull_node_logs: bench_pull_unit_span)" ;;
         logs/*-telcoin.log.gz|logs/*-telcoin-[0-9]*Z.log.gz) echo "15|logs/<node>-telcoin.log.gz|the current container's log at the pull|teardown log gate (bench_pull_node_logs)" ;;
         logs/*.log.gz) echo "16|logs/<node>-<saved>.log.gz|container logs saved on the node before a restart, kill or pause (pre-kill, ...; runs before the coordinated start also pre-step9)|bench_save_node_log (blast chaos; deploy step 9 in runs before the coordinated start); pulled by the teardown" ;;
         logs/deploy-*.log) echo "17|logs/deploy-*.log|benchmark-deploy.sh output, one file per invocation|benchmark-deploy.sh" ;;
         logs/blast-*.log) echo "18|logs/blast-<action>-*.log|benchmark-blast.sh output, one file per invocation|benchmark-blast.sh" ;;
+        logs/create-instances-*.log) echo "17|logs/create-instances-<UTC>.log|create-instances.sh output of deploy step 2 (stockouts and zone fallbacks)|benchmark-deploy.sh step 2" ;;
+        logs/keygen-*.log) echo "17|logs/keygen-<UTC>.log|devnet-keygen.sh output of deploy step 5 (KEYGEN_DONE lines)|benchmark-deploy.sh step 5" ;;
         logs/create-*.log) echo "19|logs/create-<vm>.log|load VM create output (current blast index)|benchmark-blast.sh fund/run" ;;
         sampler/*.csv) echo "20|sampler/<node>.csv|node-sampler.sh rows every 30 s (memory, I/O, PSI, disk, block)|benchmark-blast.sh collect" ;;
         sampler/*.epochs.txt) echo "21|sampler/<node>.epochs.txt|epoch-file inventory of the node every minute|benchmark-blast.sh collect" ;;
@@ -1577,15 +1730,27 @@ bench_local_gate_check() {
     echo "    ✓ ${nf} required file(s) present and non-empty: logs of ${#} node(s) (container, unit stdout, recovery evidence), manifest.json$([ -z "${cf}" ] || echo ', manifest.cert_failures logs')"
 }
 
-# bench_local_analysis — results/<run>/analysis/cert-rate.md (tools/cert-rate.py over the pulled
-# validator logs, windows from the manifest; only once the teardown has pulled them) and
-# block-rate.md (tools/block-rate.py over the run dir). Informational: a tool that fails leaves a
-# warning and no file, never a non-zero status. Dry run: prints the commands.
+# _bench_cert_log_glob — the file glob tools/cert-rate.py reads the validator logs by
+# (BENCH_CERT_LOG_GLOB, default bench-validator-*-unit-stdout*.log.gz): the unit's append files and
+# their rotated generations hold the whole run once, where the container logs, saved logs and
+# snapshots repeat parts of it (cert-rate.py counts a line once per node, but reads every copy).
+_bench_cert_log_glob() { printf '%s\n' "${BENCH_CERT_LOG_GLOB:-bench-validator-*-unit-stdout*.log.gz}"; }
+
+# bench_local_analysis — results/<run>/analysis/cert-rate.md (tools/cert-rate.py --node-glob
+# <_bench_cert_log_glob> over the pulled validator logs, windows from the manifest; only once the
+# teardown has pulled them) and block-rate.md (tools/block-rate.py over the run dir). Informational:
+# a tool that fails leaves a warning and no file, never a non-zero status. BENCH_TEARDOWN_SKIP_ANALYSIS=1
+# skips both (the pass reads every pulled log; run it later by hand). Dry run: prints the commands.
 bench_local_analysis() {
-    local d="${BENCH_RESULTS_DIR}" a="${BENCH_RESULTS_DIR}/analysis" t="${BENCH_DIR}/tools" name tmp err rc
+    local d="${BENCH_RESULTS_DIR}" a="${BENCH_RESULTS_DIR}/analysis" t="${BENCH_DIR}/tools" name tmp err rc g
+    g="$(_bench_cert_log_glob)"
     echo "    analysis -> ${a}/ (informational)"
+    if [ "${BENCH_TEARDOWN_SKIP_ANALYSIS:-0}" = "1" ]; then
+        echo "      - skipped (BENCH_TEARDOWN_SKIP_ANALYSIS=1): python3 ${t}/cert-rate.py --logs ${d}/logs --windows ${d}/manifest.json --node-glob '${g}' and ${t}/block-rate.py --run ${d} can be run by hand"
+        return 0
+    fi
     if [ "${BENCH_APPLY}" != "1" ]; then
-        echo "      + python3 ${t}/cert-rate.py --logs ${d}/logs --windows ${d}/manifest.json > ${a}/cert-rate.md"
+        echo "      + python3 ${t}/cert-rate.py --logs ${d}/logs --windows ${d}/manifest.json --node-glob '${g}' > ${a}/cert-rate.md"
         echo "      + python3 ${t}/block-rate.py --run ${d} > ${a}/block-rate.md"
         echo "      (dry run — not executed)"
         return 0
@@ -1593,14 +1758,14 @@ bench_local_analysis() {
     command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — no analysis"; return 0; }
     mkdir -p "${a}" || { bench_warn "could not create ${a} — no analysis"; return 0; }
     for name in cert-rate block-rate; do
-        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/bench-validator-*.log.gz" >/dev/null; then
-            echo "      - cert-rate: no validator log in logs/ yet (the teardown pulls them)"
+        if [ "${name}" = cert-rate ] && ! compgen -G "${d}/logs/${g}" >/dev/null; then
+            echo "      - cert-rate: no validator log in logs/ yet (the teardown pulls them; glob ${g})"
             continue
         fi
         tmp="$(mktemp "${a}/.${name}.md.XXXXXX")" || { bench_warn "${name}: no temp file"; continue; }
         rc=0
         if [ "${name}" = cert-rate ]; then
-            err="$(python3 "${t}/cert-rate.py" --logs "${d}/logs" --windows "${d}/manifest.json" 2>&1 > "${tmp}")" || rc=$?
+            err="$(python3 "${t}/cert-rate.py" --logs "${d}/logs" --windows "${d}/manifest.json" --node-glob "${g}" 2>&1 > "${tmp}")" || rc=$?
         else
             err="$(python3 "${t}/block-rate.py" --run "${d}" 2>&1 > "${tmp}")" || rc=$?
         fi
@@ -1661,7 +1826,7 @@ _bench_cert_jq() {
 _bench_cert_insts() { jq -r '[(.cert_failures // [])[]? | objects | .inst | strings] | unique[]' "$1" 2>/dev/null || true; }
 
 # bench_certification_record <logs dir> <manifest> — tools/cert-rate.py --windows <manifest>
-# --format json over the validator logs in <logs dir>, kept raw as analysis/certification.json beside
+# --format json --node-glob <_bench_cert_log_glob> over the validator logs in <logs dir>, kept raw as analysis/certification.json beside
 # the manifest, and recorded in the manifest:
 #   certification       {<inst>: {<window>: {proposed, certified, rate_pct, own_cert_share_pct,
 #                        own_leader_share_pct, not_committed_pct}}}: every validator and window
@@ -1678,8 +1843,9 @@ _bench_cert_insts() { jq -r '[(.cert_failures // [])[]? | objects | .inst | stri
 # param_arms. Returns 0 whatever happens: a failure leaves a warning and the manifest as it was.
 # Dry run: prints what it would run.
 bench_certification_record() {
-    local logs="${1:-}" mf="${2:-}" base a pct tmp err rc=0 present before after i p f
+    local logs="${1:-}" mf="${2:-}" base a pct tmp err rc=0 present before after i p f g
     base="$(dirname -- "${mf:-.}")"
+    g="$(_bench_cert_log_glob)"
     a="${base}/analysis"
     echo "    certification -> ${a}/certification.json and manifest.certification (informational)"
     if [ -z "${logs}" ] || [ -z "${mf}" ]; then
@@ -1688,13 +1854,13 @@ bench_certification_record() {
     fi
     pct="$(_bench_cert_fail_pct)"
     if [ "${BENCH_APPLY}" != "1" ]; then
-        echo "      + python3 ${BENCH_DIR}/tools/cert-rate.py --logs ${logs} --windows ${mf} --format json > ${a}/certification.json"
+        echo "      + python3 ${BENCH_DIR}/tools/cert-rate.py --logs ${logs} --windows ${mf} --format json --node-glob '${g}' > ${a}/certification.json"
         echo "      + manifest.certification, .certification_meta and .cert_failures (below ${pct} % in a window with >= ${BENCH_CERT_MIN_PROPOSED} proposed)"
         echo "      (dry run — not executed)"
         return 0
     fi
-    if ! compgen -G "${logs}/bench-validator-*.log.gz" >/dev/null; then
-        bench_warn "certification: no validator log in ${logs} yet (the teardown pulls them) — not recorded"
+    if ! compgen -G "${logs}/${g}" >/dev/null; then
+        bench_warn "certification: no validator log in ${logs} yet (the teardown pulls them; glob ${g}) — not recorded"
         return 0
     fi
     if ! jq -e '[(.param_arms // [])[]?, (.phases // [])[]? | objects | select((.begin // .start) and .end)] | length > 0' \
@@ -1705,7 +1871,7 @@ bench_certification_record() {
     command -v python3 >/dev/null 2>&1 || { bench_warn "certification: python3 not on PATH — not recorded"; return 0; }
     mkdir -p "${a}" || { bench_warn "certification: could not create ${a} — not recorded"; return 0; }
     tmp="$(mktemp "${a}/.certification.json.XXXXXX")" || { bench_warn "certification: no temp file in ${a} — not recorded"; return 0; }
-    err="$(python3 "${BENCH_DIR}/tools/cert-rate.py" --logs "${logs}" --windows "${mf}" --format json 2>&1 > "${tmp}")" || rc=$?
+    err="$(python3 "${BENCH_DIR}/tools/cert-rate.py" --logs "${logs}" --windows "${mf}" --format json --node-glob "${g}" 2>&1 > "${tmp}")" || rc=$?
     if [ "${rc}" -ne 0 ] || ! jq -e '(.windows | type) == "array" and (.nodes | type) == "object"' "${tmp}" >/dev/null 2>&1; then
         rm -f "${tmp}"
         bench_warn "certification: cert-rate.py failed (exit ${rc}) — not recorded: $(printf '%s\n' "${err:-its output is not a cert-rate report}" | tail -1)"
@@ -1778,7 +1944,9 @@ bench_certification_record() {
 
 # _bench_cert_logs_here <logs dir> <inst> — the certification logs of <inst> in <logs dir>, full
 # paths, one per line: <inst>-telcoin.log.gz and its stamped copies (-telcoin-<UTC>.log.gz), every
-# -telcoin-cert-fail-*.log.gz snapshot, -unit-stdout.log.gz and its stamped copies. Non-empty only.
+# -telcoin-cert-fail-*.log.gz snapshot, -unit-stdout.log.gz and its stamped copies, and every
+# rotated generation -unit-stdout.rotated-<N>.log.gz (stamped: -unit-stdout-<UTC>.rotated-<N>.log.gz).
+# Non-empty only.
 _bench_cert_logs_here() {
     local f n s='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z'
     for f in "$1/$2"-*.log.gz; do
@@ -1788,6 +1956,7 @@ _bench_cert_logs_here() {
         # shellcheck disable=SC2254  # ${s} is a glob on purpose
         case "${n#"$2"-}" in
             telcoin.log.gz|telcoin-cert-fail-*.log.gz|unit-stdout.log.gz|telcoin-${s}.log.gz|unit-stdout-${s}.log.gz) printf '%s\n' "${f}" ;;
+            unit-stdout.rotated-[0-9]*.log.gz|unit-stdout-${s}.rotated-[0-9]*.log.gz) printf '%s\n' "${f}" ;;
         esac
     done
     return 0
@@ -1800,12 +1969,14 @@ _bench_cert_logs_here() {
 # pulled in (_bench_pull_saved_logs with _bench_saved_log_cmd), the snapshot as
 # <inst>-telcoin-cert-fail-<UTC>.log.gz. Its cert_failures[].logs[] (paths relative to the manifest's
 # directory) then gains that snapshot, even when its pull failed (the local gate refuses until it is
-# here), and every certification log of the instance on disk (_bench_cert_logs_here). An instance
-# already gone (a teardown after an abort), outside the fleet, or whose save failed gets its logs on
-# disk and a manifest note. One line per instance. Returns 0 whatever happens: the local gate decides.
-# Dry run: says what it would do.
+# here), and every certification log of the instance on disk (_bench_cert_logs_here). A snapshot of
+# this very instance (same id) that a pull marker already vouches for (a teardown re-run: the pull
+# brought it in as a saved log) is listed again, not taken again. An instance already gone (a
+# teardown after an abort), outside the fleet, or whose save failed gets its logs on disk and a
+# manifest note. One line per instance, ending in what the listed logs are. Returns 0 whatever
+# happens: the local gate decides. Dry run: says what it would do.
 bench_cert_failures_snapshot() {
-    local logs="${1:-}" mf="${2:-}" base insts inst idx zone rc err out name snap why f add n
+    local logs="${1:-}" mf="${2:-}" base insts inst idx zone rc err out name snap why f add n jf id had src
     base="$(dirname -- "${mf:-.}")"
     echo "    certification snapshots -> ${logs}/ (informational; the local gate requires what manifest.cert_failures[].logs lists)"
     if [ -z "${logs}" ] || [ -z "${mf}" ]; then
@@ -1834,11 +2005,22 @@ bench_cert_failures_snapshot() {
             why="not a node of this fleet (INSTANCE_NAMES)"
         else
             zone="${ZONES[$idx]}"
-            rc=0
+            rc=0; id=""; had=""
+            jf="$(mktemp)" || jf=/dev/null
             err="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${inst}" --zone="${zone}" \
-                --project="${PROJECT_ID}" --format=json </dev/null 2>&1 >/dev/null)" || rc=$?
+                --project="${PROJECT_ID}" --format=json </dev/null 2>&1 >"${jf}")" || rc=$?
+            [ "${rc}" -ne 0 ] || id="$(jq -r '(.id // "") | tostring' "${jf}" 2>/dev/null)" || id=""
+            [ "${jf}" = /dev/null ] || rm -f "${jf}"
+            case "${id}" in ''|*[!0-9]*) id="" ;; esac
+            # A snapshot of this instance that its pull marker vouches for: taken already, not again.
+            if [ -n "${id}" ]; then
+                had="$(bench_node_vouched_logs "${logs}" "${inst}" "${id}" | grep -E "^${inst}-telcoin-cert-fail-[0-9]{8}T[0-9]{6}Z\.log\.gz\$" | tail -1)" || had=""
+            fi
             if [ "${rc}" -ne 0 ] && printf '%s\n' "${err}" | grep -qi 'not found'; then
                 why="instance gone"
+            elif [ -n "${had}" ]; then
+                snap="${logs}/${had}"
+                echo "      - ${inst}: $(_bench_cert_rel "${base}" "${snap}") is this instance's snapshot (instance ${id}; a pull marker vouches for it) — not taken again"
             else
                 [ "${rc}" -eq 0 ] || bench_warn "certification: ${inst}: describe failed (exit ${rc}) — trying the snapshot anyway"
                 rc=0
@@ -1867,14 +2049,17 @@ bench_cert_failures_snapshot() {
             continue
         fi
         n="$(printf '%s' "${add}" | jq length)"
+        # What the listed logs are (_bench_log_sources_of, by name), for the line below.
+        # shellcheck disable=SC2046  # plain file names
+        src="$(_bench_log_sources_of "${inst}" $(printf '%s' "${add}" | jq -r '.[]'))" || src="none"
         if [ -n "${why}" ]; then
-            echo "      ⚠ ${inst}: ${why} — no snapshot; ${n} log(s) on disk listed in cert_failures[].logs"
+            echo "      ⚠ ${inst}: ${why} — no snapshot; ${n} log(s) on disk listed in cert_failures[].logs: ${src}"
             _bench_cert_jq "${mf}" --arg n "certification: ${inst}: ${why} at $(bench_now_iso) — no cert-fail snapshot; cert_failures[].logs lists the ${n} log(s) on disk" \
                 '.notes = ((.notes // []) + [$n])' || true
         elif [ -s "${snap}" ]; then
-            echo "      ✓ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}"); ${n} log(s) listed in cert_failures[].logs"
+            echo "      ✓ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}"); ${n} log(s) listed in cert_failures[].logs: ${src}"
         else
-            echo "      ✗ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}") is on the node only; listed with ${n} log(s), so the local gate refuses until it is here"
+            echo "      ✗ ${inst}: snapshot $(_bench_cert_rel "${base}" "${snap}") is on the node only; listed with ${n} log(s), so the local gate refuses until it is here: ${src}"
         fi
     done
     return 0
@@ -1962,32 +2147,53 @@ EOS
 #      and restarts nothing) and, when BENCH_NODE_LOG_FILTER is set, --log.stdout.filter <F>,
 #      --log.file.filter <F>, --log.file.max-files <BENCH_NODE_LOG_MAX_FILES>. rc 1 (the flag already
 #      reads that value) is accepted, so a re-run converges; any other rc fails, naming it.
+#   7a. <D>/parameters.yaml.bak: `cp -p` of the file as the stage left it, unless one is there already
+#      (paramsbak=written|kept). A file that already holds `# bench-override` lines and has no .bak fails:
+#      it is not the original. tools/params-apply.sh treats marked lines without a .bak as an error.
 #   7. this node's BENCH_NODE_PARAM_OVERRIDES into <D>/parameters.yaml with setp, the rewrite the old step 9
-#      used (lines marked `# bench-override`; a re-run rewrites the same lines). No .bak: the file is fresh
-#      from the stage.
+#      used (lines marked `# bench-override`; a re-run rewrites the same lines).
 #      The file must then hold exactly one marked line per override, so a marked line an earlier run
 #      left for an override this run no longer has fails instead of lingering.
+#   7b. when BENCH_LOGROTATE_SIZE is set (<digits>K|M|G): /etc/logrotate.d/telcoin becomes
+#      bench_logrotate_text (pull-lib.sh: the v2 template without `maxsize`, rotating at that size), its
+#      @LOGGLOB@ and @GROUP@ filled from the node's v2 lib (DEFAULT_LOG_DIR/*.log, TN_LOG_GROUP),
+#      written by `tnlib tn_write_root_file /etc/logrotate.d/telcoin 0644`; `logrotate -d` must parse it
+#      (logrotate=<size>). Unset: the node's logrotate config stays as it is (logrotate=-).
 #   8. every flag of 6 read back with tn_launch_flag_get
 #   9. S is root:root 755 and passes bash -n
 #  10. the unit is still inactive
 # Last line (contract C5b):
 #   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
-#     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive
+#     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive logrotate=<size|->
+#     paramsbak=<written|kept>
 # Any failure prints `PRECFG_FAIL <inst> <reason>` and exits 1. Prints the script only (no GCP call);
-# non-zero and nothing printed for an instance outside the fleet or a TN_NODE_SCRIPTS_REF that is
-# not 40 lower-case hex.
+# non-zero and nothing printed for an instance outside the fleet, a TN_NODE_SCRIPTS_REF that is
+# not 40 lower-case hex, or a BENCH_LOGROTATE_SIZE that is not <digits>K|M|G.
 bench_prestart_script() {
-    local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov
+    local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov lrs="${BENCH_LOGROTATE_SIZE:-}" lrt=""
     idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
     case "${ref}" in
         *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
     esac
     [ "${#ref}" -eq 40 ] || { echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1; }
+    if [ -n "${lrs}" ]; then
+        case "${lrs%[KMG]}" in
+            ''|*[!0-9]*) echo "❌ bench_prestart_script: BENCH_LOGROTATE_SIZE='${lrs}' is not <digits>K|M|G (e.g. 20G)" >&2; return 1 ;;
+        esac
+        [ "${lrs%[KMG]}" != "${lrs}" ] || { echo "❌ bench_prestart_script: BENCH_LOGROTATE_SIZE='${lrs}' is not <digits>K|M|G (e.g. 20G)" >&2; return 1; }
+        lrt="$(bench_logrotate_text "${lrs}")" && [ -n "${lrt}" ] \
+            || { echo "❌ bench_prestart_script: bench_logrotate_text ${lrs} gave no text" >&2; return 1; }
+    fi
     nov="$(bench_node_overrides "${idx}" | grep -c . || true)"
     echo 'set -euo pipefail'
     printf 'fail(){ echo "PRECFG_FAIL %s $*"; exit 1; }\n' "${inst}"
     bench_remote_lib_preamble
     printf "REF='%s'; NOV=%s\n" "${ref}" "${nov}"
+    if [ -n "${lrs}" ]; then
+        printf "LRS='%s'; LRT=%q\n" "${lrs}" "${lrt}"
+    else
+        echo "LRS=''   # BENCH_LOGROTATE_SIZE is empty: the node's logrotate config stays as it is"
+    fi
     if [ -n "${BENCH_NODE_LOG_FILTER:-}" ]; then
         printf "F='%s'; MF='%s'\n" "${BENCH_NODE_LOG_FILTER}" "${BENCH_NODE_LOG_MAX_FILES}"
     else
@@ -2033,6 +2239,11 @@ EOS
 # 7. this node's consensus parameter overrides (setp), marked `# bench-override`
 P="$D/parameters.yaml"
 [ -f "$P" ] || fail "no $P"
+# 7a. the stage's file is kept as $P.bak (params-apply.sh's convention); an existing .bak is the original
+if [ -f "$P.bak" ]; then BAK=kept
+elif grep -q '  # bench-override$' "$P"; then fail "$P has '# bench-override' lines and no $P.bak (not the stage's original)"
+else cp -p "$P" "$P.bak" || fail "cannot copy $P to $P.bak"; BAK=written
+fi
 # setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
 setp() {
     local t
@@ -2054,6 +2265,22 @@ EOS
     cat <<'EOS'
 m="$(grep -c '  # bench-override$' "$P" || true)"
 [ "$m" = "$NOV" ] || fail "$P has $m '# bench-override' line(s), this node has $NOV override(s) (a marked line from an earlier run?)"
+EOS
+    if [ -n "${lrs}" ]; then
+        cat <<'EOS'
+# 7b. the bench logrotate config: the v2 template without maxsize, rotating at $LRS, from the node's v2 lib
+r=0; LD="$(tnlib eval 'printf "%s" "${DEFAULT_LOG_DIR:-}"')" || r=$?
+[ "$r" = 0 ] && [ -n "$LD" ] || fail "DEFAULT_LOG_DIR unreadable from $SD/lib/common.sh (rc $r)"
+r=0; LG="$(tnlib eval 'printf "%s" "${TN_LOG_GROUP:-}"')" || r=$?
+[ "$r" = 0 ] && [ -n "$LG" ] || fail "TN_LOG_GROUP unreadable from $SD/lib/common.sh (rc $r)"
+g="$LD/*.log"; t="${LRT//@LOGGLOB@/"$g"}"; t="${t//@GROUP@/"$LG"}"
+case "$t" in *@LOGGLOB@*|*@GROUP@*) fail "the logrotate text still holds a placeholder" ;; esac
+r=0; tnlib tn_write_root_file /etc/logrotate.d/telcoin 0644 <<< "$t" || r=$?
+[ "$r" = 0 ] || fail "tn_write_root_file /etc/logrotate.d/telcoin 0644: rc $r"
+logrotate -d /etc/logrotate.d/telcoin >/dev/null 2>&1 || fail "logrotate -d does not parse /etc/logrotate.d/telcoin"
+EOS
+    fi
+    cat <<'EOS'
 # 8. read every flag back
 getf --http.addr 0.0.0.0
 getf --ws.addr 0.0.0.0
@@ -2075,7 +2302,7 @@ bash -n "$S" || fail "$S does not parse (bash -n)"
 u="$(systemctl is-active telcoin 2>/dev/null || true)"
 [ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
 EOS
-    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u"\n' "${inst}"
+    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}"\n' "${inst}"
 }
 
 # _bench_node_mode_cmd — the remote command bench_node_mode runs (one tn_iap_ssh, no sudo): the
@@ -2400,10 +2627,19 @@ _bench_adm_only_fallback() {
 # (a node that could not be read: `ADM_BAD <inst> ssh failed (2 attempts) [...]`). Records
 # manifest.admission[] = {inst, mode_primary, mode_worker, fallback (int|null), denied_in,
 # denied_out (int), node_mode (str|null), ts}, one entry per node, replacing that node's earlier
-# entry, and merges the readable node modes into manifest.fleet_modes. Then dies listing every node
-# that is not Closed.
+# entry, and merges the readable node modes into manifest.fleet_modes. When BENCH_ADMISSION_DENIED_MAX
+# is set (a whole number), every node read whose denied_in or denied_out is above it gets
+#   ADM_WARN <inst> denied_in=<n> denied_out=<n> max=<max>
+# and manifest.admission_denied_check = {max, over: [inst...], ts} records the check; it never fails
+# the gate (a node redialling a peer that does not trust it is counted there, not refused). Then dies
+# listing every node that is not Closed.
 bench_admission_gate() {
-    local i inst raw parsed line entries="" bad="" rc
+    local i inst raw parsed line entries="" bad="" rc dmax="${BENCH_ADMISSION_DENIED_MAX:-}" di dout over=""
+    case "${dmax}" in
+        '') ;;
+        *[!0-9]*) bench_warn "BENCH_ADMISSION_DENIED_MAX='${dmax}' is not a whole number — no denied-count check"; dmax="" ;;
+        *) dmax="$((10#${dmax}))" ;;
+    esac
     echo "    admission: every node Closed (primary and worker mode 2), fallback 0"
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"
@@ -2424,6 +2660,14 @@ bench_admission_gate() {
         fi
         printf '%s\n' "${line}"
         case "${line}" in ADM_OK\ *) ;; *) bad="${bad} ${inst}" ;; esac
+        if [ -n "${dmax}" ] && [ "${rc}" -eq 0 ]; then
+            di="$(_bench_adm_kv denied_in "${parsed}")"; dout="$(_bench_adm_kv denied_out "${parsed}")"
+            case "${di:-0}${dout:-0}" in *[!0-9]*) di=0; dout=0 ;; esac
+            if [ "${di:-0}" -gt "${dmax}" ] || [ "${dout:-0}" -gt "${dmax}" ]; then
+                echo "ADM_WARN ${inst} denied_in=${di:-0} denied_out=${dout:-0} max=${dmax}"
+                over="${over} ${inst}"
+            fi
+        fi
         entries="${entries}$(jq -cn --arg inst "${inst}" --arg ts "$(bench_now_iso)" \
             --arg mp "$(_bench_adm_kv mode_primary "${parsed}")" --arg mw "$(_bench_adm_kv mode_worker "${parsed}")" \
             --arg fb "$(_bench_adm_kv fallback "${parsed}")" --arg di "$(_bench_adm_kv denied_in "${parsed}")" \
@@ -2441,6 +2685,18 @@ bench_admission_gate() {
             | .fleet_modes = (((.fleet_modes // {}) + ($new | map({key: .inst, value: .node_mode}) | from_entries))
                               | with_entries(select(.value | type == "string")))'; then
         bench_warn "admission: could not record admission[] / fleet_modes in $(bench_manifest)"
+    fi
+    if [ -n "${dmax}" ]; then
+        # shellcheck disable=SC2086  # instance names, one word each
+        if ! bench_manifest_jq --argjson max "${dmax}" --argjson over "$(printf '%s\n' ${over} | jq -R 'select(length > 0)' | jq -s -c .)" \
+            --arg ts "$(bench_now_iso)" '.admission_denied_check = {max: $max, over: $over, ts: $ts}'; then
+            bench_warn "admission: could not record admission_denied_check in $(bench_manifest)"
+        fi
+        if [ -n "${over}" ]; then
+            bench_warn "admission: denied counts above ${dmax} on:${over} (ADM_WARN above; not fatal)"
+        else
+            echo "    ✓ admission: denied_in and denied_out at most ${dmax} on every node read"
+        fi
     fi
     [ -z "${bad}" ] || bench_die "admission is not Closed on:${bad}"
     echo "    ✓ admission: all ${#INSTANCE_NAMES[@]} nodes Closed, fallback 0 (manifest.admission)"

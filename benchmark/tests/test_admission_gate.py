@@ -18,6 +18,8 @@ allowlisted callers), BENCH_RUN_ID set, and a clean environment. Nothing reaches
 
 The fixtures and their expected parse are documented in fixtures/admission/README.md.
 VerdictTests.test_grace_worker_is_not_closed is the target of mutation M1 (`_bench_adm_closed`).
+DeniedCheckTests cover BENCH_ADMISSION_DENIED_MAX: ADM_WARN lines and manifest.admission_denied_check,
+never a failed gate.
 """
 from collections import Counter
 import importlib.util
@@ -38,6 +40,9 @@ SCRUB_PY = BENCH / "report" / "scrub.py"
 
 # Scripts the bash under test sources, relative to the repo root.
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh")
+# bench-lib.sh sources benchmark/pull-lib.sh (unit U-H1) and refuses to run without it. No admission
+# path calls a function of it, so a checkout where it has not landed yet gets a placeholder file.
+PULL_LIB = "benchmark/pull-lib.sh"
 RUN_ID = "rtest-admission"
 PARAMS_YAML = "max_header_delay: 500ms\nmin_header_delay: 250ms\nmax_batch_delay: 250ms\n"
 NODES = ["bench-validator-%02d" % n for n in range(1, 11)] + ["bench-observer-11"]
@@ -55,6 +60,7 @@ README_TABLE = {
     "fallback-active": (8, "2", "2", "1", "2", "0", "0", "CvvActive"),
     "missing-worker": (4, "2", "-", "0", "1", "0", "0", "Observer"),
     "reordered-labels-with-ts": (8, "2", "2", "0", "2", "3", "1", "CvvActive"),
+    "denied-redials": (8, "2", "2", "0", "2", "211", "0", "CvvActive"),
 }
 DECOY_FAMILIES = ("tn_network_source_admission_denied_total", "tn_network_admission_contradicted",
                   "tn_network_admission_required_current", "tn_network_admission_resolved_current")
@@ -238,6 +244,10 @@ def make_tree(root):
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, dst)
+    if (REPO / PULL_LIB).exists():
+        shutil.copy2(REPO / PULL_LIB, root / PULL_LIB)
+    else:
+        (root / PULL_LIB).write_text("# placeholder: benchmark/pull-lib.sh (unit U-H1) is not in this checkout yet\n")
     return root / "benchmark"
 
 
@@ -557,6 +567,61 @@ class GateTests(Sandbox):
         self.assertEqual(e["bench-validator-05"]["node_mode"], "CvvInactive")
         self.assertEqual(m["fleet_modes"]["bench-validator-05"], "CvvInactive")
         self.assertEqual(len(m["fleet_modes"]), 11)
+
+
+class DeniedCheckTests(Sandbox):
+    """BENCH_ADMISSION_DENIED_MAX: a node read whose denied_in or denied_out is above it gets an ADM_WARN
+    line and is listed in manifest.admission_denied_check.over; the gate's verdict does not change."""
+
+    def warn_lines(self, out):
+        return [l for l in out.splitlines() if l.startswith("ADM_WARN ")]
+
+    def test_denied_counts_above_the_max_warn_and_never_fail(self):
+        plan = {"bench-validator-03": {"adm": [{"prom": "denied-redials"}]}}
+        self.plan(plan)
+        r = self.bash(GATE, BENCH_ADMISSION_DENIED_MAX="5")
+        self.assertNoStrayCalls(r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(len(adm_lines(r.stdout)), len(NODES))
+        self.assertIn("ADM_OK bench-validator-03 primary=2 worker=2 fallback=0 denied_in=211 denied_out=0 mode=CvvActive",
+                      adm_lines(r.stdout))
+        self.assertEqual(self.warn_lines(r.stdout), ["ADM_WARN bench-validator-03 denied_in=211 denied_out=0 max=5"])
+        self.assertIn("admission: denied counts above 5 on: bench-validator-03 (ADM_WARN above; not fatal)", r.stdout)
+        check = self.manifest()["admission_denied_check"]
+        self.assertEqual(set(check), {"max", "over", "ts"})
+        self.assertEqual((check["max"], check["over"]), (5, ["bench-validator-03"]))
+        self.assertRegex(check["ts"], ISO_RE)
+        self.assertEqual(self.reads("adm"), Counter({n: 1 for n in NODES}), "the check reads nothing more")
+
+    def test_max_zero_warns_on_every_node_with_a_denial_and_a_bad_node_still_fails(self):
+        self.plan({"bench-validator-04": {"adm": [{"prom": "grace-worker"}]},
+                   "bench-validator-05": {"adm": [{"rc": 255}]}})
+        r = self.bash(GATE, BENCH_ADMISSION_DENIED_MAX="0")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertEqual(listed_after(r.stdout, "admission is not Closed on:"), {"bench-validator-04", "bench-validator-05"})
+        # grace-worker.prom denies nothing; an unread node is not judged.
+        want = sorted(set(NODES) - {"bench-validator-04", "bench-validator-05"})
+        self.assertEqual(sorted(l.split()[1] for l in self.warn_lines(r.stdout)), want)
+        self.assertIn("ADM_WARN bench-validator-01 denied_in=3 denied_out=1 max=0", self.warn_lines(r.stdout))
+        check = self.manifest()["admission_denied_check"]
+        self.assertEqual((check["max"], sorted(check["over"])), (0, want))
+
+    def test_at_the_max_passes_quietly(self):
+        r = self.gate({})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.plan({})
+        r = self.bash(GATE, BENCH_ADMISSION_DENIED_MAX="3")
+        self.assertEqual((r.returncode, self.warn_lines(r.stdout)), (0, []), r.stdout)
+        self.assertIn("✓ admission: denied_in and denied_out at most 3 on every node read", r.stdout)
+        self.assertEqual(self.manifest()["admission_denied_check"]["over"], [])
+
+    def test_a_bad_max_is_named_and_checks_nothing(self):
+        self.plan({"bench-validator-03": {"adm": [{"prom": "denied-redials"}]}})
+        r = self.bash(GATE, BENCH_ADMISSION_DENIED_MAX="ten")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("BENCH_ADMISSION_DENIED_MAX='ten' is not a whole number — no denied-count check", r.stdout)
+        self.assertEqual(self.warn_lines(r.stdout), [])
+        self.assertNotIn("admission_denied_check", self.manifest())
 
 
 class FleetReadyTests(Sandbox):
