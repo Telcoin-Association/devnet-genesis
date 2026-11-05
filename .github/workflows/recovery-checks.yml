@@ -5,7 +5,8 @@ on:
     branches: [main, "feat/sigkill-*"]
   pull_request:
     paths: ["benchmark/**", ".github/workflows/recovery-checks.yml", "devnet-finalize.sh",
-            "devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh", "config.sh"]
+            "devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh", "devnet-keygen.sh",
+            "config.sh", ".gitignore", "tasks/check-bash-portability.sh"]
   workflow_dispatch:
 
 permissions:
@@ -14,14 +15,14 @@ permissions:
 jobs:
   recovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       BENCH_SHELL_SCRIPTS: >-
         benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
-        benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/benchmark-deploy.sh
+        benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/pull-lib.sh benchmark/benchmark-deploy.sh
         benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
         benchmark/tools/latency-probe.sh benchmark/tools/params-apply.sh
-        devnet-finalize.sh devnet-network-config.sh devnet-lib.sh
+        devnet-finalize.sh devnet-network-config.sh devnet-lib.sh devnet-keygen.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install shell lint tool
@@ -33,10 +34,23 @@ jobs:
         run: for f in ${BENCH_SHELL_SCRIPTS}; do echo "bash -n ${f}"; bash -n "${f}"; done
       - name: Shellcheck
         run: shellcheck -S warning ${BENCH_SHELL_SCRIPTS}
+      - name: Bash 3.2 constructs
+        # The lint lives in the tn-node-deployment submodule, which this checkout does not fetch;
+        # the step runs wherever the submodule is there.
+        run: |
+          if [ -f tn-node-deployment/tools/check-bash32.sh ]; then
+            bash tn-node-deployment/tools/check-bash32.sh ${BENCH_SHELL_SCRIPTS}
+          else
+            echo "tn-node-deployment is not checked out: bash 3.2 lint skipped"
+          fi
+      - name: Bash portability (bash 4 under /bin/bash, GNU-only tools)
+        run: bash tasks/check-bash-portability.sh ${BENCH_SHELL_SCRIPTS}
       - name: Python compile and 3.9 grammar
         run: |
           python3 -m py_compile benchmark/*.py benchmark/report/*.py benchmark/tests/*.py benchmark/tools/*.py devnet-network-config.py
-          python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')+glob.glob('benchmark/tools/*.py')+['devnet-network-config.py']]"
+          # The fixtures' fake gcloud scripts, compiled into a cache outside the tree the tests copy.
+          find benchmark/tests/fixtures -name '*.py' -exec env PYTHONPYCACHEPREFIX="${RUNNER_TEMP}/pycache" python3 -m py_compile {} +
+          python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/*.py')+glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')+glob.glob('benchmark/tools/*.py')+glob.glob('benchmark/tests/fixtures/**/*.py', recursive=True)+['devnet-network-config.py']]"
       - name: Unit tests (offline fixtures)
         run: python3 -m unittest discover -s benchmark/tests -v
       - name: Mutation checks

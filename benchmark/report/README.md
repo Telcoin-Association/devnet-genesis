@@ -325,11 +325,16 @@ left out of a commit:
 
 | Name | Ignored by |
 |---|---|
-| `logs`, `archive`, `telcoin` (exact name, file or directory) | the root `.gitignore` |
-| `logs/`, `results/`, `work/`, `genesis/`, `private/` (directories), `parameters.yaml` | `benchmark/.gitignore` |
+| `telcoin-network.yaml`, `*.key`, `.env`, `.env.makefile` (files), `.secrets/`, `__pycache__/` (directories) | the root `.gitignore` |
+| `results/`, `work/`, `genesis/`, `private/`, `.secrets/` (directories), `parameters.yaml` | `benchmark/.gitignore` |
 
-A node log fixture such as `bench-validator-01-telcoin.log.gz` is fine. A directory called
-`logs/` holding it is not. Run `git check-ignore -v <path>` on a new fixture before you commit.
+`logs`, `archive` and `telcoin` are anchored: the root `.gitignore` ignores only `/logs/`,
+`/archive/` and the `/telcoin` binary at the top of the repository, and `benchmark/.gitignore`
+ignores only `benchmark/logs/`. A fixture directory called `logs/` or a fixture file called
+`telcoin` is tracked, and so is `tasks/archive/`. A node log fixture such as
+`bench-validator-01-telcoin.log.gz` is fine anywhere except under a directory called `results/`,
+`work/`, `genesis/` or `private/`. Run `git check-ignore -v --no-index <path>` on a new fixture
+before you commit.
 
 ## Tests
 
