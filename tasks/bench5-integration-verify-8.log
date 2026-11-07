@@ -1,0 +1,12 @@
+== head 73d3163db 2026-11-06T23:58:31Z
+== fmt
+fmt rc=0
+== nextest primary/executor/types/node/config
+     Summary [  18.821s] 1038 tests run: 1038 passed, 7 skipped
+nextest rc=0
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.09s
+clippy rc=0
+== workspace check

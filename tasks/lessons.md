@@ -1373,3 +1373,39 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Rule: detach with `nohup setsid bash -c 'echo $$ > <pidfile>; exec …' > log 2>&1 &` (the pid file names the session leader), stop
   with `kill -- -<pgid>` after `ps -eo pid,pgid,sid,args | grep <script>` confirms the group, and never launch a second fleet action
   on the same run until `pgrep -f <script>` is empty.
+
+## 2026-11-06 — `set --` in a sourced config file overwrites the caller's positional parameters
+- benchmark/config.sh gained a word-count check written as `set -- ${BENCH_LIGHT_SENDERS}; n=$#`. config.sh is sourced by every
+  driver and by the test harnesses; the `set --` replaced their `$@` with "16 16 4", so `eval "$2"` became `eval 16` and ~100 tests
+  in unrelated modules failed ("16: command not found"). Two unit agents lost a suite run each chasing it; a third reported it.
+- Rule: a sourced file never runs `set --`, `shift`, `cd` or `exit` at top level. Count words with a helper (`_n() { echo $#; };
+  n=$(_n $words)`) or in a subshell `n=$(set -- $words; echo $#)`, and `unset -f` the helper. The orchestrator's own edits get the
+  same test pass as a unit's before any agent builds on them.
+
+## 2026-11-06 — a shared CARGO_TARGET_DIR across worktrees of one repo mixes their sources
+- Cargo hashes workspace members relative to the workspace root, so every `tn-bench5-*` worktree writes the same artifact names
+  into the shared target dir, and freshness is decided by source mtimes: a unit that builds after another unit touched the same
+  crate silently links the OTHER worktree's compiled crate (U-F3a1 saw "cannot find value ROUNDS_TO_KEEP in tn_types" after its own
+  edit, then a tn-primary run that recompiled nothing). The bench-4 pattern ("one target dir, many worktrees") only worked because
+  the units touched disjoint crates.
+- Rule: one target dir per worktree, seeded with `cp -a` from a warm one (≈ 13 GB, 1-3 min) when units overlap on a crate; or
+  `touch` the unit's changed files to the future before each build and check the log for "Compiling <its crates>". A unit's test
+  result counts only if its log shows its crates recompiled; the integration build from one tree is the authoritative gate.
+
+## 2026-11-06 — the session temp directory has a quota; agents' scratch and old sessions' extracts fill it silently
+- `/tmp` on xerxes is a 31 GB tmpfs and the per-project temp dir is quota-limited: a review agent's scratch cargo build (2.7 GB), two
+  Prometheus snapshot copies, a `git archive` tree and 8.2 GB of the PREVIOUS session's bench-4 log extracts (A1-A4n, long published)
+  pushed it over; the first symptom was `pwd: write error: Disk quota exceeded` and txgen's test suite "failing" with import errors.
+- Rule: scratch is per agent AND per session — the orchestrator deletes a finished agent's scratch subdirectory when it hands back, keeps
+  cargo target dirs and snapshot copies OUT of /tmp (use a dir under the repo's gitignored space or the home disk), and at the start of
+  a session removes the previous session's analysis extracts once their outputs are in `benchmark/private/`. Check `df /tmp` before
+  launching a wave of agents.
+
+## 2026-11-06 — "keep both sides" is not a valid resolution for an add/add conflict at the end of a Rust file
+- Two units appended tests to the same file; git's conflict region started mid-function on one side, so concatenating HEAD and
+  theirs left an unclosed brace (and a fuzzy `patch` of the unit's diff put test lines outside the function). Three verification
+  rounds were spent on it.
+- Rule: resolve an add/add conflict by REBUILDING the file — the integration's version plus the unit's own diff for that file — and
+  place each hunk explicitly (struct field at the struct's end, increments inside the recorder closure, asserts before the test's
+  closing brace); then `cargo check --all-targets` the crate at THAT commit before continuing the cherry-pick. Never fuzz > 0 on test
+  bodies.

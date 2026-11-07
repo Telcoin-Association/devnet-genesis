@@ -1,10 +1,13 @@
 # Draft PR (telcoin-network) — not yet opened; the bench-4 run (r20261105-0803) is done and the body below cites its results
 
-Head: bench/main-v1lazy-obs-2026-11 @ 496ebefb5 (pushed). Base: main. Stacked on PR 1783 (fix/libp2p-lazy-protocol-negotiation,
-a4e55c880 dc1ad5f1d bbd0880ef e6d85bd68). Compare URL:
-https://github.com/Telcoin-Association/telcoin-network/compare/main...bench/main-v1lazy-obs-2026-11
-Open as DRAFT with: gh -R Telcoin-Association/telcoin-network pr create --draft --base main --head bench/main-v1lazy-obs-2026-11 --title "<title>" --body-file <this file's body>
-
+Head (original): bench/main-v1lazy-obs-2026-11 @ 496ebefb5 (pushed), stacked on PR 1783. PR 1783 merged on 2026-11-05 (7527b15c0), so
+the PR is no longer stacked: on 2026-11-06 the nine commits were cherry-picked (-x) onto bench/main-fixes-2026-11 (base origin/main
+4bf4604d2) as 77539d77d e938be258 49643180d 4ab917aae 180a2d8c1 c6e8df6dd 2d47fe191 f7936def8 3a721a1b6 (clean; libp2p+primary
+916 tests, the three PR-1783 tests, fmt and clippy green). To open the observability PR alone: `git switch -c feat/bench-observability
+origin/main && git cherry-pick -x 77539d77d^..3a721a1b6` (or the original 94b0d8cd9^..496ebefb5), push over ssh, then:
+gh -R Telcoin-Association/telcoin-network pr create --draft --base main --head feat/bench-observability --title "<title>" --body-file <this file's body>
+Compare URL (original branch): https://github.com/Telcoin-Association/telcoin-network/compare/main...bench/main-v1lazy-obs-2026-11
+The per-commit bullets below cite the original shas; the ledger tasks/bench5-cherrypick-ledger.md maps them to the new ones.
 ## Title
 feat: benchmark observability — vote path, persist, rejoin, leader, batch and epoch-record instrumentation
 

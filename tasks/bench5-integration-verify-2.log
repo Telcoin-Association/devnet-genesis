@@ -1,0 +1,35 @@
+== head 557c9b737 2026-11-06T21:05:03Z
+== fmt
+fmt rc=0
+== nextest primary/executor/types/node/storage/config/state-sync
+   Compiling tn-types v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/types)
+   Compiling tn-network-types v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/network-types)
+   Compiling tn-node-record v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node-record)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
+   Compiling tn-metrics v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/tn-metrics)
+   Compiling tn-config v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/config)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/network-libp2p)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/worker)
+   Compiling tn-reth v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/tn-reth)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling tn-test-utils-committee v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils-committee)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/engine)
+   Compiling tn-rpc v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/execution/tn-rpc)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-validator)
+   Compiling tn-exex v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/exex)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-builder)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+     Summary [  63.475s] 1883 tests run: 1883 passed, 24 skipped
+nextest rc=0
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12m 09s
+clippy rc=0
+== workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 56s
+check rc=0

@@ -1,0 +1,15 @@
+== head c7764fac4 2026-11-06T22:17:56Z
+== fmt
+fmt rc=0
+== nextest primary/storage
+     Summary [  71.072s] 1218 tests run: 1218 passed (1 leaky), 19 skipped
+nextest rc=0
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 09s
+clippy rc=0
+== workspace check
+    Checking tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 58s
+check rc=0

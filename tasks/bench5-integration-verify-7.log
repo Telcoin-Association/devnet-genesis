@@ -1,0 +1,15 @@
+== head cae41a400 2026-11-06T23:45:09Z
+== fmt
+fmt rc=0
+== nextest primary/config/types
+     Summary [  22.041s] 814 tests run: 814 passed, 6 skipped
+nextest rc=0
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 12s
+clippy rc=0
+== workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.20s
+check rc=0

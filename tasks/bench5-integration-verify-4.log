@@ -1,0 +1,19 @@
+== head 44a87b0ef 2026-11-06T21:45:38Z
+== fmt
+fmt rc=0
+== nextest batch-builder/worker/metrics/executor/state-sync/storage/node
+        FAIL [   1.215s] ( 621/1220) tn-storage consensus_pack::test::test_consensus_pack_reads_run_beside_saves
+    test consensus_pack::test::test_consensus_pack_reads_run_beside_saves ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 842 filtered out; finished in 1.16s
+     Summary [  75.099s] 1220 tests run: 1219 passed, 1 failed, 18 skipped
+        FAIL [   1.215s] ( 621/1220) tn-storage consensus_pack::test::test_consensus_pack_reads_run_beside_saves
+nextest rc=100
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 07s
+clippy rc=0
+== workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 43s
+check rc=0

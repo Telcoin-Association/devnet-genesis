@@ -1,0 +1,20 @@
+== head 0c41872ba 2026-11-06T20:23:23Z
+== fmt
+fmt rc=0
+== nextest storage/config/types/state-sync/primary
+   Compiling tn-types v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/types)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
+   Compiling tn-config v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/config)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+     Summary [  54.098s] 1656 tests run: 1656 passed, 23 skipped
+nextest rc=0
+== clippy
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7m 31s
+clippy rc=0
+== workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14m 14s
+check rc=0

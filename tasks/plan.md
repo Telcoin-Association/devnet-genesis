@@ -1,96 +1,82 @@
-# Plan: bench 4 — main + PR 1783 (V1Lazy) + observability image, all harness defects, rerun, publish, report
+# Plan: bench 5 — fix the commit-lag demotion and the rejoin loop, lift the execution ceiling, measure time-to-land end to end
 
-Written 2026-11-04 (xerxes). Frozen contracts: `tasks/checkpoint-bench4-design.md`. Live-run checkpoint:
-`tasks/checkpoint-bench4-live.md`. No Claude attribution on any commit or PR. Opus agents implement;
-subagents never commit.
+Written 2026-11-06 (xerxes). Frozen contracts: `tasks/checkpoint-bench5-design.md`. Rules: `tasks/bench5-agent-rules.md`. Ledger:
+`tasks/bench5-cherrypick-ledger.md`. Live-run checkpoint: `tasks/checkpoint-bench5-live.md`. No Claude attribution on any commit,
+PR or issue text. Opus agents implement; subagents never push and never touch the fleet. Supersedes the bench-4 plan (all ticked;
+report `tasks/bench4-report-r20261105-0803.md`).
 
 ## Wave 0 — orchestrator setup
-- [x] Apply the two project-context plans (devnet-genesis 59→62 lines; telcoin-network new, untracked)
-- [x] Worktree `../telcoin-network-bench` on `bench/main-v1lazy-obs-2026-11` = origin/main a0d6e6e26 + PR 1783 ff (head e6d85bd68)
-- [x] `tn-contracts` submodule initialised in the worktree (the first `cargo check` failed on the missing artifacts)
-- [x] Toolchains: 1.94 (rust-toolchain.toml), nightly-2026-03-20 fmt/clippy present, nextest 0.9.143
-- [x] Cold `cargo test --workspace --no-run` warm-up: 400 s, 6.1 GB target (`tasks/bench4-cargo-warmup.log`); 7 unit worktrees `../tn-bench-tn{8,1,2,4,3,6,7}` share that target dir
-- [x] Probe gate dry run on the live digest: 12/12 strings, subsecond-from-genesis, 17 s (`tasks/bench4-probe-dryrun.log`)
-- [x] `tasks/checkpoint-bench4-design.md` written (frozen contracts)
+- [x] Worktree `../telcoin-network-bench5` on `bench/main-fixes-2026-11` = origin/main 4bf4604d2 (main moved overnight: GHSA-8fj9 sync-peer fix on top of 7527b15c0; base amended)
+- [x] tn-contracts submodule initialised (`--reference` to the bench-4 worktree's module)
+- [x] Nine observability commits cherry-picked `-x` cleanly (77539d77d..3a721a1b6)
+- [x] Verify: fmt clean; nextest libp2p+primary 916 passed; the three PR-1783 tests pass; workspace clippy clean (`tasks/bench5-wave0-verify.log`)
+- [x] `tasks/checkpoint-bench5-design.md`, `tasks/bench5-agent-rules.md`, `tasks/bench5-cherrypick-ledger.md`, this checklist
+- [x] `benchmark/config.sh` knob block (orchestrator-owned; lines 335-356 + validation 593-620; sourced through a driver-named wrapper, 6 bad values refused)
+- [x] Wave-1a unit worktrees `../tn-bench5-{f1,f3a1,f3a2,e1,l1}` on the shared target dir
+- [x] Two Prometheus snapshot copies extracted for I-2p / I-3 (scratchpad prom-I2p, prom-I3)
 
-## Wave 1 — parallel implementation (checkpoints `tasks/checkpoint-bench4-<unit>.md`)
-telcoin-network (worktree, branch `bench/main-v1lazy-obs-2026-11`):
-- [x] U-TN8 network reqres class + durations
-- [x] U-TN1 vote path timing (handler.rs, header_validator.rs, metrics.rs)
-- [x] U-TN2 proposer stamps (certifier.rs, proposer.rs)
-- [x] U-TN4 engine execute/persist/commit split
-- [x] U-TN3 leader schedule logging
-- [x] U-TN6 worker batch denials
-- [x] U-TN7 epoch record signers
-- [x] U-TN5 rejoin blockers + mode transitions (after U-TN1)
-devnet-genesis:
-- [x] U-H1 pull-lib.sh (new) + test_pull_logs
-- [x] U-H2 bench-lib wiring + test_tunnel + certification/admission tests
-- [x] U-H3 teardown gates
-- [x] U-H4 deploy + config.sh
-- [x] U-H5 blast chaos refresh + recovery-schedule refresh
-- [x] U-H6 devnet-lib fault kinds + test_iap_retry
-- [x] U-H7 finalize (commit 1 intIP, commit 2 FINALIZE_JOBS)
-- [x] U-H8 keygen (--pull-only, reuse, report, jobs)
-- [x] U-H9 network-config (trust flag, fast path, jobs)
-- [x] U-H10 report + .gitignore + hygiene
-- [x] U-H11 mutations + CI + README (28/28 anchors killed)
+## Wave I — investigation (5 opus agents, read-only; checkpoints `tasks/checkpoint-bench5-I*.md`)
+- [x] I-1 F1 commit-lag demotion → `tasks/issues/bench5-f1-commit-lag-demotion.md` + §F1 amendments
+- [x] I-2c F2 code → `tasks/issues/bench5-f2-execution-ceiling.md` + §F2 amendments
+- [x] I-2p F2 Prometheus replay → `benchmark/private/bench5-prep/F2/`
+- [x] I-3 LAND → `tasks/bench5-land-time-baseline.md` + §LAND amendments
+- [x] I-4 F3 rejoin loop → `tasks/issues/bench5-f3-rejoin-loop.md` + §F3 amendments
+- [x] Contracts amended and frozen in `tasks/checkpoint-bench5-design.md` (§F2 I-2c+I-2p, §F1 I-1, §F3 I-4 — F3-1a/1b dropped, F3-0 added; §LAND I-3 — 4-index arm, nonce-gap finding)
+
+## Wave 1a — parallel implementation (one worktree each; tn-review per unit; cherry-pick F1 → F3a1 → F3a2 → E1 → L1)
+telcoin-network:
+- [x] U-F1 F1-1 — f5324e6db (review 0 BLOCKING, S1/S2 + 5 NIT applied; 703 tests); integrated as 557c9b737
+- [x] U-F3a1 F3-0 certificate retention — 5d7cbdc03 on bench5/u-f3a1 (ROUNDS_TO_KEEP 128, floor check; 1235+372 tests)
+- [x] U-F3a2 F3-2 — 48b969dd8 (review 0 BLOCKING, S1/S2 + 5 NIT applied; 421 tests); integrated
+- [x] U-E1 E1+E2+E3+L5 — 69c9eba0d 988ca198e fa9a4ff55 5105eda5a (review 0 BLOCKING; S1-S3+N4 applied; 519 tests; per-commit strict check); integrated a962b9876..decc4cbc4
+- [x] U-L1 L1+L2+L6 — ae8f0a130 5f6baf9a7 2561e98ff (review 0 BLOCKING; fixes applied; 132 tests); integrated dac760298 d660e8e7f 716de9019 (recorder.rs add/add resolved)
 tn-transaction-generator:
-- [x] U-H12 collector series + --end
+- [x] U-T (T1, T2, T3) — COMMITTED in tn-transaction-generator: 0ca0c49 4fd1fb0 6dad96f (review 0 BLOCKING; S1/N1/N2 + digests_requeued series folded in; 201 Rust tests, bench 124 OK) → BENCH_TXGEN_SHA=6dad96f (blaster image built by deploy step 1 via Cloud Build once gcloud is re-authed)
+devnet-genesis:
+- [x] U-H1 light-load arm (4 indices, per-index window) + BENCH_WINDOW + LOG_RATE + landings flags — 24 tests, 6 anchors; uncommitted
+- [x] U-H2 deploy fsync probe + sync-mode knob — 131 tests in test_node_image, 3 anchors; uncommitted
+- [ ] U-H3a teardown D34 exemption + B9 skip-certification + A10
+- [x] U-H3b bucket log transfer — 42 tests, 3 anchors, iap default byte-identical; CANNOT RUN on this fleet (nodes have devstorage.read_only scope; needs common/create-instances.sh change = follow-up) → bench 5 pulls over iap
+- [x] U-H4a stage-latency.py — 12 tests, 3 anchors; bench-4 preamble blocks reproduce I-3 trace; uncommitted
+- [x] U-H4b kpis/windows/make_bundle + scrub + tn-benchmarks (56+41 tests, 9 anchors; bench-4 KPIs byte-identical; seen p50 12.92); uncommitted in both repos
 
-## Wave 2 — freeze, verify, review, commit, build
-- [x] Integration branch assembled: 8 commits e6d85bd68..1374afa17 (unit branches bench/u-tn*); hand-back log tasks/checkpoint-bench4-wave1.md
-- [x] Harness suite: 673 tests, only the known slow-bundle env failure (tasks/bench4-integration-suite.log)
-- [x] Workspace fmt/clippy clean, nextest 3884 passed/70 skipped on 1374afa17 (tasks/bench4-tn-workspace-verify.log)
-- [x] Reviews: tn-review 0 BLOCKING (S1 buckets fixed in 496ebefb5); review-A 1 BLOCKING (finalize NC_CTX trust flag) fixed; review-B 1 BLOCKING (teardown ok=- gate) fixed; all SHOULDs fixed
-- [x] Final harness suite 704 OK (tasks/bench4-final-suite.log); offline checks clean; dry-run plan DRY_RC=0 (tasks/bench4-dryrun-plan.log)
-- [x] Commits: devnet-genesis 9 of 11 groups (5be1e62..e5b35ab); txgen 6f2aae6; telcoin-network 9 commits pushed (496ebefb5)
-- [x] Finalize commits d096387 + 917d52f; tasks commit acad590 (13 commits on main, unpushed)
-- [x] Image adiri:bench-main-v1lazy-obs-20261104 @sha256:f6922184… built, pushed, probed (12/12, subsecond-from-genesis)
-- [x] V-off: cargo nextest workspace, fmt, clippy; bash -n + shellcheck; check-bash32; unittest; check_mutations; txgen tests
-- [x] tn-review on the telcoin-network branch (diff vs origin/main minus PR 1783)
-- [x] U-review on devnet-genesis (byte-identical knob-unset paths of the three root drivers)
-- [x] Blocking fixes → V-off again
-- [ ] Commits: telcoin-network 8 on the branch; devnet-genesis per unit group; txgen 1
-- [x] Push `bench/main-v1lazy-obs-2026-11`; image build + push; digest; probe by digest
-- [x] Dry-run deploy plan text (`--with-contracts`, no `--yes`), `--print-prestart`
+## Wave 1b — after 1a integrates (integration cae41a400 = F3-0, F3-2, F1-1, E1-E3, L5, L1, L2, L6, L4, L3, E4, L7, F3-5, F3-6 — verified through tasks/bench5-integration-verify-{1..7}.log, all green)
+- [x] U-F3b1 F1-2+F3-3+F3-4 — 3e4f0dd54 f61792797 324d3e5ad (review 0 BLOCKING; S1-S5 + nits applied; 714 tests); integrated a3a00525e f2f9437f7 73d3163db (two nested-test-module conflicts rebuilt by hand)
+- [x] U-F3b2 F3-5+F3-6 — 69f3891dc 86a650d91 (review 0 BLOCKING; S1-S3 + N1-N5 applied; 503 tests); integrated bf34ec488 cae41a400 (metrics/network_tests add/add resolved)
+- [x] U-L2a L3 — dc09d7985 (392 tests); integrated c7764fac4; Wave-2 land-path review covers L3+L4
+- [x] U-E2a E4 — 928c12300 (review 0 BLOCKING; S1/S2 + nits applied; 509 tests); integrated 9039198de
+- [x] U-H5 README (+191), check_mutations 63/63 killed, hygiene 13 tests, CI, test_txgen_probe (4) — suite 951 OK; probe pipefail bug fixed by the orchestrator; uncommitted
 
-## Wave A — obs VM, devnet DEBUG, obs-devnet prune (plan of 2026-11-05 05:50Z; contracts: checkpoint-bench4-design.md §D-A/D-B/D-C)
-- [x] §D-A/D-B/D-C contracts frozen; tasks/bench4-obs-agent-rules.md written
-- [x] U-P1 loki-config retention_stream (common submodule) — verify-config ok; uncommitted
-- [x] U-P2 devnet-log-filter.sh + test_log_filter (30 OK) + README entry; uncommitted — reviewed (tasks/checkpoint-bench4-review-P2.md): 0 BLOCKING, S1-S4 being applied
-- [x] U-O1 obs-lib.sh + benchmark/obs bundle + config knobs + test_obs (34 OK; compose config ok); uncommitted
-- [x] U-O2 deploy steps 0/2/8/10/13/15 + test_node_image (111 OK); follow-up: --push-url → black hole; uncommitted
-- [x] U-O3 bench-lib _bench_tunnel_start, prom no-auth, obs source line + test_tunnel (23 OK, parity vs 28c7623 fixture); uncommitted
-- [x] U-O4 teardown bench-obs gate/snapshot/delete + test_teardown_local_gate (66 OK); uncommitted
-- [x] U-O5 blast obs-memory abort + bench_obs_require (top of do_run, apply-only, fatal) — test_recovery 33 OK; uncommitted
-- [x] U-O6 collector --prom-no-auth (txgen) — 122 tests OK; uncommitted
-- [x] U-O7 README, check_mutations (34/34 killed), hygiene, scrub test, admission TREE, CI; follow-up: test_node_image without common/ (U-O2)
+## Wave 1c — after 1b
+- [x] U-L2b L4 — 994755c1c (907 tests; observability-only); integrated 44a87b0ef; Wave-2 land-path review covers L3+L4
+- [x] U-L3 L7 — 4364ec892 (review 0 BLOCKING; S1 + N1-N3 applied; 398 tests); integrated 3304d94ce
+- [ ] U-E2b E5 — 9bec2acbf (rebased on the amended E4; review 0 BLOCKING; S1-S3 hardening + nits being amended; 514 tests); cherry-pick after the amend
+- [ ] U-X (F1-3 + F3-7 e2e) — started from 6657ba2a4 (F3b1 head, pre-throttle); own target dir
 
-## Wave A-ops — live, orchestrator only (after U-P1 and U-P2 review)
-- [x] D-A applied on obs-devnet 06:13Z (backup, -verify-config ok, restart loki, /ready 70 s)
-- [x] D-A verified 06:56Z: 80 % → 35 % (102 G used); INFO 11-03/11-04 still queryable; DEBUG < 24 h kept
-- [x] D-B sweep 07:13-07:30Z (log tasks/devnet-log-filter-20261105T071324Z.log): 5× LOGFILTER_OK restarted=yes (6 resume attempts; guard one-commit sampling → resampling added to the driver)
-- [x] D-B verified 07:46Z: DEBUG 0 B / INFO 38 MB per 15 min; obs-devnet disk 33 %
+## Wave 2 — verify, review, build, probe, dry runs (serial)
+- [ ] Per-commit compile check (`cargo check --workspace --all-targets` at each Topic commit)
+- [ ] Workspace fmt / clippy / `nextest --locked --workspace` + the named e2e tests (`tasks/bench5-tn-workspace-verify.log`); `make pr` = fmt + clippy --fix + `public-tests` (workspace nextest with the e2e bin, then the ignored `test_epoch*` and `test_restarts*` e2e sets — multi-hour; run detached with nohup setsid, does not need gcloud)
+- [ ] tn-review per topic group: F1 ✓, F3-2 ✓, engine ✓, L1/L2/L6 ✓, F3-5/6 ✓, L3+L4 ✓ (fixes squashed), E4 ✓ (amending), L7 ✓ (amending) — all 0 BLOCKING; F3b1 review after its throttle amend; tn-security-eval on the consensus set RUNNING (F1-1, F1-2, F3-0, F3-2..F3-6, L7 all integrated); harness U-review ✓ 0 BLOCKING (byte-identity 12/12, 15/15, 13/13 KPIs; 3 SHOULD → U-Hfix running); txgen review ✓ 0 BLOCKING (fixes folded in)
+- [ ] BLOCKING fixes → checks again
+- [ ] (needs operator `gcloud auth login` first — token expired 2026-11-06) Push `bench/main-fixes-2026-11` over ssh; image `adiri:bench-main-fixes-<yyyymmdd>` built + pushed; digest recorded; probe 12/12 (`tasks/bench5-probe-bench-image.log`)
+- [ ] Harness: full unittest, check_mutations (all anchors killed), bash -n, shellcheck, check-bash32, py3.9 grammar; txgen tests + blaster image
+- [ ] Dry runs: deploy (`--print-prestart` with/without sync-mode), blast (light-load lines), teardown on r20261105-0803 (read-only gcloud)
+- [ ] Commits per unit group (devnet-genesis, txgen); ledger rows filled with shas
 
-## Wave B — checks, review, commits, dry runs
-- [x] offline (07:20Z): bash -n, shellcheck, check-bash32, portability (0 ERROR), py3.9 grammar, YAML, compose config — all green
-- [x] check_mutations: 34 of 34 killed
-- [x] full unittest suite: 843 tests OK (7 skipped), 485 s
-- [x] reviews: P2 (driver), A (libs/bundle/blast/collector), B (deploy/teardown live flow) — 0 BLOCKING; every SHOULD applied (tasks/checkpoint-bench4-review-*.md); parity vs 28c7623 proven in test_tunnel; prestart print aid byte-identical vs HEAD
-- [x] commits: common 1a6955d; devnet-genesis 133b8d5..bbc2533 (8 commits); txgen (collector) — no attribution; nothing pushed
-- [x] dry-run deploy (r20261105-dry0, gcloud stub: 0 calls, rc 0; plan names bench-obs/forwards/--only 8), `--print-obs-script` (placeholder ×4, no obs-devnet), `--print-obs-bringup` (18.9 kB, bash -n ok), `--print-prestart` byte-identical vs HEAD; real teardown dry run on r20261105-0036 rc 0 (bench-obs absent → warn, nothing deleted)
+## Wave 3 — live run (orchestrator only, detached segments; `tasks/checkpoint-bench5-live.md`)
+- [ ] Pre-run gates (obs-devnet < 60 %, devnet healthy on info filter, quota, leftovers, gcloud token); RTT re-probe incl. us-east4
+- [ ] deploy `--yes --with-contracts --to 12` (FSYNC_PROBE per node, OBS_READY, OBSCFG_OK ×11, PRECFG_OK ×11, rc 0)
+- [ ] idle ≥ 10 min
+- [ ] blast `--yes --from 13 --to 15` with BENCH_LIGHT_LOAD=1 (LIGHT_LOAD_START/DONE, BENCH_BLAST_DONE ×10, chaos lines, 0 aborts)
+- [ ] teardown `--run $R --yes` (health table, pull ≤ projection, prometheus snapshot, TEARDOWN_DONE left=0, obs-devnet untouched); `--reindex`
 
-## Wave 3 — live run (D5)
-- [x] preflight clean; run id r20261105-0036
-- [ ] BLOCKED at step 0 (00:37Z): obs-devnet data disk 73 % ≥ 70 % gate — cause = live devnet nodes shipping DEBUG to Loki at ≈ 4 GB/h since 2026-11-02 (not the bench). Relaunch with BENCH_OBS_DISK_MAX_PCT=85 was permission-denied → user decision; resume command in tasks/checkpoint-bench4-live.md
-- [x] Wave C run r20261105-0803: deploy --to 12 rc 0 (08:03-08:49Z, OBS_READY, OBSCFG_OK ×11), idle, --from 13 --to 15 rc 0 (0 aborts, collector via bench-obs), teardown: logs 11/11 (4 h 19 min pull), OBS_SNAPSHOT pulled, gates passed; attempt 5 TEARDOWN_DONE deleted=12 left=0 at 17:19:37Z (after D34 marker-freshness → trusted markers, D35 gcloud --async → fix 30c944b); --reindex 251 files 91.4 GB; fleet verified gone, obs-devnet untouched
+## Wave D — analysis (`benchmark/private/bench5-<run>/<unit>/`)
+- [ ] D1: A1, A2, A3 (F1/F3 verdicts), A4n (F2), A4o, A6 (land path) in parallel
+- [ ] D2: P backfill, A5 report `tasks/bench5-report-<run>.md`
+- [ ] D3: triage of other systemic findings → one investigation agent per confirmed candidate → `tasks/issues/bench5-<slug>.md`
 
-## Wave 4 — analysis (A1, A2, A3, A4n, A4o, P-backfill, A5 report)
-- [x] A1-A5 + P done; `tasks/bench4-report-r20261105-0803.md` (reviewed, teardown facts filled, committed 1c96478) + `benchmark/private/followups.md ## r20261105-0803`
-
-## Wave 5 — publish
-- [x] backfill json (committed 9f19486)
-- [x] make_bundle OK (2057 s; provenance verified 496ebefb5; report.html 1.2 MB, 14 charts); site gates: build --check ok, scrub 0/0, 113 tests OK; tn-benchmarks fcd3f12 pushed (HTTP 200 poll running)
-- [x] devnet-genesis main, common devnet/genesis-knobs and txgen main pushed (see the final summary); draft PR text in `tasks/pr-bench-observability.md` (PR not opened: out of scope)
-- [x] memory `bench4-main-v1lazy-obs-run.md` + `devnet-obs-debug-logs.md` + MEMORY.md; `tasks/todo.md` review section; `tasks/lessons.md` (7 new entries)
+## Wave E — publish
+- [ ] Backfill JSON; `make_bundle.py --run <R> --compare r20261105-0803` (detached); site gates; `git add runs/<R>`; push; HTTP 200
+- [ ] Pushes: devnet-genesis main, txgen main, telcoin-network branch
+- [ ] Ledger verdicts; `tasks/pr-bench5-<slug>.md` per topic; observability PR text refreshed
+- [ ] Memory `bench5-main-fixes-run.md` + index; `tasks/lessons.md`; `tasks/todo.md` review section

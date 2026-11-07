@@ -1,0 +1,39 @@
+== fmt
+fmt rc=0
+== nextest libp2p+primary
+        PASS [   0.008s] (894/916) tn-primary::it storage_tests::test_certificate_store_last_round_in_empty_store
+        PASS [   0.147s] (895/916) tn-primary::it recovery_tests::test_certificate_store_persists_restart
+        PASS [   0.042s] (896/916) tn-primary::it storage_tests::test_certificate_store_next_round_number
+        PASS [   0.166s] (897/916) tn-primary::it recovery_tests::test_dag_reconstruction_from_store
+        PASS [   0.157s] (898/916) tn-primary::it recovery_tests::test_subdag_persists_restart
+        PASS [   0.048s] (899/916) tn-primary::it storage_tests::test_consensus_store_read_latest_final_reputation_scores
+        PASS [   0.041s] (900/916) tn-primary::it storage_tests::test_proposer_store_reads
+        PASS [   0.264s] (901/916) tn-primary::it storage_tests::test_certificate_store_delete_store
+        PASS [   0.063s] (902/916) tn-primary::it storage_tests::test_proposer_store_writes
+        PASS [   0.281s] (903/916) tn-primary::it storage_tests::test_certificate_store_write_all_and_clear
+        PASS [   0.262s] (904/916) tn-primary::it storage_tests::test_certificate_store_write_and_read
+        PASS [   0.282s] (905/916) tn-primary::it storage_tests::test_certificate_store_write_all_and_read_all
+        PASS [   7.170s] (906/916) tn-network-libp2p consensus::network_tests::test_advertise_rpc_via_kad
+        PASS [   7.180s] (907/916) tn-network-libp2p consensus::network_tests::test_advertise_rpc_via_kad_late_committee_seed
+        PASS [   7.179s] (908/916) tn-network-libp2p consensus::network_tests::test_get_kad_records
+        PASS [   1.090s] (909/916) tn-primary state_sync::cert_validator::cert_validator_tests::test_process_fetched_certificates_in_parallel
+        PASS [   0.649s] (910/916) tn-primary::it storage_tests::test_certificate_store_notify_read
+        PASS [   0.875s] (911/916) tn-primary::it storage_tests::test_certificate_store_last_two_rounds
+        PASS [   1.619s] (912/916) tn-primary::it storage_tests::test_certificate_store_after_round
+        PASS [   5.044s] (913/916) tn-primary certificate_fetcher::certificate_fetcher_tests::test_network_failure_keeps_trying
+        PASS [   8.673s] (914/916) tn-network-libp2p consensus::network_tests::test_peer_exchange_with_excess_peers
+        PASS [   8.690s] (915/916) tn-primary certificate_fetcher::certificate_fetcher_tests::test_fetch_certificates_basic
+        PASS [  30.098s] (916/916) tn-network-libp2p consensus::network_tests::serial_dial_reaches_last_live_signed_address
+────────────
+     Summary [  30.197s] 916 tests run: 916 passed, 4 skipped
+nextest rc=0
+== clippy workspace
+    Checking exex-lifecycle v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/examples/exex-lifecycle)
+    Checking state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+    Checking tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Checking tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+    Checking e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.52s
+clippy rc=0
