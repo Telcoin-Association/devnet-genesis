@@ -1,0 +1,8 @@
+== per-commit strict check 2026-11-07T04:56:19Z: 420f8aef7..685b8505b
+OK   9bad6966d fix(primary): check the execution block by number and hash
+OK   6f9703662 test(e2e): size the slow-execution window below the run-ahead bound
+OK   9840759a2 fix(executor): rejoin on a stalled consensus head and count only failed rejoin attempts
+OK   74a4e984e test(e2e): a halted committee resumes when an inactive member rejoins on a stalled head
+OK   8651e5abd fix(primary): judge a restored dag by the certificates ordering can reach
+OK   685b8505b fix(executor): re-request the outputs behind a frontier when the replay stalls
+== per-commit check rc=0 2026-11-07T04:58:17Z

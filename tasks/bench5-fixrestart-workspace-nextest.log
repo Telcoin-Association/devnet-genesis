@@ -1,0 +1,37 @@
+== workspace nextest on 685af13b6 2026-11-07T04:24:30Z
+   Compiling tn-types v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/types)
+   Compiling tn-utils v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/tn-utils)
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/telcoin-network-cli)
+   Compiling tn-network-types v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/network-types)
+   Compiling tn-node-record v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/node-record)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/storage)
+   Compiling tn-metrics v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/tn-metrics)
+   Compiling tn-config v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/config)
+   Compiling tn-worker-gateway v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/bin/worker-gateway)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/network-libp2p)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/consensus/worker)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/kad-client)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/bin/node-record-api)
+   Compiling tn-reth v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/tn-reth)
+   Compiling tn-exex v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/exex)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/consensus/primary)
+   Compiling tn-rpc v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/execution/tn-rpc)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/batch-validator)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/batch-builder)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/engine)
+   Compiling tn-test-utils-committee v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/test-utils-committee)
+   Compiling exex-lifecycle v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/examples/exex-lifecycle)
+   Compiling exex-indexer v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/examples/exex-indexer)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/tn-bench5-fixrestart/bin/telcoin-network)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 40s
+────────────
+ Nextest run ID 65cb21b5-5a62-4ee0-bc02-dc32290069ef with nextest profile: default
+    Starting 4011 tests across 44 binaries (72 tests skipped)
+────────────
+     Summary [  53.355s] 4011 tests run: 4011 passed, 72 skipped
+== rc=0 2026-11-07T04:27:05Z

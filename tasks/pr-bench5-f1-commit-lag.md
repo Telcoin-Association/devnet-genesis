@@ -18,8 +18,10 @@ fix(primary): commit without waiting for execution; expose the lag; e2e for a sl
     more than MAX_COMMIT_RUN_AHEAD_ROUNDS (1,000) ahead of the executed round. The subscriber makes the fork check
     instead: each output first waits for execution to reach the running maximum of the leaders' execution blocks,
     then checks its leader's block (empty sub-dags included); a failure goes inactive and ends the epoch without
-    saving. A restart whose restored DAG starts above the committed round + 1 goes inactive (reason restart_gap)
-    instead of ordering from it. Kept: ordered, gap-free outputs and numbering; execution lags consensus; the pack
+    saving. A restart whose restored DAG has a hole ordering could step over — a restored certificate above its author's
+    committed round and two or more rounds above the gc round with a parent missing — goes inactive (reason restart_gap)
+    instead of ordering over it; a store left stale by a follower catch-up (nothing stored for the caught-up rounds) is not
+    a gap, so a promotion after catch-up stays active. Kept: ordered, gap-free outputs and numbering; execution lags consensus; the pack
     save still follows a passed fork check, so restart replay is unchanged; the committed round is re-primed from
     the pack at restart; the 64-round certificate prune vs the 40-round window; the voter's own execution wait.
     #1518's deep gap is closed by the restart guard, its shallow gap is unchanged.
@@ -39,6 +41,25 @@ fix(primary): commit without waiting for execution; expose the lag; e2e for a sl
     load: its execution falls 190-226 rounds behind its commits against a 15-round activity window, yet it stays
     CvvActive for 60 s with no demotion and no "we are behind", its committed round keeps pace with the other
     three, and its execution catches up once the load stops (120-176 s measured).
+- 9bad6966d `fix(primary): check the execution block by number and hash`
+  The execution check of voters, the subscriber and state-sync catch-up matched a header's latest_execution_block by
+    hash anywhere in the recent-blocks ring, so a leader naming block n with the hash of an older block k was certified
+    by voters still holding k. The ring now matches number and hash; below-floor heights and read errors are not forks
+    (a restored voter refuses with the final, unpenalized BelowRestoreFloor; the subscriber and catch-up log the floor
+    and go on; a failing read is retried, counted and logged). ExecutionFork names its leader. The restart guard it
+    tightened (every round from C − gc_depth + 1 to C present) is replaced by the guard commit below.
+- 6f9703662 `test(e2e): size the slow-execution window below the run-ahead bound`
+  At a 1.5 s per-output delay the slowed node's backlog reached MAX_COMMIT_RUN_AHEAD_ROUNDS and the held commit demoted
+    it by design; at 0.5 s the lag peaks well below the bound. Each drain poll now requires CvvActive and
+    tn_primary_commit_run_ahead_blocked_total = 0; three runs at load: lag 146/152/130 rounds, 0 holds.
+- 8651e5abd `fix(primary): judge a restored dag by the certificates ordering can reach`
+  The window check demoted every promotion after a follower catch-up (the follower path stores no certificates, so the
+    window up to the pack's committed round is never complete); `restarts::test_restartstt` failed and the attempts cap
+    kept the node inactive. A gap is now a restored certificate above its author's committed round, two or more rounds
+    above the gc round, with a parent missing from the DAG — the only place ordering can skip a parent (order_dag never
+    expands a committed certificate's parents; linked walks only rounds above the committed round). The SEC-3 shapes
+    (pruned bottom under an uncommitted certificate, detached DAG, middle hole) still demote. The log line keeps its
+    text and adds hole_round.
 
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f1-commit-lag-demotion.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.

@@ -1,0 +1,75 @@
+== gate 2 on 685b8505b 2026-11-07T04:58:17Z
+== fmt rc=0
+    Checking e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 27s
+== clippy rc=0
+cargo build --profile e2e --bin telcoin-network --features tn-storage/test-utils --target-dir "/home/drtnarg/coding/telcoin/telcoin-network-bench5/target" ;
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/telcoin-network-cli)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `e2e` profile [optimized + debuginfo] target(s) in 1m 47s
+TN_BIN_PATH="/home/drtnarg/coding/telcoin/telcoin-network-bench5/target/e2e/telcoin-network" cargo nextest run --workspace --no-fail-fast ;
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/node-record-api)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/kad-client)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/engine)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/worker)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-validator)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/network-libp2p)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 18s
+────────────
+ Nextest run ID b7ebb8a8-78eb-4baf-a3fe-5f139b1f3782 with nextest profile: default
+    Starting 4014 tests across 44 binaries (72 tests skipped)
+────────────
+     Summary [  55.128s] 4014 tests run: 4014 passed, 72 skipped
+TN_BIN_PATH="/home/drtnarg/coding/telcoin/telcoin-network-bench5/target/e2e/telcoin-network" TN_SEED_SIGNATURE_FORK_EPOCH=4294967295 TN_MULTI_WORKERS_FORK_EPOCH=4294967295 TN_PREVRANDAO_FORK_EPOCH=4294967295 TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=0 TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=0 TN_GOVERNANCE_SAFE_FORK_EPOCH=4294967295 cargo nextest run -p e2e-tests --test it --run-ignored all test_epoch ;
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/telcoin-network-cli)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.45s
+────────────
+ Nextest run ID 037ad76b-f10c-499b-a641-be18cbed747d with nextest profile: default
+    Starting 11 tests across 1 binary (54 tests skipped)
+────────────
+     Summary [ 348.569s] 11 tests run: 11 passed, 54 skipped
+TN_BIN_PATH="/home/drtnarg/coding/telcoin/telcoin-network-bench5/target/e2e/telcoin-network" TN_SEED_SIGNATURE_FORK_EPOCH=4294967295 TN_MULTI_WORKERS_FORK_EPOCH=4294967295 TN_PREVRANDAO_FORK_EPOCH=4294967295 TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=0 TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=0 TN_GOVERNANCE_SAFE_FORK_EPOCH=4294967295 cargo nextest run --run-ignored all test_restarts ;
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/worker)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/node-record-api)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/engine)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/executor)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/state-sync)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-validator)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/batch-builder)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/network-libp2p)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/kad-client)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 42s
+────────────
+ Nextest run ID 97b9e913-92fe-4659-a0fe-be7fa4838713 with nextest profile: default
+    Starting 11 tests across 44 binaries (4075 tests skipped)
+────────────
+     Summary [ 385.478s] 11 tests run: 11 passed, 4075 skipped
+== public-tests rc=0 2026-11-07T05:22:29Z

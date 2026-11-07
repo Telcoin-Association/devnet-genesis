@@ -1426,3 +1426,10 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   `git reset --soft HEAD~1` + `git reset <file>` in the submodule.
 - Rule: never `cd` in a Bash call that runs alongside another; address every git operation with `git -C <absolute path>` and
   verify `git -C <repo> log -1` after each commit. Never run two git-writing calls in one response.
+
+## 2026-11-07 — a review finding "e2e set X was not run" is answered by running the whole set, not two tests
+- The SEC1 review flagged "the guard boundary moved, but e2e restarts.rs was not run"; the response ran two named e2e tests
+  (lagged_under_load, slow_execution) and both passed, while the ordinary `test_restartstt` — the one the moved boundary
+  breaks — was only run by the final `make public-tests`, hours later.
+- Rule: a consensus-path change to restart/rejoin/catch-up code gets the full `test_restarts` nextest set (and the epoch set
+  when epoch state is touched) before integration, in the unit worktree, recorded in the unit's checkpoint with per-test times.

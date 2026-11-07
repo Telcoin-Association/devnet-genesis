@@ -68,6 +68,27 @@ fix: one rejoin per episode — certificate retention, propose at the head, grac
     since it refills from peers: 0 certs, 143-165 own certificates and 0 grace holds measured; a one-off run at
     gc_depth 50 passed the same way (0 certs, 158 own certificates, primed at the head), so neither depth
     reproduces the failure.
+- 9840759a2 `fix(executor): rejoin on a stalled consensus head and count only failed rejoin attempts`
+  An inactive CVV checked rejoin readiness only on a new output with a head under 5 s old, so a demotion that left the
+    committee below quorum halted it until an operator restart. The catch-up loop now also checks every 5 s and
+    rejoins once it has watched its newest header stay unchanged for REJOIN_STALLED_HEAD_AFTER (20 s, doubled per failed
+    stalled rejoin up to 8×), no peer advertises a newer number, and it has replayed that header. The cap counted every
+    promotion: now only a demotion inside the grace, or the one the grace held, fails a promotion, and stalled-head
+    promotions stay out of the cap. The tracker fetches the held frontier when it starts and on each stalled check,
+    keeps gossip the walk cap skipped until a walk ends, drops held gossip once active, never re-requests into a future
+    epoch, and logs refused stall checks.
+- 74a4e984e `test(e2e): a halted committee resumes when an inactive member rejoins on a stalled head`
+  Four validators, quorum three: node 3 is frozen past its activity window, resumed until it demotes itself and frozen
+    again; node 4 is killed and the head of nodes 1-2 stays put for 21 s; node 3 resumes with no restart. It promoted
+    on heads 50-60 s old and node 1 committed again 42-53 s after the resume, with one stalled-head rejoin, no usual
+    rejoin and stale_head refusals each time.
+- 685b8505b `fix(executor): re-request the outputs behind a frontier when the replay stalls`
+  A failed promotion leaves the outputs the previous stream instance took from the state-sync cache queued, and the
+    next subscriber discards them; later gossip walks start above them and the stream re-asks for a bottom gap only
+    after 60 s, so the inactive node logged `stalled head not ready … replayed_number=9` while the head climbed to 75.
+    The stalled-head timer now also re-requests [replayed + 1, gossiped] when the replayed output has not moved for a
+    check interval, attempts exhausted or not, re-sending the same range with a doubling wait (capped at 60 s) while the
+    floor stays put; the fetch task still defers to walks that cover the range.
 
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f3-rejoin-loop.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
