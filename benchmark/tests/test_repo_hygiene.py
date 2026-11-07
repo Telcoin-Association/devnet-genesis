@@ -1,14 +1,17 @@
 """Repository hygiene for the benchmark publishing code.
 
-* git tracks nothing private (results, scratch, genesis, secrets, notes, build output, bytecode),
+* git tracks nothing private (results, scratch, genesis, secrets, notes, build output, bytecode,
+  a blaster's landings export `landings-<label>.ndjson.gz` wherever it sits),
 * the ignore rules cover those paths and do not swallow files that must be committed
   (the fixtures, the committed parameter files, the report scripts),
-* benchmark/report/*.py and benchmark/tests/*.py parse as Python 3.9 and carry no host path,
-  dotted quad or private name. report/scrub.py defines the leak rules, so its literals are
-  written in split pieces; the exceptions are its private CIDR ranges (PRIVATE_NETS) and one
-  bucket-URL pattern with a capture group, which extracts bucket names from a raw manifest.
+* benchmark/report/*.py, benchmark/tests/*.py and benchmark/tools/*.py parse as Python 3.9 and
+  carry no host path, dotted quad or private name. report/scrub.py defines the leak rules, so its
+  literals are written in split pieces; the exceptions are its private CIDR ranges (PRIVATE_NETS)
+  and one bucket-URL pattern with a capture group, which extracts bucket names from a raw manifest.
   RFC 5737 documentation addresses (192.0.2.0/24 and friends) are allowed anywhere: they never
-  name a real host.
+  name a real host. The one home directory allowed is /home/nonroot, the node container's.
+* every file under benchmark/tests/fixtures is UTF-8 text with no private name, home directory or
+  dotted quad, and a bucket URL in one names its bucket as a <placeholder>.
 
 The git checks run `git -C <repo>` and skip when git is missing or this file is not inside a
 git checkout of the repository.
@@ -30,6 +33,7 @@ BENCH = TESTS.parent
 REPO = BENCH.parent
 FIXTURES = TESTS / "fixtures"
 REPORT_DIR = BENCH / "report"
+TOOLS_DIR = BENCH / "tools"
 
 # Same boundaries as the leak scanners: not glued to a word character or a dot.
 _OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
@@ -39,6 +43,12 @@ DOC_NETS = tuple(ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0
 # Literals no source file may contain (each written split here, so this file passes too).
 FORBIDDEN = ("/" + "Users/", "tn-" + "devnet", "tn-" + "devnet-bench-")
 GS = "gs" + "://"
+# A home directory: a developer's path. The node image's user (v2's container runs as nonroot) is not one.
+HOME_RE = re.compile("/" + r"home/(?!nonroot(?![\w.-]))[\w.-]+")
+# A bucket URL in a fixture names its bucket as a placeholder (<PROJECT>-bench-<run>, <bucket>), never a real one.
+GS_NAMED_RE = re.compile(re.escape(GS) + "(?!<)")
+# A blaster's sampled landings export (results/<run>/blasters/, the bundle's scratch copy): never committed.
+LANDINGS_RE = re.compile(r"(^|/)landings-[^/]*\.ndjson\.gz$")
 # report/scrub.py's DENYLIST words: the rule definitions must keep them split.
 SCRUB_SPLIT_WORDS = ("tn-" + "devnet", "obs." + "devnet", "bench-" + "txgen-", "claude" + ".ai",
                      "-----" + "BEGIN", "/" + "home/", "/" + "Users/", "github" + "_pat_",
@@ -52,7 +62,11 @@ MUST_BE_IGNORED = ("benchmark/private/x", "benchmark/work/x", "benchmark/results
                    "benchmark/.secrets/x", "benchmark/parameters.yaml", "dist/x", "tasks/checkpoint-pub-x.md",
                    "benchmark/report/__pycache__/x.pyc",
                    # the root drivers' run logs, a root archive/ and the binary; the bench's own logs/
-                   "logs/x", "archive/x", "telcoin", "benchmark/logs/x")
+                   "logs/x", "archive/x", "telcoin", "benchmark/logs/x",
+                   # bench 5: the landings exports, where the blast run and the bundle put them
+                   "benchmark/results/r1/blasters/landings-bench-blaster-01.ndjson.gz",
+                   "benchmark/results/r1/blast-0-20261106T0900Z/blasters/landings-bench-blaster-01.ndjson.gz",
+                   "benchmark/work/report/r1/floor/blasters/landings-bench-blaster-01.ndjson.gz")
 MUST_NOT_BE_IGNORED = ("benchmark/consensus-parameters.yaml", "benchmark/node-image-contract.txt",
                        "benchmark/report/make_bundle.py", "benchmark/report/scrub.py",
                        "benchmark/tests/test_repo_hygiene.py",
@@ -72,7 +86,13 @@ MUST_NOT_BE_IGNORED = ("benchmark/consensus-parameters.yaml", "benchmark/node-im
                        "benchmark/obs/grafana/provisioning/dashboards/provider.yaml", "devnet-log-filter.sh",
                        "benchmark/tests/test_obs.py", "benchmark/tests/test_log_filter.py",
                        "benchmark/tests/fixtures/obs/x", "benchmark/tests/fixtures/log-filter/x",
-                       "benchmark/tests/fixtures/tunnel/baseline-28c7623.sh")
+                       "benchmark/tests/fixtures/tunnel/baseline-28c7623.sh",
+                       # bench 5: the stage tool, the new test modules and their fixtures
+                       "benchmark/tools/stage-latency.py", "benchmark/tests/test_blast_argv.py",
+                       "benchmark/tests/test_stage_latency.py", "benchmark/tests/test_txgen_probe.py",
+                       "benchmark/tests/fixtures/blast/x", "benchmark/tests/fixtures/stage-latency/x",
+                       "benchmark/tests/fixtures/txgen-probe/x",
+                       "benchmark/tests/fixtures/report/bench4-r20261105-0803/x")
 
 
 def git(*args, **kwargs):
@@ -111,7 +131,7 @@ def is_private_range(line, match):
 
 
 def source_files():
-    files = sorted(REPORT_DIR.glob("*.py")) + sorted(TESTS.glob("*.py"))
+    files = sorted(REPORT_DIR.glob("*.py")) + sorted(TESTS.glob("*.py")) + sorted(TOOLS_DIR.glob("*.py"))
     return [f for f in files if f.is_file()]
 
 
@@ -135,7 +155,7 @@ class GitTrackingTests(unittest.TestCase):
         self.assertTrue(tracked)
         bad = [f for f in tracked
                if f.startswith(PRIVATE_PREFIXES) or f in PRIVATE_FILES or f.endswith(".pyc")
-               or "__pycache__" in f.split("/")]
+               or "__pycache__" in f.split("/") or LANDINGS_RE.search(f)]
         self.assertEqual(bad, [], "private or generated files are tracked")
 
     def ignored(self, paths):
@@ -166,6 +186,7 @@ class SourceTests(unittest.TestCase):
         self.assertIn("scrub.py", names)
         self.assertIn("make_bundle.py", names)
         self.assertIn("test_repo_hygiene.py", names)
+        self.assertIn("stage-latency.py", names)
 
     def read(self, path):
         with open(str(path), encoding="utf-8") as fh:
@@ -181,6 +202,11 @@ class SourceTests(unittest.TestCase):
             text = self.read(f)
             for word in FORBIDDEN:
                 self.assertNotIn(word, text, "%s contains a forbidden literal" % f.name)
+
+    def test_no_home_directories(self):
+        for f in self.files:
+            for lineno, line in enumerate(self.read(f).splitlines(), 1):
+                self.assertIsNone(HOME_RE.search(line), "%s:%d names a home directory" % (f.name, lineno))
 
     def test_no_ipv4_literals(self):
         for f in self.files:
@@ -222,6 +248,40 @@ class SourceTests(unittest.TestCase):
         scrub = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(scrub)
         self.assertEqual(scrub.scan_dir(str(FIXTURES / "report")), [])
+
+
+class FixtureTests(unittest.TestCase):
+    """The fixtures are committed and copied into every test tree: the same leak rules as the sources."""
+
+    def setUp(self):
+        self.files = fixture_files()
+        for area in ("blast", "stage-latency", "txgen-probe", "pull", "teardown", "report", "node-image"):
+            self.assertTrue(any(f.startswith("benchmark/tests/fixtures/%s/" % area) for f in self.files), area)
+
+    def lines(self, rel):
+        with open(str(REPO / rel), encoding="utf-8") as fh:   # a fixture that is not UTF-8 text fails here
+            return fh.read().splitlines()
+
+    def test_no_private_names_home_directories_or_named_buckets(self):
+        for rel in self.files:
+            for lineno, line in enumerate(self.lines(rel), 1):
+                where = "%s:%d" % (rel, lineno)
+                for word in FORBIDDEN:
+                    self.assertNotIn(word, line, "%s contains a forbidden literal" % where)
+                self.assertIsNone(HOME_RE.search(line), "%s names a home directory" % where)
+                self.assertIsNone(GS_NAMED_RE.search(line), "%s names a bucket (write %s<placeholder>)" % (where, GS))
+
+    def test_no_ipv4_literals(self):
+        for rel in self.files:
+            for lineno, line in enumerate(self.lines(rel), 1):
+                quads = [m.group(0) for m in IPV4_RE.finditer(line)
+                         if m.group(0) not in ALLOWED_IPV4 and not is_documentation(m.group(0))]
+                self.assertEqual(quads, [], "%s:%d has a dotted quad" % (rel, lineno))
+
+    def test_python_fixtures_parse_as_python_39(self):
+        for rel in (f for f in self.files if f.endswith(".py")):
+            with self.subTest(f=rel):
+                ast.parse("\n".join(self.lines(rel)) + "\n", filename=rel, feature_version=(3, 9))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Reject thirty-four broken code paths in checked temporary copies of the source.
+"""Reject seventy-four broken code paths in checked temporary copies of the source.
 
 Each case copies the files its test module needs into a fresh temporary tree laid out like the repo
 (<tmp>/<tree>/config.sh, <tmp>/<tree>/benchmark/...), since the tests find their scripts and
@@ -71,11 +71,19 @@ suites = {
                            "benchmark/tests/fixtures/certification", "benchmark/tests/fixtures/teardown"),
     "test_collect_retry": ("benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
                            "benchmark/tests/fixtures/teardown"),
+    # BundleFloorTests load make_bundle.py, which imports provenance.py and scrub.py beside it.
     "test_report_kpis": ("benchmark/report/kpis.py", "benchmark/report/windows.py",
-                         "benchmark/tests/fixtures/report"),
+                         "benchmark/report/make_bundle.py", "benchmark/report/provenance.py",
+                         "benchmark/report/scrub.py", "benchmark/tests/fixtures/report"),
     "test_report_provenance": ("benchmark/report/provenance.py", "benchmark/tests/fixtures/provenance"),
+    # make_bundle.py imports kpis.py, provenance.py, scrub.py and windows.py beside it.
+    "test_report_bundle": ("benchmark/report/make_bundle.py", "benchmark/report/kpis.py",
+                           "benchmark/report/windows.py", "benchmark/report/provenance.py",
+                           "benchmark/report/scrub.py", "benchmark/tests/fixtures/report"),
+    # The fleet tests cut bench-lib.sh's pull functions and the teardown's pull call site out by name.
     "test_pull_logs": ("benchmark/pull-lib.sh", "devnet-lib.sh", "benchmark/tests/fixtures/pull",
-                       "benchmark/report/provenance.py"),
+                       "benchmark/report/provenance.py", "benchmark/bench-lib.sh", "benchmark/obs-lib.sh",
+                       "benchmark/benchmark-teardown.sh"),
     # The bench-obs INDEX test loads the real bench-lib.sh in a copy of the scripts it sources; the
     # fixtures carry the HEAD baseline (baseline-28c7623.sh) the byte-identity tests compare against.
     "test_tunnel": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
@@ -91,6 +99,15 @@ suites = {
     "test_keygen": ("devnet-keygen.sh", "devnet-lib.sh", "benchmark/tests/fixtures/keygen"),
     "test_network_config": ("devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh",
                             "benchmark/tests/fixtures/network-config"),
+    # Bench 5. test_blast_argv.TREE (the blast driver and the startup script run in a copy) plus the goldens.
+    "test_blast_argv": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+                        "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/recovery-lib.sh",
+                        "benchmark/benchmark-blast.sh", "benchmark/blaster-startup.sh",
+                        "benchmark/tests/fixtures/blast"),
+    "test_stage_latency": ("benchmark/tools/stage-latency.py", "benchmark/tests/fixtures/stage-latency"),
+    # test_txgen_probe.TREE (bench-lib.sh sourced from a copy) plus the fake docker and the help texts.
+    "test_txgen_probe": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+                         "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/tests/fixtures/txgen-probe"),
 }
 
 # Long anchors, each one line of its file verbatim; the mutants below change one piece of it.
@@ -113,6 +130,21 @@ OBS_GATE_ROW = ('[ "${OBS_UP}" -ne 1 ] || GATE_IDS="${GATE_IDS}${OBS_CAND} $(ins
                 '"${OBS_CAND#* }")"$\'\\n\'\n')
 REAUTH = ('    grep -Eq -- "${TN_IAP_REAUTH_PAT:-Reauthentication failed|There was a problem refreshing your '
           'current auth tokens|invalid_grant}" "$2" && { echo reauth; return 0; }')
+# Bench 5.
+LIGHT_STOP = '        [ "${rc}" -eq 0 ] || light_stop run "${rc}" $(seq "${p}" $(( ${#LIGHT_IDX[@]} - 1 )))'
+STARTUP_ARGS = ('    args+=(--nodes "${NODE_URLS}" --senders "${SENDERS}" --sender-start "${SENDER_START}" '
+                '--window "${WINDOW}"')
+LANDINGS_ARGS = ('    [ "${LANDINGS_SAMPLE}" = 0 ] || args+=(--landings-out "/out/landings-${LABEL}.ndjson.gz" '
+                 '--landings-sample "${LANDINGS_SAMPLE}")')
+DB_SYNC_FLAG = '[ -z "${dbs}" ] || printf \'setf --db.sync-mode %s\\n\' "${dbs}"'
+FSYNC_PARSE = "p95_us=(0|[1-9][0-9]{0,11})$/\\1 \\2/p'"
+THIS_INVOCATION = ('    elif [ "${mr}" = "${BENCH_RUN_ID}" ] && [ "${mp//[!0-9]/}" -ge "${TD_STARTED_ISO//[!0-9]/}" ]; '
+                   'then echo "fresh:this-invocation"')
+ARGV_FLAG_MATCH = '            grep -Eq -- "(^|[^A-Za-z0-9_-])${pat}([^A-Za-z0-9_-]|\\$)" "${help}" && continue'
+BUCKET_MARKER = ('    m="$(_bench_write_marker "${dest}" "${inst}" "${id}" "${ident#* }" "${got}" ${new})" '
+                 '|| return 1')
+BUCKET_WAIT = '        if wait "${pids[$i]}"; then sent+=("${names[$i]}"); else failed="${failed} ${names[$i]}"; fi'
+LANDINGS_PROBE = '    [ "${BENCH_LANDINGS_SAMPLE:-0}" = "0" ] || flags="${flags} --landings-out --landings-sample"'
 
 cases = [
     ("benchmark/recovery-schedule.py",
@@ -234,6 +266,151 @@ cases = [
     # bench-obs never gets a gate row, so the teardown leaves the run's metrics VM running.
     ("benchmark/benchmark-teardown.sh", OBS_GATE_ROW, "",
      "test_teardown_local_gate.TeardownLocalGateTests.test_bench_obs_is_deleted_after_the_gate"),
+    # Bench 5, U-H1. A light blast that fails no longer stops the sequence.
+    ("benchmark/benchmark-blast.sh", LIGHT_STOP, '        [ "${rc}" -eq 0 ] || true',
+     "test_blast_argv.SequenceTests.test_a_failed_light_blast_stops_the_sequence"),
+    # The generator runs at --window 16 whatever BENCH_WINDOW says.
+    ("benchmark/blaster-startup.sh", STARTUP_ARGS, STARTUP_ARGS.replace('--window "${WINDOW}"', "--window 16"),
+     "test_blast_argv.WindowTests.test_window_reaches_the_generator_argv"),
+    # The blasters never get the WINDOW metadata key.
+    ("benchmark/benchmark-blast.sh",
+     '    [ "${mode}" != blast ] || [ "${BENCH_WINDOW:-16}" = 16 ] || meta="${meta}##WINDOW=${BENCH_WINDOW}"',
+     '    [ "${mode}" != blast ] || true || meta="${meta}##WINDOW=${BENCH_WINDOW}"',
+     "test_blast_argv.WindowTests.test_window_reaches_the_generator_argv"),
+    # LIGHT_LOAD_DONE reports a failed light blast as rc=0.
+    ("benchmark/benchmark-blast.sh",
+     '        [ "${LIGHT_KIND[$p]}" != light ] || [ "${BENCH_APPLY}" != "1" ] || echo "LIGHT_LOAD_DONE i=${LIGHT_IDX[$p]} rc=${rc}"',
+     '        [ "${LIGHT_KIND[$p]}" != light ] || [ "${BENCH_APPLY}" != "1" ] || echo "LIGHT_LOAD_DONE i=${LIGHT_IDX[$p]} rc=0"',
+     "test_blast_argv.SequenceTests.test_a_failed_light_blast_stops_the_sequence"),
+    # A log rate exactly at BENCH_LOG_RATE_WARN_MB_MIN is a warning.
+    ("benchmark/benchmark-blast.sh",
+     '    elif awk -v m="${rate}" -v t="${BENCH_LOG_RATE_WARN_MB_MIN}" \'BEGIN { exit !(m > t) }\'; then',
+     '    elif awk -v m="${rate}" -v t="${BENCH_LOG_RATE_WARN_MB_MIN}" \'BEGIN { exit !(m >= t) }\'; then',
+     "test_blast_argv.LogRateTests.test_rate_at_the_threshold_is_not_a_warning"),
+    # BENCH_LANDINGS_SAMPLE never reaches the generator's argv.
+    ("benchmark/blaster-startup.sh", LANDINGS_ARGS, LANDINGS_ARGS.replace('[ "${LANDINGS_SAMPLE}" = 0 ]', "true"),
+     "test_blast_argv.LandingsTests.test_landings_flags_only_when_sampled"),
+    # Every light index runs at BENCH_WINDOW instead of its BENCH_LIGHT_WINDOWS entry.
+    ("benchmark/benchmark-blast.sh", '        w="${ws[$k]:-${BENCH_WINDOW}}"; k=$((k + 1))',
+     '        w="${BENCH_WINDOW}"; k=$((k + 1))',
+     "test_blast_argv.LightPlanTests.test_light_blasts_then_the_configured_profile"),
+    # U-H2. The pre-start script sets --db.sync-mode with the knob unset.
+    ("benchmark/bench-lib.sh", DB_SYNC_FLAG,
+     'printf \'setf --db.sync-mode %s\\n\' "${dbs:-durable}"',
+     "test_node_image.PreStartKnobTests.test_knobs_unset_is_byte_identical_to_bench_4"),
+    # A node 20-40 % over the fleet's median fsync p50 is not named slow.
+    ("benchmark/bench-lib.sh", ".f.p50_us * 5 > $med * 6", ".f.p50_us * 5 > $med * 7",
+     "test_node_image.FsyncProbeTests.test_summary_names_the_node_over_twenty_percent"),
+    # The fsync probe's p50 and p95 are recorded swapped.
+    ("benchmark/bench-lib.sh", FSYNC_PARSE, FSYNC_PARSE.replace("\\1 \\2", "\\2 \\1"),
+     "test_node_image.FsyncProbeTests.test_record_from_a_session_output"),
+    # U-H3a. A marker this teardown pulled is refused once its pull is older than the freshness window (D34).
+    ("benchmark/benchmark-teardown.sh", THIS_INVOCATION, '    elif false; then echo "fresh:this-invocation"',
+     "test_teardown_local_gate.ThisInvocationMarkerTests.test_a_marker_this_teardown_pulled_20_min_ago_is_accepted"),
+    # A teardown re-run certifies again although the manifest holds the record (B9).
+    ("benchmark/benchmark-teardown.sh",
+     'if [ "${BENCH_TEARDOWN_RECERTIFY:-0}" != "1" ] && cert_at="$(cert_recorded_at)"; then', "if false; then",
+     "test_teardown_local_gate.TeardownLocalGateTests.test_a_recorded_certification_is_not_run_again"),
+    # The dry run's gcloud argv check passes a flag the SDK does not know (A10).
+    ("benchmark/benchmark-teardown.sh", ARGV_FLAG_MATCH, "            continue",
+     "test_teardown_local_gate.TeardownLocalGateTests.test_the_dry_run_reports_a_flag_the_sdk_does_not_know"),
+    # U-H3b. The bucket transfer lands a node's logs without the marker the IAP pull writes.
+    ("benchmark/pull-lib.sh", BUCKET_MARKER, '    m="${dest}/${inst}.pulled"',
+     "test_pull_logs.BucketTransferTests.test_one_session_per_node_one_download_and_the_iap_pulls_files_and_markers"),
+    # One node's failed upload session abandons every other node of the bucket transfer.
+    ("benchmark/pull-lib.sh", BUCKET_WAIT, BUCKET_WAIT.replace('failed="${failed} ${names[$i]}"', "return 1"),
+     "test_pull_logs.BucketTransferTests.test_a_node_whose_session_fails_is_recorded_and_the_others_complete"),
+    # The default transfer goes through the bucket instead of bench 4's IAP pull.
+    ("benchmark/benchmark-teardown.sh", '    if [ "${BENCH_LOG_TRANSFER:-iap}" = "bucket" ]; then', "    if true; then",
+     "test_pull_logs.IapGoldenTests.test_the_default_transfer_is_the_bench_4_iap_pull_byte_for_byte"),
+    # U-H4a. --exclude-boundaries keeps the blocks next to an epoch boundary.
+    ("benchmark/tools/stage-latency.py", "        return not any(abs(float(j.ts) - b) <= bsecs for b in boundaries)",
+     "        return True",
+     "test_stage_latency.StageLatencyTests.test_window_filter_and_epoch_boundary_exclusion"),
+    # A digest written in capitals no longer joins its batch.
+    ("benchmark/tools/stage-latency.py", "    return m.group(1)[:16].lower() if m else None",
+     "    return m.group(1)[:16] if m else None",
+     "test_stage_latency.StageLatencyTests.test_the_digest_join_strips_0x_and_takes_16_lowercase_hex"),
+    # A batch in the committing leader's own header gets no S6a (it waits for no later leader).
+    ("benchmark/tools/stage-latency.py", '            j.put("S6a", 0.0, "leader_own_batch")', "            pass",
+     "test_stage_latency.StageLatencyTests.test_markdown_blocks_and_max_lines"),
+    # U-H4b. The corrected time to land loses the 0.5 s that the whole-second block timestamp cuts off.
+    ("benchmark/report/kpis.py", 'value=lat["p50"] / 1000.0 + LAND_FLOOR_BIAS_S))', 'value=lat["p50"] / 1000.0))',
+     "test_report_kpis.ComputeTests.test_all_fourteen_kpis_hand_computed"),
+    # The floor KPIs lose the light blast's pooled histogram.
+    ("benchmark/report/kpis.py", "hist = merge_hist([merge_hist(hs) for hs in by_type.values()])", "hist = None",
+     "test_report_kpis.FloorKpiTests.test_pooled_matches_hand_computation"),
+    # A light blast is read from an archive without its blasters' results.
+    ("benchmark/report/windows.py", "return (full or dirs or [None])[-1]", "return (dirs or [None])[-1]",
+     "test_report_kpis.LightWindowTests.test_light_blasts_from_manifest"),
+    # The load blast counts as a light blast when chaos is off.
+    ("benchmark/report/windows.py", 'if e.get("chaos") not in (0, False, None) or e.get("index") == top:',
+     'if e.get("chaos") not in (0, False, None):',
+     "test_report_kpis.LightWindowTests.test_light_blasts_from_manifest"),
+    # --exclude-boundaries drops every epoch boundary's blocks, not just those inside the window.
+    ("benchmark/report/windows.py", "cuts = [b for b in boundaries(docs) if span[0] - pad <= b < span[1] + pad]",
+     "cuts = [b for b in boundaries(docs)]",
+     "test_report_kpis.LightWindowTests.test_light_windows_sources_and_boundaries"),
+    # The bundle drops the floor's caveats.
+    ("benchmark/report/make_bundle.py", 'caveats = list(floor_caveats) + list(res["caveats"])',
+     'caveats = list(res["caveats"])',
+     "test_report_kpis.BundleFloorTests.test_kpis_step_with_the_floor"),
+    # The light blast's copied files are missing from the bundle marker's input hashes.
+    ("benchmark/report/make_bundle.py",
+     'marker["inputs"] = (marker.get("inputs") or []) + [file_entry(p) for p in copied]',
+     'marker["inputs"] = marker.get("inputs") or []',
+     "test_report_kpis.BundleFloorTests.test_floor_copied_and_hashed_in_the_marker"),
+    # A project name in the stage tool's markdown is published.
+    ("benchmark/report/scrub.py", "return self._project_re.sub(self._project, s)", "return s",
+     "test_report_scrub.StageLatencyScrubTests.test_markdown_is_rewritten"),
+    # scrub_inputs() leaves a stage-latency.json in the scratch dir unscrubbed.
+    ("benchmark/report/scrub.py", '("stage-latency.json", scrub_stage_latency, False),', "",
+     "test_report_scrub.StageLatencyScrubTests.test_scrub_inputs_takes_an_optional_stage_latency_result"),
+    # Bench 5, orchestrator. The blast --help probe passes a bench-4 image when the blasters export landings.
+    ("benchmark/bench-lib.sh", LANDINGS_PROBE, '    [ "${BENCH_LANDINGS_SAMPLE:-0}" = "0" ] || true',
+     "test_txgen_probe.TxgenProbeTests.test_sampled_landings_refuse_a_bench_4_image_naming_both_flags"),
+    # U-Hfix (harness review). A re-run passes over a cert_failures entry that lists no log (S1).
+    ("benchmark/benchmark-teardown.sh",
+     "    jq -r '[(.cert_failures // [])[]? | objects | select(([(.logs // [])[]? | strings] | length) == 0)",
+     "    jq -r '[(.cert_failures // [])[]? | objects | select(false)",
+     "test_teardown_local_gate.TeardownLocalGateTests.test_a_skipped_certification_snapshots_an_entry_that_lists_no_log"),
+    # Step 7 records every node as durable whatever its PRECFG_OK line's dbsync= says (S2).
+    ("benchmark/benchmark-deploy.sh", '    ds="$(postcfg_field "${line}" dbsync)"; ds="${ds:-durable}"', '    ds="durable"',
+     "test_node_image.Step7Tests.test_db_sync_mode_is_recorded_per_node"),
+    # make_bundle publishes a safe-no-sync run without --allow-safe-no-sync (S2).
+    ("benchmark/report/make_bundle.py", "    sync_mode_check(raw_manifest, a.allow_safe_no_sync)\n", "",
+     "test_report_bundle.SafeNoSyncTests.test_main_refuses_before_provenance_and_writes_nothing"),
+    # The stage tool keeps the blocks next to an epoch boundary in the light windows by default (S3).
+    ("benchmark/tools/stage-latency.py", '    p.set_defaults(exclude_boundaries="light*")',
+     "    p.set_defaults(exclude_boundaries=None)",
+     "test_stage_latency.StageLatencyTests.test_window_filter_and_epoch_boundary_exclusion"),
+    # windows.py --run-dir keeps the blocks next to an epoch boundary in the light windows by default (S3).
+    ("benchmark/report/windows.py",
+     "    excl = EXCLUDE_SECS if args.exclude_boundaries is None else args.exclude_boundaries",
+     "    excl = args.exclude_boundaries",
+     "test_report_kpis.LightWindowTests.test_cli_light_only_with_run_dir"),
+    # Every "digests resent" line counts as cause unknown, so a cancel count includes the commit path (L7 S2).
+    ("benchmark/tools/stage-latency.py", "            cause = f.get(\"cause\", \"\").strip('\"') or \"unknown\"",
+     '            cause = "unknown"',
+     "test_stage_latency.StageLatencyTests.test_digests_resent_split_by_cause"),
+    # Only the first blast of the light-load arm measures LOG_RATE, not the loaded one (N5).
+    ("benchmark/benchmark-blast.sh", '        light_child run "${p}" BENCH_LOG_RATE_CHECK=1 || rc=$?',
+     '        light_child run "${p}" BENCH_LOG_RATE_CHECK=$(( p == 0 )) || rc=$?',
+     "test_blast_argv.SequenceTests.test_markers_children_and_blasts_in_order"),
+    # A dry run prints the LIGHT_LOAD_START marker a log watcher takes for a run (N7).
+    ("benchmark/benchmark-blast.sh", '        elif [ "${BENCH_APPLY}" = "1" ]; then echo "LIGHT_LOAD_START i=',
+     '        elif true; then echo "LIGHT_LOAD_START i=',
+     "test_blast_argv.LightPlanTests.test_light_blasts_then_the_configured_profile"),
+    # Under set -e a failed lookup aborts the bucket transfer's job or preflight without the node's ✗ line (N4).
+    ("benchmark/pull-lib.sh", '    ident="$(_bench_instance_ident "${inst}" "${zone}")" || ident=""',
+     '    ident="$(_bench_instance_ident "${inst}" "${zone}")"',
+     "test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e"),
+    ("benchmark/pull-lib.sh", '    ident2="$(_bench_instance_ident "${inst}" "${zone}")" || ident2=""',
+     '    ident2="$(_bench_instance_ident "${inst}" "${zone}")"',
+     "test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e"),
+    ("benchmark/pull-lib.sh", '        json="$(bench_instance_json "${inst}" "${ZONES[$i]}" < /dev/null)" || json=""',
+     '        json="$(bench_instance_json "${inst}" "${ZONES[$i]}" < /dev/null)"',
+     "test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e"),
 ]
 
 

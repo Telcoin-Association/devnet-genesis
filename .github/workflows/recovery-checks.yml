@@ -15,7 +15,8 @@ permissions:
 jobs:
   recovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Bench 5, locally: 951 unit tests in 44 min on a loaded host, the 74 mutation checks in 8 min.
+    timeout-minutes: 75
     env:
       BENCH_SHELL_SCRIPTS: >-
         benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
@@ -34,6 +35,12 @@ jobs:
         run: for f in ${BENCH_SHELL_SCRIPTS}; do echo "bash -n ${f}"; bash -n "${f}"; done
       - name: Shellcheck
         run: shellcheck -S warning ${BENCH_SHELL_SCRIPTS}
+      - name: Fixture stubs (syntax and shellcheck)
+        # The tests' stand-ins for gcloud, docker, sudo and the node's tools: every fixtures/**/stub-*.sh.
+        run: |
+          stubs="$(find benchmark/tests/fixtures -name 'stub-*.sh' | sort)"
+          for f in ${stubs}; do echo "bash -n ${f}"; bash -n "${f}"; done
+          shellcheck -S warning ${stubs}
       - name: Bash 3.2 constructs
         # The lint lives in the tn-node-deployment submodule, which this checkout does not fetch;
         # the step runs wherever the submodule is there.

@@ -77,13 +77,16 @@ interactive shell, because its exports would leak into a later devnet command.
   When a selected step deploys the node image, it also probes that image and pins the run to
   its digest (see [Node image](#node-image)).
 
-These knobs change how the harness works, not what it measures. `config.sh` sets each one only
+These knobs change how the harness works. Most leave what it measures alone; the light-load arm
+(`BENCH_LIGHT_*`), `BENCH_WINDOW` and `BENCH_NODE_DB_SYNC_MODE` change it, and at their defaults the
+blast and the node command are bench 4's. `config.sh` sets each one only
 when it is unset, so a value exported before the run wins. The root drivers keep their devnet
 behaviour (the driver default) unless the bench profile or the operator sets the knob.
 
 | Variable | Bench value | Driver default | What it does |
 |---|---|---|---|
 | `BENCH_LOGROTATE_SIZE` | `20G` | | Step 7 replaces v2's `/etc/logrotate.d/telcoin` with the bench's own: v2's template without `maxsize`, rotating the unit logs once they pass this size. `<n>K`, `<n>M` or `<n>G`; empty leaves v2's file (100 MB, `maxsize 1G`) alone. See [Node log filter](#node-log-filter). |
+| `BENCH_NODE_DB_SYNC_MODE` | empty | | Step 7's pre-start config puts `--db.sync-mode <value>` on every node's command (through `tn_launch_flag_set`, read back like the other launch flags) and adds `dbsync=<value>` to the `PRECFG_OK` line. `durable` or `safe-no-sync`; empty (the default) adds no flag, so the node runs the image's default (durable) and the pre-start script is bench 4's byte for byte. `safe-no-sync` skips the MDBX fsync on commit: never for a published run (kept for a bench-6 arm). The value goes into `manifest.node_startup[<inst>].db_sync_mode` (`durable` when unset); `report/make_bundle.py` refuses a run with any `safe-no-sync` node unless given `--allow-safe-no-sync`, and then caveats the bundle. |
 | `BENCH_NODE_JOBS` | `4` | | Per-node sessions of steps 7 (pre-start config) and 9 (verify) run this many at a time. Each node's output is printed whole, in fleet order; a node that fails does not stop the others, and the step stops once they have all ended, naming the failed nodes. `1` runs the nodes one after the other and stops at the first failure. |
 | `FINALIZE_JOBS` | `4` | `1` | `devnet-finalize.sh` works on this many nodes at once, its output printed in target order. With `--stage-only` or `--defer-start` it refuses a value that reaches a quorum of the validators (exit 2), since that many units run together before their stops. |
 | `KEYGEN_JOBS` | `4` | `1` | `devnet-keygen.sh` keys this many nodes at once, each node's output printed whole, in index order. |
@@ -93,6 +96,18 @@ behaviour (the driver default) unless the bench profile or the operator sets the
 | `KEYGEN_REUSE_EXISTING` | `1` | `0` | A node that refuses keygen because it is keyed already, or whose keygen sent no done line (a dropped session), is checked again: when its `.node-meta` records its own `VALIDATOR_ADDRESS` and its `node-info.yaml` is not empty, that file is downloaded (`already keyed … reusing`). Keyed for another address, it fails. So a re-run of step 5 after a partial keygen goes on. |
 | `KEYGEN_RPC_ADVERTISE` | `internal-ip` | `domain` | `node-info.yaml` advertises `http://<internal IP>:8545/` and `ws://<internal IP>:8546/`, the node's own listeners, instead of the unresolvable `<node>.bench.invalid`. |
 | `KEYGEN_REPORT` | `1` | `0` | Keygen prints `KEYGEN_DONE <inst> rc= secs= reused= rpc_http= rpc_ws=` per node; step 5 records them (see [What the deploy does](#what-the-deploy-does)). |
+| `BENCH_LIGHT_LOAD` | `0` | | `1` makes steps 13 and 14 (`benchmark-blast.sh fund` and `run`) run the light-load arm: one light blast per `BENCH_LIGHT_SENDERS` entry, then the configured profile, on the one fleet. See [Light-load arm](#light-load-arm-steps-13-14). `0` is the single blast of bench 4. |
+| `BENCH_LIGHT_LOAD_AFTER` | `0` | | `1` adds one more light blast after the configured profile, with the first entry's senders and window. Leave it at `0` unless the committee is whole after the chaos. |
+| `BENCH_LIGHT_SENDERS` | `8 16 600` | | Senders per blaster of each light blast, one blast per entry, in order: positive integers separated by single spaces. |
+| `BENCH_LIGHT_WINDOWS` | `16 16 4` | | The `--window` of each light blast, paired with `BENCH_LIGHT_SENDERS` by position; `config.sh` refuses a list of another length. Empty gives every light blast `BENCH_WINDOW`. |
+| `BENCH_LIGHT_WARMUP_SECS`, `BENCH_LIGHT_DURATION_SECS`, `BENCH_LIGHT_COOLDOWN_SECS` | `60`, `360`, `60` | | Each light blast's warm-up, mixed phase and cool-down, in seconds. |
+| `BENCH_WINDOW` | `16` | | The generator's `--window`, the transactions each sender keeps in flight, for the configured profile (and for every light blast when `BENCH_LIGHT_WINDOWS` is empty). A blaster gets a `WINDOW` metadata key only when it is not 16, so a default blast's create argv is bench 4's; the funder never gets one. |
+| `BENCH_LANDINGS_SAMPLE` | `0` | | `N` > 0 adds `--landings-out /out/landings-<label>.ndjson.gz --landings-sample N` to every blaster's generator (through a `LANDINGS_SAMPLE` metadata key, blasters only): one own landing in N, exported as gzipped NDJSON, which comes back as `blasters/landings-<blaster>.ndjson.gz`. The `blast --help` probe (deploy step 1, and the blast driver's) then requires both flags too, so an image without them stops the run before any VM. `0` adds nothing. |
+| `BENCH_LOG_RATE_WARN_MB_MIN` | `30` | | The light-load arm's `LOG_RATE` lines (one per blast) end in a `⚠` above this many MB (10^6 bytes) per minute of one node's unit log. Never fatal. |
+| `BENCH_LOG_TRANSFER` | `iap` | | How the teardown moves the node logs: `iap` (bench 4's pull, one IAP ssh stream per file) or `bucket` (each node gzips and uploads its own logs to the run bucket, then one local `gcloud storage cp -r`). See [Log transfer through the run bucket](#log-transfer-through-the-run-bucket): `bucket` needs node service accounts with a GCS write scope, which `common/create-instances.sh` does not give them yet. |
+| `BENCH_PULL_JOBS` | `4` | | Nodes at a time in the bucket transfer's upload sessions and landing checks. Read by `pull-lib.sh` only; `config.sh` does not set it. |
+| `BENCH_TEARDOWN_RECERTIFY` | `0` | | `1` makes a teardown re-run run the certification pass and its snapshots again although `manifest.certification` exists; with `0` a re-run skips them. See [Certification outcome](#certification-outcome). |
+| `BENCH_SKIP_GCLOUD_ARGV_CHECK` | `0` | | `1` skips the dry-run teardown's gcloud argv check. Read by the teardown only; `config.sh` does not set it. See [Teardown guarantees](#teardown-guarantees). |
 
 The knobs of the other parts sit with them: zone fallbacks under [Fleet shape](#fleet-shape),
 `BENCH_COLLECT_WAIT_REJOIN` under step 15, `BENCH_CHAOS_REFRESH_SCHEDULE` under
@@ -119,7 +134,9 @@ is `ZONES` in `config.sh`:
 | 9 | `bench-validator-10` | `asia-south1-c` | Mumbai | validator | zone c is the only Mumbai zone with `c3-highcpu-8` |
 | 10 | `bench-observer-11` | `us-west2-a` | Los Angeles | observer | beside validator-01; restarted by the chaos schedule |
 
-Each validator's blaster runs in that validator's zone. Moving a node means editing `ZONES` only;
+Each validator's blaster runs in that validator's zone; the light-load arm runs several blasts on
+the same fleet, one after another (see [Light-load arm](#light-load-arm-steps-13-14)). Moving a node
+means editing `ZONES` only;
 step 0 then checks the new zone before anything is created (see the runbook).
 
 A zone can run out of `c3-highcpu-8` between step 0 and step 2. `BENCH_ZONE_FALLBACKS` names
@@ -448,6 +465,9 @@ BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --print-postconfig ben
 BENCH_RUN_ID=r20260923-0100 benchmark/benchmark-deploy.sh --yes --with-contracts --to 12
 BENCH_RUN_INDEX=1 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 13 --to 15
 
+# The light-load arm: light blasts, then the configured profile, on the same fleet (steps 13-14):
+BENCH_LIGHT_LOAD=1 BENCH_LANDINGS_SAMPLE=100 benchmark/benchmark-deploy.sh --run r20260923-0100 --yes --from 13 --to 15
+
 # The blast phases on their own (steps 13-15 call exactly these):
 benchmark/benchmark-blast.sh fund    --run r20260923-0100 --yes
 benchmark/benchmark-blast.sh run     --run r20260923-0100 --yes      # --keep leaves the blasters up
@@ -481,14 +501,14 @@ up outside the repo once the teardown has finished.
 | 3 | Waits for the `devnet-startup.sh complete` serial marker on each node. |
 | 4 | `benchmark-firewall.sh apply`: `bench-allow-consensus` (udp 49590/49594 from the nodes' own /32s) and `bench-allow-iap-rpc` (tcp 8545 from IAP). |
 | 5–6 | The devnet drivers, on the bench profile: keygen and genesis build (in `benchmark/`). Keygen's output is copied to `logs/keygen-<UTC>.log`. Its `KEYGEN_DONE` lines go into `manifest.keygen_timing` (`{<inst>: {secs, reused}}`) and, from the nodes whose keygen succeeded, `manifest.node_info_rpc` (`{<inst>: {http, ws}}`, the RPC URLs `node-info.yaml` advertises). With the bench knobs keygen runs 4 nodes at a time, reuses a node already keyed for its address and advertises each node's internal-IP RPC (see [Before the first run](#before-the-first-run)). |
-| 7 | One coordinated start, in four parts (see [Step 7](#step-7-one-coordinated-start)): `network-config` (`devnet-network-config.sh --yes`, Closed admission on every node), `stage-only` (`devnet-finalize.sh --stage-only`: stage, v2 finalize, stop; the unit stays enabled), `pre-start config` (one IAP session per node, `BENCH_NODE_JOBS` at a time, `bench_prestart_script` on stdin, `PRECFG_OK <inst>` required) and `start-all` (`devnet-finalize.sh --start-all`: every unit started at one due time on the nodes' clocks). The `COORDINATED_START` line goes into `manifest.coordinated_start`; a spread above 10 s stops the run. |
+| 7 | One coordinated start, in four parts (see [Step 7](#step-7-one-coordinated-start)): `network-config` (`devnet-network-config.sh --yes`, Closed admission on every node), `stage-only` (`devnet-finalize.sh --stage-only`: stage, v2 finalize, stop; the unit stays enabled), `pre-start config` (one IAP session per node, `BENCH_NODE_JOBS` at a time: first the datadir fsync probe `bench_fsync_probe_script`, then `bench_prestart_script`, both on stdin; `PRECFG_OK <inst>` required, the probe never) and `start-all` (`devnet-finalize.sh --start-all`: every unit started at one due time on the nodes' clocks). The `COORDINATED_START` line goes into `manifest.coordinated_start`; a spread above 10 s stops the run. |
 | 8 | First `bench_obs_ensure` brings `bench-obs` up. It creates the VM if it is missing (a `--from 8` after it was lost), waits for the startup script's `[obs-startup] … done` on the serial console (`OBS_BOOT`), copies the bundle and starts Prometheus and Grafana in one root IAP session whose last line must be `OBS_STACK_OK` (`--print-obs-bringup` prints that script), opens the two local forwards (see [The RPC tunnel](#the-rpc-tunnel)), records `manifest.obs.ready_at` and prints `OBS_READY inst=<i> ip=<ip> secs=<n>`. Each part keeps what is already in place. Then metrics-only observability in one IAP session per node, with no node restart. First every validator must be `CvvActive` (`bench_fleet_ready 0`). `bench-obs` takes no ingest auth, but `setup-observability.sh` requires a token, so the step makes a throwaway one (`openssl rand -hex 16`). It travels on the session's stdin only: the script reads it into a plain variable and pipes it to `setup-observability.sh --json --enable-metrics --token-stdin`. That script would label the node `network="devnet"` (it derives the label from the node's network), so it is pointed at a black-hole URL (`127.0.0.1:9`) for both its metrics and its log push. The session requires the `done` event with `"ok":true`, the phrase `Node already serves a metrics endpoint (--metrics).` (step 7 put `--metrics` on the node command, so nothing changes) and the container's `StartedAt` unchanged with `NRestarts=0`; anything else is `OBSCFG_FAIL <inst> contract drift`, with no restart fallback. In the same session `bench-obs` must answer `curl http://<bench-obs internal IP>:9090/-/ready` from the node, or the session ends with `OBSCFG_FAIL <inst> bench-obs unreachable` and Alloy stays on the black hole. Then Alloy is stopped, its WAL wiped, the env set to `TN_CHAIN=bench`, `TN_NODE=<instance>` and `OBS_METRICS_PUSH_URL=http://<bench-obs internal IP>:9090/api/v1/write`, and Alloy started again. No devnet-labelled sample leaves a bench node, and obs-devnet is never written to. The last line is `OBSCFG_OK <inst> restarted=none <done event>`. |
 | 9 | One IAP session per node, `BENCH_NODE_JOBS` (4) at a time, verify only: no restart and no edit of the start script. It reads the running container's arguments (`docker inspect telcoin`: `--http.addr 0.0.0.0`, `--ws.addr 0.0.0.0`, `--metrics 127.0.0.1:<port>`, and the log filters and max-files when `BENCH_NODE_LOG_FILTER` is set), the node's `parameters.yaml` (path from `.node-meta` `DATA_DIR`) and the bench Alloy labels, requires `NRestarts=0`, waits until the internal IP answers `eth_chainId == 0x7e1e` and consensus is progressing (the block height rose, or the node's `docker logs` show `subdag committed`/`quorum reached` in the last 45 s, never before the coordinated start), reads the node's boot lines from `docker logs --since` the container's start, then installs `bench-node-sampler.service`. The boot lines give the git sha, the max and min header delay, the max batch delay, the vote timeout (later builds only) and the fork schedule. They go onto the `POSTCFG_OK` line as `sha= mhd= nhd= mbd= vt= forks=` and into `manifest.node_startup[<inst>]`. All but the vote timeout must match `node_git_sha`, `consensus_parameters` and `node_fork_schedule`; a mismatch fails that node and stops step 9 once the nodes running with it have ended (with `BENCH_NODE_JOBS=1`, at the first mismatch). A build that does not log the three delay lines waits out the 300-second deadline (`POSTCFG_WAIT_SECS` in the remote script) and then fails. |
 | 10 | Health gate: `wait_healthy` on every node; an IAP tunnel to `bench-validator-01:8545` on `localhost:18545` shows chain id 32286; `bench_obs_require` finds `bench-obs` (gone: the run stops with "resume with --from 8", which recreates it and re-points every node's Alloy), its forwards up and its Prometheus answering, and warns when its data disk is `BENCH_OBS_DISK_MAX_PCT` % full or more; its Prometheus reports `count(count by (node)(tn_engine_canonical_height{network="bench"})) == 11`, `min by (node)(tn_primary_round{network="bench"})` rising on all 11 nodes across samples 30 s apart, and no bench node series with `network="devnet"`. Right after the chain id check, `recovery-schedule.py` reads the ConsensusRegistry through the tunnel, and its epoch duration must equal `EPOCH_DURATION_SECS`. The reading goes into `manifest.registry_probe`. Last, `bench_admission_gate` reads each node's own `/metrics` over IAP (loopback only): admission mode Closed on the primary and worker networks and fallback 0 on every node, recorded as `manifest.admission` and `manifest.fleet_modes`; it lists every node that is not Closed and stops the run. When `BENCH_ADMISSION_DENIED_MAX` is a whole number (the bench profile sets `0` when `NETCFG_TRUST_OBSERVERS_EVERYWHERE=1`, since every node then trusts every other; unset or empty: no check), every node whose closed-admission denials in or out exceed it gets an `ADM_WARN <inst> denied_in=<n> denied_out=<n> max=<max>` line, and `manifest.admission_denied_check` records `{max, over: [<inst>…], ts}`. That check only warns: a node redialling a peer that does not trust it is counted there, not refused. |
 | 11 | With `--with-contracts` only: a worktree of `tn-contracts-devnet-relaunch` on `bench/<run>`, `deployments-devnet.json` copied over `deployments-testnet.json` (chain 32286 reads the testnet book), then `devnet-contracts.sh --yes` through the tunnel. The result is saved as `results/<run>/deployments-bench.json`. |
 | 12 | Grants the compute service account `secretAccessor` on the two bench secrets and creates `gs://tn-devnet-bench-<run>` with the benchmark labels. |
-| 13 | Fund. First `bench_obs_require` (as in step 10), then every validator must be `CvvActive` (`bench_fleet_ready`, `manifest.fleet_ready`): one pass over the validators, and when one is not active, a wait until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS`, capped at `BENCH_FLEET_READY_MAX_WAIT_SECS`, then a second pass. Then the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders and is deleted. |
-| 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. |
+| 13 | Fund. First `bench_obs_require` (as in step 10), then every validator must be `CvvActive` (`bench_fleet_ready`, `manifest.fleet_ready`): one pass over the validators, and when one is not active, a wait until the next epoch boundary plus `BENCH_FLEET_READY_SETTLE_SECS`, capped at `BENCH_FLEET_READY_MAX_WAIT_SECS`, then a second pass. Then the `bench-funder` VM runs `blast --prepare` for all 10 × `BENCH_SENDERS` senders and is deleted. With `BENCH_LIGHT_LOAD=1` it funds every blast of the light-load arm, the configured profile last (see [Light-load arm](#light-load-arm-steps-13-14)). |
+| 14 | Blast: `bench-blaster-01..10` start together five minutes after creation, each against its own validator's internal IP. The chaos schedule and abort watchers run alongside. With `BENCH_LIGHT_LOAD=1` the light blasts run first, each a blast of its own with chaos off, and the configured profile after them. |
 | 15 | Collect: sampler CSVs over IAP, blaster results from the bucket, `bench_obs_require` (as in step 10), then `tn-transaction-generator/bench/collect-gcp-metrics.py`, which with `BENCH_PROM_AUTH=0` gets `--prom-url ${BENCH_PROM_URL} --prom-no-auth` and reads `bench-obs`'s Prometheus straight through its forward. An IAP copy that IAP refuses (error 4003, 4033 or 4047) is retried up to `BENCH_IAP_RETRIES` attempts (default 3), 10 s and then 20 s apart, and lands under a `.part` name until it is complete. Then `analysis/block-rate.md` (and `analysis/cert-rate.md` once node logs are on disk), `INDEX.md` and `CHECKSUMS.sha256` are written into `results/<run>/`; a failure there is only a warning. The collector's own window, taken from the manifest's timestamps and phases, ends at the latest of `timestamps.blast_end`, `timestamps.collect_start` and the phases' ends; in bench 3 that was before the chaos target rejoined. So with `BENCH_COLLECT_WAIT_REJOIN=1` (default) and a chaos kill that landed (a kill in `manifest.chaos[]` with rc 0), step 15 first waits until every validator is `CvvActive` again (`bench_fleet_ready`) and each killed node still reads `CvvActive` `BENCH_NODE_BACK_SECS` later: bench 3's target was promoted and demoted again 11 times, so one reading is not a rejoin, and a target that falls back starts the wait over. The whole wait is capped at `BENCH_FLEET_READY_MAX_WAIT_SECS` (still not ready is a warning), and then step 15 passes the collector `--start <manifest window start> --end <then>`. `manifest.prom_window` records `{start, end, end_reason, waited_secs, confirm_secs}`, `end_reason` being `fleet_ready`, `max_wait`, `no_chaos` or `knob_off`; in the last two nothing is passed and the collector keeps the manifest's window. |
 | 16 | With `--with-teardown` only: `benchmark-teardown.sh --yes`. |
 
@@ -535,7 +555,8 @@ node may restart. So no node runs until every node is configured, and then all s
    stops can never form one. Its output is also copied to
    `results/<run>/logs/finalize-stage-<UTC>.log`.
 3. `pre-start config`: one IAP session per node, up to `BENCH_NODE_JOBS` (4) at a time, the
-   script on stdin (`bench_prestart_script`; print it with `--print-prestart <instance>`). With the
+   script on stdin (`bench_prestart_script`; print it with `--print-prestart <instance>`), after
+   the disk probe in the same session (below). With the
    unit stopped it checks the node's `tn-node-deployment` checkout against `TN_NODE_SCRIPTS_REF`,
    sets `--http.addr 0.0.0.0`, `--ws.addr 0.0.0.0`, `--metrics 127.0.0.1:<METRICS_PORT>` and the
    log filter on `/usr/local/libexec/telcoin/tn-start-docker` with v2's `tn_launch_flag_set`, keeps
@@ -544,10 +565,12 @@ node may restart. So no node runs until every node is configured, and then all s
    original), and writes the node's parameter overrides. When `BENCH_LOGROTATE_SIZE` is set it
    also replaces `/etc/logrotate.d/telcoin` with the bench's rotation config (v2's template
    without `maxsize`, rotating at that size, written with v2's `tn_write_root_file`), which
-   `logrotate -d` must parse. Its last line, `PRECFG_OK <inst> datadir=… http=0.0.0.0 ws=0.0.0.0
-   metrics=127.0.0.1:<port> … unit=inactive logrotate=<size|-> paramsbak=<written|kept>`, is
-   required; `logrotate` and `paramsbak` go into `manifest.node_startup[<inst>]` as
-   `logrotate_size` and `params_bak`. With more than one node at a time a failed node does not
+   `logrotate -d` must parse. With `BENCH_NODE_DB_SYNC_MODE` set it also puts
+   `--db.sync-mode <value>` on the command. Its last line, `PRECFG_OK <inst> datadir=…
+   http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> … unit=inactive logrotate=<size|->
+   paramsbak=<written|kept>`, followed by `dbsync=<value>` when that knob is set, is required; `logrotate` and `paramsbak` go into `manifest.node_startup[<inst>]` as
+   `logrotate_size` and `params_bak`, and `dbsync` as `db_sync_mode` (`durable` when the line has no
+   `dbsync=`: the knob is unset and the node runs its default). With more than one node at a time a failed node does not
    stop the others, and the step stops once they have all ended, naming the failed nodes.
 4. `start-all`: `devnet-finalize.sh --start-all` starts every unit at one due time (now + 60 s by
    default, on each node's own clock), waits for them, and runs its post-checks. Its output is
@@ -555,6 +578,19 @@ node may restart. So no node runs until every node is configured, and then all s
    nodes=… started=… skipped_running=… spread_secs=… max_late_secs=…` line goes into
    `manifest.coordinated_start`. A spread above 10 s stops the run: read the `START_AT` lines in
    that log and do not restart anything inside the epoch.
+
+**Disk probe.** Each pre-start session first times 200 × (write 4 KB + `fsync`) on a temp file in
+the node's datadir (`.node-meta` `DATA_DIR`, the host directory the container mounts at
+`/home/nonroot`), with python3 from the node image (stdlib only), while the unit is still stopped,
+and prints `FSYNC_PROBE <inst> p50_us=<n> p95_us=<n>` (nearest-rank percentiles, integer
+microseconds) or `FSYNC_PROBE <inst> probe_failed <reason>`. The deploy records it as
+`manifest.node_startup[<inst>].fsync_probe` = `{p50_us, p95_us}` or `{probe_failed: true, reason}`.
+Once every node is configured (before start-all) it prints one line,
+`FSYNC_PROBE_SUMMARY median_us=<n|-> slow=[<inst> …] probe_failed=[<inst> …]`: the median p50 of
+the nodes that measured (`-` when none did), the nodes more than 20 % above it, and the nodes whose
+probe failed or printed no `FSYNC_PROBE` line (their record is `{probe_failed: true, reason}`); the
+line starts with `⚠` when either list is not empty. Nothing about the probe stops the step: a slow disk is a finding for the
+analysis (a node whose persist is slower than the fleet's), not a fault.
 
 Re-running step 7 (`--from 7`) converges. `network-config` is idempotent. `stage-only` skips a
 node whose unit is staged (`PRESTAGED`) or running (`RUNNING`). Pre-start accepts flags that
@@ -661,6 +697,64 @@ pulls turn devnet-lib's retry off for each attempt and retry on their own, becau
 a retried stream would land the retry's bytes after the cut attempt's (see
 [Pull markers and re-runs](#pull-markers-and-re-runs)); a `reauth` there stops every pull that
 has not started. The chaos sessions are never retried (see below).
+
+### Light-load arm (steps 13-14)
+
+With `BENCH_LIGHT_LOAD=1`, steps 13 and 14 (`benchmark-blast.sh fund` and `run`) drive a sequence
+of blasts on the one fleet: a light blast per entry of `BENCH_LIGHT_SENDERS`, each at the
+`BENCH_LIGHT_WINDOWS` entry in the same position (`BENCH_WINDOW` when that list is empty), with
+`BENCH_LIGHT_WARMUP_SECS`, `BENCH_LIGHT_DURATION_SECS` and `BENCH_LIGHT_COOLDOWN_SECS` (60/360/60 s)
+and chaos and lag injection off; then the configured profile (`BENCH_SENDERS` at `BENCH_WINDOW`, its
+phases, `BENCH_CHAOS` as set); then, with `BENCH_LIGHT_LOAD_AFTER=1`, one more light blast with the
+first entry's senders and window. The defaults give four blasts:
+
+| Index | Senders × window per blaster | In flight (10 blasters) | Chaos | Reads |
+|---|---|---|---|---|
+| 0 | 8 × 16 | 1,280 | off | the floor: time to land at light load (the report's floor KPIs) |
+| 1 | 16 × 16 | 2,560 | off | the floor at twice that load |
+| 2 | 600 × 4 | 24,000 | off | the reduced in-flight point: bench 4's senders at a quarter of the window |
+| 3 | 600 × 16 | 96,000 | as set | the configured profile: bench 4's load |
+
+Each blast is a plain single-blast invocation of the script under its own `BENCH_RUN_INDEX`,
+counting up from `BENCH_RUN_INDEX` (default 0: indices 0 to 3, or 4 with the blast after the load),
+so the second-blast support funds, bucket-prefixes and archives it. `fund` funds every index, the
+configured profile's last (so `funder/` ends with its output). Each light blast lands in
+`results/<run>/blast-<index>-<UTC>/` with its own copy of the manifest. The configured profile's
+outputs stay where a single blast puts them (`blasters/`, then step 15's collect and
+`metrics.json`): after a light blast that follows the load, the script archives that blast and moves
+the configured profile's files and manifest back from its `blast-<index>-<UTC>/`.
+
+`run` prints `LIGHT_LOAD_START i=<index> senders=<n> window=<w>` before and
+`LIGHT_LOAD_DONE i=<index> rc=<rc>` after each light blast (a dry run prints
+`>>> light-load arm (plan): light blast, index <i>, <n> senders per blaster at window <w>` instead,
+so a log watcher never takes a plan for a run), appends
+`{index, senders, window, chaos, started, ended, rc}` to `manifest.blasts[]` after every blast, and
+stops at the first blast that ends with rc != 0, printing the commands that finish the sequence by
+hand (the failed blast funded and run under a fresh index, the later ones under their funded
+indices; when a light blast is among them, a reminder that a hand-run blast is not in `blasts[]`, so
+the floor KPIs need its `blast-<index>-<UTC>/` as `--floor-blast-dir`). It refuses `--keep`, and before funding or running anything it refuses when an earlier
+blast on the fleet used one of its indices, naming the next free base. The sequence's own output
+is `logs/blast-light-<action>-<UTC>.log`. A light blast takes about 15-20 minutes (the 300 s
+`BENCH_START_DELAY_SECS` boot wait included), each extra fund a few minutes.
+
+Every blast of the sequence also measures one node's log volume, the configured profile's under load
+included (the light blasts under-read the loaded rate several times over). Once its blasters send (the
+start plus `BENCH_PREAMBLE_SECS`), it takes two samples 60 s apart, one IAP session each, of the size
+of `bench-validator-01`'s unit log `/var/log/telcoin/telcoin.log` and its rotated siblings, and
+prints `LOG_RATE <node> blast=<index> mb_per_min=<n.n>` (MB = 10^6 bytes), followed by
+`⚠ above BENCH_LOG_RATE_WARN_MB_MIN=<t>` when the rate is above `BENCH_LOG_RATE_WARN_MB_MIN`
+(default 30): a log filter that writes that much would flood the teardown's pull. It is never fatal:
+a failed sample, or a rotation between the samples, prints `mb_per_min=?`. Each measurement appends
+`{blast, inst, mb_per_min, warn}` to the list `manifest.log_rate`, in run order (an archived blast's
+manifest copy holds the entries up to its own). The measurement runs before the blast's watch loop,
+so its first abort poll comes about `BENCH_PREAMBLE_SECS` + 60 s after the start; the chaos kill is
+later than that.
+
+`BENCH_LANDINGS_SAMPLE=N` (N > 0) adds `--landings-out /out/landings-<label>.ndjson.gz
+--landings-sample N` to every blaster's generator, in each blast of the sequence or in a single
+blast. The export comes back with the rest of `/out` as `blasters/landings-<blaster>.ndjson.gz`
+(under `blast-<index>-<UTC>/blasters/` for an archived blast). `tools/stage-latency.py` reads the
+archived light blasts as windows of their own (see [Outputs](#outputs-resultsrun-gitignored)).
 
 ### Chaos schedule (step 14)
 
@@ -854,7 +948,15 @@ repo once the teardown has finished.
   `tn-transaction-generator/bench/schema/manifest.example.json`), plus the provenance fields
   below
 - `pre-instances.json`, `pre-firewall.json`: project state before the run; teardown compares against them
-- `blasters/<name>.json` (`tn-blast/v2`), plus each blaster's docker log and generator log
+- `blasters/<name>.json` (`tn-blast/v2`), plus each blaster's docker log and generator log and,
+  with `BENCH_LANDINGS_SAMPLE` set, its landings export `landings-<blaster>.ndjson.gz` (gzipped
+  NDJSON, one row per sampled own landing: `hash`, `type`, `node`, `sender`, `nonce`, `submit_ms`,
+  `accept_ms`, `block`, `seen_ms`, `phase`; private, never a bundle file)
+- `blast-<index>-<UTC>/`: an earlier blast on this fleet (a second blast under a new
+  `BENCH_RUN_INDEX`, or each light blast of the light-load arm): its `blasters/`,
+  `meta/bench-blaster-*`, `logs/create-bench-blaster-*.log`, `logs/blast-run-*.log`,
+  `logs/blast-collect-*.log`, `metrics.json` if it had one, and a copy of `manifest.json` as it was
+  when the next blast started
 - `funder/prepare.json`, `sampler/<node>.csv`, `deployments-bench.json`, `metrics.json`
 - `logs/`: every node's logs, their pull markers and the recovery evidence, saved by the
   teardown. Per node: `<node>-telcoin.log.gz` (the container running at the pull),
@@ -872,7 +974,8 @@ repo once the teardown has finished.
   per round), step 5's keygen to `keygen-<UTC>.log`, and step 7's two finalize runs to
   `finalize-stage-<UTC>.log` and `finalize-start-<UTC>.log`.
   A validator below the certification threshold also has `<node>-telcoin-cert-fail-<UTC>.log.gz`
-  (see Certification outcome). Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`) and the
+  (see Certification outcome). Beside them, each script invocation's output (`deploy-*.log`, `blast-<action>-*.log`, and a
+  light-load sequence's own `blast-light-<action>-*.log`) and the
   load VM creates of the current blast index (`create-<vm>.log`); an earlier index's creates are
   in `blast-<index>-<UTC>/logs/`.
 - `logs/bench-obs-prometheus-<UTC>.tar.gz`: the teardown's snapshot of `bench-obs`'s Prometheus
@@ -902,6 +1005,22 @@ repo once the teardown has finished.
 - `CHECKSUMS.sha256`: the SHA-256 of every other file. Check a copy with
   `cd results/<run> && shasum -a 256 -c CHECKSUMS.sha256` (`sha256sum -c` on Linux).
 
+Two readings of a finished run are taken by hand; no step writes them:
+
+- `tools/stage-latency.py --run-dir results/<run> --out-json <file> --out-md <file>` joins each
+  node's log with its generator's block table and splits the time to land into stages, S0 (RPC
+  accept) to S13 (visibility at the scanner): per window, each stage's count, p50 and p95, and the
+  headline sums `ts`, `commit` and `seen`. Without `--windows` the windows are each archived light
+  blast's mixed phase (named from `manifest.blasts[]`, `light8`, `light16`, …), the load, and `all`.
+  The light windows (and only those) drop the blocks within 30 s of an epoch boundary by default
+  (`--boundary-secs` sets the width; `--keep-boundaries` keeps them; `--exclude-boundaries GLOB`
+  applies the cut to the windows matching GLOB instead).
+  `--out-blocks <file>` adds one JSON line per joined block. It is stdlib only and reads gzipped
+  logs; its docstring lists the stage sources and joins.
+- `python3 benchmark/report/kpis.py --run-dir benchmark/results/<run> --table` prints the KPIs the
+  report would publish, the floor KPIs from the 8-sender light blast among them, as a markdown table.
+  Its inputs are not scrubbed, so the output is private (see `report/README.md`).
+
 `analysis/`, `INDEX.md` and `CHECKSUMS.sha256` are written after `collect` and at deploy step 15
 (non-fatal, so an interrupted run still has them), by the teardown's local gate, and once more
 after the teardown's deletes. `benchmark-teardown.sh --run <run> --reindex` writes the last two
@@ -930,7 +1049,9 @@ The provenance fields record which bytes the run measured:
 | `prometheus` | manifest creation | `grafana_url` (`BENCH_GRAFANA_URL`, the local forward; dropped by the publishing scrub), `datasource_uid`, `network_label` |
 | `zones_used`, `zone_fallbacks[]` | step 2 | the zone each node was created in, and each stockout move: `{inst, from, to, reason: "stockout", ts}` |
 | `keygen_timing`, `node_info_rpc` | step 5 | per node, from its `KEYGEN_DONE` line: `{secs, reused}`, and the `{http, ws}` RPC URLs its `node-info.yaml` advertises (successful keygens only) |
-| `node_startup[<inst>]` | steps 7 and 9 | `logrotate_size` (`"20G"` or null) and `params_bak` (`written`, `kept` or null) from the `PRECFG_OK` line; `sha`, `mhd`, `nhd`, `mbd`, `vt` and `forks` from the node's boot lines |
+| `node_startup[<inst>]` | steps 7 and 9 | `logrotate_size` (`"20G"` or null), `params_bak` (`written`, `kept` or null) and `db_sync_mode` (`durable` or `safe-no-sync`; `durable` when `BENCH_NODE_DB_SYNC_MODE` is unset) from the `PRECFG_OK` line; `fsync_probe` from the disk probe (`{p50_us, p95_us}`, or `{probe_failed: true, reason}`); `sha`, `mhd`, `nhd`, `mbd`, `vt` and `forks` from the node's boot lines |
+| `blasts[]` | step 14, light-load arm | one entry per blast of the sequence: `{index, senders, window, chaos, started, ended, rc}`. `started` is stamped before the blast's VMs are created, so it precedes the blast's phases by the create, the start delay and the preamble; the phases are in the blast's own blaster files |
+| `log_rate` | step 14, light-load arm | one node's unit-log growth, one entry per blast in run order: `[{blast, inst, mb_per_min, warn}]` |
 | `registry_probe` | step 10 | the `recovery-schedule.py` reading: current epoch, its opening block and duration, and the drill it would schedule from that moment |
 | `admission[]`, `fleet_modes` | step 10 | per node the admission modes of the primary and worker networks, fallback, denied in/out and `tn_nodeMode`; `fleet_modes` maps each node to its mode |
 | `admission_denied_check` | step 10 | with `BENCH_ADMISSION_DENIED_MAX` set: `{max, over: [<inst>…], ts}` |
@@ -965,14 +1086,25 @@ subdag per rotation. It writes `analysis/certification.json` and three manifest 
 lists it in `cert_failures[].logs` with the node's `-telcoin.log.gz` and `-unit-stdout.log.gz`.
 The local gate requires every listed file, so a snapshot saved on the node but not pulled stops the
 teardown before any delete. A validator whose instance is already gone gets the logs on disk listed
-and a `manifest.notes` entry. On a teardown re-run, a snapshot of the same instance (same id) that
-a pull marker already vouches for is listed again, not taken again.
+and a `manifest.notes` entry. On a teardown re-run that certifies again, a snapshot of the same
+instance (same id) that a pull marker already vouches for is listed again, not taken again.
 
 `analysis/cert-rate.md` and `analysis/block-rate.md`, which the teardown writes after its deletes,
 read every pulled log once more. `BENCH_TEARDOWN_SKIP_ANALYSIS=1` skips that pass and prints the
-two commands to run by hand later; the certification record above runs either way.
+two commands to run by hand later. It does not skip the certification record above, which a
+first teardown always runs.
 
-Running it again replaces `certification` and merges `cert_failures` by validator. A validator
+A teardown re-run whose manifest already holds `certification` skips the certification pass and its
+cert-fail snapshots, with one line:
+`certification: already recorded at <recorded_at> — skipped (BENCH_TEARDOWN_RECERTIFY=1 re-runs it)`.
+Bench 4's re-run read every validator log again for about 70 minutes and took three snapshots again.
+`BENCH_TEARDOWN_RECERTIFY=1` (default 0) runs the pass and the snapshots as before. When a log that
+`manifest.cert_failures` lists is missing (the first teardown's snapshot pull failed), the snapshot
+step still runs, with a ⚠ line naming the logs, so the local gate can pass on the re-run;
+cert-rate.py does not.
+
+Running it again (every `collect`, and a teardown that certifies) replaces `certification` and
+merges `cert_failures` by validator. A validator
 judged again keeps its listed logs that are still on disk. One that passes now loses its entry,
 with a note, and its files stay. A validator with fewer than 50 proposals in every window is not
 judged. Neither step stops a collect or a teardown: a failure is a warning, and the local gate
@@ -1022,7 +1154,8 @@ Nothing is deleted until five gates pass, in this order:
    `BENCH_CERT_FAIL_PCT` % (default 90) of at least 50 proposed headers in a window is listed in
    `manifest.cert_failures[]`, its container log is saved on the node as a `cert-fail` snapshot and
    pulled, and every one of its logs is named in `cert_failures[].logs[]` (see "Certification
-   outcome"). This step warns rather than blocks; the local gate enforces the files it listed.
+   outcome"). This step warns rather than blocks; the local gate enforces the files it listed. A
+   re-run whose manifest already holds `certification` skips it unless `BENCH_TEARDOWN_RECERTIFY=1`.
 4. **Coverage.** Every node's pulled unit logs must span the run. `bench_log_coverage_check`
    reads the node's `logs/<node>.logspan` and prints one line,
    `LOGCOV <inst> gens=<n> first=<ISO> last=<ISO> due=<ISO> end=<ISO> ok=<0|1|->`, recorded in
@@ -1077,6 +1210,19 @@ deletes it with the fleet:
 
 The dry run lists `bench-obs` with the other instances, prints the two forwards' plan lines and
 the snapshot's argv, and deletes nothing.
+
+A dry run ends with a gcloud argv check. Every gcloud command the teardown can issue
+(`td_gcloud_argv` in `benchmark-teardown.sh`: its own calls and those of the helpers it calls) and
+every flag it gives them are looked up in the installed SDK's help, one `gcloud <command> --help`
+per command, all at once (about 8 s; local, no project, no network). It prints
+`GCLOUD_ARGV_OK <n> commands, <m> flags`, or one `❌ GCLOUD_ARGV gcloud <command> rejects --<flag>`
+per flag the SDK does not know (and `❌ GCLOUD_ARGV gcloud <command>: not a command of this SDK`
+per missing command) and exits 1 without `TEARDOWN_DONE`. Bench 4's third teardown attempt died at
+its first delete on `--async`, a flag only the test fake accepted. `BENCH_SKIP_GCLOUD_ARGV_CHECK=1`
+skips the check with a note, as does a machine without gcloud on PATH; a `--yes` run never runs
+it. A new gcloud flag in the teardown or its helpers goes on its `td_gcloud_argv` line too:
+test_teardown_local_gate fails otherwise. The node-side `gcloud storage cp` of the bucket transfer
+runs on the node's own SDK, which the check does not see.
 
 Each instance is deleted with `--quiet` in the background (gcloud has no `--async` for instance deletes) right after its id is re-checked. One loop then
 describes every instance still deleting, every 10 s, until each is gone or
@@ -1159,10 +1305,21 @@ exactly the recorded sizes, and is fresh: pulled at most 15 minutes ago. An olde
 rejected ("pulled …, more than 15 min ago; the node has logged since"). The node is pulled
 again, and its new copies land beside the old ones under stamped names.
 
+A marker this teardown pulled itself is exempt from that age rule however long the pull took: a
+marker of this run whose pull time is at or after the moment the teardown started counts as the
+teardown's own, and only the age rule is lifted for it (a missing or resized file, another instance
+id or a pull time in the future still refuse it). Bench 4's teardown pulled for 4h19m and then
+refused the eight markers it had written more than 15 minutes earlier, deleting nothing. Every
+marker line ends in how its age was judged: `[fresh:this-invocation]`, `[fresh]` (an earlier
+teardown's, within 15 minutes), `[trusted]` (older, accepted by `BENCH_TEARDOWN_TRUST_MARKERS=1`) or
+`[stale]` (older, refused). After a pull the teardown prints the marker lines of every node it
+pulled under `markers after the pull`.
+
 The pull copies each node's whole container log as it is at that moment. A fleet left up after
 the run keeps logging, so a later pull can be far larger than the run's own logs. The
 certification step (gate 3) pulls one more whole-log snapshot of each failing validator, on every
-run of the teardown, after the free-space check. Check `df -h benchmark/results` before a
+teardown that certifies (the first, and a re-run with `BENCH_TEARDOWN_RECERTIFY=1`), after the
+free-space check. Check `df -h benchmark/results` before a
 teardown, and before every re-run.
 
 `BENCH_TEARDOWN_TRUST_MARKERS=1` (default `0`) lifts the age rule and nothing else. Use it to
@@ -1171,7 +1328,7 @@ gcloud session, when those logs are the ones you want and the lines the nodes lo
 (an idling fleet) are not. Every other check still applies; a vouched file that is missing or
 has a different size means the marker is not accepted, and the verdict names the file. A node
 accepted this way is not pulled again at all, and its verdict line ends
-`(BENCH_TEARDOWN_TRUST_MARKERS=1)`. Once the log gate passes, the manifest gets one note naming
+`(BENCH_TEARDOWN_TRUST_MARKERS=1) [trusted]`. Once the log gate passes, the manifest gets one note naming
 each such node and its marker's pull time:
 `teardown: saved logs accepted from markers older than the freshness window (BENCH_TEARDOWN_TRUST_MARKERS=1): bench-validator-01@2026-10-07T03:12:40Z …`.
 Nodes without an intact marker are pulled as usual.
@@ -1182,12 +1339,38 @@ BENCH_TEARDOWN_TRUST_MARKERS=1 benchmark/benchmark-teardown.sh --run <run>      
 BENCH_TEARDOWN_TRUST_MARKERS=1 benchmark/benchmark-teardown.sh --run <run> --yes
 ```
 
+### Log transfer through the run bucket
+
+With `BENCH_LOG_TRANSFER=bucket` the teardown takes the same logs another way. Each node gets one
+IAP session in which its own gcloud streams every log the IAP pull would take (the current
+container's log, the saved logs, the unit files and their rotated generations, gzipped on the node
+exactly as the IAP pull gzips them) to `gs://<run bucket>/logs/<node>/<local file name>`, counting
+the bytes it sends (`PULLED <name> bytes=<n>`); the same session prints the node's `LOGSPAN` lines
+first. `BENCH_PULL_JOBS` (default 4) nodes go at a time. After every node, one
+`gcloud storage cp -r gs://<run bucket>/logs/*` copies everything into a work directory beside the
+logs; each file is checked (the node's byte count, `gzip -t`) and renamed to the name the IAP pull
+gives it, and each node gets the same marker the IAP pull writes, so the local gate, the
+certification pass and the index see no difference. The objects are then removed from the bucket
+(otherwise the bucket backup at the delete step would copy them again). The teardown prints
+`LOG_TRANSFER mode=bucket nodes=<n>` before and `LOG_TRANSFER_DONE mode=bucket bytes=<n> secs=<n>`
+after. gcloud needing re-authentication during the sessions or the download stops the teardown the
+same way it stops an IAP pull. Bench 4's IAP pull took 4h19m at about 2 MB/s per session; the
+bucket transfer's time is the nodes' uploads (inside GCP) plus one download bounded by this
+machine's link.
+
+Before any session it checks that the run bucket exists and that every node's service account has a
+GCS write scope (`cloud-platform` or `devstorage.read_write`); if not, a dry run says so on a `✗`
+line and a `--yes` run stops with nothing sent. Bench nodes created by `common/create-instances.sh`
+have `devstorage.read_only`, so the bucket transfer needs a scope change there first; until then the
+preflight refuses it on this fleet and `iap` (the default) is the transfer to use.
+
 ## Publishing
 
 `benchmark/report/make_bundle.py` turns one run's results into a scrubbed bundle for the public
 benchmark site. It reads `results/<run>/` without changing it and works in
 `work/report/<run>/`. It checks the node logs against `manifest.node_git_sha` and refuses a
-mismatch unless you pass `--allow-provenance-mismatch`. It exits 1 when the finished bundle
+mismatch unless you pass `--allow-provenance-mismatch`, and a run with any `safe-no-sync` node
+(`manifest.node_startup[<inst>].db_sync_mode`) unless you pass `--allow-safe-no-sync`. It exits 1 when the finished bundle
 fails its own leak scan or the site's check. [`report/README.md`](report/README.md) covers
 the pipeline, the flags and the backfill format.
 
