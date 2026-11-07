@@ -1441,3 +1441,9 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Rule: the bench and devnet fleets live in `tn-devnet` (`config.sh` PROJECT_ID); every ad-hoc `gcloud compute …` / `gcloud
   storage …` carries `--project tn-devnet`, and an instance list is read with its project in the heading before any ssh.
   The drivers already do this (`--project="${PROJECT_ID}"`); only hand-typed reads are exposed.
+
+## 2026-11-07 — never estimate wall-clock in a record; read `date -u` first
+- Symptom: several Wave D entries in the plan/checkpoint were stamped "20:5xZ"/"21:0xZ" from a mental estimate while the real clock
+  read ≈ 19:55-20:00Z (the bundle log's own `date -u` exposed it). Harmless here, but a timeline that A4o/A5 cite must be exact.
+- Rule: every record line that carries a time starts from `date -u +%FT%TZ` in the same command, or from a timestamp printed by
+  the tool being recorded; approximate times are written as "≈ hh:mmZ" and never with a fake minute digit.

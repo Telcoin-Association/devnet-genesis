@@ -86,6 +86,13 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   08 Hong Kong / 10 Mumbai landed NOTHING for 802 / 853 / 491 s before the kill, no RPC error, all resumed 7-13 s AFTER the kill — the same three the certification pass flagged (A2 asked: far-validator
   starvation under load, relieved when the committee dropped to 9 voters?); (3) seen−land 21-35 s on generators 01/03/05 (execution behind on the slow executors); (4) at LIGHT load London (02) and
   Netherlands (06) land at p50 11-17 s in synchronized bursts while the rest land in 0.12-0.84 s (A6 asked); (5) epoch-7 boundary gap 24 s (bench 4 13 s); land p99 402.6 s from the stalls.
+- I-A DONE (tasks/issues/bench5-execution-behind-vote-starvation.md): the starvation is an F1-1 SIDE EFFECT exposed at vote time, not an F3-6 regression — proposer names its own newest block (proposer.rs:379);
+  F1-1 let executed tips spread 1-6 outputs (≈ 25 blocks each at saturation; 3.65 s measured); a header lives one round ≈ 0.86 s (certifier cancels on the next header, certifier.rs:818); the middle tier
+  reached the block 3.0-3.9 s after the proposal (v04 round 1073: proposed 17:44:59.950 naming 21772, cancelled 17:45:01.349; v02 executed 21772 at 17:45:03.813); seven slower nodes = a quorum → every round
+  moved on. Dropping F3-6 (5-s wait) would still vote after the cancel; retries already exist (250 ms × 6 + certifier backoff). Per-author lock held across the wait → refusals queue 1/s (v01 lock 7.3-8.5 s).
+  FIX (design D, proposer-only, no fork gate, cherry-pickable): name the (2f+1)-th highest block among own tip + parents' blocks (never above own tip, ≤ 8 outputs below, own hash); companion V (voter): wait
+  before the lock, refuse stale requests at once. 'Vote while behind' rejected as unsafe (the subscriber fork check assumes f+1 honest voters verified the block). Fields: ≥ 98 % own-header certification per
+  node, no generator silent > 30 s, ≤ f behind-refusals per header. Keep F3-6. The brief's earlier 'F3-6 regression' wording is superseded by this.
 - D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
   landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
   v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
