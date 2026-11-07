@@ -86,6 +86,34 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   08 Hong Kong / 10 Mumbai landed NOTHING for 802 / 853 / 491 s before the kill, no RPC error, all resumed 7-13 s AFTER the kill — the same three the certification pass flagged (A2 asked: far-validator
   starvation under load, relieved when the committee dropped to 9 voters?); (3) seen−land 21-35 s on generators 01/03/05 (execution behind on the slow executors); (4) at LIGHT load London (02) and
   Netherlands (06) land at p50 11-17 s in synchronized bursts while the rest land in 0.12-0.84 s (A6 asked); (5) epoch-7 boundary gap 24 s (bench 4 13 s); land p99 402.6 s from the stalls.
+- A2 DONE (benchmark/private/bench5-r20261107-1504/A2/certification.md §"Far-validator starvation under load", vote-path.md, numbers.json): own-header certification in load_all10 — v04 Tokyo 0.2 %, v08 Hong Kong
+  0.0 %, v10 Mumbai 16.3 %, the other seven 99.7-100 % (idle/light/600×4 all ≈ 100 %). MECHANISM = F3-6 REGRESSION: the voter waits ≤ 1 s for its own execution to reach the header's execution block, then
+  refuses `ExecutionBehind`; v04/v08/v10 were the FASTEST executors (exec lag 6.4-9.1 rounds vs 12.6-13.5 middle, 22-31 for v01/v03/v05), so their headers named blocks the others had not executed → seven
+  voters refused each header 537-683× with exec_wait_ms 1000-1001 (cites v04:17:45:01.228Z header block 21772 local 21719; v02:17:45:00.354Z `vote path timing … outcome=behind exec_wait_ms=1001`), the
+  other seven certificates are exactly the quorum of 7 so every round moved on and cancelled their headers (v04 916 of 918 rounds); no own certificate for 787 / 817 (+226) / 487 s = A1's landing gaps within
+  1-36 s; batches not lost but cycled (≈ 20 digests through 296-368 headers, 560-640 s to commit); their workers nearly stopped sealing (94 / 31 / 126 batches vs 889-2,089). At the kill (9 alive) at most two
+  certificates per round can be missing and the slow tier (v01+v03: 14,082 refusals post-restart) was refusing nearly everything, so rounds waited for a fast node's certificate → the three certified again
+  7-13 s after the kill and then took turns dropping (v04 18:00-18:03, v08 18:05-18:09). `votes_refused_execution_behind_total` over the run: v01 14,802, v03 11,969, v05 5,747, v06 3,171, v09 2,728, v07 2,559,
+  v02 2,558, v10 2,222, v04 1,317, v08 588 (0 at idle/light); `votes_refused_inactive_total` only v05 (31,577) ✓; vote_timeouts 0 everywhere ✓. L7: `digests resent … cause=canceled` landed in the next header
+  2,811 of 2,813 times (v04 8,162 / v08 7,479 / v10 3,543 requeues) — useless on starved nodes (the next header is refused for the same reason). Proposer reasons: 100 % min_delay idle/light; loaded 90-97 %
+  min_delay on the seven, while 1,612 of 1,911 `parents_and_threshold` proposals came from the three starved nodes (re-queued digests kept them at the threshold). LONDON/NETHERLANDS at light load = an OLDER
+  mechanism: their headers certify (99.5 %) but only 13-18 % of their certificates are committed; the batches wait for the periodic "undelivered headers" resend every ~20 s (same ms on both nodes,
+  v02:16:18:09.329Z / v06:16:18:09.339Z from_round=373→419); first proposal → commit p50 13.9 s (light8) / 27 s (light16); at 600×4 and above 76-99.7 % commit.
+- A4n DONE (benchmark/private/bench5-r20261107-1504/A4n/f2-verdict.md §0 = the regression mechanism, bottlenecks.md, census.md/json, f2.json, buckets-5min.json, v05-catchup.json): at saturation the task costs
+  288.6 µs/tx (bench 4: 215; +34 %) = execute 87.4 (−47 %: recover_wait 0, evm 26.5, root 49.2, finish 11.4, dumps 0.2-0.3) + persist 199.2 (×4: save_blocks 21.1, MDBX commit 178.0); 1/288.6 µs = 3,465 tx/s
+  = A1's 3,449. E1 CONFIRMED (log 5.05 MB/min vs 1,163), E2 CONFIRMED (root 56 % of execute → parallel state root = the bench-6 execute item, worth ≤ 49 µs/tx), E3 CONFIRMED but the 64-slot backlog does not
+  exist (channel depth ≤ 2; consensus commits at the execution rate 0.573 vs 0.559 outputs/s), E4 CONFIRMED (recover_wait 0.0-0.6 µs/tx loaded; the job runs off-thread, 13-21 µs/tx), E5 inconclusive by
+  construction (shipped with E1/E4; the combined −78 µs/tx is at the top of the 23-79 expectation). CEILING REGRESSED THROUGH PERSIST: the MDBX commit fsync is 1.03-1.06 s per output on every node
+  (bench 4: 0.30-0.34 s) with IDENTICAL logical writes per tx (table growth 73/33/47 B/tx, 0.44 accounts + 0.62 slots per tx in both runs) but ≈ 4.3× the device bytes per tx (155 vs 36 KB; write ops 227 vs
+  32 KB; ≈ 0.9 GB per output vs 0.32) — the disk is no slower (same hyperdisk-balanced 20k IOPS / 800 MiB/s, same debian-12 family, same tn-node-deployment ref d9446f7); writes sustained ≈ 470-530 MB/s with
+  per-minute peaks at the 800 MiB/s cap; PSI io 26.5-27.2 %; CPU 17-19 %. Bench 3 (r20261103-1922) shows bench 5's pattern (438 MB/s, 231 KB ops); bench 4 is the OUTLIER. Cause below the engine (OS /
+  storage layer); the one thing bench 4 had and bench 5 lacks is the 1.16 GB/min debug log on the same volume (untested). Not settled from this run → D3 investigation + bench-6 checks (record kernel, mount,
+  vm.dirty_*, THP in the pre-start probe; iostat; one short arm on the bench-4 image). Slow executors v01/v03/v05: 94-97 µs/tx vs 84-88, all in `finish` (17-19 vs 10-12) and the signer job (19-21 vs 13),
+  persist identical — 2-3 % slower than the commit rate so their backlog grows (9-13 s of the 21-35 s seen−land gap); why `finish` is slower there is open. v05 catch-up: 0.49 outputs/s executed vs 0.437/s
+  committed → net ≈ 0.1 output/s; gap 158 → 56 outputs by 18:21, head reached 18:22 after the load stopped. CENSUS: warn+error 77,168 (bench 4: 266,118); TooNew vote storm gone (12 vs 100,852); 0 panics /
+  DB errors; NEW ≈ 1,400 tn::tasks `Failed to track spawned task … no available capacity` (1,248 in the chaos window at the loaded epoch-8 boundary); NEW 414,513 `skipping invalid transaction: nonce too
+  low` (37,683 per node) at the same boundary (duplicate txs?) → D3; leader share v02/v06 198/193 of 12,834 leader rounds (lowest two in bench 4 as well); batch-serve pool full 0; open-phase sheds 6,675 all
+  after the epoch-8 boundary. v06's slow fsync probe does not predict its persist (commit p50 1,079 vs 1,069-1,081 ms fleet; r = 0.10).
 - A6 DONE (benchmark/private/bench5-r20261107-1504/A6/stages.md, stages-<window>.json, landings.md, levers.md, littles-law.json; windows cut from the blasters' REAL phases): floor pooled ts 0.65-0.67 s,
   commit 1.25-1.27 s, seen 1.50-1.51 s at 8/16 senders (predicted 1.2 / 2.2 s → 0.5-0.7 s better); sanity Σ−seen ≤ 250 ms on 100 % (light) / 97-99 % (load) of blocks. Light-load stage p50 (ms): S1 pool 26,
   S2 batch quorum 171, S4 digest wait 155, S5 cert 155, S6a 155, S6b leader-created→commit 611 (40 % of seen; consensus S2-S6b = 82 %), S11x execute 37, S13x visibility 152. Saturation (600×16 pre-kill):
