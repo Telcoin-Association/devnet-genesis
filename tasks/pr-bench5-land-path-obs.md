@@ -1,4 +1,4 @@
-# Draft PR (telcoin-network) — topic `land-path-obs` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+# Draft PR (telcoin-network) — topic `land-path-obs` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/land-path-obs origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: land-path-obs$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): dac760298 d660e8e7f 0bd522ca7 cafca0d95
@@ -48,8 +48,15 @@ feat: time-to-land stage instrumentation (batch, worker, proposer, commit path, 
 ## Why (measured motivation)
 See the issue text tasks/bench5-land-time-baseline.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
 
-## Evidence (bench 5, run <R>)
-(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+## Evidence (bench 5, run r20261107-1504)
+
+Run r20261107-1504 (2026-11-07): image `adiri:bench-main-fixes-20261107` = bench/main-fixes-2026-11 @ 067639def, ten validators + one observer in ten regions (c3-highcpu-8, hyperdisk-balanced), the bench-4 fleet, parameters and chaos plan; a light-load arm (8 and 16 senders × window 16, then 600 × window 4) before the 600 × 16 chaos blast. Analysis: benchmark/private/bench5-r20261107-1504/ (A1 KPIs, A2 certification, A3 recovery, A4n census/F2, A6 land path), summarised in tasks/bench5-report-r20261107-1504.md.
+
+- The join works end to end: `benchmark/tools/stage-latency.py` reproduces every block's stage chain S0-S13 from these lines; Σ stages − seen ≤ 250 ms on 100 % of light-load blocks and 97-99 % under load (A6/stages.md).
+- Measured floor (8-16 senders): time to land (leader header created) 0.65 s, to commit 1.25 s, to seen 1.50 s — against a predicted 1.2 / 2.2 s. At light load the leader-created → commit stage (611 ms) is 40 % of seen and consensus (S2-S6b) 82 %.
+- At saturation the engine queue is 9.6 of 14.9 s seen; one output costs 1,658 ms = execute 479 + persist 1,167 (MDBX commit 1,035). Persist is off the visibility path (blocks are on RPC once executed).
+- Little's law holds (ratio 0.97-1.04): 600 × 4 → 4,006 tx/s at mean seen 4.59 s; 600 × 16 → 3,481 tx/s at 23.69 s.
+- The ranked levers from these numbers are in A6/levers.md (node-side in-flight bound, pipelined persist, far-validator certificate inclusion, the F3-6 fix, #532).
 
 ## Follow-ups
 (from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)

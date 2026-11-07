@@ -1,4 +1,4 @@
-# Draft PR (telcoin-network) — topic `f1-commit-lag` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+# Draft PR (telcoin-network) — topic `f1-commit-lag` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/f1-commit-lag origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: f1-commit-lag$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 557c9b737 a3a00525e d33ecb797
@@ -64,8 +64,15 @@ fix(primary): commit without waiting for execution; expose the lag; e2e for a sl
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f1-commit-lag-demotion.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
 
-## Evidence (bench 5, run <R>)
-(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+## Evidence (bench 5, run r20261107-1504)
+
+Run r20261107-1504 (2026-11-07): image `adiri:bench-main-fixes-20261107` = bench/main-fixes-2026-11 @ 067639def, ten validators + one observer in ten regions (c3-highcpu-8, hyperdisk-balanced), the bench-4 fleet, parameters and chaos plan; a light-load arm (8 and 16 senders × window 16, then 600 × window 4) before the 600 × 16 chaos blast. Analysis: benchmark/private/bench5-r20261107-1504/ (A1 KPIs, A2 certification, A3 recovery, A4n census/F2, A6 land path), summarised in tasks/bench5-report-r20261107-1504.md.
+
+- No healthy validator was demoted: `tn_node_mode_transitions_total{to="cvv_inactive",reason="outside_gc_window"}` = 0 on all nine non-chaos validators and the observer (bench 4: two mid-epoch demotions). The only transitions in the run are the chaos node's `epoch_behind` and `rejoin`.
+- The fix was exercised: `consensus_exec_lag_rounds` reached 62 (v01), 54 (v03), 58 (v09) — above the 40-round activity window for about 23 min on v01 — with no demotion; `commit_lag_rounds` p99 stayed ≤ 5 under load (6.12 in the chaos window); `commit_run_ahead_blocked_total` = 0 everywhere; no `we are behind` on a healthy node.
+- Committee size 10 at every sample until the 17:54:44Z kill; `-32603 validator is inactive` responses before the kill = 0 across all ten generators (bench 4: two generators lost their node for 23-30 min).
+- The subscriber-side fork check never fired (`BogusSubdag` transitions 0); the restored-DAG guard produced no `restart_gap` on the restarted node (store top − pack = 30 rounds, all reachable).
+- Side effect to know: a loaded epoch close now waits for every node to execute to the closing output (22.6 s commit gap at the epoch-7 close; the two slowest executors entered the next epoch 26-51 s late and did not vote the epoch-7/8 records, which formed at exactly 7 of 10).
 
 ## Follow-ups
 (from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)

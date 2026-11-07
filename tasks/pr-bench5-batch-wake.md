@@ -1,4 +1,4 @@
-# Draft PR (telcoin-network) — topic `batch-wake` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+# Draft PR (telcoin-network) — topic `batch-wake` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/batch-wake origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: batch-wake$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 716de9019
@@ -22,8 +22,11 @@ feat(batch-builder): wake on transaction arrival
 ## Why (measured motivation)
 See the issue text tasks/bench5-land-time-baseline.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
 
-## Evidence (bench 5, run <R>)
-(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+## Evidence (bench 5, run r20261107-1504)
+
+Run r20261107-1504 (2026-11-07): image `adiri:bench-main-fixes-20261107` = bench/main-fixes-2026-11 @ 067639def, ten validators + one observer in ten regions (c3-highcpu-8, hyperdisk-balanced), the bench-4 fleet, parameters and chaos plan; a light-load arm (8 and 16 senders × window 16, then 600 × window 4) before the 600 × 16 chaos blast. Analysis: benchmark/private/bench5-r20261107-1504/ (A1 KPIs, A2 certification, A3 recovery, A4n census/F2, A6 land path), summarised in tasks/bench5-report-r20261107-1504.md.
+
+- S1 (pool wait) p50 26-31 ms at light load with 66-76 % of batches built on `wake=arrival`; the bench-4 model had ≈ 125 ms. Worth ≈ −0.07…−0.10 s of time to land at light load; no effect at saturation (the queue dominates). Small but confirmed.
 
 ## Follow-ups
 (from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)

@@ -1,4 +1,4 @@
-# Draft PR (telcoin-network) — topic `f3-rejoin` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+# Draft PR (telcoin-network) — topic `f3-rejoin` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/f3-rejoin origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: f3-rejoin$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 746ac3272 0c41872ba bf34ec488 cae41a400 f2f9437f7 73d3163db ae68877dc
@@ -99,8 +99,15 @@ fix: one rejoin per episode — certificate retention, propose at the head, grac
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f3-rejoin-loop.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
 
-## Evidence (bench 5, run <R>)
-(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+## Evidence (bench 5, run r20261107-1504)
+
+Run r20261107-1504 (2026-11-07): image `adiri:bench-main-fixes-20261107` = bench/main-fixes-2026-11 @ 067639def, ten validators + one observer in ten regions (c3-highcpu-8, hyperdisk-balanced), the bench-4 fleet, parameters and chaos plan; a light-load arm (8 and 16 senders × window 16, then 600 × window 4) before the 600 × 16 chaos blast. Analysis: benchmark/private/bench5-r20261107-1504/ (A1 KPIs, A2 certification, A3 recovery, A4n census/F2, A6 land path), summarised in tasks/bench5-report-r20261107-1504.md.
+
+- The killed-and-restarted validator (v05) rejoined ONCE (bench 4: 13 promotions, 12 fell back): `attempting to rejoin … round_gap=20` at 18:22:49.65Z → CvvActive 18:22:49.98Z, still active at the end; `rejoin_grace_holds_total` 0, `attempts_exhausted` 0.
+- The promotion was clean: `primed consensus rounds exec_round=256 newest_round=524 primary_round=524` (all 133 primed lines fleet-wide satisfy primary ≥ newest); first header round 529 with 7 parents (no genesis parents, no re-proposal); first own certificate committed 1.85 s after the promotion; no `Fetch task failed … missing parents`.
+- While inactive it refused 31,561 vote requests (`votes_refused_inactive_total`; 0 on every other node), the stalled-head timer re-requested outputs 8 times and the replay kept moving (43 `stalled head not ready` lines, all `head_age`, `replayed_number` rising between every pair); no SEC-2 stall (longest commit gap 15.1 s; the kill paused commits 12.7 s vs 17.2 s in bench 4).
+- Kill → CvvActive took 28 min: under saturation the follower executed 0.49 outputs/s against 0.437/s committed (net +0.1/s), so it rejoined 1-2 min after the load ended. The rejoin rules did their job; catch-up speed is an execution-throughput matter.
+- **F3-6 (`fix(primary): bound the voter's wait for execution`, cae41a400) is a REGRESSION and must be dropped from this PR or revised** (tasks/issues/bench5-execution-behind-vote-starvation.md): the 1-s `ExecutionBehind` refusal let the seven slower voters refuse every header of the three fastest executors under load (Tokyo 0.2 %, Hong Kong 0.0 %, Mumbai 16.3 % of own headers certified; their users landed nothing for 787 / 817 / 487 s with no RPC error) because at n=10 the seven remaining certificates are exactly the quorum. `votes_refused_execution_behind_total` over the run: 14,802 (v01) … 588 (v08). Without F3-6 the voter waits up to `vote_timeout` as before.
 
 ## Follow-ups
 (from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)

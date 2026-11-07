@@ -1,4 +1,4 @@
-# Draft PR (telcoin-network) — topic `exec-split` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+# Draft PR (telcoin-network) — topic `exec-split` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/exec-split origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: exec-split$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 3dc26fa59 fac145464 decc4cbc4
@@ -39,8 +39,14 @@ feat(engine): split execute time per output, time the subscriber-to-engine hop, 
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f2-execution-ceiling.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
 
-## Evidence (bench 5, run <R>)
-(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+## Evidence (bench 5, run r20261107-1504)
+
+Run r20261107-1504 (2026-11-07): image `adiri:bench-main-fixes-20261107` = bench/main-fixes-2026-11 @ 067639def, ten validators + one observer in ten regions (c3-highcpu-8, hyperdisk-balanced), the bench-4 fleet, parameters and chaos plan; a light-load arm (8 and 16 senders × window 16, then 600 × window 4) before the 600 × 16 chaos blast. Analysis: benchmark/private/bench5-r20261107-1504/ (A1 KPIs, A2 certification, A3 recovery, A4n census/F2, A6 land path), summarised in tasks/bench5-report-r20261107-1504.md.
+
+- The split is the F2 measurement: at saturation execute = 87.4 µs/tx = recover_wait 0.0 + evm 26.5 + root 49.2 + finish 11.4 + other 0.2; persist = 199.2 = save_blocks 21.1 + commit 178.0 (median of ten validators, A4n/f2.json). 1 / (87.4 + 199.2) µs = 3,465 tx/s, within 0.5 % of the measured 3,449 tx/s.
+- `root_ms` is 56 % of execute: the parallel state root is the next execute item (worth ≤ 49 µs/tx).
+- `forward_wait_ms` + `tn_engine_channel_depth` showed the suspected 64-slot backlog does not exist: channel depth ≤ 2, consensus commits at the execution rate (0.573 vs 0.559 outputs/s); the queue (cap 8) sits at its cap only on the three slowest executors.
+- The same lines exposed the run's main surprise: the MDBX commit is 1.03-1.06 s per output on every node (bench 4: 0.30-0.34 s) with identical logical writes — see tasks/issues/bench5-persist-fsync-amplification.md.
 
 ## Follow-ups
 (from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)
