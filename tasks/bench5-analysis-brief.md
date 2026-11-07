@@ -103,6 +103,27 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   (+0.07-0.19 s fleet seen p50), ≈ 0 under load; a Byzantine node can slow rounds by ≤ G. A6's lever 3 re-send variant ≈ 0 (commits come in runs after each jump; could double-commit a batch). (D) min_header_delay
   450 only 65-83 % (control arm); the brief's 'NL 83 % at 250' has no source. Also a cherry-pickable `tn_primary_late_parents_total{origin}` counter. Fields: v02/v06 committed own certs ≥ 90 % light; London/NL
   generator seen p50 ≤ 2 s; parents per header ≥ 9.5; leader share within 5 points of 10 %; light round ≤ 400 ms.
+- I-B DONE (tasks/issues/bench5-persist-fsync-amplification.md): the persist code is IDENTICAL in both images (one save_blocks(Full) + markers + one commit per output; 4ab917aae timers only, E5 reads only);
+  MDBX copies a page at most once per transaction and v01's mutable tables are small (state 114 MB, history 116 MB, ≈ 30 MB TransactionHashNumbers pages per output, tries < 20 MB) → copying every page would
+  write ≈ 285 MB per output, yet bench 5 wrote ≈ 931 MB → ≥ 70 % of the bytes come from BELOW MDBX's page copies. Ranked: H1 (high) whole-folio page-cache writeback of 4 KB WRITEMAP page copies (large folios
+  on ext4 from mainline 6.16; libmdbx's multi-page prefault pwritev mdbx.c:22356-22395 and MADV_RANDOM over the used size only :20055-20066/:20618 can create them; fits bytes above the copy bound, 227 vs 32 KB
+  ops, fleet-uniform); H2 (medium) unpinned image/kernel drift — validators boot the FAMILY ubuntu-2404-lts-amd64 (config.sh:118 → create-instances.sh:180), resolved at create time and never recorded (needs an
+  A-B-A or a withdrawn image to fit bench 3 = bench 5 ≠ bench 4); H3 (medium, modifier of H1 only) bench 4's 49 GB debug log via page-cache churn (msync flushes only mdbx.dat); H4 MDBX copying more pages
+  (ruled out by the bound); H5-H7 low/ruled out (reth hardcodes WRITEMAP mdbx/mod.rs:385; libmdbx never issues MADV_HUGEPAGE). Cheapest decisive test: desk-check which image/linux-gcp each run booted; then
+  ≈ 30 min on one c3-highcpu-8 with the same disk: fio --ioengine=mmap --rw=randwrite --bs=4k --fsync=2000 vs /proc/diskstats bytes, before/after drop_caches (ratio ≫ 1 → ≈ 1 confirms H1). Bench 6: `persisted
+  output` += mdbx newly/cow/prefault page ops (reth-libmdbx Info::page_ops) + proc_write_bytes (ratio ≈ 1 → H4, ≈ 4 → H1); probe records kernel/image/THP/vm.dirty_*/mount; sampler adds diskstats wareq-sz,
+  vmstat refaults, trie table sizes; arms ≈ 20 min each: control, bench-4 image with engine=info, synthetic 20-25 MB/s writer, drop_caches before the blast, safe-no-sync (diagnostic). If H1: disable libmdbx
+  prefault_write + MADV_RANDOM over the whole map, or drop WRITEMAP; pipelined persist hides the sync either way (≈ 5.0 k tx/s).
+- I-F DONE (tasks/issues/bench5-execution-lag-feedback.md): E4's signer-recovery job (engine/src/lib.rs:247-254 → recovery.rs:39-54 → tn-reth execution.rs:206-232, 816-835) runs par_iter on the GLOBAL rayon pool
+  (6 threads, telcoin-network-cli/src/node.rs:233-244); `finish` uses the same pool once per block (reth HashedPostState::from_bundle_state into_par_iter + the rayon::join sorts at execution.rs:352-353); the
+  execute thread is outside the pool so its calls enter rayon's injector queue, served only after the workers' own/stolen work (rayon-core registry.rs:833-842) → every finish made while a job runs waits for
+  the rest of the job. On a lagging node S7 (subscriber.rs:1163-1190) releases each output exactly when the previous one is persisted = when the engine starts the next execute (lib.rs:308-310), so the job
+  lands on that execute's first blocks → +10-11 µs/tx (≈ 3.5 % of the task) > the node's margin against the commit rate → it stays behind until the load ends. DATA: outputs overlapped by another output's job
+  cost 15-23 µs/tx in finish; non-overlapped 6.7-8.1 on EVERY validator; slow node-windows = S7 node-windows exactly (v09 at 600×4; v01/v03/v05 pre-kill; v01/v03 post-kill); arrivals within 50 ms of an
+  execute start 190-265 of ≈ 440 there vs 0-23 elsewhere; onset of finish rise = the minute S7 engages. Queue depth does NOT predict it; memory, own RPC load, hardware, overlay growth ruled out (slow set
+  moved between VMs). FIX (A): a dedicated small rayon pool (3 threads) for signer recovery via pool.install — blocks unchanged; expected finish ≈ 7-8 µs/tx everywhere, task ≈ 284 µs/tx; revert of E4 is the
+  fallback (gives up ≈ 8 µs/tx). Tests: Criterion N ∈ {0,1,2} jobs on shared vs dedicated pool; e2e 4 validators one slowed, finish within 20 %. Fields: overlapped vs non-overlapped finish within 1-2 µs/tx;
+  S7 p95 < 2 s everywhere (today 16.9 / 31.8 s); epoch records ≥ 9/10. Chaos-node catch-up only ≈ +4 % from this; full catch-up under load still needs the persist work.
 - D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
   landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
   v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
@@ -130,7 +151,7 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   exist (channel depth ≤ 2; consensus commits at the execution rate 0.573 vs 0.559 outputs/s), E4 CONFIRMED (recover_wait 0.0-0.6 µs/tx loaded; the job runs off-thread, 13-21 µs/tx), E5 inconclusive by
   construction (shipped with E1/E4; the combined −78 µs/tx is at the top of the 23-79 expectation). CEILING REGRESSED THROUGH PERSIST: the MDBX commit fsync is 1.03-1.06 s per output on every node
   (bench 4: 0.30-0.34 s) with IDENTICAL logical writes per tx (table growth 73/33/47 B/tx, 0.44 accounts + 0.62 slots per tx in both runs) but ≈ 4.3× the device bytes per tx (155 vs 36 KB; write ops 227 vs
-  32 KB; ≈ 0.9 GB per output vs 0.32) — the disk is no slower (same hyperdisk-balanced 20k IOPS / 800 MiB/s, same debian-12 family, same tn-node-deployment ref d9446f7); writes sustained ≈ 470-530 MB/s with
+  32 KB; ≈ 0.9 GB per output vs 0.32) — the disk is no slower (same hyperdisk-balanced 20k IOPS / 800 MiB/s, same boot image FAMILY `ubuntu-2404-lts-amd64` — unpinned, the resolved image/kernel was not recorded in either run (debian-12 is only bench-obs; I-B correction), same tn-node-deployment ref d9446f7); writes sustained ≈ 470-530 MB/s with
   per-minute peaks at the 800 MiB/s cap; PSI io 26.5-27.2 %; CPU 17-19 %. Bench 3 (r20261103-1922) shows bench 5's pattern (438 MB/s, 231 KB ops); bench 4 is the OUTLIER. Cause below the engine (OS /
   storage layer); the one thing bench 4 had and bench 5 lacks is the 1.16 GB/min debug log on the same volume (untested). Not settled from this run → D3 investigation + bench-6 checks (record kernel, mount,
   vm.dirty_*, THP in the pre-start probe; iostat; one short arm on the bench-4 image). Slow executors v01/v03/v05: 94-97 µs/tx vs 84-88, all in `finish` (17-19 vs 10-12) and the signer job (19-21 vs 13),
