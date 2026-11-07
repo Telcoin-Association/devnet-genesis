@@ -93,6 +93,16 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   FIX (design D, proposer-only, no fork gate, cherry-pickable): name the (2f+1)-th highest block among own tip + parents' blocks (never above own tip, ≤ 8 outputs below, own hash); companion V (voter): wait
   before the lock, refuse stale requests at once. 'Vote while behind' rejected as unsafe (the subscriber fork check assumes f+1 honest voters verified the block). Fields: ≥ 98 % own-header certification per
   node, no generator silent > 30 s, ≤ f behind-refusals per header. Keep F3-6. The brief's earlier 'F3-6 regression' wording is superseded by this.
+- I-C DONE (tasks/issues/bench5-far-validator-certificate-inclusion.md): London/NL drift, not just lateness — a non-leader proposes 352 ms after its last header while the next even round's leader waits 0
+  (calc_min_delay proposer.rs:559-569), so near nodes save ≈ 120 ms once in 16 rounds and the fleet runs at 345.7 ms/round; v02/v06 never lead (reputation swapped them out after their first orphaned
+  certificates) so they run at 353.1 ms and lose 7.4 ms/round; after ≈ 60 rounds a next-round quorum reaches them before their timer and they skip a round (Greater branch :718-750; 19 skips each in light8,
+  same rounds on both), which cuts their own certificate chain → everything since the previous commit is orphaned (a certificate can only be a parent in the very next round: :751-760, handler.rs:1228);
+  digests are re-queued only at the first own commit after a jump (:803-858; no 20-s timer) → the synchronized bursts; orphaned certs score 0 → never lead → keep drifting (at each epoch start, before the
+  first swap, London committed every round). Under load the round is parent-arrival-paced (443-746 ms) so 76-99.7 % commit. FIX for bench 6: (A) parent grace G = 150 ms (largest one-way delay London-Sydney
+  151 ms) after 2f+1 parents for validators live in the previous round (#1781 variant 2): node-local, cherry-pickable, own design row; model: v02/v06 100 % for G 100-210, light round 345 → 364-404 ms
+  (+0.07-0.19 s fleet seen p50), ≈ 0 under load; a Byzantine node can slow rounds by ≤ G. A6's lever 3 re-send variant ≈ 0 (commits come in runs after each jump; could double-commit a batch). (D) min_header_delay
+  450 only 65-83 % (control arm); the brief's 'NL 83 % at 250' has no source. Also a cherry-pickable `tn_primary_late_parents_total{origin}` counter. Fields: v02/v06 committed own certs ≥ 90 % light; London/NL
+  generator seen p50 ≤ 2 s; parents per header ≥ 9.5; leader share within 5 points of 10 %; light round ≤ 400 ms.
 - D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
   landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
   v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
