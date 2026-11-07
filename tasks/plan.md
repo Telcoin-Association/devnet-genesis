@@ -78,7 +78,7 @@ devnet-genesis:
 - [~] D3: triage DONE (D3/triage.md) → 6 investigations running: I-A bench5-execution-behind-vote-starvation, I-B bench5-persist-fsync-amplification, I-C bench5-far-validator-certificate-inclusion, I-D bench5-sealed-tx-invisible-drops-and-duplicates, I-E bench5-loaded-epoch-boundary-drain, I-F bench5-execution-lag-feedback → `tasks/issues/`
 
 ## Wave E — publish
-- [x] bundle OK (3 runs; --force needed after the backfill caveat rewording) → tn-benchmarks 31073aa pushed; site gates ok; txgen main pushed (6dad96f); HTTP 200 poll running; devnet-genesis push pending the last issue texts
+- [x] bundle OK (3 runs; --force needed after the backfill caveat rewording) → tn-benchmarks 31073aa pushed; site gates ok; txgen main pushed (6dad96f); SITE LIVE HTTP 200 at 20:28:13Z (https://benchmark.telcoin.network/runs/r20261107-1504/); devnet-genesis push pending the last issue texts (I-B, I-D, I-E, I-F)
 - [ ] Backfill JSON; `make_bundle.py --run <R> --compare r20261105-0803` (detached); site gates; `git add runs/<R>`; push; HTTP 200
 - [ ] Pushes: devnet-genesis main, txgen main, telcoin-network branch
 - [ ] Ledger verdicts; `tasks/pr-bench5-<slug>.md` per topic; observability PR text refreshed
