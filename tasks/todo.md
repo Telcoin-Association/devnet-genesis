@@ -1500,3 +1500,27 @@ and a DNS blip killed detached work (lessons: nohup setsid + the leader's pid; c
 Open (see the 2026-11-05 follow-ups above and the report §6): upstream engine dump lines → trace; tn-node-deployment default filter +
 guard resampling; harness D34 exemption and a skip-certification knob; log transfer via bucket instead of IAP; the gc-window demotion
 of merely slow validators and the promotion loop are node defects that set the liveness margin under load.
+
+## Review — bench 5: the fix build r20261107-1504 (2026-11-07)
+Built: branch bench/main-fixes-2026-11 @ 067639def (origin/main 4bf4604d2 + 9 observability + 29 topic commits, each with a `Topic:` footer; ledger
+tasks/bench5-cherrypick-ledger.md carries a verdict per topic), image adiri:bench-main-fixes-20261107 (sha256:a1a82341…), blaster blast-v2-6dad96f.
+Run: same fleet/chaos as bench 4 plus a light-load arm (8, 16 senders × window 16; 600 × window 4) before the 600 × 16 chaos blast; 4h12m end to end
+(bench 4: 9h16m), teardown 35 min in one attempt, logs 100× smaller (LOG_RATE 10.8 MB/min at saturation). One abort: a gcloud client ReadTimeout on a
+blaster create killed the chaos blast before any chaos; re-run under index 4 per the driver's printed resume (D36).
+Verdicts (report tasks/bench5-report-r20261107-1504.md; analysis benchmark/private/bench5-r20261107-1504/): F1 CONFIRMED — 0 healthy demotions (bench 4: 2),
+exec lag to 62 rounds with no demotion, 0 "validator is inactive" before the kill. F3 CONFIRMED — 1 rejoin (bench 4: 13), clean promotion; kill→active
+28 min is execution-bound catch-up. F2 — execute −47 % (165 → 87 µs/tx; E1-E4 confirmed, E5 inconclusive by construction) but persist ×4: the MDBX
+commit fsync is 1.03 s per output (bench 4 0.32) with identical logical writes and 4.3× device bytes/tx; bench 3 shows the same, bench 4 is the outlier;
+cause below the engine, OPEN → 3,449 tx/s (−24.7 %). Floor at light load: land 0.65 s / commit 1.25 s / seen 1.50 s (predicted 1.2 / 2.2); at saturation
+the engine queue is 9.6 of 14.9 s; Little's law holds; the lever ranking is in A6/levers.md and report §4.5 (node-side in-flight bound, pipelined
+persist, far-validator inclusion, the proposer-side companion to F1-1, #532).
+New systemic findings, each with an issue text in tasks/issues/: bench5-execution-behind-vote-starvation (F1-1 side effect: fastest proposers refused
+inside the one-round header lifetime; proposer names the (2f+1)-th highest block — cherry-pickable; keep F3-6), bench5-persist-fsync-amplification
+(OPEN cause; bench-6 probes + bench-4-image arm), bench5-far-validator-certificate-inclusion (round drift + reputation loop; parent grace 150 ms),
+bench5-sealed-tx-invisible-drops-and-duplicates (300-s resend cliff = land p99 403 s; duplicate inclusion), bench5-loaded-epoch-boundary-drain
+(records at exactly 7/10), bench5-execution-lag-feedback (finish + signer cost rise with queue depth).
+Harness: D36-D48 (A4o/defects.md); top fixes for bench 6: retry a gcloud client crash on create, print the complete resume (incl. step 15 and
+BENCH_LOG_RATE_CHECK), rewrite manifest.phases from the blasters' real phases (D42), one parallel log pass in the teardown, cut the light-arm overhead.
+Operator items: back up benchmark/results/r20261107-1504 (2.5 GB, the ONLY copy; the archive bucket is retired per the README); open the nine draft PRs
+(tasks/pr-bench5-*.md) and the observability PR from the texts; open the issue texts upstream; decide the bench-6 arms from report §6.
+Lessons added: `--project tn-devnet` on every ad-hoc gcloud read; never estimate wall-clock in a record; make_bundle re-runs need `--force`.

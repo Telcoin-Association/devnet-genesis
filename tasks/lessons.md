@@ -1447,3 +1447,8 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   read ≈ 19:55-20:00Z (the bundle log's own `date -u` exposed it). Harmless here, but a timeline that A4o/A5 cite must be exact.
 - Rule: every record line that carries a time starts from `date -u +%FT%TZ` in the same command, or from a timestamp printed by
   the tool being recorded; approximate times are written as "≈ hh:mmZ" and never with a fake minute digit.
+
+## 2026-11-07 — a make_bundle re-run needs `--force` (the scratch dir persists)
+- Symptom: the second bundle (after a backfill wording fix) exited rc=1 at once: "scratch dir … exists; pass --force".
+- Rule: any bundle re-run after the first passes `--force`; the launcher script carries it from the second run on, and the
+  install step replaces the site run dir atomically, so a forced rebuild is safe while the earlier bundle is still installed.
