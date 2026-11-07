@@ -1,0 +1,68 @@
+# step 8 session for bench-validator-01 (--print-obs-script). Sent as:
+#   printf '%s\n' PLACEHOLDER-TOKEN | tn_iap_ssh_cmd_stdin bench-validator-01 us-west2-a 'sudo bash -c "$(printf %s <base64 of the script below> | base64 -d)" bench-obscfg'
+# PLACEHOLDER-TOKEN stands for the token (step 8: openssl rand -hex 16; bench-obs takes no ingest auth):
+# the session's only stdin line, read into TOKEN below and piped to setup-observability.sh --token-stdin;
+# it is never on a command line or in an environment.
+# bench-obs: bench-obs-internal-ip.invalid (BENCH_OBS_INTERNAL_IP, else the placeholder)
+set -euo pipefail
+# ERRTAIL: the last lines of setup-observability.sh's stderr once it has run (each OBSCFG_ERR on a failure)
+ERRTAIL=""
+fail() { [ -z "${ERRTAIL}" ] || printf '%s' "${ERRTAIL}" | sed 's/^/OBSCFG_ERR bench-validator-01 /'; echo "OBSCFG_FAIL bench-validator-01 $*"; exit 1; }
+# the token: this session's one stdin line, into a plain variable; nothing else reads stdin
+TOKEN=""
+IFS= read -r TOKEN || [ -n "${TOKEN}" ] || fail "no ingest token on stdin"
+TOKEN="${TOKEN%$'\r'}"
+exec </dev/null
+[ -n "${TOKEN}" ] || fail "empty ingest token on stdin"
+S=/usr/local/libexec/telcoin/tn-start-docker
+M=/etc/telcoin/.node-meta
+# before: the node runs since the coordinated start, and nothing here may restart it
+systemctl is-active --quiet telcoin || fail "telcoin is not active (step 7 start-all starts it)"
+T0="$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+[ -n "${T0}" ] || fail "no running telcoin container"
+N0="$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "${N0}" = 0 ] || fail "telcoin NRestarts=${N0:-?} before setup-observability.sh, expected 0"
+grep -v '^[[:space:]]*#' "${S}" | grep -E -- '(^|[[:space:]])--metrics[[:space:]]+127\.0\.0\.1:[0-9]+' >/dev/null \
+    || fail "contract drift: no --metrics 127.0.0.1:<port> on the node command in ${S} (step 7's pre-start config sets it); not calling setup-observability.sh, which would add it and restart the node"
+! grep -qx 'ENABLE_OBSERVABILITY=true' "${M}" \
+    || fail "contract drift: ${M} has ENABLE_OBSERVABILITY=true; log shipping would add JSON log flags and restart the node"
+rc=0
+printf '%s\n' "${TOKEN}" | DEVNET_RPC_URL='http://127.0.0.1:9' OBS_PUSH_URL='http://127.0.0.1:9/bench-hold' OBS_METRICS_PUSH_URL='http://127.0.0.1:9/bench-hold' \
+    '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-metrics --region 'us-west2' --token-stdin \
+    --push-url 'http://127.0.0.1:9/bench-hold' --metrics-push-url 'http://127.0.0.1:9/bench-hold' > /tmp/bench-obscfg.json 2>/tmp/bench-obscfg.err || rc=$?
+# its last 5 stderr lines (ANSI stripped) for a failure report; setup-observability.sh never prints the
+# token, and a line that held it anyway is withheld (a bash pattern match: the token is in no argv)
+while IFS= read -r l; do
+    case "${l}" in *"${TOKEN}"*) l="(line withheld: it holds the ingest token)" ;; esac
+    ERRTAIL="${ERRTAIL}${l}
+"
+done < <(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obscfg.err 2>/dev/null | tail -5 || true)
+TOKEN=""
+unset TOKEN
+# after: the done event says ok, the node command already had --metrics, and the node did not restart
+DONE="$(grep -F '"event":"done"' /tmp/bench-obscfg.json 2>/dev/null | tail -1 || true)"
+case "${DONE}" in
+    *'"ok":true'*) ;;
+    *) fail "setup-observability.sh rc ${rc}, done event: ${DONE:-none}" ;;
+esac
+[ "${rc}" = 0 ] || fail "setup-observability.sh exited ${rc} after a done ok:true event (${DONE})"
+T1="$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+N1="$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "${T1}" = "${T0}" ] || fail "the node restarted: container StartedAt ${T0} -> ${T1:-none}"
+[ "${N1}" = 0 ] || fail "telcoin NRestarts=${N1:-?} after setup-observability.sh, expected 0"
+sed 's/\x1b\[[0-9;]*[A-Za-z]//g' /tmp/bench-obscfg.err /tmp/bench-obscfg.json | grep -F 'Node already serves a metrics endpoint (--metrics).' >/dev/null \
+    || fail "contract drift: setup-observability.sh did not report 'Node already serves a metrics endpoint (--metrics).' (no restart fallback; see /tmp/bench-obscfg.err on the node)"
+# bench-obs must answer this node before Alloy is pointed at it (gone, wrong IP, no internal path):
+# a failure here leaves Alloy as setup-observability.sh left it, on the black hole
+curl -sf --max-time 5 "http://bench-obs-internal-ip.invalid:9090/-/ready" >/dev/null || fail "bench-obs unreachable"
+systemctl stop telcoin-alloy.service
+rm -rf /var/lib/telcoin-alloy/* 2>/dev/null || true
+E=/etc/telcoin/alloy/telcoin-alloy.env
+[ -f "$E" ] || fail "no $E"
+sed -i -e 's/^TN_CHAIN=.*/TN_CHAIN=bench/' -e 's/^TN_NODE=.*/TN_NODE=bench-validator-01/' \
+    -e 's#^OBS_METRICS_PUSH_URL=.*#OBS_METRICS_PUSH_URL=http://bench-obs-internal-ip.invalid:9090/api/v1/write#' "$E"
+grep -qx 'TN_CHAIN=bench' "$E" && grep -qx 'TN_NODE=bench-validator-01' "$E" \
+    && grep -qx 'OBS_METRICS_PUSH_URL=http://bench-obs-internal-ip.invalid:9090/api/v1/write' "$E" || fail "alloy env not rewritten"
+systemctl start telcoin-alloy.service
+systemctl is-active --quiet telcoin-alloy.service || fail "telcoin-alloy not active"
+echo "OBSCFG_OK bench-validator-01 restarted=none ${DONE}"

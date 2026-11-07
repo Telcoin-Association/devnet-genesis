@@ -89,6 +89,12 @@ fix: one rejoin per episode — certificate retention, propose at the head, grac
     The stalled-head timer now also re-requests [replayed + 1, gossiped] when the replayed output has not moved for a
     check interval, attempts exhausted or not, re-sending the same range with a doubling wait (capped at 60 s) while the
     floor stays put; the fetch task still defers to walks that cover the range.
+- 067639def `test(e2e): restart the halted committee's inactive member so its first demotion is deterministic`
+  The freeze/resume first phase raced: after SIGCONT node 3 drained the gossip buffered during the freeze oldest-first and a
+    303-certificate fetch lifted its committed round from 38 to 110 within 15 ms, so no certificate was ever outside its window
+    (1 of 3 runs). Node 3 is now killed and restarted for the first demotion (its first gossip certificate is at the frontier),
+    frozen once inactive, and the test waits for one more commit before killing node 4 so the frozen node has a head to read;
+    the second resume is still SIGCONT to the same process, so the stalled-head claim is unchanged. 5 of 5 runs pass.
 
 ## Why (measured motivation)
 See the issue text tasks/issues/bench5-f3-rejoin-loop.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.

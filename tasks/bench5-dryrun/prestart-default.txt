@@ -1,0 +1,89 @@
+set -euo pipefail
+fail(){ echo "PRECFG_FAIL bench-validator-01 $*"; exit 1; }
+SD=/opt/telcoin-node-scripts
+tnlib(){ ( export DEVNET_RPC_URL=http://127.0.0.1:9; . "$SD/lib/common.sh"; "$@" ); }
+meta(){ [ -r /etc/telcoin/.node-meta ] || return 1; awk -v k="$1" 'index($0, k "=") == 1 { n++; v = substr($0, length(k) + 2) } END { sub(/\r$/, "", v); if (n == 1) print v; exit (n == 1 ? 0 : (n ? 2 : 1)) }' /etc/telcoin/.node-meta; }
+REF='d9446f720026fa5ce8b64fce9074e56b05b3f4eb'; NOV=0
+LRS='20G'; LRT=$'# Managed by benchmark (bench_logrotate_text): v2\'s node-log rotation with no upper size cap. Node logs rotate only past \'size\'.\n@LOGGLOB@ {\n    su root @GROUP@\n    size 20G\n    rotate 5\n    missingok\n    notifempty\n    compress\n    delaycompress\n    copytruncate\n}'
+F='info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info'; MF='20'
+# 1. the v2 scripts' checkout is the pinned commit
+h="$(git -C "$SD" rev-parse HEAD 2>/dev/null || true)"
+[ "$h" = "$REF" ] || fail "$SD is at '${h:-?}', want $REF"
+# 2. the unit is stopped (devnet-finalize.sh --stage-only): nothing below starts or restarts it
+u="$(systemctl is-active telcoin 2>/dev/null || true)"
+[ "$u" = inactive ] || fail "unit telcoin is '${u:-?}', want inactive"
+# 3. the datadir, read once
+r=0; D="$(meta DATA_DIR)" || r=$?
+[ "$r" = 0 ] || fail "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
+case "$D" in /?*) ;; *) fail "DATA_DIR '$D' in /etc/telcoin/.node-meta is not an absolute path" ;; esac
+# 4. the start script, which must mount the datadir at the container's home
+S=/usr/local/libexec/telcoin/tn-start-docker
+[ -f "$S" ] || fail "no $S"
+grep -qF " -v $D:/home/nonroot " "$S" || fail "$S does not mount $D at /home/nonroot"
+# 5. the metrics port as obs_metrics_port reads it: METRICS_PORT, 9101 when absent or empty
+r=0; MP="$(meta METRICS_PORT)" || r=$?
+case "$r" in 0|1) ;; *) fail "METRICS_PORT is set more than once in /etc/telcoin/.node-meta" ;; esac
+[ -n "$MP" ] || MP=9101
+case "$MP" in *[!0-9]*|??????*) fail "METRICS_PORT '$MP' is not a port number" ;; esac
+MP=$((10#$MP))
+[ "$MP" -ge 1 ] && [ "$MP" -le 65535 ] || fail "METRICS_PORT $MP is not a port number (1-65535)"
+# 6. launch flags: rc 0 = set, rc 1 = already that value; anything else fails
+setf(){ local rc=0; tnlib tn_launch_flag_set "$S" "$1" "$2" || rc=$?; case "$rc" in 0|1) ;; *) fail "tn_launch_flag_set $1 $2: rc $rc" ;; esac; }
+getf(){ local v rc=0; v="$(tnlib tn_launch_flag_get "$S" "$1")" || rc=$?; [ "$rc" = 0 ] || fail "tn_launch_flag_get $1: rc $rc"; [ "$v" = "$2" ] || fail "$1 reads '$v' in $S, want '$2'"; }
+setf --http.addr 0.0.0.0
+setf --ws.addr 0.0.0.0
+setf --metrics "127.0.0.1:$MP"
+setf --log.stdout.filter "$F"
+setf --log.file.filter "$F"
+setf --log.file.max-files "$MF"
+# 7. this node's consensus parameter overrides (setp), marked `# bench-override`
+P="$D/parameters.yaml"
+[ -f "$P" ] || fail "no $P"
+# 7a. the stage's file is kept as $P.bak (params-apply.sh's convention); an existing .bak is the original
+if [ -f "$P.bak" ]; then BAK=kept
+elif grep -q '  # bench-override$' "$P"; then fail "$P has '# bench-override' lines and no $P.bak (not the stage's original)"
+else cp -p "$P" "$P.bak" || fail "cannot copy $P to $P.bak"; BAK=written
+fi
+# setp <key> <value> — rewrite the top-level `key:` line in place (append it when absent), marked.
+setp() {
+    local t
+    t="$(mktemp)"
+    if ! awk -v k="$1" -v v="$2" '
+        index($0, k ":") == 1 { r = substr($0, length(k) + 2); sub(/^[ \t]+/, "", r); sub(/[ \t]*#.*$/, "", r)
+                                if (r == "") blk = 1
+                                if (!n++) print k ": " v "  # bench-override"
+                                next }
+        { print }
+        END { if (!n) print k ": " v "  # bench-override"; exit (blk ? 3 : 0) }' "$P" > "$t"; then
+        rm -f "$t"; fail "$1 is a block (secs/nanos) in $P; write it as <int>ms there"
+    fi
+    cat "$t" > "$P"; rm -f "$t"
+    [ "$(grep -c "^$1: $2  # bench-override\$" "$P" || true)" = 1 ] || fail "$1 not rewritten in $P"
+}
+m="$(grep -c '  # bench-override$' "$P" || true)"
+[ "$m" = "$NOV" ] || fail "$P has $m '# bench-override' line(s), this node has $NOV override(s) (a marked line from an earlier run?)"
+# 7b. the bench logrotate config: the v2 template without maxsize, rotating at $LRS, from the node's v2 lib
+r=0; LD="$(tnlib eval 'printf "%s" "${DEFAULT_LOG_DIR:-}"')" || r=$?
+[ "$r" = 0 ] && [ -n "$LD" ] || fail "DEFAULT_LOG_DIR unreadable from $SD/lib/common.sh (rc $r)"
+r=0; LG="$(tnlib eval 'printf "%s" "${TN_LOG_GROUP:-}"')" || r=$?
+[ "$r" = 0 ] && [ -n "$LG" ] || fail "TN_LOG_GROUP unreadable from $SD/lib/common.sh (rc $r)"
+g="$LD/*.log"; t="${LRT//@LOGGLOB@/"$g"}"; t="${t//@GROUP@/"$LG"}"
+case "$t" in *@LOGGLOB@*|*@GROUP@*) fail "the logrotate text still holds a placeholder" ;; esac
+r=0; tnlib tn_write_root_file /etc/logrotate.d/telcoin 0644 <<< "$t" || r=$?
+[ "$r" = 0 ] || fail "tn_write_root_file /etc/logrotate.d/telcoin 0644: rc $r"
+logrotate -d /etc/logrotate.d/telcoin >/dev/null 2>&1 || fail "logrotate -d does not parse /etc/logrotate.d/telcoin"
+# 8. read every flag back
+getf --http.addr 0.0.0.0
+getf --ws.addr 0.0.0.0
+getf --metrics "127.0.0.1:$MP"
+getf --log.stdout.filter "$F"
+getf --log.file.filter "$F"
+getf --log.file.max-files "$MF"
+# 9. the start script is still root:root 755 and parses
+o="$(stat -c '%U:%G %a' "$S" 2>/dev/null || true)"
+[ "$o" = "root:root 755" ] || fail "$S is '${o:-?}', want root:root 755"
+bash -n "$S" || fail "$S does not parse (bash -n)"
+# 10. still stopped
+u="$(systemctl is-active telcoin 2>/dev/null || true)"
+[ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
+echo "PRECFG_OK bench-validator-01 datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}"
