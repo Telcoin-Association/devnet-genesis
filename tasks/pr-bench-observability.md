@@ -78,6 +78,19 @@ Two systemic findings:
    throughput holding while the landing generators fell from ten to seven. Not separated: the pre-existing `engine` Debug dumps
    run on the execution thread under `engine=debug` (follow-up 1).
 
+## What bench 5 showed (r20261107-1504; full report: bench5-report-r20261107-1504.md)
+
+The same nine commits, cherry-picked onto origin/main 4bf4604d2, carried the bench-5 fix build. The lines were again the evidence:
+- `vote path timing … outcome=behind exec_wait_ms=1001` on seven voters at once is how the F3-6 regression was found: the three
+  fastest executors' headers were refused by every slower voter and certified 0.2 / 0.0 / 16.3 % of the time under load
+  (tasks/issues/bench5-execution-behind-vote-starvation.md). The per-node refusal counts matched the counters within 1.5 %.
+- `vote refused: header too new` fell from 100,852 lines (bench 4) to 12: the TooNew storm was a symptom of the commit-lag demotion.
+- `header uncertified round= epoch= reason=` and `digests resent … cause=canceled` sized the cert-requeue change (2,811 of 2,813
+  cancelled headers' digests landed in the next header, 113-118 ms later) and showed it cannot help a starved proposer.
+- `output execution task finished` / `output executed` / `persisted output` gave the F2 verdict: execute 165 → 87 µs/tx, persist
+  50 → 199 (the MDBX commit fsync tripled with identical logical writes; tasks/issues/bench5-persist-fsync-amplification.md).
+- The warn+error census fell from 266,118 to 77,168 lines over a run of the same shape; 0 panics, 0 DB errors.
+
 ## The instrumentation was the evidence (no behaviour change)
 Every finding above comes from the lines and series these commits add; none of the commits changes behaviour (log lines, counters,
 histograms and the `leader_with_swap` wrappers only). The demotion and the promotion loop are origin/main behaviour that was
