@@ -1,0 +1,46 @@
+# Draft PR (telcoin-network) — topic `exec-split` — not yet opened; evidence section to be filled from the bench-5 analysis (Wave D)
+
+Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/exec-split origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: exec-split$' origin/main..bench/main-fixes-2026-11)`
+Commits on bench/main-fixes-2026-11 (integration shas): 3dc26fa59 fac145464 decc4cbc4
+Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/issues/bench5-f2-execution-ceiling.md.
+Open as DRAFT with: gh -R Telcoin-Association/telcoin-network pr create --draft --base main --head fix/exec-split --title "<title>" --body-file <this file's body>
+
+## Title
+feat(engine): split execute time per output, time the subscriber-to-engine hop, name the consensus ids on executed blocks
+
+## Body (per-commit summary)
+- 3dc26fa59 `feat(engine): split execute_ms into recover/evm/root/finish per output`
+  Bench 4 executed at 215 us/tx, 165 us/tx of it in execute_ms: too coarse to say whether bench 6 should
+    parallelise the state root. build_block_from_batch_payload_timed returns the laps (the old call wraps it) and
+    times the root inside the overlay root provider, as reth runs it in finish. `output executed` appends txs, the
+    laps, other_ms and the slowest block's root and evm laps; tn_engine_{recover,evm,root,finish}_seconds are the
+    only execute-only series (execution_duration times the whole task); tn_engine_executed_transactions_total
+    gives a per-tx rate. A test shows the wrapper transparent and the build deterministic; parity with the old
+    loop rests on passing the same Recovered<T> by value (no clone) and on the reth-oracle root test, via the
+    timed root provider.
+- fac145464 `feat(engine): time the subscriber-to-engine hop and export channel depth`
+  Bench 4's queue_wait saw only the engine's own 8-slot queue; the 64-slot to_engine channel in front of it, where
+    outputs back up once execution falls behind, had no measurement. ConsensusOutput gains a transient
+    forwarded_at stamp (like close_epoch: never serialized, hashed or executed), set in process_output just before
+    the one send to the engine. The engine records tn_engine_forward_wait_seconds when it takes an output off the
+    channel, appends forward_wait_ms to `output execution task finished`, and samples the depth left behind into
+    tn_engine_channel_depth on every arrival and completion. A field instead of an (Instant, ConsensusOutput)
+    tuple leaves the 11 forwarding signatures and 22 test call sites untouched.
+- decc4cbc4 `feat(engine): queued line and consensus ids on executed blocks`
+  The bench-5 land-path breakdown joins its stages on the consensus number and the batch digest, but the engine's
+    side of that join was incomplete: an output reaching the engine queue was not logged, and `next block
+    executed` named only the block hash and number while its enclosing span carried consensus_number; the explicit
+    field is what the offline join parses. The engine now logs `output queued` at debug with the consensus number
+    and the queue depth after the push, and `next block executed` appends consensus_number, batch_index and
+    batch_digest, so the queue and execute stages of every block join back to their output and batch. One line per
+    output or block, never per tx; an engine test captures the lines and pins the field order of the engine's
+    timing lines too.
+
+## Why (measured motivation)
+See the issue text tasks/issues/bench5-f2-execution-ceiling.md — bench 4 (r20261105-0803) evidence with `<inst>:<ts>` cites.
+
+## Evidence (bench 5, run <R>)
+(to be filled in Wave E from benchmark/private/bench5-<run>/{A1,A3,A4n,A6}: the fields named in tasks/checkpoint-bench5-design.md for this topic, with file cites; verdict confirmed / inconclusive / regressed)
+
+## Follow-ups
+(from the tn-review of this topic — tasks/checkpoint-bench5-review-*.md — items deferred to upstream, and the bench-6 items of the design)

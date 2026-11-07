@@ -10,3 +10,6 @@ nextest rc=0
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.09s
 clippy rc=0
 == workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 49.03s
+check rc=0

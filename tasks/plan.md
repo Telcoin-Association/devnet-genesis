@@ -40,7 +40,7 @@ devnet-genesis:
 - [x] U-H4a stage-latency.py — 12 tests, 3 anchors; bench-4 preamble blocks reproduce I-3 trace; uncommitted
 - [x] U-H4b kpis/windows/make_bundle + scrub + tn-benchmarks (56+41 tests, 9 anchors; bench-4 KPIs byte-identical; seen p50 12.92); uncommitted in both repos
 
-## Wave 1b — after 1a integrates (integration cae41a400 = F3-0, F3-2, F1-1, E1-E3, L5, L1, L2, L6, L4, L3, E4, L7, F3-5, F3-6 — verified through tasks/bench5-integration-verify-{1..7}.log, all green)
+## Wave 1b — after 1a integrates (integration 73d3163db = F3-0, F3-2, F1-1, E1-E3, L5, L1, L2, L6, L4, L3, E4, L7, F3-5, F3-6, F1-2, F3-3, F3-4 — verified through tasks/bench5-integration-verify-{1..8}.log, all green; E5 and the e2e commits still to land)
 - [x] U-F3b1 F1-2+F3-3+F3-4 — 3e4f0dd54 f61792797 324d3e5ad (review 0 BLOCKING; S1-S5 + nits applied; 714 tests); integrated a3a00525e f2f9437f7 73d3163db (two nested-test-module conflicts rebuilt by hand)
 - [x] U-F3b2 F3-5+F3-6 — 69f3891dc 86a650d91 (review 0 BLOCKING; S1-S3 + N1-N5 applied; 503 tests); integrated bf34ec488 cae41a400 (metrics/network_tests add/add resolved)
 - [x] U-L2a L3 — dc09d7985 (392 tests); integrated c7764fac4; Wave-2 land-path review covers L3+L4
@@ -50,18 +50,19 @@ devnet-genesis:
 ## Wave 1c — after 1b
 - [x] U-L2b L4 — 994755c1c (907 tests; observability-only); integrated 44a87b0ef; Wave-2 land-path review covers L3+L4
 - [x] U-L3 L7 — 4364ec892 (review 0 BLOCKING; S1 + N1-N3 applied; 398 tests); integrated 3304d94ce
-- [ ] U-E2b E5 — 9bec2acbf (rebased on the amended E4; review 0 BLOCKING; S1-S3 hardening + nits being amended; 514 tests); cherry-pick after the amend
-- [ ] U-X (F1-3 + F3-7 e2e) — started from 6657ba2a4 (F3b1 head, pre-throttle); own target dir
+- [x] U-E2b E5 — 61234d989 (review 0 BLOCKING; S1-S3 hardening + N1-N3 applied; 516 tests; 32-case proptests reach evict/clear; no path difference); integrated 420f8aef7 (clean)
+- [x] U-X F1-3+F3-7 e2e — de49fbb90 2e4e55dbf (slow-execution node active with exec lag 246 vs window 15; one rejoin, 146 own certs after promotion, 0 fetch failures, also at gc_depth 50); integrated d33ecb797 ae68877dc (clean)
 
 ## Wave 2 — verify, review, build, probe, dry runs (serial)
-- [ ] Per-commit compile check (`cargo check --workspace --all-targets` at each Topic commit)
-- [ ] Workspace fmt / clippy / `nextest --locked --workspace` + the named e2e tests (`tasks/bench5-tn-workspace-verify.log`); `make pr` = fmt + clippy --fix + `public-tests` (workspace nextest with the e2e bin, then the ignored `test_epoch*` and `test_restarts*` e2e sets — multi-hour; run detached with nohup setsid, does not need gcloud)
+- [ ] Per-commit compile check (`cargo check --workspace --all-targets` at each Topic commit) — running in ../tn-bench5-percommit (tasks/bench5-per-commit-check.log)
+- [x] Workspace fmt / clippy / `nextest --locked --workspace` green on 420f8aef7 (3980 passed, strict check clean — tasks/bench5-tn-workspace-verify.log); `make public-tests` (workspace with the e2e bin + the ignored test_epoch* and test_restarts* sets) running detached (tasks/bench5-public-tests.{log,pid})
 - [ ] tn-review per topic group: F1 ✓, F3-2 ✓, engine ✓, L1/L2/L6 ✓, F3-5/6 ✓, L3+L4 ✓ (fixes squashed), E4 ✓ (amending), L7 ✓ (amending) — all 0 BLOCKING; F3b1 review after its throttle amend; tn-security-eval on the consensus set RUNNING (F1-1, F1-2, F3-0, F3-2..F3-6, L7 all integrated); harness U-review ✓ 0 BLOCKING (byte-identity 12/12, 15/15, 13/13 KPIs; 3 SHOULD → U-Hfix running); txgen review ✓ 0 BLOCKING (fixes folded in)
 - [ ] BLOCKING fixes → checks again
-- [ ] (needs operator `gcloud auth login` first — token expired 2026-11-06) Push `bench/main-fixes-2026-11` over ssh; image `adiri:bench-main-fixes-<yyyymmdd>` built + pushed; digest recorded; probe 12/12 (`tasks/bench5-probe-bench-image.log`)
+- [x] Pushed `bench/main-fixes-2026-11` @ 420f8aef7 (31 commits: 9 obs + 22 topic) over ssh
+- [ ] (needs operator `gcloud auth login` first — token expired 2026-11-06) image `adiri:bench-main-fixes-<yyyymmdd>` built + pushed; digest recorded; probe 12/12 (`tasks/bench5-probe-bench-image.log`)
 - [ ] Harness: full unittest, check_mutations (all anchors killed), bash -n, shellcheck, check-bash32, py3.9 grammar; txgen tests + blaster image
 - [ ] Dry runs: deploy (`--print-prestart` with/without sync-mode), blast (light-load lines), teardown on r20261105-0803 (read-only gcloud)
-- [ ] Commits per unit group (devnet-genesis, txgen); ledger rows filled with shas
+- [x] Commits: devnet-genesis 85fb888..fe35deb (7 groups: blast, deploy, teardown/pull, tools, report, docs/CI/anchors, tasks); txgen 0ca0c49 4fd1fb0 6dad96f; tn-benchmarks schema/window words committed; nothing pushed
 
 ## Wave 3 — live run (orchestrator only, detached segments; `tasks/checkpoint-bench5-live.md`)
 - [ ] Pre-run gates (obs-devnet < 60 %, devnet healthy on info filter, quota, leftovers, gcloud token); RTT re-probe incl. us-east4

@@ -1,0 +1,15 @@
+== head ae68877dc 2026-11-07T00:04:57Z
+== fmt
+fmt rc=0
+== clippy workspace
+    Checking e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 03s
+clippy rc=0
+== nextest workspace (locked)
+     Summary [  57.579s] 3973 tests run: 3973 passed, 71 skipped
+nextest rc=0
+== strict workspace check
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 40.70s
+check rc=0

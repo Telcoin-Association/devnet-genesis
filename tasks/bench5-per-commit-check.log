@@ -1,0 +1,6 @@
+== per-commit strict check 2026-11-07T00:12:26Z: 3a721a1b6..420f8aef7
+OK   746ac3272 fix(storage): keep the certificate rounds a rejoining validator rebuilds from
+OK   0c41872ba fix(state-sync): rejoin proposes at the network head
+OK   557c9b737 fix(primary): commit without waiting for execution; fork check moves to the subs
+OK   a962b9876 perf(engine): demote output, block and per-tx debug dumps to trace
+OK   3dc26fa59 feat(engine): split execute_ms into recover/evm/root/finish per output
