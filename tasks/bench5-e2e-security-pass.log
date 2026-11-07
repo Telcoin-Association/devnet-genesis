@@ -1,0 +1,8 @@
+== e2e on 9840759a2 2026-11-07T03:01:49Z
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `e2e` profile [optimized + debuginfo] target(s) in 2m 36s
+build rc=0
+        PASS (1/2) e2e-tests::it restarts::test_restarts_lagged_under_load
+        PASS (2/2) e2e-tests::it restarts::test_slow_execution_stays_active
+     Summary 2 tests run: 2 passed, 62 skipped
+e2e rc=0 2026-11-07T03:08:40Z

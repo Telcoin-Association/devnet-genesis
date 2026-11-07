@@ -1409,3 +1409,20 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   place each hunk explicitly (struct field at the struct's end, increments inside the recorder closure, asserts before the test's
   closing brace); then `cargo check --all-targets` the crate at THAT commit before continuing the cherry-pick. Never fuzz > 0 on test
   bodies.
+
+## 2026-11-07 — a "silently not launched" detached chain may have launched: check before relaunching
+- Symptom: the launch chain for `make public-tests` printed an old pid, so it was relaunched standalone; both runs were alive
+  and wrote to the same log (`>` from each side), ran the e2e sets concurrently in the same worktree (same `test_logs/` dirs,
+  ephemeral ports handed out by a check-then-bind helper) and produced spurious failures (connection refused on a port the
+  other run's node had just taken; overwritten node logs).
+- Rule: before relaunching any detached job, `pgrep -af '<unique command text>'` and read the pid file's process; a second
+  copy is never started while the first is alive. Give each launch its own log name (`<name>-<UTC>.log`) so interleaving is
+  impossible, and record the leader pid in the checkpoint before anything else.
+- Rule: one e2e run per worktree at a time, always (nextest's `max-threads = 1` for the e2e group only serialises within a run).
+
+## 2026-11-07 — a `cd` into a nested repo leaked into a parallel Bash call and a commit landed in the submodule
+- Symptom: a read-only `cd tn-node-deployment && git diff` ran in parallel with `cd devnet-genesis && git add tasks/ && git commit`;
+  the commit was created in tn-node-deployment (it staged the user's own uncommitted tasks/lessons.md there). Undone with
+  `git reset --soft HEAD~1` + `git reset <file>` in the submodule.
+- Rule: never `cd` in a Bash call that runs alongside another; address every git operation with `git -C <absolute path>` and
+  verify `git -C <repo> log -1` after each commit. Never run two git-writing calls in one response.

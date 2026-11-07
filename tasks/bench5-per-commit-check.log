@@ -4,3 +4,21 @@ OK   0c41872ba fix(state-sync): rejoin proposes at the network head
 OK   557c9b737 fix(primary): commit without waiting for execution; fork check moves to the subs
 OK   a962b9876 perf(engine): demote output, block and per-tx debug dumps to trace
 OK   3dc26fa59 feat(engine): split execute_ms into recover/evm/root/finish per output
+OK   fac145464 feat(engine): time the subscriber-to-engine hop and export channel depth
+OK   decc4cbc4 feat(engine): queued line and consensus ids on executed blocks
+OK   dac760298 feat(batch-builder): record build reason, pool age and wake source per sealed ba
+OK   d660e8e7f feat(worker): stamp digest, quorum and report timing on the seal lines
+OK   716de9019 feat(batch-builder): wake on transaction arrival
+OK   0bd522ca7 feat(executor,state-sync,storage): time batch fetch and pack persist per output
+OK   cafca0d95 feat(primary): proposer digest wait, header reason and commit-path timestamps
+OK   9039198de perf(engine): recover signers when an output is queued, off the execution thread
+OK   3304d94ce feat(primary): re-queue digests of cancelled headers
+OK   bf34ec488 fix(primary): refuse vote requests while inactive
+OK   cae41a400 fix(primary): bound the voter's wait for execution
+OK   a3a00525e feat(primary): expose execution and commit lag in behind-consensus logs and gaug
+OK   f2f9437f7 fix(primary): hold demotion for a grace period after a rejoin
+OK   73d3163db fix(executor): stay inactive after two rejoins in an epoch
+OK   d33ecb797 test(e2e): a validator with slowed execution stays active under load
+OK   ae68877dc test(e2e): one rejoin and a populated DAG for a lagged restart under load
+OK   420f8aef7 perf(tn-reth): keep one read cache across the blocks of a consensus output
+== done 2026-11-07T00:34:42Z

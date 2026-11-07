@@ -1,15 +1,15 @@
-== head 420f8aef7 2026-11-07T00:11:48Z
+== head 9840759a2 2026-11-07T02:56:37Z
 == fmt
 fmt rc=0
 == clippy workspace
-    Checking tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/kad-client)
-    Checking tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/storage)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.17s
+    Checking e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/e2e-tests)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.33s
 clippy rc=0
 == nextest workspace (locked)
-     Summary [  69.848s] 3980 tests run: 3980 passed, 71 skipped
+     Summary [  58.560s] 4007 tests run: 4007 passed, 71 skipped
 nextest rc=0
 == strict workspace check
-    Checking tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/crates/consensus/worker)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.22s
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-bench5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 46.10s
 check rc=0

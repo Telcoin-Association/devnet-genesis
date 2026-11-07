@@ -1,0 +1,72 @@
+        FAIL [  64.470s] (11/11) e2e-tests::it restarts::test_restartstt
+  stdout ───
+
+    running 1 test
+    2026-11-07T03:28:57.470008Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_getBalance" node="http://127.0.0.1:16516" debug_params="0x7EA53082328F761a2b162612cA3ab99cE3Ce308E"
+    2026-11-07T03:28:57.471837Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16516" debug_params="restart readiness"
+    2026-11-07T03:28:57.482358Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16516" debug_params="restart readiness"
+    2026-11-07T03:28:57.492735Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16516" debug_params="restart readiness"
+    2026-11-07T03:28:57.503119Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16516" debug_params="restart readiness"
+    2026-11-07T03:28:57.513454Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16516, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16516" debug_params="restart readiness"
+    2026-11-07T03:29:51.571407Z ERROR restart-test: get_balance_above_with_retry i == 30 - returning error!!
+    2026-11-07T03:29:51.571420Z ERROR restart-test: send and confirm nonce 1 failed - killing child2... e=Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999
+
+    Location:
+        crates/e2e-tests/tests/it/common.rs:792:13
+    test restarts::test_restartstt has been running for over 60 seconds
+    2026-11-07T03:29:53.971672Z ERROR restart-test: Got error: Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999
+    test restarts::test_restartstt ... FAILED
+
+    failures:
+
+    failures:
+        restarts::test_restartstt
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 64.46s
+
+  stderr ───
+
+    thread 'restarts::test_restartstt' (2873828) panicked at crates/e2e-tests/tests/it/restarts.rs:550:5:
+    Phase 1 failed: Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999. Check logs in test_logs/restarts/
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [ 438.463s] 11 tests run: 8 passed, 3 failed, 4068 skipped
+        PASS [  69.455s] ( 8/11) e2e-tests::it restarts::test_restarts_lagged_under_load
+        PASS [   5.161s] ( 9/11) e2e-tests::it restarts::test_restarts_observer
+        PASS [  21.983s] (10/11) e2e-tests::it restarts::test_restarts_store_failure_stops_the_node_mid_epoch
+        FAIL [  64.183s] (11/11) e2e-tests::it restarts::test_restartstt
+  stdout ───
+
+    running 1 test
+    2026-11-07T03:31:39.113869Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16478, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_getBalance" node="http://127.0.0.1:16478" debug_params="0x7EA53082328F761a2b162612cA3ab99cE3Ce308E"
+    2026-11-07T03:31:39.114367Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16478, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16478" debug_params="restart readiness"
+    2026-11-07T03:31:39.124670Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16478, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16478" debug_params="restart readiness"
+    2026-11-07T03:31:39.134994Z ERROR restart-tests: rpc call failed error=Transport(Http(Stream(hyper_util::client::legacy::Error(Connect, ConnectError("tcp connect error", 127.0.0.1:16478, Os { code: 111, kind: ConnectionRefused, message: "Connection refused" }))))) command="eth_blockNumber" node="http://127.0.0.1:16478" debug_params="restart readiness"
+    2026-11-07T03:32:33.180237Z ERROR restart-test: get_balance_above_with_retry i == 30 - returning error!!
+    2026-11-07T03:32:33.180257Z ERROR restart-test: send and confirm nonce 1 failed - killing child2... e=Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999
+
+    Location:
+        crates/e2e-tests/tests/it/common.rs:792:13
+    test restarts::test_restartstt has been running for over 60 seconds
+    2026-11-07T03:32:35.580483Z ERROR restart-test: Got error: Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999
+    test restarts::test_restartstt ... FAILED
+
+    failures:
+
+    failures:
+        restarts::test_restartstt
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 64.17s
+
+  stderr ───
+
+    thread 'restarts::test_restartstt' (2885452) panicked at crates/e2e-tests/tests/it/restarts.rs:550:5:
+    Phase 1 failed: Failed to get a balance 10000000000000000000 for 0x7EA53082328F761a2b162612cA3ab99cE3Ce308E above 19999999999999999999. Check logs in test_logs/restarts/
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [ 431.812s] 11 tests run: 10 passed, 1 failed, 4068 skipped
+        FAIL [  64.183s] (11/11) e2e-tests::it restarts::test_restartstt
+error: test run failed
+make: *** [Makefile:501: public-tests] Error 100

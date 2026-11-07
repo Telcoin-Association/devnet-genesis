@@ -1,0 +1,1423 @@
+[2m2026-11-07T03:31:39.118898Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m telcoin-network 0.1.0 (74a4e984e) starting
+[2m2026-11-07T03:31:39.118916Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis
+[2m2026-11-07T03:31:39.118926Z[0m [33m WARN[0m [1mnode-startup[0m[2m:[0m fork schedule OVERRIDDEN by the environment; this is a test-utils build [3mvar[0m[2m=[0m"TN_SEED_SIGNATURE_FORK_EPOCH" [3mfork_epoch[0m[2m=[0m4294967295
+[2m2026-11-07T03:31:39.118933Z[0m [33m WARN[0m [1mnode-startup[0m[2m:[0m fork schedule OVERRIDDEN by the environment; this is a test-utils build [3mvar[0m[2m=[0m"TN_PREVRANDAO_FORK_EPOCH" [3mfork_epoch[0m[2m=[0m4294967295
+[2m2026-11-07T03:31:39.118936Z[0m [33m WARN[0m [1mnode-startup[0m[2m:[0m fork schedule OVERRIDDEN by the environment; this is a test-utils build [3mvar[0m[2m=[0m"TN_MULTI_WORKERS_FORK_EPOCH" [3mfork_epoch[0m[2m=[0m4294967295
+[2m2026-11-07T03:31:39.118939Z[0m [33m WARN[0m [1mnode-startup[0m[2m:[0m fork schedule OVERRIDDEN by the environment; this is a test-utils build [3mvar[0m[2m=[0m"TN_LEADER_SEEDED_ORDERING_FORK_EPOCH" [3mfork_epoch[0m[2m=[0m0
+[2m2026-11-07T03:31:39.118942Z[0m [33m WARN[0m [1mnode-startup[0m[2m:[0m fork schedule OVERRIDDEN by the environment; this is a test-utils build [3mvar[0m[2m=[0m"TN_SUBSECOND_TIMESTAMP_FORK_EPOCH" [3mfork_epoch[0m[2m=[0m0
+[2m2026-11-07T03:31:39.119905Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/node-info.yaml"
+[2m2026-11-07T03:31:39.120054Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/parameters.yaml"
+[2m2026-11-07T03:31:39.120091Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/genesis.yaml"
+[2m2026-11-07T03:31:39.122128Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m config loaded [3mvalidator[0m[2m=[0m"node-SH6e76Jxc8e"
+[2m2026-11-07T03:31:39.123026Z[0m [32m INFO[0m [1mnode-startup[0m[2m:[0m opening database [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/db"
+[2m2026-11-07T03:31:39.125282Z[0m [32m INFO[0m opened consensus storage [3mconsensus_db_path[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/consensus-db"
+[2m2026-11-07T03:31:39.125296Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:39.127414Z[0m [32m INFO[0m starting node and launching first epoch
+[2m2026-11-07T03:31:39.127427Z[0m [32m INFO[0m cross-producer transaction re-packing monitor (issue #1259) [3menabled[0m[2m=[0mfalse
+[2m2026-11-07T03:31:39.129145Z[0m [32m INFO[0m [1mcheck_consistency[0m[2m:[0m Healing static file inconsistencies.
+[2m2026-11-07T03:31:39.140489Z[0m [32m INFO[0m [1mcheck_consistency[0m[2m:[0m[1mcheck_consistency[0m[1m{[0m[3mread_only[0m[2m=[0mfalse[1m}[0m[2m:[0m Verifying storage consistency.
+[2m2026-11-07T03:31:39.140878Z[0m [32m INFO[0m operator listener bound [3mlistener[0m[2m=[0m"metrics" [3mlisten_on[0m[2m=[0m127.0.0.1:16482 [3mexposure[0m[2m=[0mloopback
+[2m2026-11-07T03:31:39.140891Z[0m [32m INFO[0m prometheus metrics endpoint listening [3mlisten_on[0m[2m=[0m127.0.0.1:16482
+[2m2026-11-07T03:31:39.140913Z[0m [32m INFO[0m Engine stated from block 1/0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a, consensus output Some(0x25af389ab3e15be2b1e3f30ec3a1ea1fabba451892acc21584168317a0d1eb93)
+[2m2026-11-07T03:31:39.142387Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:39.142521Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:39.143317Z[0m [32m INFO[0m Transaction pool initialized
+[2m2026-11-07T03:31:39.144070Z[0m [32m INFO[0m tn rpc extension successfully merged
+[2m2026-11-07T03:31:39.144678Z[0m [32m INFO[0m worker rpc endpoints resolved [3mworker_id[0m[2m=[0m0 [3mhttp[0m[2m=[0mSome(127.0.0.1:16478) [3mws[0m[2m=[0mSome(127.0.0.1:16483) [3mipc[0m[2m=[0mSome("/tmp/.tmpdjb2Hl/validator-3.ipc")
+[2m2026-11-07T03:31:39.144691Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/network-config"
+[2m2026-11-07T03:31:39.148976Z[0m [32m INFO[0m restored persisted kad records into the local peer cache [3mrestored[0m[2m=[0m3
+[2m2026-11-07T03:31:39.149292Z[0m [32m INFO[0m [3mlocal_peer_id[0m[2m=[0m12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ
+[2m2026-11-07T03:31:39.153141Z[0m [32m INFO[0m restored persisted kad records into the local peer cache [3mrestored[0m[2m=[0m3
+[2m2026-11-07T03:31:39.153352Z[0m [32m INFO[0m [3mlocal_peer_id[0m[2m=[0m12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:39.153889Z[0m [32m INFO[0m Providing our record to kademlia for peer PeerId("12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy") [3mrecord[0m[2m=[0mRecord { key: Key(b"\x97\x1f\xe1 \xcf^io\xc0hk\x84\xdbF\\)\x14\x1c\\\xfd\xe4g\x15\xb4<k\x96U\xd6*\xa4\x02\xda\xe3\x04\x97Tz\xe8\xfc\x16~\xf8vHP\xc4\xb6\n\x8f\xd8\xff'\xa4j8\xa95\xb56\xcc\xa0?\x10/\xd7\xb7Q&\xc6\x94\xcd\xac\xe6\xa2\rC\xae\xcbQ\x01`\xf5/]\xf1\xe6{\xc4\x9a_\xa7lI\xdcM"), value: [36, 8, 1, 18, 32, 146, 201, 166, 180, 231, 13, 164, 211, 222, 246, 155, 157, 236, 158, 27, 176, 73, 15, 158, 121, 212, 165, 48, 43, 154, 104, 176, 173, 132, 56, 219, 244, 1, 52, 4, 127, 0, 0, 1, 145, 2, 157, 187, 205, 3, 165, 3, 38, 0, 36, 8, 1, 18, 32, 146, 201, 166, 180, 231, 13, 164, 211, 222, 246, 155, 157, 236, 158, 27, 176, 73, 15, 158, 121, 212, 165, 48, 43, 154, 104, 176, 173, 132, 56, 219, 244, 155, 155, 238, 106, 0, 0, 0, 0, 0, 48, 167, 45, 67, 174, 121, 14, 163, 233, 168, 250, 106, 155, 53, 4, 116, 169, 65, 244, 61, 52, 201, 206, 39, 11, 58, 85, 226, 226, 133, 111, 13, 210, 31, 27, 83, 36, 251, 101, 200, 63, 247, 115, 107, 22, 42, 18, 231, 156], publisher: Some(PeerId("12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy")), expires: None }
+[2m2026-11-07T03:31:39.153890Z[0m [32m INFO[0m Providing our record to kademlia for peer PeerId("12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ") [3mrecord[0m[2m=[0mRecord { key: Key(b"\x97\x1f\xe1 \xcf^io\xc0hk\x84\xdbF\\)\x14\x1c\\\xfd\xe4g\x15\xb4<k\x96U\xd6*\xa4\x02\xda\xe3\x04\x97Tz\xe8\xfc\x16~\xf8vHP\xc4\xb6\n\x8f\xd8\xff'\xa4j8\xa95\xb56\xcc\xa0?\x10/\xd7\xb7Q&\xc6\x94\xcd\xac\xe6\xa2\rC\xae\xcbQ\x01`\xf5/]\xf1\xe6{\xc4\x9a_\xa7lI\xdcM"), value: [36, 8, 1, 18, 32, 191, 109, 128, 186, 232, 226, 15, 203, 71, 129, 80, 110, 114, 227, 76, 87, 174, 120, 129, 6, 24, 122, 250, 248, 184, 87, 228, 62, 108, 28, 107, 143, 1, 52, 4, 127, 0, 0, 1, 145, 2, 132, 193, 205, 3, 165, 3, 38, 0, 36, 8, 1, 18, 32, 191, 109, 128, 186, 232, 226, 15, 203, 71, 129, 80, 110, 114, 227, 76, 87, 174, 120, 129, 6, 24, 122, 250, 248, 184, 87, 228, 62, 108, 28, 107, 143, 155, 155, 238, 106, 0, 0, 0, 0, 0, 48, 173, 28, 255, 29, 106, 136, 121, 102, 100, 178, 95, 89, 236, 234, 79, 181, 222, 64, 54, 73, 77, 98, 132, 131, 24, 20, 8, 69, 22, 112, 10, 191, 0, 167, 220, 51, 157, 54, 174, 194, 84, 16, 151, 113, 140, 178, 11, 230], publisher: Some(PeerId("12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ")), expires: None }
+[2m2026-11-07T03:31:39.154240Z[0m [32m INFO[0m peer metrics heartbeat [3mconnected_count[0m[2m=[0m0 [3mconnected_or_dialing[0m[2m=[0m0 [3mbanned_count[0m[2m=[0m0
+[2m2026-11-07T03:31:39.154240Z[0m [32m INFO[0m peer metrics heartbeat [3mconnected_count[0m[2m=[0m0 [3mconnected_or_dialing[0m[2m=[0m0 [3mbanned_count[0m[2m=[0m0
+[2m2026-11-07T03:31:39.154488Z[0m [32m INFO[0m updating previous/current/next committees [3mthis_node[0m[2m=[0mPeerId("12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ")
+[2m2026-11-07T03:31:39.154535Z[0m [32m INFO[0m updating previous/current/next committees [3mthis_node[0m[2m=[0mPeerId("12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy")
+[2m2026-11-07T03:31:39.155372Z[0m [32m INFO[0m listening to /ip4/127.0.0.1/udp/33985/quic-v1/p2p/12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ [3mprimary_address[0m[2m=[0m/ip4/127.0.0.1/udp/33985/quic-v1/p2p/12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ
+[2m2026-11-07T03:31:39.155514Z[0m [32m INFO[0m network reachability changed [3mreadiness[0m[2m=[0mNetworkReadiness { version: 1, status: NotReady, primary: Disconnected, workers: [WorkerNetworkReadiness { worker_id: 0, connectivity: Disconnected }] }
+[2m2026-11-07T03:31:39.190494Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/39340/quic-v1/p2p/12D3KooWQ2j7BXZRR3rWDrgGtgurxovz2JU3fzSWrVfo4wxhMRsd, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.190628Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWQ2j7BXZRR3rWDrgGtgurxovz2JU3fzSWrVfo4wxhMRsd")
+[2m2026-11-07T03:31:39.190704Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/35289/quic-v1/p2p/12D3KooWKdA6vKKEhGT9uCtp7RjpEb9wLTgdfgw5xp9K5K7P3gst, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.190785Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWKdA6vKKEhGT9uCtp7RjpEb9wLTgdfgw5xp9K5K7P3gst")
+[2m2026-11-07T03:31:39.190851Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/44539/quic-v1/p2p/12D3KooWSYDuRd1y8xSY2RVQpMoWopUozcUgHRN8z7g82GoXrzFn, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.190921Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWSYDuRd1y8xSY2RVQpMoWopUozcUgHRN8z7g82GoXrzFn")
+[2m2026-11-07T03:31:39.191028Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/51704/quic-v1/p2p/12D3KooWMXPcvhZWU8FqfwH3qHUahkw3u183L8YMH7C2cpy4aF95, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.191113Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWMXPcvhZWU8FqfwH3qHUahkw3u183L8YMH7C2cpy4aF95")
+[2m2026-11-07T03:31:39.191283Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/39181/quic-v1/p2p/12D3KooWDBnNUhcNHTCiuJ3gwZ1AcqN2ptHmQfjBKAJrd8jKHA9V, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.191328Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mDialer { address: /ip4/127.0.0.1/udp/49945/quic-v1/p2p/12D3KooWCfm8dhkEVEjBqN92aS3wY5UgLyEHKPHEQjWmqXTDjsSu, role_override: Dialer, port_use: Reuse }
+[2m2026-11-07T03:31:39.191363Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWDBnNUhcNHTCiuJ3gwZ1AcqN2ptHmQfjBKAJrd8jKHA9V")
+[2m2026-11-07T03:31:39.191400Z[0m [32m INFO[0m Publishing our record to peer PeerId("12D3KooWCfm8dhkEVEjBqN92aS3wY5UgLyEHKPHEQjWmqXTDjsSu")
+[2m2026-11-07T03:31:39.191594Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mListener { local_addr: /ip4/127.0.0.1/udp/40379/quic-v1, send_back_addr: /ip4/127.0.0.1/udp/35289/quic-v1 }
+[2m2026-11-07T03:31:39.691670Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:39.693097Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:39.694275Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:39.695334Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:39.695386Z[0m [32m INFO[0m startup epoch record sync finished
+[2m2026-11-07T03:31:39.695416Z[0m [32m INFO[0m NODE TASKS
+ [3mtasks[0m[2m=[0mNode Task Manager
+Task: Epoch Record Collector (critical)
+Task: Epoch Vote Collector (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: network-readiness (not critical)
+Task: Worker Network 0 (critical)
+Task: Primary Network (critical)
+Task: reth-task (not critical)
+Task: eth-filters_stale-filters-clean (critical)
+Task: queued txn pool expiry (critical)
+Task: canonical txn pool (critical)
+Task: transaction-validation-service (critical)
+Task: reth-blocking-task (not critical)
+Task: bus-metrics-mirror (not critical)
+Task: metrics (not critical)
+Task: metrics-upkeep (not critical)
+Task: consensus engine (critical)
+Task: engine updates for consensus (critical)
+
+[2m2026-11-07T03:31:39.695534Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:39.695536Z[0m [32m INFO[0m epoch consensus fetcher 2 retrieving epoch 0
+[2m2026-11-07T03:31:39.696070Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:39.696120Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:39.696331Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:39.696515Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:39.696570Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:39.696945Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:39.696976Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 1: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:31:39.697202Z[0m [32m INFO[0m comparing last executed block and last recorded consensus block [3mlast_executed_block[0m[2m=[0mConsensusHeader { parent_hash: 6mPDk5UhbzWLjH1nvq9mfAmfTvbCgzxyauNFrKuVzgcJ, sub_dag: CommittedSubDag { inner: CommittedSubDagInner { headers: [EGhjgVox13c5Udm8: B1(vEdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), ALzDv3g3gxt7tTYd: B2(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 1wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), SiBcBP6mLapLGHoN: B2(vEdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), H5p6nWi6cxkm2AL2: B3(v32DNdqdLh9MTz4Q6FWgxPZLNszEWpjLns2QMKwxtahrk, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), Fue1fteDrY4scmNh: B3(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), DjjxWN4FfFh3n1ET: B3(vHn4KGuNHBtEmJYoFVEHLqNjBK9aE3auK8dRyacPNZURN, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), 4C5sgAktMoBHmxLo: B4(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 })], reputation_scores: ReputationScores { scores_per_authority: {32DNdqdLh9MTz4Q6FWgxPZLNszEWpjLns2QMKwxtahrk: 1, EZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD: 1, EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F: 0, Hn4KGuNHBtEmJYoFVEHLqNjBK9aE3auK8dRyacPNZURN: 1}, final_of_schedule: false }, commit_timestamp: 1794022294, randomness: 0x5c1a1a7519483079d1f600a1cb23650f47d6e66e39d12f49693cf9c1fbc7aca5, commit_timestamp_millis: 0 } }, number: 2, extra: 0x0000000000000000000000000000000000000000000000000000000000000000 } [3mlast_db_block[0m[2m=[0mConsensusHeader { parent_hash: 6mPDk5UhbzWLjH1nvq9mfAmfTvbCgzxyauNFrKuVzgcJ, sub_dag: CommittedSubDag { inner: CommittedSubDagInner { headers: [EGhjgVox13c5Udm8: B1(vEdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), ALzDv3g3gxt7tTYd: B2(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 1wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), SiBcBP6mLapLGHoN: B2(vEdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), H5p6nWi6cxkm2AL2: B3(v32DNdqdLh9MTz4Q6FWgxPZLNszEWpjLns2QMKwxtahrk, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), Fue1fteDrY4scmNh: B3(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), DjjxWN4FfFh3n1ET: B3(vHn4KGuNHBtEmJYoFVEHLqNjBK9aE3auK8dRyacPNZURN, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 }), 4C5sgAktMoBHmxLo: B4(vEZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, e0, 0wbs, exec: NumHash { number: 0, hash: 0xa782c7af189d26361bbc58d81e54278015928b32c0bac2860c12953ea12a8f72 })], reputation_scores: ReputationScores { scores_per_authority: {32DNdqdLh9MTz4Q6FWgxPZLNszEWpjLns2QMKwxtahrk: 1, EZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD: 1, EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F: 0, Hn4KGuNHBtEmJYoFVEHLqNjBK9aE3auK8dRyacPNZURN: 1}, final_of_schedule: false }, commit_timestamp: 1794022294, randomness: 0x5c1a1a7519483079d1f600a1cb23650f47d6e66e39d12f49693cf9c1fbc7aca5, commit_timestamp_millis: 0 } }, number: 2, extra: 0x0000000000000000000000000000000000000000000000000000000000000000 }
+[2m2026-11-07T03:31:39.697308Z[0m [32m INFO[0m missing consensus headers that need execution: [3mresult[0m[2m=[0m[]
+[2m2026-11-07T03:31:39.697551Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:39.697665Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:39.697712Z[0m [32m INFO[0m primed consensus rounds [3mexec_round[0m[2m=[0m4 [3mnewest_round[0m[2m=[0m0 [3mprimary_round[0m[2m=[0m4
+[2m2026-11-07T03:31:39.697737Z[0m [33m WARN[0m queue dropped messages while no consumer was subscribed [3mqueue[0m[2m=[0m"primary_network_events" [3mkept[0m[2m=[0m0 [3mdropped[0m[2m=[0m73 [3mover_budget[0m[2m=[0m0 [3mdiscarded[0m[2m=[0m0
+[2m2026-11-07T03:31:39.698137Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:39.698147Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:39.698149Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:39.698152Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:39.698154Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:39.698155Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:39.698157Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:39.698159Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:39.698161Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:39.698163Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:39.698165Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:39.698180Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:39.698751Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:39.698787Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:39.698795Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:39.698800Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:39.699053Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Recreating dag from last GC round: 0
+[2m2026-11-07T03:31:39.699321Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Inserted certificate: AWwU11AP14y9csgk: C4(32DNdqdLh9MTz4Q6FWgxPZLNszEWpjLns2QMKwxtahrk, AWwU11AP14y9csgk, E0)
+[2m2026-11-07T03:31:39.699345Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Inserted certificate: C8A9tPWoBS8diaKB: C4(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, C8A9tPWoBS8diaKB, E0)
+[2m2026-11-07T03:31:39.699361Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Inserted certificate: 48DNgfG8h66QYVqV: C4(Hn4KGuNHBtEmJYoFVEHLqNjBK9aE3auK8dRyacPNZURN, 48DNgfG8h66QYVqV, E0)
+[2m2026-11-07T03:31:39.699377Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Inserted certificate: G3QqVJtnAGvAFi2S: C5(EZwPV1EBBpF5ZQ63jE38vGmJfXiZbwMEx3KvsAdyKddD, G3QqVJtnAGvAFi2S, E0)
+[2m2026-11-07T03:31:39.699390Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Inserted certificate: 7tWEQpmws6F8xn2J: C5(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F, 7tWEQpmws6F8xn2J, E0)
+[2m2026-11-07T03:31:39.699404Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Dag is restored and contains 5 certs for 5 rounds
+[2m2026-11-07T03:31:39.699459Z[0m [32m INFO[0m Primary Some(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F) successfully booted on /ip4/127.0.0.1/udp/33985/quic-v1/p2p/12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ
+[2m2026-11-07T03:31:39.699467Z[0m [32m INFO[0m Starting proposer
+[2m2026-11-07T03:31:39.699474Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvActive
+[2m2026-11-07T03:31:39.699497Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:39.699512Z[0m [32m INFO[0m Starting subscriber: CVV
+[2m2026-11-07T03:31:39.699603Z[0m [33m WARN[0m re-proposing last header after max delay interval expired for round 4 [3minterval[0m[2m=[0m500ms
+[2m2026-11-07T03:31:39.699604Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:39.699604Z[0m [32m INFO[0m [1mrun[0m[1m{[0m[3mauthority[0m[2m=[0mSome(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F)[1m}[0m[2m:[0m restoring last executed consensus for constructing the next ConsensusHeader: [3mparent_hash[0m[2m=[0m3Y73yRb2vcc7s8szcp97QsqxDbXavh56nFKREWN5YrfU [3mparent_number[0m[2m=[0m2
+[2m2026-11-07T03:31:39.699616Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:39.699646Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: batch builder (critical)
+Task: re-propose header after delay (not critical)
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Task - 0 batch-builder (critical)
+Task: subscriber consensus (critical)
+Task: certificate-manager (critical)
+Task: proposer task (critical)
+Task: certificate fetcher task (critical)
+Task: certifier task (critical)
+Task: consensus task (critical)
+
+[2m2026-11-07T03:31:39.700277Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:39.700355Z[0m [32m INFO[0m asked to propose a header that is already certified 7tWEQpmws6F8xn2J, skipping proposal and re-publishing
+[2m2026-11-07T03:31:39.929996Z[0m [33m WARN[0m we are behind, go to catchup mode! [3mepoch[0m[2m=[0m0 [3mexec_epoch[0m[2m=[0m0 [3mnumber[0m[2m=[0mNone [3mexec_number[0m[2m=[0m2 [3mexec_round[0m[2m=[0m4 [3mprocessed_consensus_round[0m[2m=[0m4 [3mcommitted_round[0m[2m=[0m4 [3mround[0m[2m=[0m25 [3meffective_exec_round[0m[2m=[0m4 [3mgc_window[0m[2m=[0m15 [3mreason[0m[2m=[0m"outside_gc_window" [3mnewest_header_number[0m[2m=[0m0 [3mbacklog_outputs[0m[2m=[0m0 [3mexec_lag_rounds[0m[2m=[0m0 [3mcommit_lag_rounds[0m[2m=[0m19
+[2m2026-11-07T03:31:39.930024Z[0m [33m WARN[0m certificate indicates we are behind, go to catchup mode!
+[2m2026-11-07T03:31:39.930023Z[0m [32m INFO[0m Epoch Task Manager: exiting, received shutdown notification
+[2m2026-11-07T03:31:39.930036Z[0m [32m INFO[0m epoch task manager exited - likely syncing with committee
+[2m2026-11-07T03:31:39.930041Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has shutdown.
+[2m2026-11-07T03:31:39.930060Z[0m [32m INFO[0m Epoch Task Manager: ProcessGossip-tn-primary-911329-sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG shutdown successfully
+[2m2026-11-07T03:31:39.930067Z[0m [32m INFO[0m Epoch Task Manager: certificate fetcher task shutdown successfully
+[2m2026-11-07T03:31:39.930071Z[0m [32m INFO[0m Epoch Task Manager: certifier task shutdown successfully
+[2m2026-11-07T03:31:39.930075Z[0m [32m INFO[0m Epoch Task Manager: proposer task shutdown successfully
+[2m2026-11-07T03:31:39.930080Z[0m [32m INFO[0m Epoch Task Manager: consensus task shutdown successfully
+[2m2026-11-07T03:31:39.930084Z[0m [32m INFO[0m Epoch Task Manager: subscriber consensus shutdown successfully
+[2m2026-11-07T03:31:39.930093Z[0m [32m INFO[0m Epoch Task Manager: certificate-manager shutdown successfully
+[2m2026-11-07T03:31:39.930914Z[0m [32m INFO[0m Epoch Task Manager: fetch-cert-qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q shutdown successfully
+[2m2026-11-07T03:31:39.931770Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:39.932123Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:39.932296Z[0m [32m INFO[0m Epoch Task Manager: fetch-certs-0 shutdown successfully
+[2m2026-11-07T03:31:39.934318Z[0m [32m INFO[0m got new consensus 9/G1uFx1XCaKLtaz4P
+[2m2026-11-07T03:31:39.938089Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.131572Z[0m [32m INFO[0m Epoch Task Manager: batch builder was cancelled
+[2m2026-11-07T03:31:40.131622Z[0m [32m INFO[0m Epoch Task Manager: Worker Task - 0 batch-builder was cancelled
+[2m2026-11-07T03:31:40.131638Z[0m [32m INFO[0m Epoch Task Manager: worker network events was cancelled
+[2m2026-11-07T03:31:40.131651Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.131665Z[0m [32m INFO[0m Epoch Task Manager: Worker Network Peers was cancelled
+[2m2026-11-07T03:31:40.131678Z[0m [32m INFO[0m Epoch Task Manager: Worker RPC Sync Status was cancelled
+[2m2026-11-07T03:31:40.131692Z[0m [32m INFO[0m Epoch Task Manager: primary network events was cancelled
+[2m2026-11-07T03:31:40.131705Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.131718Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-383H1NUG2qUm8qjW was cancelled
+[2m2026-11-07T03:31:40.131731Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-7mVaoTiCzboGCUuE was cancelled
+[2m2026-11-07T03:31:40.131743Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-Hw4t1uJQMWaKLTpT was cancelled
+[2m2026-11-07T03:31:40.131757Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-5WeetL1Shkqpw9xQ was cancelled
+[2m2026-11-07T03:31:40.131770Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-41T1P8Aupj4ppvCa was cancelled
+[2m2026-11-07T03:31:40.131784Z[0m [32m INFO[0m Epoch Task Manager: All tasks shutdown
+[2m2026-11-07T03:31:40.132600Z[0m [32m INFO[0m looping run epoch
+[2m2026-11-07T03:31:40.132643Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:40.135493Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:40.136436Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:40.141728Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:40.141810Z[0m [33m WARN[0m queue dropped messages while no consumer was subscribed [3mqueue[0m[2m=[0m"primary_network_events" [3mkept[0m[2m=[0m0 [3mdropped[0m[2m=[0m1 [3mover_budget[0m[2m=[0m0 [3mdiscarded[0m[2m=[0m0
+[2m2026-11-07T03:31:40.143436Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:40.143479Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:40.143490Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:40.143500Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:40.143514Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:40.143531Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:40.143547Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:40.143563Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:40.143604Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:40.143615Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:40.143624Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:40.143700Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:40.146155Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:40.146354Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:40.146417Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:40.146475Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.146538Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:40.146569Z[0m [32m INFO[0m batch builder not started: node is in committee but not an active CVV; accepted transactions stay pooled until a later epoch entry starts a builder: rejoin as CvvActive, or the next epoch as a non-member that forwards [3mworker_id[0m[2m=[0m0 [3mpending[0m[2m=[0m0 [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.146603Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: subscriber catch up and rejoin consensus (critical)
+
+[2m2026-11-07T03:31:40.146660Z[0m [32m INFO[0m Starting subscriber: Catch up and rejoin
+[2m2026-11-07T03:31:40.146712Z[0m [32m INFO[0m Starting state sync: stream consensus header from peers
+[2m2026-11-07T03:31:40.146741Z[0m [32m INFO[0m Starting state sync: track latest consensus header from peers
+[2m2026-11-07T03:31:40.146979Z[0m [32m INFO[0m Failed to initialize a bulk current epoch 0 download, falling back to backwards download
+[2m2026-11-07T03:31:40.147020Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m9 [3mhash[0m[2m=[0mG1uFx1XCaKLtaz4P6qkKiQiGxQpo4TXf1hFBP3o8LGQb [3mend_number[0m[2m=[0m0
+[2m2026-11-07T03:31:40.147778Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:40.150283Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:40.171387Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.174521Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.188116Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.250814Z[0m [32m INFO[0m catching up consensus blocks [3mlast_consensus_height[0m[2m=[0m2 [3mmax_consensus_height[0m[2m=[0m9 [3mcatchup_distance[0m[2m=[0m7
+[2m2026-11-07T03:31:40.253644Z[0m [32m INFO[0m rejoin not ready [3mconsensus_header_number[0m[2m=[0m3 [3mhandled_epoch[0m[2m=[0m0 [3mhandled_round[0m[2m=[0m8 [3mnewest_epoch[0m[2m=[0m0 [3mnewest_round[0m[2m=[0m24 [3mnewest_age_ms[0m[2m=[0m1253 [3mrejoin_window[0m[2m=[0m7 [3mexec_round[0m[2m=[0m4 [3mreason[0m[2m=[0m"round_gap"
+[2m2026-11-07T03:31:40.253858Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m3 [3mconsensus_hash[0m[2m=[0m"0x1465c12d3d85d574a13daf9cf3c3a0cc1be4786777352c238bb13ab749d20548" [3mparent_consensus_hash[0m[2m=[0m"3Y73yRb2vcc7s8sz" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.254051Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m4 [3mconsensus_hash[0m[2m=[0m"0x55812cde78c918b2d9f779e21e4257677753c2b78a5b65cf47d1df4e59162e84" [3mparent_consensus_hash[0m[2m=[0m"2Nd9UwT2PxmAeKRa" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.254230Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m5 [3mconsensus_hash[0m[2m=[0m"0xe6ad1411803e20f10f1e3d66db9be23177a16da59e26f2f768c0d009e315393f" [3mparent_consensus_hash[0m[2m=[0m"6kmu4SGXnfiHhWMD" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.254548Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m6 [3mconsensus_hash[0m[2m=[0m"0xc533fe279c962f8fbd57f5619ee0bbfb91f5237b2a15c26afb1deb6eab419b5c" [3mparent_consensus_hash[0m[2m=[0m"GXTqq8K6RBnT7qP1" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.254814Z[0m [32m INFO[0m attempting to rejoin consensus [3mconsensus_header_number[0m[2m=[0m7 [3mnewest_number[0m[2m=[0m9 [3mround_gap[0m[2m=[0m6 [3mrejoin_window[0m[2m=[0m7 [3mhandled_round[0m[2m=[0m18 [3mnewest_round[0m[2m=[0m24 [3mexec_round[0m[2m=[0m16 [3mexec_number[0m[2m=[0m6
+[2m2026-11-07T03:31:40.254855Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m7 [3mconsensus_hash[0m[2m=[0m"0xd1f7b0afc3041298b23acc70e86b27ba8667d762c511d74201ce20f273fbd13c" [3mparent_consensus_hash[0m[2m=[0m"EGoJMLJwNjdEvuAh" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.254880Z[0m [32m INFO[0m Epoch Task Manager: subscriber catch up and rejoin consensus returned Ok, exiting
+[2m2026-11-07T03:31:40.254904Z[0m [32m INFO[0m epoch task manager exited - likely syncing with committee
+[2m2026-11-07T03:31:40.254926Z[0m [32m INFO[0m Epoch Task Manager: state sync: track latest consensus header from peers shutdown successfully
+[2m2026-11-07T03:31:40.254947Z[0m [32m INFO[0m Epoch Task Manager: state sync: stream consensus headers shutdown successfully
+[2m2026-11-07T03:31:40.451152Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.453429Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.456377Z[0m [32m INFO[0m Epoch Task Manager: Worker Network Peers was cancelled
+[2m2026-11-07T03:31:40.456439Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.456463Z[0m [32m INFO[0m Epoch Task Manager: Worker RPC Sync Status was cancelled
+[2m2026-11-07T03:31:40.456484Z[0m [32m INFO[0m Epoch Task Manager: worker network events was cancelled
+[2m2026-11-07T03:31:40.456506Z[0m [32m INFO[0m Epoch Task Manager: primary network events was cancelled
+[2m2026-11-07T03:31:40.456528Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.456548Z[0m [32m INFO[0m Epoch Task Manager: All tasks shutdown
+[2m2026-11-07T03:31:40.456823Z[0m [32m INFO[0m got new consensus 10/7adXCoGS6ugXkcxg
+[2m2026-11-07T03:31:40.457516Z[0m [32m INFO[0m looping run epoch
+[2m2026-11-07T03:31:40.457547Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:40.459974Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:40.460977Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:40.464257Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:40.464422Z[0m [32m INFO[0m primed consensus rounds [3mexec_round[0m[2m=[0m4 [3mnewest_round[0m[2m=[0m24 [3mprimary_round[0m[2m=[0m24
+[2m2026-11-07T03:31:40.464498Z[0m [33m WARN[0m queue dropped messages while no consumer was subscribed [3mqueue[0m[2m=[0m"primary_network_events" [3mkept[0m[2m=[0m1 [3mdropped[0m[2m=[0m4 [3mover_budget[0m[2m=[0m0 [3mdiscarded[0m[2m=[0m0
+[2m2026-11-07T03:31:40.465308Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:40.465325Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:40.465331Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:40.465337Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:40.465342Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:40.465347Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:40.465352Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:40.465357Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:40.465362Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:40.465367Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:40.465372Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:40.465410Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:40.466980Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:40.467076Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:40.467131Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:40.467313Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:40.468001Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Recreating dag from last GC round: 0
+[2m2026-11-07T03:31:40.468438Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Dag is restored and contains 0 certs for 5 rounds
+[2m2026-11-07T03:31:40.468460Z[0m [32m INFO[0m restored dag has a gap above the committed round; going inactive [3mlast_committed_round[0m[2m=[0m18 [3mdag_min_round[0m[2m=[0m1 [3mgc_round[0m[2m=[0m0 [3mexpected_min[0m[2m=[0m1
+[2m2026-11-07T03:31:40.468520Z[0m [32m INFO[0m Primary Some(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F) successfully booted on /ip4/127.0.0.1/udp/33985/quic-v1/p2p/12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ
+[2m2026-11-07T03:31:40.468540Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.468551Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:40.468589Z[0m [32m INFO[0m Starting subscriber: Catch up and rejoin
+[2m2026-11-07T03:31:40.468603Z[0m [33m WARN[0m discarded messages a previous subscriber left queued [3mdiscarded[0m[2m=[0m2
+[2m2026-11-07T03:31:40.468620Z[0m [32m INFO[0m Starting state sync: stream consensus header from peers
+[2m2026-11-07T03:31:40.468647Z[0m [32m INFO[0m Starting state sync: track latest consensus header from peers
+[2m2026-11-07T03:31:40.468673Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:40.468679Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m10 [3mhash[0m[2m=[0m7adXCoGS6ugXkcxgmpnsnVp1Kd35b3xktHgECW1J5zhn [3mend_number[0m[2m=[0m0
+[2m2026-11-07T03:31:40.468684Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:40.468697Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has shutdown.
+[2m2026-11-07T03:31:40.468729Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: batch builder (critical)
+Task: state sync: stream consensus headers (not critical)
+Task: state sync: track latest consensus header from peers (not critical)
+Task: ProcessGossip-tn-primary-911329-qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: VoteRequest-64pvUsG3PDRK8eRJ (not critical)
+Task: ProcessGossip-tn-consensus-output-911329-nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Task - 0 batch-builder (critical)
+Task: subscriber catch up and rejoin consensus (critical)
+Task: certificate-manager (critical)
+Task: certificate fetcher task (critical)
+Task: certifier task (critical)
+
+[2m2026-11-07T03:31:40.468749Z[0m [32m INFO[0m Epoch Task Manager: exiting, received shutdown notification
+[2m2026-11-07T03:31:40.468755Z[0m [32m INFO[0m epoch task manager exited - likely syncing with committee
+[2m2026-11-07T03:31:40.468778Z[0m [32m INFO[0m Epoch Task Manager: certifier task shutdown successfully
+[2m2026-11-07T03:31:40.468783Z[0m [32m INFO[0m Epoch Task Manager: certificate fetcher task shutdown successfully
+[2m2026-11-07T03:31:40.468787Z[0m [32m INFO[0m Epoch Task Manager: certificate-manager shutdown successfully
+[2m2026-11-07T03:31:40.468792Z[0m [32m INFO[0m Epoch Task Manager: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d shutdown successfully
+[2m2026-11-07T03:31:40.468798Z[0m [32m INFO[0m Epoch Task Manager: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q shutdown successfully
+[2m2026-11-07T03:31:40.468803Z[0m [32m INFO[0m Epoch Task Manager: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG shutdown successfully
+[2m2026-11-07T03:31:40.468809Z[0m [32m INFO[0m Epoch Task Manager: ProcessGossip-tn-consensus-output-911329-nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d shutdown successfully
+[2m2026-11-07T03:31:40.468816Z[0m [32m INFO[0m Epoch Task Manager: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d shutdown successfully
+[2m2026-11-07T03:31:40.468822Z[0m [32m INFO[0m Epoch Task Manager: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q shutdown successfully
+[2m2026-11-07T03:31:40.468827Z[0m [32m INFO[0m Epoch Task Manager: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG shutdown successfully
+[2m2026-11-07T03:31:40.468834Z[0m [32m INFO[0m Epoch Task Manager: state sync: track latest consensus header from peers shutdown successfully
+[2m2026-11-07T03:31:40.468838Z[0m [32m INFO[0m Epoch Task Manager: state sync: stream consensus headers shutdown successfully
+[2m2026-11-07T03:31:40.470045Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.470324Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:40.472275Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.670594Z[0m [32m INFO[0m Epoch Task Manager: Worker RPC Sync Status was cancelled
+[2m2026-11-07T03:31:40.670643Z[0m [32m INFO[0m Epoch Task Manager: batch builder was cancelled
+[2m2026-11-07T03:31:40.670658Z[0m [32m INFO[0m Epoch Task Manager: subscriber catch up and rejoin consensus was cancelled
+[2m2026-11-07T03:31:40.670672Z[0m [32m INFO[0m Epoch Task Manager: VoteRequest-64pvUsG3PDRK8eRJ was cancelled
+[2m2026-11-07T03:31:40.670685Z[0m [32m INFO[0m Epoch Task Manager: worker network events was cancelled
+[2m2026-11-07T03:31:40.670697Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.670711Z[0m [32m INFO[0m Epoch Task Manager: Worker Network Peers was cancelled
+[2m2026-11-07T03:31:40.670723Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.670736Z[0m [32m INFO[0m Epoch Task Manager: Worker Task - 0 batch-builder was cancelled
+[2m2026-11-07T03:31:40.670750Z[0m [32m INFO[0m Epoch Task Manager: primary network events was cancelled
+[2m2026-11-07T03:31:40.670780Z[0m [32m INFO[0m Epoch Task Manager: All tasks shutdown
+[2m2026-11-07T03:31:40.671665Z[0m [32m INFO[0m looping run epoch
+[2m2026-11-07T03:31:40.671723Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:40.674311Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:40.675241Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:40.681326Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:40.681396Z[0m [33m WARN[0m queue dropped messages while no consumer was subscribed [3mqueue[0m[2m=[0m"primary_network_events" [3mkept[0m[2m=[0m0 [3mdropped[0m[2m=[0m3 [3mover_budget[0m[2m=[0m0 [3mdiscarded[0m[2m=[0m0
+[2m2026-11-07T03:31:40.682903Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:40.682941Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:40.682959Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:40.682976Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:40.682990Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:40.683005Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:40.683020Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:40.683035Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:40.683050Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:40.683064Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:40.683080Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:40.683165Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:40.685912Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:40.686099Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:40.686183Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:40.686250Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.686332Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:40.686385Z[0m [32m INFO[0m batch builder not started: node is in committee but not an active CVV; accepted transactions stay pooled until a later epoch entry starts a builder: rejoin as CvvActive, or the next epoch as a non-member that forwards [3mworker_id[0m[2m=[0m0 [3mpending[0m[2m=[0m0 [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.686443Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: subscriber catch up and rejoin consensus (critical)
+
+[2m2026-11-07T03:31:40.686519Z[0m [32m INFO[0m Starting subscriber: Catch up and rejoin
+[2m2026-11-07T03:31:40.686570Z[0m [32m INFO[0m Starting state sync: stream consensus header from peers
+[2m2026-11-07T03:31:40.686583Z[0m [32m INFO[0m Starting state sync: track latest consensus header from peers
+[2m2026-11-07T03:31:40.686795Z[0m [32m INFO[0m catching up consensus blocks [3mlast_consensus_height[0m[2m=[0m7 [3mmax_consensus_height[0m[2m=[0m10 [3mcatchup_distance[0m[2m=[0m3
+[2m2026-11-07T03:31:40.686985Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:40.687662Z[0m [32m INFO[0m attempting to rejoin consensus [3mconsensus_header_number[0m[2m=[0m8 [3mnewest_number[0m[2m=[0m10 [3mround_gap[0m[2m=[0m6 [3mrejoin_window[0m[2m=[0m7 [3mhandled_round[0m[2m=[0m20 [3mnewest_round[0m[2m=[0m26 [3mexec_round[0m[2m=[0m18 [3mexec_number[0m[2m=[0m7
+[2m2026-11-07T03:31:40.687775Z[0m [32m INFO[0m [1mexecute-consensus[0m[1m{[0m[3mepoch[0m[2m=[0m0 [3mconsensus_number[0m[2m=[0m8 [3mconsensus_hash[0m[2m=[0m"0x625e336baaf416125ed1cd2ed754d9adc78df3342dab4f91b9b849a600857fb8" [3mparent_consensus_hash[0m[2m=[0m"F8dGW9SKwbcKm8Kp" [3mparent_exec_number[0m[2m=[0m1 [3mparent_exec_hash[0m[2m=[0m"0x46ea30a11b9a00059b9b4d3cdf1326fb03cbf291c2b4ffbf31a592e6815bfe0a" [3mbatches[0m[2m=[0m0[1m}[0m[2m:[0m skipping execution for empty non-epoch-closing output
+[2m2026-11-07T03:31:40.687806Z[0m [32m INFO[0m Epoch Task Manager: subscriber catch up and rejoin consensus returned Ok, exiting
+[2m2026-11-07T03:31:40.687849Z[0m [32m INFO[0m epoch task manager exited - likely syncing with committee
+[2m2026-11-07T03:31:40.687906Z[0m [32m INFO[0m Epoch Task Manager: state sync: track latest consensus header from peers shutdown successfully
+[2m2026-11-07T03:31:40.687934Z[0m [32m INFO[0m Epoch Task Manager: state sync: stream consensus headers shutdown successfully
+[2m2026-11-07T03:31:40.690678Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:40.691032Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.733194Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.742787Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.755082Z[0m [32m INFO[0m got new consensus 11/G4SxymzLVaf6sxCj
+[2m2026-11-07T03:31:40.888890Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.888928Z[0m [32m INFO[0m Epoch Task Manager: Worker Network Peers was cancelled
+[2m2026-11-07T03:31:40.888967Z[0m [32m INFO[0m Epoch Task Manager: worker network events was cancelled
+[2m2026-11-07T03:31:40.889008Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:40.889024Z[0m [32m INFO[0m Epoch Task Manager: Worker RPC Sync Status was cancelled
+[2m2026-11-07T03:31:40.889038Z[0m [32m INFO[0m Epoch Task Manager: primary network events was cancelled
+[2m2026-11-07T03:31:40.889049Z[0m [32m INFO[0m Epoch Task Manager: All tasks shutdown
+[2m2026-11-07T03:31:40.889263Z[0m [32m INFO[0m looping run epoch
+[2m2026-11-07T03:31:40.889318Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:40.892031Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:40.893104Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:40.898533Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:40.898792Z[0m [32m INFO[0m primed consensus rounds [3mexec_round[0m[2m=[0m4 [3mnewest_round[0m[2m=[0m26 [3mprimary_round[0m[2m=[0m26
+[2m2026-11-07T03:31:40.898894Z[0m [33m WARN[0m queue dropped messages while no consumer was subscribed [3mqueue[0m[2m=[0m"primary_network_events" [3mkept[0m[2m=[0m0 [3mdropped[0m[2m=[0m2 [3mover_budget[0m[2m=[0m0 [3mdiscarded[0m[2m=[0m0
+[2m2026-11-07T03:31:40.900612Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:40.900651Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:40.900664Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:40.900674Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:40.900684Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:40.900693Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:40.900703Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:40.900712Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:40.900722Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:40.900731Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:40.900741Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:40.900815Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:40.902494Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:40.902535Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:40.902552Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:40.902728Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:40.902989Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Recreating dag from last GC round: 0
+[2m2026-11-07T03:31:40.903220Z[0m [32m INFO[0m [1mconstruct_dag_from_cert_store[0m[2m:[0m Dag is restored and contains 0 certs for 5 rounds
+[2m2026-11-07T03:31:40.903235Z[0m [32m INFO[0m restored dag has a gap above the committed round; going inactive [3mlast_committed_round[0m[2m=[0m20 [3mdag_min_round[0m[2m=[0m1 [3mgc_round[0m[2m=[0m0 [3mexpected_min[0m[2m=[0m1
+[2m2026-11-07T03:31:40.903297Z[0m [32m INFO[0m Primary Some(EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F) successfully booted on /ip4/127.0.0.1/udp/33985/quic-v1/p2p/12D3KooWNhctDttvyG9j3qrz9kxicU9iheH4nYUTVo2pcFJe8fUJ
+[2m2026-11-07T03:31:40.903316Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:40.903326Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:40.903339Z[0m [32m INFO[0m Starting subscriber: Catch up and rejoin
+[2m2026-11-07T03:31:40.903354Z[0m [33m WARN[0m discarded messages a previous subscriber left queued [3mdiscarded[0m[2m=[0m2
+[2m2026-11-07T03:31:40.903371Z[0m [32m INFO[0m Starting state sync: stream consensus header from peers
+[2m2026-11-07T03:31:40.903371Z[0m [32m INFO[0m Starting state sync: track latest consensus header from peers
+[2m2026-11-07T03:31:40.903400Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:40.903408Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has started successfully.
+[2m2026-11-07T03:31:40.903413Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m11 [3mhash[0m[2m=[0mG4SxymzLVaf6sxCj6YXg6yN4hfZpiCSstVRiAdyXtaTu [3mend_number[0m[2m=[0m11
+[2m2026-11-07T03:31:40.903418Z[0m [32m INFO[0m Certifier on node EdNaMFR9exoCcAFx5DHE8cQ3KJwnsfKzDYkDhZygZ17F has shutdown.
+[2m2026-11-07T03:31:40.903436Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: batch builder (critical)
+Task: state sync: stream consensus headers (not critical)
+Task: state sync: track latest consensus header from peers (not critical)
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Task - 0 batch-builder (critical)
+Task: subscriber catch up and rejoin consensus (critical)
+Task: certificate-manager (critical)
+Task: certificate fetcher task (critical)
+Task: certifier task (critical)
+
+[2m2026-11-07T03:31:40.903445Z[0m [32m INFO[0m Epoch Task Manager: exiting, received shutdown notification
+[2m2026-11-07T03:31:40.903449Z[0m [32m INFO[0m epoch task manager exited - likely syncing with committee
+[2m2026-11-07T03:31:40.903462Z[0m [32m INFO[0m Epoch Task Manager: certifier task shutdown successfully
+[2m2026-11-07T03:31:40.903465Z[0m [32m INFO[0m Epoch Task Manager: certificate fetcher task shutdown successfully
+[2m2026-11-07T03:31:40.903468Z[0m [32m INFO[0m Epoch Task Manager: certificate-manager shutdown successfully
+[2m2026-11-07T03:31:40.903471Z[0m [32m INFO[0m Epoch Task Manager: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d shutdown successfully
+[2m2026-11-07T03:31:40.903474Z[0m [32m INFO[0m Epoch Task Manager: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q shutdown successfully
+[2m2026-11-07T03:31:40.903477Z[0m [32m INFO[0m Epoch Task Manager: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG shutdown successfully
+[2m2026-11-07T03:31:40.903484Z[0m [32m INFO[0m Epoch Task Manager: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d shutdown successfully
+[2m2026-11-07T03:31:40.903489Z[0m [32m INFO[0m Epoch Task Manager: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q shutdown successfully
+[2m2026-11-07T03:31:40.903496Z[0m [32m INFO[0m Epoch Task Manager: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG shutdown successfully
+[2m2026-11-07T03:31:40.903500Z[0m [32m INFO[0m Epoch Task Manager: state sync: track latest consensus header from peers shutdown successfully
+[2m2026-11-07T03:31:40.903503Z[0m [32m INFO[0m Epoch Task Manager: state sync: stream consensus headers shutdown successfully
+[2m2026-11-07T03:31:40.904282Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:40.926866Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.981751Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:40.992189Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.103805Z[0m [32m INFO[0m Epoch Task Manager: subscriber catch up and rejoin consensus was cancelled
+[2m2026-11-07T03:31:41.103828Z[0m [32m INFO[0m Epoch Task Manager: batch builder was cancelled
+[2m2026-11-07T03:31:41.103831Z[0m [32m INFO[0m Epoch Task Manager: Worker RPC Sync Status was cancelled
+[2m2026-11-07T03:31:41.103845Z[0m [32m INFO[0m Epoch Task Manager: worker network events was cancelled
+[2m2026-11-07T03:31:41.103855Z[0m [32m INFO[0m Epoch Task Manager: primary network events was cancelled
+[2m2026-11-07T03:31:41.103858Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:41.103861Z[0m [32m INFO[0m Epoch Task Manager: Worker Task - 0 batch-builder was cancelled
+[2m2026-11-07T03:31:41.103864Z[0m [32m INFO[0m Epoch Task Manager: Renew admission committee snapshot was cancelled
+[2m2026-11-07T03:31:41.103867Z[0m [32m INFO[0m Epoch Task Manager: Worker Network Peers was cancelled
+[2m2026-11-07T03:31:41.103869Z[0m [32m INFO[0m Epoch Task Manager: All tasks shutdown
+[2m2026-11-07T03:31:41.104118Z[0m [32m INFO[0m looping run epoch
+[2m2026-11-07T03:31:41.104124Z[0m [32m INFO[0m Starting epoch
+[2m2026-11-07T03:31:41.104642Z[0m [32m INFO[0m creating committee from state
+[2m2026-11-07T03:31:41.104809Z[0m [32m INFO[0m Loading configuration [3mpath[0m[2m=[0m"/tmp/.tmpdjb2Hl/validator-3/genesis/committee.yaml"
+[2m2026-11-07T03:31:41.105874Z[0m [33m WARN[0m max_header_delay is below 1s but sub-second timestamps are inactive for this epoch; header timestamps stay whole seconds, so rounds can stall at second boundaries [3mepoch[0m[2m=[0m0 [3mmax_header_delay[0m[2m=[0m500ms
+[2m2026-11-07T03:31:41.106143Z[0m [32m INFO[0m Header number of batches threshold set to 5
+[2m2026-11-07T03:31:41.106149Z[0m [32m INFO[0m Header max number of batches set to 10
+[2m2026-11-07T03:31:41.106152Z[0m [32m INFO[0m Max header delay set to 500 ms
+[2m2026-11-07T03:31:41.106154Z[0m [32m INFO[0m Min header delay set to 250 ms
+[2m2026-11-07T03:31:41.106156Z[0m [32m INFO[0m Vote timeout set to 5000 ms
+[2m2026-11-07T03:31:41.106158Z[0m [32m INFO[0m Garbage collection depth set to 25 rounds
+[2m2026-11-07T03:31:41.106160Z[0m [32m INFO[0m Sync retry delay set to 5000 ms
+[2m2026-11-07T03:31:41.106161Z[0m [32m INFO[0m Sync retry nodes set to 3 nodes
+[2m2026-11-07T03:31:41.106163Z[0m [32m INFO[0m Max batch delay set to 250 ms
+[2m2026-11-07T03:31:41.106165Z[0m [32m INFO[0m Max concurrent requests set to 500000
+[2m2026-11-07T03:31:41.106167Z[0m [32m INFO[0m Basefee address set to 0x9999999999999999999999999999999999999999 (consensus-critical: all nodes must agree)
+[2m2026-11-07T03:31:41.106181Z[0m [32m INFO[0m Boot primary node with public key Some("u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW")
+[2m2026-11-07T03:31:41.106701Z[0m [32m INFO[0m Boot worker node with id 0 key u4Q8xn2q5gS99AxAtgFxcG24gEqRTt72cRk777UrRSVTegRKoeBkcEHUbArUkXRoVQJfdozDHpaUQJL62xti8YGii7XUiba48q9WyxFLddzbfUorYA42PppsrDXqMPyHEfW
+[2m2026-11-07T03:31:41.106742Z[0m [32m INFO[0m Starting handler for transactions
+[2m2026-11-07T03:31:41.106754Z[0m [32m INFO[0m Worker 0 successfully booted on /ip4/127.0.0.1/udp/40379/quic-v1/p2p/12D3KooWKhN2viNCjgWSqF9tnViEnvhw81ydJpK7E63KCzTokMsy
+[2m2026-11-07T03:31:41.106765Z[0m [32m INFO[0m subscriber starting in mode [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:41.106775Z[0m [32m INFO[0m No batches leftover
+[2m2026-11-07T03:31:41.106783Z[0m [32m INFO[0m batch builder not started: node is in committee but not an active CVV; accepted transactions stay pooled until a later epoch entry starts a builder: rejoin as CvvActive, or the next epoch as a non-member that forwards [3mworker_id[0m[2m=[0m0 [3mpending[0m[2m=[0m0 [3mnode_mode[0m[2m=[0mCvvInactive
+[2m2026-11-07T03:31:41.106789Z[0m [32m INFO[0m EPOCH TASKS
+ [3mtasks[0m[2m=[0mEpoch Task Manager
+Task: worker network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: Worker Network Peers (not critical)
+Task: Worker RPC Sync Status (not critical)
+Task: primary network events (critical)
+Task: DialPeer sRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG (not critical)
+Task: DialPeer qoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q (not critical)
+Task: DialPeer nDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d (not critical)
+Task: Renew admission committee snapshot (not critical)
+Task: subscriber catch up and rejoin consensus (critical)
+
+[2m2026-11-07T03:31:41.106803Z[0m [32m INFO[0m Starting subscriber: Catch up and rejoin
+[2m2026-11-07T03:31:41.106815Z[0m [32m INFO[0m Starting state sync: stream consensus header from peers
+[2m2026-11-07T03:31:41.106827Z[0m [32m INFO[0m Starting state sync: track latest consensus header from peers
+[2m2026-11-07T03:31:41.107279Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:41.108444Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:41.180008Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.485605Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.496648Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.690087Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.698618Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.699233Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.699266Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.870002Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mListener { local_addr: /ip4/127.0.0.1/udp/33985/quic-v1, send_back_addr: /ip4/127.0.0.1/udp/39181/quic-v1 }
+[2m2026-11-07T03:31:41.882615Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mListener { local_addr: /ip4/127.0.0.1/udp/33985/quic-v1, send_back_addr: /ip4/127.0.0.1/udp/39340/quic-v1 }
+[2m2026-11-07T03:31:41.899493Z[0m [32m INFO[0m new connection established [3mendpoint[0m[2m=[0mListener { local_addr: /ip4/127.0.0.1/udp/33985/quic-v1, send_back_addr: /ip4/127.0.0.1/udp/44539/quic-v1 }
+[2m2026-11-07T03:31:41.957148Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.957924Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.959133Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:41.961417Z[0m [32m INFO[0m got new consensus 12/EHWetbA6Aamt753k
+[2m2026-11-07T03:31:41.961483Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m12 [3mhash[0m[2m=[0mEHWetbA6Aamt753kszVKMxQroXYuvZFvAc4TUBRTXXbu [3mend_number[0m[2m=[0m12
+[2m2026-11-07T03:31:41.964988Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.196399Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.199227Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.215963Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.452587Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.453181Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.453656Z[0m [32m INFO[0m got new consensus 13/CC196uauqGe5GCeE
+[2m2026-11-07T03:31:42.453719Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m13 [3mhash[0m[2m=[0mCC196uauqGe5GCeEPSKDvL65oh74dnECHvqRcPftQu64 [3mend_number[0m[2m=[0m13
+[2m2026-11-07T03:31:42.458146Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.466155Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.699885Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.709780Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.717374Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.719207Z[0m [32m INFO[0m got new consensus 14/CENKcnFcYopahih1
+[2m2026-11-07T03:31:42.719260Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m14 [3mhash[0m[2m=[0mCENKcnFcYopahih1eFM9ctVx4Y4QxisfPU2BfteL15Pz [3mend_number[0m[2m=[0m14
+[2m2026-11-07T03:31:42.959384Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.965557Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:42.968425Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.202531Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.473964Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.475119Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.704049Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.708075Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.709961Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.711005Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.965192Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.965494Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.965612Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:43.969066Z[0m [32m INFO[0m got new consensus 15/DkBEFRAY7QqdbsEA
+[2m2026-11-07T03:31:43.969077Z[0m [32m INFO[0m got new consensus 15/DkBEFRAY7QqdbsEA
+[2m2026-11-07T03:31:43.969126Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m15 [3mhash[0m[2m=[0mDkBEFRAY7QqdbsEAfNCfpVd8BtbqNdMhToH4CYrJ3VDo [3mend_number[0m[2m=[0m15
+[2m2026-11-07T03:31:43.972027Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.155084Z[0m [32m INFO[0m network reachability changed [3mreadiness[0m[2m=[0mNetworkReadiness { version: 1, status: Reachable, primary: Reachable { established_peers: 3 }, workers: [WorkerNetworkReadiness { worker_id: 0, connectivity: Reachable { established_peers: 3 } }] }
+[2m2026-11-07T03:31:44.237908Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.238350Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.255447Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.491458Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.492287Z[0m [32m INFO[0m got new consensus 16/bfzH74Dt59XUPCEP
+[2m2026-11-07T03:31:44.492461Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m16 [3mhash[0m[2m=[0mbfzH74Dt59XUPCEPVCdGToZAYjXkEQ6HJUQb6x6r7vr [3mend_number[0m[2m=[0m16
+[2m2026-11-07T03:31:44.493064Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.501393Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.501579Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.700315Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:44.702678Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:44.705192Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:44.705402Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 2: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:31:44.721886Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.761284Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.762170Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:44.763821Z[0m [32m INFO[0m got new consensus 17/pwh39QdKv5SLyytm
+[2m2026-11-07T03:31:44.763873Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m17 [3mhash[0m[2m=[0mpwh39QdKv5SLyytmKi9xAxMTfgYhmZtDSgDVjbwRfQf [3mend_number[0m[2m=[0m17
+[2m2026-11-07T03:31:44.986684Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.008458Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.009534Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.241010Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.507540Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.509161Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.738749Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.765561Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.772794Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.773366Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:45.785769Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.018899Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.031593Z[0m [32m INFO[0m got new consensus 18/82gjWCvCUyaVpTTM
+[2m2026-11-07T03:31:46.031660Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.031763Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m18 [3mhash[0m[2m=[0m82gjWCvCUyaVpTTMf8a6tz5vujQuP8dzn2EaPfRmKykU [3mend_number[0m[2m=[0m18
+[2m2026-11-07T03:31:46.041859Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.043012Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.108154Z[0m [32m INFO[0m stalled head not ready [3munchanged_for_ms[0m[2m=[0m0 [3mstall_needed_ms[0m[2m=[0m20000 [3mnewest_number[0m[2m=[0m18 [3mreplayed_number[0m[2m=[0m8 [3mgossiped_number[0m[2m=[0m18 [3mblocked_by[0m[2m=[0m"head_age"
+[2m2026-11-07T03:31:46.115443Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:46.117976Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:46.268657Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.298907Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.303973Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.309928Z[0m [32m INFO[0m got new consensus 19/HptiRYhpuF9EgBwi
+[2m2026-11-07T03:31:46.310028Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m19 [3mhash[0m[2m=[0mHptiRYhpuF9EgBwiiG9XTUb7DE9fyk22NQ3DTntm7Ljb [3mend_number[0m[2m=[0m19
+[2m2026-11-07T03:31:46.522851Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.541645Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.543169Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.544054Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.548773Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.785064Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.787411Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:46.788010Z[0m [32m INFO[0m got new consensus 20/5NAERp9MiQPqMvCw
+[2m2026-11-07T03:31:46.788055Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m20 [3mhash[0m[2m=[0m5NAERp9MiQPqMvCwU8X5KA1QeFgp2Db3SqK1xvxbQ6hT [3mend_number[0m[2m=[0m20
+[2m2026-11-07T03:31:46.800545Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.030140Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.036130Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.315785Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.533990Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.538220Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.542268Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.543948Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.784524Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.792968Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.794470Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:47.796950Z[0m [32m INFO[0m got new consensus 21/8Wp4c3jSphG9g8Dq
+[2m2026-11-07T03:31:47.797004Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m21 [3mhash[0m[2m=[0m8Wp4c3jSphG9g8DqiFZ9Jm1xcqvH4C7M96o15gVKhE6y [3mend_number[0m[2m=[0m21
+[2m2026-11-07T03:31:48.055790Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.059574Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.061875Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.062262Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.328248Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.344185Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.346301Z[0m [32m INFO[0m got new consensus 22/9qbQo4QkE2CgoLuL
+[2m2026-11-07T03:31:48.346492Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m22 [3mhash[0m[2m=[0m9qbQo4QkE2CgoLuL2jhtbwbWkEopRUnEagYRYwgsp9CK [3mend_number[0m[2m=[0m22
+[2m2026-11-07T03:31:48.346566Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.356936Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.580329Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.586867Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.624124Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.840363Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.844661Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:48.845802Z[0m [32m INFO[0m got new consensus 23/EzuLXKXK6Q68NKrz
+[2m2026-11-07T03:31:48.845953Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m23 [3mhash[0m[2m=[0mEzuLXKXK6Q68NKrzg7BiJQCWtUhztSSjZm6xaXtnXwLS [3mend_number[0m[2m=[0m23
+[2m2026-11-07T03:31:48.858221Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.077147Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.077383Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.357639Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.564618Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.569106Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.573453Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.574707Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.706821Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:49.707808Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:49.708811Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:49.708871Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 3: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:31:49.836796Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.867667Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.868004Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:49.874555Z[0m [32m INFO[0m got new consensus 24/28RCBajo2ZHTH5UF
+[2m2026-11-07T03:31:49.874704Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m24 [3mhash[0m[2m=[0m28RCBajo2ZHTH5UFaWTBfQQ7c8N8uEtNzJo2vwFR1vH2 [3mend_number[0m[2m=[0m24
+[2m2026-11-07T03:31:50.091327Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.100126Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.102577Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.103414Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.107184Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.363275Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.363699Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.363795Z[0m [32m INFO[0m got new consensus 25/DQPfBqpXUNHHnmyS
+[2m2026-11-07T03:31:50.363867Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m25 [3mhash[0m[2m=[0mDQPfBqpXUNHHnmyStQ2NV5YoVRyDBuiJewuT3x5XuE7X [3mend_number[0m[2m=[0m25
+[2m2026-11-07T03:31:50.369895Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.370119Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.597762Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.623434Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.623526Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.625776Z[0m [32m INFO[0m got new consensus 26/8mk9za6nchSRymVD
+[2m2026-11-07T03:31:50.625836Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m26 [3mhash[0m[2m=[0m8mk9za6nchSRymVDzueXXrsPnc8ugKWadPofQ2Pn7KvL [3mend_number[0m[2m=[0m26
+[2m2026-11-07T03:31:50.869567Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.875772Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:50.876207Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.123509Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.124456Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:51.127802Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:51.377626Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.378249Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.624071Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.640251Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.641040Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.641711Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.874411Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.885279Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.885391Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:51.886210Z[0m [32m INFO[0m got new consensus 27/HUnxLtcYEGRWEgLH
+[2m2026-11-07T03:31:51.886284Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m27 [3mhash[0m[2m=[0mHUnxLtcYEGRWEgLHSnNbwDsvqjsB39jkjbbbM9EJPi3H [3mend_number[0m[2m=[0m27
+[2m2026-11-07T03:31:51.891385Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.125221Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.135026Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.142801Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.376102Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.379053Z[0m [32m INFO[0m got new consensus 28/3DRMS7zEx9RKjuEj
+[2m2026-11-07T03:31:52.379112Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m28 [3mhash[0m[2m=[0m3DRMS7zEx9RKjuEjni51J526T5LmCaeigAxQwuAxWENh [3mend_number[0m[2m=[0m28
+[2m2026-11-07T03:31:52.384458Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.388543Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.393498Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.630821Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.639330Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.644701Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.646963Z[0m [32m INFO[0m got new consensus 29/2tFVva2t8Jq4GBdT
+[2m2026-11-07T03:31:52.647040Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m29 [3mhash[0m[2m=[0m2tFVva2t8Jq4GBdTuV215YDAL5Jp8fso64D7RnHXZJaB [3mend_number[0m[2m=[0m29
+[2m2026-11-07T03:31:52.898682Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.922040Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:52.922517Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.153658Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.408186Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.408811Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.654032Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.679302Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.685795Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.686081Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.695664Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.932795Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.940563Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.944736Z[0m [32m INFO[0m got new consensus 30/D8Dy4wqYDWrBJ9Zp
+[2m2026-11-07T03:31:53.944915Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m30 [3mhash[0m[2m=[0mD8Dy4wqYDWrBJ9ZpN3dPZKYvbE1a4Y2MCdRBgtSBPhaQ [3mend_number[0m[2m=[0m30
+[2m2026-11-07T03:31:53.956744Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:53.959744Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.161002Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.165774Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.218326Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.229954Z[0m [32m INFO[0m got new consensus 31/iExSfrbmJYyY6a3w
+[2m2026-11-07T03:31:54.230124Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m31 [3mhash[0m[2m=[0miExSfrbmJYyY6a3wLizDsc9s2ahUat8SfFCXrtiwsja [3mend_number[0m[2m=[0m31
+[2m2026-11-07T03:31:54.420924Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.426289Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.427144Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.456299Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.686406Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.686816Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.689447Z[0m [32m INFO[0m got new consensus 32/7HR5h1tk3fDGkwpk
+[2m2026-11-07T03:31:54.689514Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m32 [3mhash[0m[2m=[0m7HR5h1tk3fDGkwpkwJs2GKK6T2pgzPpCn6wip9KRtmaM [3mend_number[0m[2m=[0m32
+[2m2026-11-07T03:31:54.699131Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.712951Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:54.715511Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:54.717924Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:54.718064Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 4: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:31:54.928754Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.930210Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:54.972814Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.437878Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.438401Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.474808Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.484840Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.486416Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.697962Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.703258Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.733548Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.735472Z[0m [32m INFO[0m got new consensus 33/7WezxTSiWEyprehk
+[2m2026-11-07T03:31:55.735532Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m33 [3mhash[0m[2m=[0m7WezxTSiWEyprehkfusTRpAs8He8t4zGh6Aiinfr2GAj [3mend_number[0m[2m=[0m33
+[2m2026-11-07T03:31:55.944597Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.950022Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.954420Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:55.983988Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.135129Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:31:56.140117Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:31:56.227872Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.230653Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.241443Z[0m [32m INFO[0m got new consensus 34/5WjDzSheYuDeAssD
+[2m2026-11-07T03:31:56.241637Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m34 [3mhash[0m[2m=[0m5WjDzSheYuDeAssDjy4qoHmUoHynoCLP7AAgXompLtrb [3mend_number[0m[2m=[0m34
+[2m2026-11-07T03:31:56.252434Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.258849Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.451163Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.456505Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.506220Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.728519Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.734023Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.737361Z[0m [32m INFO[0m got new consensus 35/6w7PXtUqTUHZTKC5
+[2m2026-11-07T03:31:56.737466Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m35 [3mhash[0m[2m=[0m6w7PXtUqTUHZTKC5Lc9B46C1haYVospGy1EVePzAm6zQ [3mend_number[0m[2m=[0m35
+[2m2026-11-07T03:31:56.779605Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.982235Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:56.985849Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.283034Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.457833Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.462294Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.468015Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.468100Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.713776Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.718986Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.719839Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.722051Z[0m [32m INFO[0m got new consensus 36/DgboTbA6nLHSo7rb
+[2m2026-11-07T03:31:57.722102Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m36 [3mhash[0m[2m=[0mDgboTbA6nLHSo7rb9654gaZ6NpKg7snuWg3BVf4Mgbm4 [3mend_number[0m[2m=[0m36
+[2m2026-11-07T03:31:57.962176Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.966927Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.970672Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:57.972132Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.228865Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.231060Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.231065Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.232347Z[0m [32m INFO[0m got new consensus 37/GzVdQSKA4K2WPq8i
+[2m2026-11-07T03:31:58.232430Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m37 [3mhash[0m[2m=[0mGzVdQSKA4K2WPq8iKPKVEoL5c3ZGtHwZN6sFTVArjUuu [3mend_number[0m[2m=[0m37
+[2m2026-11-07T03:31:58.236890Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.468334Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.472901Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.487712Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.727358Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.729733Z[0m [32m INFO[0m got new consensus 38/8UFxEYtJdRTyE9Nk
+[2m2026-11-07T03:31:58.729792Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m38 [3mhash[0m[2m=[0m8UFxEYtJdRTyE9Nk84n66NwtdYKp6ZaZswg17D8EFYbT [3mend_number[0m[2m=[0m38
+[2m2026-11-07T03:31:58.730440Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.738013Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.987617Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:58.988879Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.241594Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.482463Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.484266Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.490669Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.490678Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.490699Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.720374Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:59.720969Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:59.721554Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:31:59.721591Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 5: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:31:59.739856Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.741723Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.743102Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:31:59.743503Z[0m [32m INFO[0m got new consensus 39/G87kBZuwGSi64CtV
+[2m2026-11-07T03:31:59.743580Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m39 [3mhash[0m[2m=[0mG87kBZuwGSi64CtVZ6TKeLwCNhSupopW3Yapg5jj5wB3 [3mend_number[0m[2m=[0m39
+[2m2026-11-07T03:31:59.748494Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.016997Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.018460Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.045749Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.266216Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.276580Z[0m [32m INFO[0m got new consensus 40/H6WdjpUyH9S69Brc
+[2m2026-11-07T03:32:00.276792Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m40 [3mhash[0m[2m=[0mH6WdjpUyH9S69BrcpQUBHK5qDFgUX3xb79cZxv2yKu3B [3mend_number[0m[2m=[0m40
+[2m2026-11-07T03:32:00.278098Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.289799Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.291392Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.515765Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.538724Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.541770Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.543389Z[0m [32m INFO[0m got new consensus 41/4hVxCWAS48kacHTN
+[2m2026-11-07T03:32:00.543444Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m41 [3mhash[0m[2m=[0m4hVxCWAS48kacHTNnpLh3B7bUpGPPagUFwANobZGKqGm [3mend_number[0m[2m=[0m41
+[2m2026-11-07T03:32:00.771019Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.798786Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:00.805375Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.022888Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.147447Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:01.153095Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:01.300903Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.308130Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.499960Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.504667Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.505818Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.506140Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.767326Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.768005Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.768412Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:01.769977Z[0m [32m INFO[0m got new consensus 42/4B9MLvB62UaYasda
+[2m2026-11-07T03:32:01.770029Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m42 [3mhash[0m[2m=[0m4B9MLvB62UaYasda49Zwams23onkgxeFiyrGHuXfXK5H [3mend_number[0m[2m=[0m42
+[2m2026-11-07T03:32:01.774455Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.035513Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.035886Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.062198Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.289616Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.292871Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.295061Z[0m [32m INFO[0m got new consensus 43/Grf6pKW9g6caZUHX
+[2m2026-11-07T03:32:02.295246Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m43 [3mhash[0m[2m=[0mGrf6pKW9g6caZUHXgAPpiJxpvAAgw76ZAFMA86wnqcmf [3mend_number[0m[2m=[0m43
+[2m2026-11-07T03:32:02.307652Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.308221Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.530739Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.553048Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.556083Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.557460Z[0m [32m INFO[0m got new consensus 44/EcD9sihce31ZhLin
+[2m2026-11-07T03:32:02.557526Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m44 [3mhash[0m[2m=[0mEcD9sihce31ZhLinGHzBQLKdQFyo9JWbQWoCgbgVJH79 [3mend_number[0m[2m=[0m44
+[2m2026-11-07T03:32:02.782166Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.806844Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:02.809123Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.036378Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.304882Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.307078Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.525122Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.530619Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.531919Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.532242Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.781141Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.783674Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.784198Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:03.784588Z[0m [32m INFO[0m got new consensus 45/517rwGaxtSe9RSKo
+[2m2026-11-07T03:32:03.784633Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m45 [3mhash[0m[2m=[0m517rwGaxtSe9RSKoWhZxDE73aZafEb5PkkZukFPZtxZG [3mend_number[0m[2m=[0m45
+[2m2026-11-07T03:32:03.788993Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.042860Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.043033Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.047774Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.286094Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.288162Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.288703Z[0m [32m INFO[0m got new consensus 46/FS5jeV2Lk1yQAJ2D
+[2m2026-11-07T03:32:04.288775Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m46 [3mhash[0m[2m=[0mFS5jeV2Lk1yQAJ2DSkLX1zd8nviKTSsU9aJJ6XCVHXnh [3mend_number[0m[2m=[0m46
+[2m2026-11-07T03:32:04.292539Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.297968Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.554117Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.560005Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.560738Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.562188Z[0m [32m INFO[0m got new consensus 47/4K2CzYAE5QrKoH1D
+[2m2026-11-07T03:32:04.562336Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m47 [3mhash[0m[2m=[0m4K2CzYAE5QrKoH1DJ7ktTMQNCgpG7L9rTW2f5EoZqpku [3mend_number[0m[2m=[0m47
+[2m2026-11-07T03:32:04.726080Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:04.728647Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:04.731222Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:04.731420Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 6: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:32:04.787577Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.812713Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:04.813395Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.057627Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.320923Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.321165Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.558216Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.562978Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.563812Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.564950Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.570442Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.822765Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.822768Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.824229Z[0m [32m INFO[0m got new consensus 48/Y6pGWc9QGvMSf5fA
+[2m2026-11-07T03:32:05.824297Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m48 [3mhash[0m[2m=[0mY6pGWc9QGvMSf5fAZ9ZZpMAusRKvm9e7x1U1Umq5Vna [3mend_number[0m[2m=[0m48
+[2m2026-11-07T03:32:05.829430Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:05.830110Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.086856Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.114774Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.118230Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.122066Z[0m [32m INFO[0m got new consensus 49/4pcrFUhpEpFTycwu
+[2m2026-11-07T03:32:06.122114Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m49 [3mhash[0m[2m=[0m4pcrFUhpEpFTycwuVDS8oyBphdU2gw78kHqPAtNsYp31 [3mend_number[0m[2m=[0m49
+[2m2026-11-07T03:32:06.155156Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:06.156258Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:06.342015Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.350681Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.352537Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.352918Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.615746Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.624800Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.625402Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.626061Z[0m [32m INFO[0m got new consensus 50/5Mu6qNpAzKn3Wf1C
+[2m2026-11-07T03:32:06.626182Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m50 [3mhash[0m[2m=[0m5Mu6qNpAzKn3Wf1CBSgZpZbcbDdbh8RDkJeX58dRwsHp [3mend_number[0m[2m=[0m50
+[2m2026-11-07T03:32:06.840230Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.848430Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:06.849740Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.340753Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.348974Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.350858Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.355778Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.356922Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.357676Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.612813Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.614329Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.614605Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.616094Z[0m [32m INFO[0m got new consensus 51/DBEBapTHKTh1ACsu
+[2m2026-11-07T03:32:07.616151Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m51 [3mhash[0m[2m=[0mDBEBapTHKTh1ACsuo5kFqPBi7qHhEGW5FUuzaXaabX5J [3mend_number[0m[2m=[0m51
+[2m2026-11-07T03:32:07.619501Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.860672Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.860937Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:07.870043Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.113477Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.115357Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.115804Z[0m [32m INFO[0m got new consensus 52/58EdX7jFw5m2YhBh
+[2m2026-11-07T03:32:08.115901Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m52 [3mhash[0m[2m=[0m58EdX7jFw5m2YhBhQMPa9Saeh4q9ddGWpAik72XeHeYj [3mend_number[0m[2m=[0m52
+[2m2026-11-07T03:32:08.120506Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.122091Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.363157Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.371928Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.373575Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.375714Z[0m [32m INFO[0m got new consensus 53/2ceBJWFBep7DHfau
+[2m2026-11-07T03:32:08.375768Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m53 [3mhash[0m[2m=[0m2ceBJWFBep7DHfauD365sAVQWSJQbHxBLW2VvjvNxsCQ [3mend_number[0m[2m=[0m53
+[2m2026-11-07T03:32:08.613568Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.622751Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.624290Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:08.864971Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.149821Z[0m [32m INFO[0m peer metrics heartbeat [3mconnected_count[0m[2m=[0m3 [3mconnected_or_dialing[0m[2m=[0m3 [3mbanned_count[0m[2m=[0m0
+[2m2026-11-07T03:32:09.149982Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.150258Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.154148Z[0m [32m INFO[0m peer metrics heartbeat [3mconnected_count[0m[2m=[0m3 [3mconnected_or_dialing[0m[2m=[0m3 [3mbanned_count[0m[2m=[0m0
+[2m2026-11-07T03:32:09.388629Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.410022Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.412363Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.414563Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.419927Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.675885Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.679491Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.679661Z[0m [32m INFO[0m got new consensus 54/4uhX5LQBQT8Xu8oh
+[2m2026-11-07T03:32:09.679834Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m54 [3mhash[0m[2m=[0m4uhX5LQBQT8Xu8oha3cJEgMLp4rDZwv7yNbfvFFMzojn [3mend_number[0m[2m=[0m54
+[2m2026-11-07T03:32:09.692415Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.693192Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.734597Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:09.737088Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:09.739725Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:09.739899Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 7: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:32:09.919100Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.956209Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.959331Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:09.964313Z[0m [32m INFO[0m got new consensus 55/GRsJKgno4EsoZEgG
+[2m2026-11-07T03:32:09.964466Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m55 [3mhash[0m[2m=[0mGRsJKgno4EsoZEgGUamimQzVsQc3f63BSiqjTw2a1xAa [3mend_number[0m[2m=[0m55
+[2m2026-11-07T03:32:10.174522Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.196479Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.203243Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.204744Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.212458Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.444789Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.445985Z[0m [32m INFO[0m got new consensus 56/Hww7zMYoYBEbvgoB
+[2m2026-11-07T03:32:10.446049Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m56 [3mhash[0m[2m=[0mHww7zMYoYBEbvgoBc3syEE4u1DratcDdvukqAqdBxYxV [3mend_number[0m[2m=[0m56
+[2m2026-11-07T03:32:10.446073Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.462207Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.703225Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.714060Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:10.984716Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.161360Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:11.163026Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:11.186734Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.189531Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.194288Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.195420Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.215847Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.447346Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.449540Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.451344Z[0m [32m INFO[0m got new consensus 57/FzrqmF66rkoZSdtN
+[2m2026-11-07T03:32:11.451396Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m57 [3mhash[0m[2m=[0mFzrqmF66rkoZSdtN57fHWWwayRYouWvJ86NEBVzHjhLw [3mend_number[0m[2m=[0m57
+[2m2026-11-07T03:32:11.467078Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.471967Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.714524Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.718688Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.724451Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.948384Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.949951Z[0m [32m INFO[0m got new consensus 58/Fm6irB3M8FwUWnfs
+[2m2026-11-07T03:32:11.950004Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m58 [3mhash[0m[2m=[0mFm6irB3M8FwUWnfszSMae6NdqUKJikcEbZs8YL3yVzhf [3mend_number[0m[2m=[0m58
+[2m2026-11-07T03:32:11.970784Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.975823Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:11.976634Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.220003Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.251612Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.252852Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.263829Z[0m [32m INFO[0m got new consensus 59/EGe6Ycbqxn1J1Nd4
+[2m2026-11-07T03:32:12.263980Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m59 [3mhash[0m[2m=[0mEGe6Ycbqxn1J1Nd4oLTBkKsH4inZhhwEPhCooiL34ThE [3mend_number[0m[2m=[0m59
+[2m2026-11-07T03:32:12.473932Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.487938Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.488104Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.723059Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.979597Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:12.981183Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.203773Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.209155Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.210086Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.210281Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.477853Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.486258Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.486400Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.491727Z[0m [32m INFO[0m got new consensus 60/4LLp5ACUHwxxBdXj
+[2m2026-11-07T03:32:13.491901Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m60 [3mhash[0m[2m=[0m4LLp5ACUHwxxBdXjKwJNimJjfTLtUKCeLTPsSb1riiZY [3mend_number[0m[2m=[0m60
+[2m2026-11-07T03:32:13.503952Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.735422Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.742677Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.768513Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.962212Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.965715Z[0m [32m INFO[0m got new consensus 61/J6KsKSmvYFoLTkAv
+[2m2026-11-07T03:32:13.965780Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m61 [3mhash[0m[2m=[0mJ6KsKSmvYFoLTkAvMVn2vVVYEpyqwB5UF5UuGD3VMcHV [3mend_number[0m[2m=[0m61
+[2m2026-11-07T03:32:13.967095Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:13.971130Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.021122Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.234153Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.241902Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.249953Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.252511Z[0m [32m INFO[0m got new consensus 62/9sUcx5x8K2awm1NP
+[2m2026-11-07T03:32:14.252575Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m62 [3mhash[0m[2m=[0m9sUcx5x8K2awm1NPbEiQeGAr5CUfTU8ezW1dxqdejiE3 [3mend_number[0m[2m=[0m62
+[2m2026-11-07T03:32:14.467213Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.513472Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.524385Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.736461Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:14.743640Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:14.746065Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:14.748597Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:14.748770Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 8: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:32:14.992872Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.001664Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.216584Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.220614Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.223001Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.223092Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.481666Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.481700Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.481823Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.484488Z[0m [32m INFO[0m got new consensus 63/ApXeDqkXM6TnRqvk
+[2m2026-11-07T03:32:15.484542Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m63 [3mhash[0m[2m=[0mApXeDqkXM6TnRqvk3fFjJJB48oQ9Txh5UYjUaz8D96eh [3mend_number[0m[2m=[0m63
+[2m2026-11-07T03:32:15.488592Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.746698Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.750267Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:15.769181Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.001142Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.005135Z[0m [32m INFO[0m got new consensus 64/AS1T6TVgaWAeHGDt
+[2m2026-11-07T03:32:16.005348Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m64 [3mhash[0m[2m=[0mAS1T6TVgaWAeHGDtPknNcYvPoWUhuLVRxaNco5Pd8oUK [3mend_number[0m[2m=[0m64
+[2m2026-11-07T03:32:16.005831Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.016280Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.016935Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.170195Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:16.172169Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:16.247428Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.270437Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.272324Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.274756Z[0m [32m INFO[0m got new consensus 65/JT8aA7PiMqdKwvEZ
+[2m2026-11-07T03:32:16.274825Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m65 [3mhash[0m[2m=[0mJT8aA7PiMqdKwvEZMMcEhMH9ScTDJGei5uZdEvdo2e5 [3mend_number[0m[2m=[0m65
+[2m2026-11-07T03:32:16.501032Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.525382Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.531694Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:16.750811Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.016036Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.019864Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.232629Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.237790Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.238430Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.239557Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.494410Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.494884Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.496877Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.497333Z[0m [32m INFO[0m got new consensus 66/6A8fSbXfi599rYKY
+[2m2026-11-07T03:32:17.497392Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m66 [3mhash[0m[2m=[0m6A8fSbXfi599rYKY2ofaFHQ5ijAE3aNpNao314vKzfRv [3mend_number[0m[2m=[0m66
+[2m2026-11-07T03:32:17.502095Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.749954Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.750875Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.755927Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.993974Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.995789Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:17.996083Z[0m [32m INFO[0m got new consensus 67/5YndFSdUCT43dCEh
+[2m2026-11-07T03:32:17.996165Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m67 [3mhash[0m[2m=[0m5YndFSdUCT43dCEhPYMZAqZu6L5sYM8qkGAzYxK8jdEF [3mend_number[0m[2m=[0m67
+[2m2026-11-07T03:32:18.001062Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.006859Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.243974Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.249062Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.259322Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.260821Z[0m [32m INFO[0m got new consensus 68/9JxzxFKVM7Ex5Lyu
+[2m2026-11-07T03:32:18.260875Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m68 [3mhash[0m[2m=[0m9JxzxFKVM7Ex5LyuJDb2nRixA4m7E11outm4LXCVeJpz [3mend_number[0m[2m=[0m68
+[2m2026-11-07T03:32:18.493541Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.500570Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.509750Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:18.763268Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.003479Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.011291Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.255614Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.260896Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.262742Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.263155Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.268697Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.544298Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.545799Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.545999Z[0m [32m INFO[0m got new consensus 69/ARH1VYKLkVR5KN1G
+[2m2026-11-07T03:32:19.546193Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m69 [3mhash[0m[2m=[0mARH1VYKLkVR5KN1GYx5Nuf2s7ME2gZX3xZPVoS69aTQb [3mend_number[0m[2m=[0m69
+[2m2026-11-07T03:32:19.557207Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.557977Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.753057Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:19.755704Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:19.758305Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:19.758479Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 9: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:32:19.785410Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.809738Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.811046Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:19.813187Z[0m [32m INFO[0m got new consensus 70/DHu4swyCVL2VN8RJ
+[2m2026-11-07T03:32:19.813234Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m70 [3mhash[0m[2m=[0mDHu4swyCVL2VN8RJDptTHqjpBv6C1bub2AxTC1jTZPAJ [3mend_number[0m[2m=[0m70
+[2m2026-11-07T03:32:20.015518Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.021367Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.074745Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.083204Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.270834Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.306033Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.308902Z[0m [32m INFO[0m got new consensus 71/CaqbERYgwqM1KWQW
+[2m2026-11-07T03:32:20.308986Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m71 [3mhash[0m[2m=[0mCaqbERYgwqM1KWQW1WwBBAN93p6qtPNYYCboL718ZkNV [3mend_number[0m[2m=[0m71
+[2m2026-11-07T03:32:20.309230Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.524713Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.581030Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:20.586067Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.021527Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.067329Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.067747Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.073726Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.074130Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.074384Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.107694Z[0m [32m INFO[0m stalled head not ready [3munchanged_for_ms[0m[2m=[0m0 [3mstall_needed_ms[0m[2m=[0m20000 [3mnewest_number[0m[2m=[0m71 [3mreplayed_number[0m[2m=[0m8 [3mgossiped_number[0m[2m=[0m71 [3mblocked_by[0m[2m=[0m"head_age"
+[2m2026-11-07T03:32:21.179478Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:21.185154Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:21.328703Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.329135Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.329598Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.332376Z[0m [32m INFO[0m got new consensus 72/DYgq5zZU5MS8FJPb
+[2m2026-11-07T03:32:21.332441Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m72 [3mhash[0m[2m=[0mDYgq5zZU5MS8FJPbxGRg5asq8c1yAQbhJqNTqNRXL4gP [3mend_number[0m[2m=[0m72
+[2m2026-11-07T03:32:21.335775Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.575621Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.576135Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.586495Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.853743Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.856225Z[0m [32m INFO[0m got new consensus 73/6yH6Vrwov2F3U1cq
+[2m2026-11-07T03:32:21.856565Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m73 [3mhash[0m[2m=[0m6yH6Vrwov2F3U1cq621bpuLG9M7GSWfbfJ3JpV6xrCgV [3mend_number[0m[2m=[0m73
+[2m2026-11-07T03:32:21.857423Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.872724Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:21.873355Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.100386Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.137284Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.138958Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.145391Z[0m [32m INFO[0m got new consensus 74/89pkXT4ww5NzW2nd
+[2m2026-11-07T03:32:22.145522Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m74 [3mhash[0m[2m=[0m89pkXT4ww5NzW2ndt4qCdMh8saJSqQFfDDUGMVs3n68Z [3mend_number[0m[2m=[0m74
+[2m2026-11-07T03:32:22.351011Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.375147Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.375157Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.584045Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.870798Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:22.874260Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.092011Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.098763Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.098848Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.099105Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.103778Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.351589Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.352019Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.353855Z[0m [32m INFO[0m got new consensus 75/5nSRm1rWG6RcAnF5
+[2m2026-11-07T03:32:23.353919Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m75 [3mhash[0m[2m=[0m5nSRm1rWG6RcAnF5uFXxBLC4kbBhCNaGEQqEEkYCQP6A [3mend_number[0m[2m=[0m75
+[2m2026-11-07T03:32:23.359078Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.359654Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.621675Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.653982Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.655814Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.666515Z[0m [32m INFO[0m got new consensus 76/AF9PgQ57cnqN3J9u
+[2m2026-11-07T03:32:23.666660Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m76 [3mhash[0m[2m=[0mAF9PgQ57cnqN3J9uTnmVcVSc5f2zufiKhAGxcwm1WqFn [3mend_number[0m[2m=[0m76
+[2m2026-11-07T03:32:23.875036Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.896870Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.897725Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:23.901237Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.139493Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.157253Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.164088Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.165413Z[0m [32m INFO[0m got new consensus 77/6BuYgSKPNbenzFBb
+[2m2026-11-07T03:32:24.165514Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m77 [3mhash[0m[2m=[0m6BuYgSKPNbenzFBbPwn5VHZShktKukE5SYPxUjoHcv1x [3mend_number[0m[2m=[0m77
+[2m2026-11-07T03:32:24.393105Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.395457Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.396150Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.762802Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mqoAuxeJH2Z9JtqtxmqFhqfDRxtePV6exgGavsqw6MXFryn4bsKGizPJN6PkjP4JFBDCGGSwU4GRWxRp22ZfTJW6zmRyfiAbpxnB8jNgAiRZbQ775sxDcgjHqfpFpd6xhK8Q [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:24.765482Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0mnDhM672pqfwi3Xv8ReJordty81NjDw5kMvCaC4ejEw1APdxapVWMtmB6dZKu6Qs3D2NMsnQ8a8vyq1D9MYTYh9ojgLmKbBQxrbLuosRisRbV9fTLsmmKjEhCU6Ag1YjaB3d [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:24.768048Z[0m [33m WARN[0m epoch pack sync exchange failed; trying next peer [3mpeer[0m[2m=[0msRk7qv5fRBfZ3svZmZxUtzgBHbVsAJHUh7H8p3zN1Tkt7nwHLQBMXhncQiJWYfBJdRM2rpM32tR5kYSLvjy9NT2vbdSNsfbgfERYq7RLh4Vcdgs1RaqqZqWyvCeq6pTNgvG [3mepoch[0m[2m=[0m0 [3me[0m[2m=[0mRPCRetryable("peer denied epoch pack sync request: Unavailable")
+[2m2026-11-07T03:32:24.768225Z[0m [31mERROR[0m failed to request epoch pack for epoch 0, attempt 10: no peer served the epoch pack over the sync protocol
+[2m2026-11-07T03:32:24.883600Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.890031Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.890103Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.895642Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:24.896098Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.148212Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.153318Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.154150Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.155922Z[0m [32m INFO[0m got new consensus 78/Aj78vgaiM5wWFbQG
+[2m2026-11-07T03:32:25.155976Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m78 [3mhash[0m[2m=[0mAj78vgaiM5wWFbQGwcZ2M7mwYwMtnyuBz5kYdNEBUMGw [3mend_number[0m[2m=[0m78
+[2m2026-11-07T03:32:25.379189Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.384738Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.404280Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.638326Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.663012Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.677845Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.688592Z[0m [32m INFO[0m got new consensus 79/3fJv2AAmyKnq1TAz
+[2m2026-11-07T03:32:25.688802Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m79 [3mhash[0m[2m=[0m3fJv2AAmyKnq1TAzaNDXdZAW2Myf4dTNCfZ35vHJ693G [3mend_number[0m[2m=[0m79
+[2m2026-11-07T03:32:25.906127Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.927500Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.931870Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:25.933130Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.162171Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.167673Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.168021Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.169023Z[0m [32m INFO[0m got new consensus 80/G8xbMivar18qojAW
+[2m2026-11-07T03:32:26.169084Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m80 [3mhash[0m[2m=[0mG8xbMivar18qojAWF1TXiGz1oxGB7tWT4EC2FFwV3nd2 [3mend_number[0m[2m=[0m80
+[2m2026-11-07T03:32:26.187697Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:26.189093Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:26.416048Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.418579Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.419357Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.907936Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.915557Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.918083Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.921835Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.924019Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:26.924911Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.185753Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.186797Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.187053Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.188194Z[0m [32m INFO[0m got new consensus 81/J8786oyANRzKdznt
+[2m2026-11-07T03:32:27.188280Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m81 [3mhash[0m[2m=[0mJ8786oyANRzKdznttYswHKxiM8zqVQKwvfHJNzoTe85H [3mend_number[0m[2m=[0m81
+[2m2026-11-07T03:32:27.192534Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.452849Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.455213Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.479410Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.700596Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.709289Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.712803Z[0m [32m INFO[0m got new consensus 82/EfH4F1yJywGtTysq
+[2m2026-11-07T03:32:27.712926Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m82 [3mhash[0m[2m=[0mEfH4F1yJywGtTysqtisNssuH8vfZY38B52t4JU5EiaDS [3mend_number[0m[2m=[0m82
+[2m2026-11-07T03:32:27.721088Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.722664Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.949778Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.980000Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:27.994526Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.004035Z[0m [32m INFO[0m got new consensus 83/27vQcPTMVrHK1j3v
+[2m2026-11-07T03:32:28.004141Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m83 [3mhash[0m[2m=[0m27vQcPTMVrHK1j3v8jTHmyr91NotaXrwHNDC7Rcr8U78 [3mend_number[0m[2m=[0m83
+[2m2026-11-07T03:32:28.201169Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.230208Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.245332Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.433520Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.731885Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.734276Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.938788Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.943746Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.945525Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.945587Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:28.950825Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.195468Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.196123Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.197625Z[0m [32m INFO[0m got new consensus 84/97vFVgUJB53ZuEnE
+[2m2026-11-07T03:32:29.197693Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m84 [3mhash[0m[2m=[0m97vFVgUJB53ZuEnEus9XVe5qBaUSPAVepmfUkrg8ojgG [3mend_number[0m[2m=[0m84
+[2m2026-11-07T03:32:29.202784Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.203149Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.468365Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.483827Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.484960Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.487058Z[0m [32m INFO[0m got new consensus 85/BNbii9cL1WW6eX5Q
+[2m2026-11-07T03:32:29.487116Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m85 [3mhash[0m[2m=[0mBNbii9cL1WW6eX5QNdqJthseRZHddV2zbEXNSCK59fAw [3mend_number[0m[2m=[0m85
+[2m2026-11-07T03:32:29.721604Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.736210Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.737779Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.737827Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:29.993353Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.005589Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.009673Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.011243Z[0m [32m INFO[0m got new consensus 86/EXx8NLkd2dMKEceQ
+[2m2026-11-07T03:32:30.011394Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m86 [3mhash[0m[2m=[0mEXx8NLkd2dMKEceQrSNuiZLb5upC2M5sboezeRH6VPfk [3mend_number[0m[2m=[0m86
+[2m2026-11-07T03:32:30.238359Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.240714Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.241231Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.730318Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.736425Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.737181Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.741619Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.743182Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.743521Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.748383Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.995198Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.995697Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:30.996558Z[0m [32m INFO[0m got new consensus 87/CS3Bmdbv34MFhbdt
+[2m2026-11-07T03:32:30.996620Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m87 [3mhash[0m[2m=[0mCS3Bmdbv34MFhbdtjNKn7HxJiVLp28JFRxQCvxhySobn [3mend_number[0m[2m=[0m87
+[2m2026-11-07T03:32:31.001996Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.002291Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.196201Z[0m [32m INFO[0m failed to retrieve epoch from a peer 0: Could not get the epoch record!
+[2m2026-11-07T03:32:31.201678Z[0m [32m INFO[0m failed to retrieve epoch from a peer 1: Could not get the epoch record!
+[2m2026-11-07T03:32:31.270910Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.295403Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.300540Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.307347Z[0m [32m INFO[0m got new consensus 88/5wAQ8J3eBNK8XUrB
+[2m2026-11-07T03:32:31.307537Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m88 [3mhash[0m[2m=[0m5wAQ8J3eBNK8XUrBMrvimLW1NVq1QTH5hmYqKggc8HWr [3mend_number[0m[2m=[0m88
+[2m2026-11-07T03:32:31.520048Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.530666Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.532666Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.533322Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.789635Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.805054Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.808069Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:31.811217Z[0m [32m INFO[0m got new consensus 89/65qsrGW14ratpo5A
+[2m2026-11-07T03:32:31.811419Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m89 [3mhash[0m[2m=[0m65qsrGW14ratpo5A1F9w8yybNVmDpQrFBR83oeH1SBpu [3mend_number[0m[2m=[0m89
+[2m2026-11-07T03:32:32.045766Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.054569Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.056967Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.525508Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.531730Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.531733Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.536997Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.537591Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.794303Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.821239Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.822972Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:32.827225Z[0m [32m INFO[0m got new consensus 90/h9NWhjezCzrD75Hh
+[2m2026-11-07T03:32:32.827341Z[0m [32m INFO[0m fetching consensus from peer [3mnumber[0m[2m=[0m90 [3mhash[0m[2m=[0mh9NWhjezCzrD75HhVbscFrBgiRA8NjXt6vHVgqa9Dha [3mend_number[0m[2m=[0m90
+[2m2026-11-07T03:32:33.046856Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:33.054968Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:33.065415Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:33.066119Z[0m [33m WARN[0m process_gossip [3me[0m[2m=[0mCertificate(CertificateManagerOneshot)
+[2m2026-11-07T03:32:33.180365Z[0m [32m INFO[0m Received SIGTERM
+[2m2026-11-07T03:32:33.180389Z[0m [32m INFO[0m Node Task Manager: Node exiting
+[2m2026-11-07T03:32:33.180460Z[0m [32m INFO[0m received shutdown signal...
+[2m2026-11-07T03:32:33.180486Z[0m [32m INFO[0m TN Engine exited gracefully
+[2m2026-11-07T03:32:33.180499Z[0m [32m INFO[0m epoch consensus fetcher 2 shutting down during pack fetch
+[2m2026-11-07T03:32:33.180502Z[0m [31mERROR[0m engine updates ended, node will exit
+[2m2026-11-07T03:32:33.181614Z[0m [32m INFO[0m Node Task Manager: Epoch Vote Collector shutdown successfully
+[2m2026-11-07T03:32:33.181629Z[0m [32m INFO[0m Node Task Manager: epoch-consensus-worker-0 shutdown successfully
+[2m2026-11-07T03:32:33.181635Z[0m [32m INFO[0m Node Task Manager: Epoch Record Collector shutdown successfully
+[2m2026-11-07T03:32:33.181640Z[0m [32m INFO[0m Node Task Manager: epoch-consensus-worker-1 shutdown successfully
+[2m2026-11-07T03:32:33.181646Z[0m [32m INFO[0m Node Task Manager: consensus engine shutdown successfully
+[2m2026-11-07T03:32:33.181653Z[0m [31mERROR[0m Node Task Manager: engine updates for consensus shutdown with error Critical task engine updates for consensus has exited unexpectedly: engine updates ended, node will exit
+[2m2026-11-07T03:32:33.181662Z[0m [32m INFO[0m Node Task Manager: epoch-consensus-worker-2 shutdown successfully
+[2m2026-11-07T03:32:33.181668Z[0m [32m INFO[0m Node Task Manager: bus-metrics-mirror shutdown successfully
+[2m2026-11-07T03:32:33.181674Z[0m [32m INFO[0m Node Task Manager: Worker Network 0 shutdown successfully
+[2m2026-11-07T03:32:33.181679Z[0m [32m INFO[0m Node Task Manager: fetch-recent-consensus shutdown successfully
+[2m2026-11-07T03:32:33.181685Z[0m [32m INFO[0m Node Task Manager: Primary Network shutdown successfully
+[2m2026-11-07T03:32:34.155243Z[0m [32m INFO[0m network reachability changed [3mreadiness[0m[2m=[0mNetworkReadiness { version: 1, status: NotReady, primary: Unavailable, workers: [WorkerNetworkReadiness { worker_id: 0, connectivity: Unavailable }] }
+[2m2026-11-07T03:32:35.183017Z[0m [31mERROR[0m Node Task Manager: All tasks NOT shutdown
