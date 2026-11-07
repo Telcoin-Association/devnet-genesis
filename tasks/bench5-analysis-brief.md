@@ -124,6 +124,20 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   moved between VMs). FIX (A): a dedicated small rayon pool (3 threads) for signer recovery via pool.install — blocks unchanged; expected finish ≈ 7-8 µs/tx everywhere, task ≈ 284 µs/tx; revert of E4 is the
   fallback (gives up ≈ 8 µs/tx). Tests: Criterion N ∈ {0,1,2} jobs on shared vs dedicated pool; e2e 4 validators one slowed, finish within 20 %. Fields: overlapped vs non-overlapped finish within 1-2 µs/tx;
   S7 p95 < 2 s everywhere (today 16.9 / 31.8 s); epoch records ≥ 9/10. Chaos-node catch-up only ≈ +4 % from this; full catch-up under load still needs the persist work.
+- I-D DONE (tasks/issues/bench5-sealed-tx-invisible-drops-and-duplicates.md): at the worker quorum ack the builder removes the batch's txs from the pool and advances the sender's pool nonce
+  (batch-builder/src/lib.rs:366-369, :643; batch.rs:279); until execution the tx is invisible to `eth_getTransactionByHash` (reth helpers/transaction.rs:668-672), a resend of the same bytes is accepted as
+  NEW (pool dedupe = hash-in-pool only, txpool.rs:750), pending nonce ignores it (state.rs:358-362), and execution-skipped txs never return to the pool (execution.rs:309-321); the generator resends after
+  300 s to the same node when the lookup returns null (sender.rs:470-530). SYMPTOM 1 (the 300-s cliff, 86 % of the tail): OUT-OF-ORDER batch execution — Bullshark never commits a certificate at or below
+  its author's last committed round (consensus/utils.rs:61-65), so the digests of a skipped/cancelled header come back via requeue (proposer.rs:803-863 committed, :873-892 canceled) in a header LATER than
+  one already carrying the sender's newer digests → the newer nonces are skipped `too high`, the sender's queue stalls behind the hole until the resend; v02 shows 8,364 such sender episodes under load, and
+  600×4 (no starvation) still 1,097. SYMPTOM 2 (duplicates): all 37,683 `nonce too low` skips are in batches authored by v04/v08/v10 (first sealed 17:43-17:55); 5 digests executed 2-3× (9 extra blocks) —
+  the batch has no time field and the digest excludes received_at (sealed_batch.rs:137) so identical resends → identical digest; the proposer appends without checking (proposer.rs:1201), the subscriber dedupes
+  only within one output (subscriber.rs:1080-1103). The 47 % 'unexplained' tail = 570 landings queued behind a skip (p50 313 s) + 109 starved + 103 on the killed node; model predicts 59.8 % with a skip
+  line vs 56.8 % observed; ≈ 145 k affected txs ≈ 1.8 % of 8.3 M landed. FIX (A): keep a sealed tx in the pool, marked so the builder skips it but builds its later nonces (as #1329 does for peer batches);
+  drop the optimistic nonce advance; clear marks when the batch's output is evicted for execution (run_epoch.rs:1262) → a skipped tx is re-sealed one batch later, RPC finds sealed txs, a resend gets
+  `already known` (the generator counts it as accepted, sender.rs:123); (B) refuse a second report of an already sealed/pending digest; NOT dedupe at execution or by committed digests (the repeated copy can
+  be the useful one). Fields: sampled landings ≥ 300 s = 0 (1,530); generator resends ≈ 0 (14,046); nonce_too_low skips ≈ 0 (37,683/node); duplicate digests executed 0 (5); add the sender address to the
+  landings export and the skip line.
 - D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
   landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
   v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
