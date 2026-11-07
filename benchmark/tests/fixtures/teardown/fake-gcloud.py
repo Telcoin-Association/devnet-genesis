@@ -29,6 +29,12 @@ Knobs (environment):
                                 "not found"), as fixtures/obs/fake-gcloud.py's describe-transient
   FAKE_DELETE_POLLS=<n>|never   an `instances delete` leaves the instance STOPPING for <n>
                                 describes (default 1), then describe says not found; never = stays
+  FAKE_GCLOUD_HELP=<file>       `gcloud <command> --help` prints that command's section of <file>
+                                (gcloud-help.txt: SDK 588's text, see help_session); without it,
+                                or for a command it has no section for, --help fails as gcloud does
+
+`gcloud <command> --help` is logged to $FAKE_ROOT/help.log (one line of command words per call), not
+to calls.jsonl: a help call reads nothing of the project, so the call-order checks never see it.
 
 Remote sessions on stdin are told apart by the script's first line: `# bench-pull: span` prints
 LOGSPAN lines, `# bench-pull: rotated` writes a tar of gzip files; any other `sudo bash -s`
@@ -278,13 +284,15 @@ def compute(args, pos, stdin):
         elif verb == "delete":
             # The real delete is synchronous (the teardown backgrounds it); the fake returns at once
             # and lets describe show STOPPING for FAKE_DELETE_POLLS polls, so the poll loop is exercised.
+            # deleting.json is written last: once it names the instance, the STOPPING status is saved
+            # (stub-perl.sh's FAKE_DESCRIBE_AWAITS_DELETE waits for that).
             if "--async" in args:
                 die("ERROR: (gcloud.compute.instances.delete) unrecognized arguments: --async")
             polls = os.environ.get("FAKE_DELETE_POLLS") or "1"
-            deleting[key] = polls if polls == "never" else int(polls)
-            save_json("deleting.json", deleting)
             match[0]["status"] = "STOPPING"
             save_json("instances.json", state)
+            deleting[key] = polls if polls == "never" else int(polls)
+            save_json("deleting.json", deleting)
             sys.stderr.write("Deleted [%s].\n" % name)
         else:
             die("fake gcloud: unexpected compute instances %s" % verb)
@@ -430,8 +438,46 @@ def auth(pos):
     print("fake-access-token")
 
 
+def help_session(argv):
+    """`gcloud <command> --help` (the teardown's gcloud argv check): the command's section of
+    $FAKE_GCLOUD_HELP ("== <command words> ==" headers, each followed by its text), its SYNOPSIS flags in
+    ANSI bold as SDK 588 prints them even to a pipe, then the file's "GCLOUD WIDE FLAGS" section. A
+    command the file has no section for fails as an unknown gcloud command does (rc 2)."""
+    words = [a for a in argv if not a.startswith("-")]
+    fd = os.open(os.path.join(ROOT, "help.log"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (" ".join(words) + "\n").encode())
+    finally:
+        os.close(fd)
+    path = os.environ.get("FAKE_GCLOUD_HELP")
+    if not path:
+        die("fake gcloud: --help needs FAKE_GCLOUD_HELP", 2)
+    sections, name = {}, None
+    with open(path) as fh:
+        for line in fh.read().splitlines():
+            m = re.match(r"^== (.+) ==$", line)
+            if m:
+                name = m.group(1)
+                sections[name] = []
+            elif name is not None:
+                sections[name].append(line)
+    if " ".join(words) not in sections:
+        die("ERROR: (gcloud.%s) Invalid choice: '%s'." % (".".join(words[:-1]) or "gcloud", words[-1] if words else ""), 2)
+    out, synopsis = [], False
+    for line in sections[" ".join(words)]:
+        synopsis = line == "SYNOPSIS" or (synopsis and line.strip() != "")
+        if synopsis and line != "SYNOPSIS":
+            line = re.sub(r"(--(?:\[no-\])?[a-z0-9][a-z0-9-]*)", "\x1b[1m\\1\x1b[m", line)
+        out.append(line)
+    out += [""] + sections.get("GCLOUD WIDE FLAGS", [])
+    sys.stdout.write("\n".join(out) + "\n")
+    sys.exit(0)
+
+
 def main():
     argv = sys.argv[1:]
+    if "--help" in argv:
+        help_session(argv)
     stdin = sys.stdin.read() if not sys.stdin.isatty() else ""
     log(argv, stdin)
     joined = " ".join(argv)

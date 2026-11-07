@@ -19,6 +19,7 @@ import calendar
 import gzip
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,9 @@ CURL_STUB = FIX / "stub-curl.sh"
 OBS_STUBS = FIX / "obs-stubs.sh"
 LIB = (BENCH / "bench-lib.sh").read_text()
 TEARDOWN = (BENCH / "benchmark-teardown.sh").read_text()
+DEVNET_LIB = (REPO / "devnet-lib.sh").read_text()
+HELP_FIX = FIX / "gcloud-help.txt"           # the fake gcloud's --help texts (SDK 588), FAKE_GCLOUD_HELP
+CERT_RATE_STUB = FIX / "stub-cert-rate.py"    # logs its argv to $FAKE_ROOT/cert-rate.calls
 
 GS = "gs" + "://"
 PROJECT = "tn-" + "devnet"
@@ -94,6 +98,72 @@ MARKER_SCRIPT = "set -euo pipefail\n" + "".join(shell_assignment(LIB, n) for n i
     "bench_node_markers_report"))
 TRUSTED_NOTE = ("teardown: saved logs accepted from markers older than the freshness window "
                 "(BENCH_TEARDOWN_TRUST_MARKERS=1): ")
+# D34: the teardown's own marker report (td_marker_age, td_markers_report) over bench-lib.sh's verdict,
+# on a fake clock: bench_now_unix answers $FAKE_NOW; TD_STARTED_ISO is when the teardown started.
+TD_MARKER_SCRIPT = ("set -euo pipefail\n" + "".join(shell_assignment(LIB, n) for n in (
+    "BENCH_MARKER_MAX_AGE_SECS", "BENCH_PULL_MARKER_V")) + "".join(shell_function(LIB, n) for n in (
+        "bench_iso_from_unix", "_bench_log_name_ok", "_bench_marker_verdict")) + "".join(
+    shell_function(TEARDOWN, n) for n in ("td_marker_age", "td_markers_report"))
+    + 'bench_now_unix() { printf \'%s\\n\' "${FAKE_NOW:?}"; }\n')
+# The same clock skew end to end, appended to the teardown's copy of bench-lib.sh: inside the teardown's
+# marker report the clock reads FAKE_CLOCK_SKEW seconds late (as if that check ran so long after the
+# pull that wrote the marker); everywhere else, the pull's own check of its new marker included, it is
+# the real clock.
+SKEWED_CLOCK = """
+bench_now_unix() {
+    local f s=0
+    for f in "${FUNCNAME[@]}"; do [ "${f}" != td_markers_report ] || s="${FAKE_CLOCK_SKEW:-0}"; done
+    echo $(( $(date -u +%s) + s ))
+}
+"""
+_INVENTORY = []
+
+
+def gcloud_inventory():
+    """{command words: flags} as the teardown's td_gcloud_argv lists them (A10), with devnet-lib.sh's
+    TN_SSH_FLAGS, read once."""
+    if not _INVENTORY:
+        out = subprocess.run(["bash", "-c", "set -euo pipefail\n" + shell_assignment(DEVNET_LIB, "TN_SSH_FLAGS")
+                              + shell_function(TEARDOWN, "td_gcloud_argv") + "td_gcloud_argv\n"],
+                             stdout=subprocess.PIPE, universal_newlines=True, check=True,
+                             env={"PATH": os.environ["PATH"]}).stdout
+        inv = {}
+        for line in out.splitlines():
+            words = line.split()
+            inv[tuple(w for w in words if not w.startswith("-"))] = {w for w in words if w.startswith("-")}
+        _INVENTORY.append(inv)
+    return _INVENTORY[0]
+
+
+def inventory_gaps(words, flags):
+    """What td_gcloud_argv lacks for one gcloud call (its positional words, its flag names): [] when the
+    longest listed command that starts the words lists every flag."""
+    inv = gcloud_inventory()
+    cmds = [c for c in inv if tuple(words[:len(c)]) == c]
+    if not cmds:
+        return ["no command for: " + " ".join(words[:3])]
+    cmd = max(cmds, key=len)
+    return ["%s %s" % (" ".join(cmd), f) for f in sorted(set(flags) - inv[cmd])]
+
+
+def source_calls(text):
+    """(positional words, flag names) of every gcloud call written in shell <text>: continuation lines
+    joined, comment lines and the words of an echo skipped, quoted strings blanked to one word, a call
+    ending at the first |, ;, ), &, < or >. A call whose command is not literal (the argv check's own)
+    is skipped."""
+    calls = []
+    for line in re.sub(r"\\\n", " ", text).splitlines():
+        code = line.strip()
+        if not code or code.startswith("#"):
+            continue
+        for m in re.finditer(r"(?<![\w$-])gcloud\s+(?=[a-z])", code):
+            if "echo " in code[:m.start()]:
+                continue
+            rest = re.sub(r"\"[^\"]*\"|'[^']*'", "Q", code[m.end():])
+            toks = re.split(r"[|;)&<>]", rest, maxsplit=1)[0].split()
+            words = list(itertools.takewhile(lambda t: re.match(r"^[a-z][a-z0-9-]*$", t), toks))
+            calls.append((words, {t.split("=", 1)[0] for t in toks if t.startswith("-")}))
+    return calls
 
 
 def utc_ago(secs):
@@ -214,7 +284,7 @@ class FakeCloud(object):
     def env(self, **extra):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(self.root), "TMPDIR": str(self.tmp), "FAKE_ROOT": str(self.state),
-               "STUB_LOG": str(self.root / "curl.log"), "TN_IAP_RETRIES": "0"}
+               "STUB_LOG": str(self.root / "curl.log"), "TN_IAP_RETRIES": "0", "FAKE_GCLOUD_HELP": str(HELP_FIX)}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -246,6 +316,11 @@ class FakeCloud(object):
     def calls(self):
         p = self.state / "calls.jsonl"
         return [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+
+    def help_calls(self):
+        """The command words of each `gcloud <command> --help` (help.log; not in calls())."""
+        p = self.state / "help.log"
+        return p.read_text().splitlines() if p.exists() else []
 
 
 def is_call(call, words):
@@ -473,6 +548,105 @@ class MarkerVerdictTests(unittest.TestCase):
                 self.rejected(self.report("1"), why or "pulled %s, which is in the future" % self.pulled)
 
 
+class ThisInvocationMarkerTests(unittest.TestCase):
+    """D34, on a fake clock: the teardown's marker report (td_markers_report over bench-lib.sh's verdict)
+    exempts a marker of this run pulled at or after the teardown started from the 15-min age rule, and
+    from nothing else; a marker of an earlier teardown keeps the rule (BENCH_TEARDOWN_TRUST_MARKERS=1
+    still lifts it). Every line ends in how the marker's age was judged."""
+
+    NOW = unix("2099-12-31T12:00:00Z")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="td-marker-")
+        self.logs = Path(self._tmp.name) / "logs"
+        self.logs.mkdir()
+        self.files = [self.logs / (INST + "-telcoin.log.gz"), self.logs / (INST + "-unit-stdout.log.gz")]
+        self.files[0].write_bytes(gz("node log line\n" * 100))
+        self.files[1].write_bytes(gz("unit stdout line\n" * 100))
+        self.pulled = None
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def iso(self, ago):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.NOW - ago))
+
+    def mark(self, ago, run=RUN, node_id=INST_ID):
+        """The marker of a pull <ago> s before NOW, for <run>."""
+        self.pulled = self.iso(ago)
+        text = marker_text(INST, node_id, self.pulled, self.files).replace("\nrun %s\n" % RUN, "\nrun %s\n" % run)
+        (self.logs / (INST + ".pulled")).write_text(text)
+
+    def report(self, started_ago, trust=None):
+        """td_markers_report at NOW, for a teardown that started <started_ago> s before."""
+        env = {"PATH": os.environ["PATH"], "FAKE_NOW": str(self.NOW), "TD_STARTED_ISO": self.iso(started_ago),
+               "BENCH_RUN_ID": RUN}
+        if trust is not None:
+            env["BENCH_TEARDOWN_TRUST_MARKERS"] = trust
+        return subprocess.run(["bash", "-c", TD_MARKER_SCRIPT + 'td_markers_report "$@"\n', "t",
+                               str(self.logs), INST, INST_ID], env=env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+
+    def accepted(self, ending):
+        return ("        marker %s.pulled: accepted — instance %s (created 2099-12-31T00:00:00.000-08:00), run %s, "
+                "pulled %s; its 2 log(s) are here at their recorded sizes%s\n" % (INST, INST_ID, RUN, self.pulled, ending))
+
+    def refused(self, why):
+        return "        marker %s.pulled: not accepted — %s\n" % (INST, why)
+
+    def test_a_marker_this_teardown_pulled_20_min_ago_is_accepted(self):
+        # (started, pulled) seconds before the check: 20 min, bench 4's 4h19m pull, the same second.
+        for started, ago in ((25 * 60, 20 * 60), (5 * 3600, 41 * 60), (20 * 60, 20 * 60)):
+            self.mark(ago)
+            for trust in (None, "1"):
+                with self.subTest(started=started, pulled=ago, trust=trust):
+                    p = self.report(started, trust)
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertEqual(p.stdout, self.accepted(" [fresh:this-invocation]"))
+
+    def test_an_earlier_teardowns_marker_20_min_old_is_stale_unless_trusted(self):
+        self.mark(20 * 60)
+        for started in (10 * 60, 0):   # this teardown started after that pull
+            with self.subTest(started=started):
+                p = self.report(started)
+                self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+                self.assertEqual(p.stdout, self.refused("pulled %s, more than 15 min ago; the node has logged since "
+                                                        "[stale]" % self.pulled))
+                p = self.report(started, "1")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(p.stdout, self.accepted(" (BENCH_TEARDOWN_TRUST_MARKERS=1) [trusted]"))
+
+    def test_an_earlier_teardowns_marker_within_the_window_is_fresh(self):
+        self.mark(5 * 60)
+        p = self.report(60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, self.accepted(" [fresh]"))
+
+    def test_the_exemption_lifts_the_age_rule_only(self):
+        self.mark(20 * 60, run="r20991231-0000")   # pulled after the start, for another run: not exempt
+        p = self.report(25 * 60)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, self.refused("pulled %s, more than 15 min ago; the node has logged since [stale]"
+                                                % self.pulled))
+        self.mark(20 * 60, node_id="999")
+        p = self.report(25 * 60)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, self.refused("it is for instance 999 (created 2099-12-31T00:00:00.000-08:00); %s now "
+                                                "is instance %s [fresh:this-invocation]" % (INST, INST_ID)))
+        self.mark(20 * 60)
+        size = self.files[0].stat().st_size
+        with self.files[0].open("ab") as fh:
+            fh.write(b"x")
+        p = self.report(25 * 60)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, self.refused("%s is %d bytes, the marker says %d [fresh:this-invocation]"
+                                                % (self.files[0].name, size + 1, size)))
+        self.mark(-3600)   # a pull time in the future: refused, and no age verdict
+        p = self.report(25 * 60)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, self.refused("pulled %s, which is in the future" % self.pulled))
+
+
 class TeardownSourceOrderTests(unittest.TestCase):
     """Where the gate sits in benchmark-teardown.sh, read from the source."""
 
@@ -549,6 +723,39 @@ class TeardownSourceOrderTests(unittest.TestCase):
             self.assertNotIn("storage rsync", text)
 
 
+class GcloudArgvInventoryTests(unittest.TestCase):
+    """A10: td_gcloud_argv, what the dry run checks against the SDK's --help, lists every gcloud call
+    written in the teardown (and, TeardownLocalGateTests.tearDown, every call it made in those tests,
+    its helpers' included); without gcloud on PATH the check is a note."""
+
+    def test_every_gcloud_call_in_the_teardown_is_listed(self):
+        calls = source_calls(TEARDOWN)
+        self.assertGreaterEqual(len(calls), 25)
+        self.assertEqual([g for words, flags in calls for g in inventory_gaps(words, flags)], [])
+        # D35 again: --async put back on the delete, and not on the list, is a gap.
+        delete = 'gcloud compute instances delete "${n}" --zone="${z}" --project="${PROJECT_ID}" --quiet'
+        self.assertEqual(TEARDOWN.count(delete), 3)
+        calls = source_calls(TEARDOWN.replace(delete, delete + " --async"))
+        self.assertEqual(sorted({g for words, flags in calls for g in inventory_gaps(words, flags)}),
+                         ["compute instances delete --async"])
+
+    def test_one_line_per_command_and_no_async_on_the_delete(self):
+        inv = gcloud_inventory()
+        self.assertEqual(len(inv), 19)
+        self.assertEqual(inv[("compute", "instances", "delete")], {"--zone", "--project", "--quiet"})
+        self.assertEqual(inv[("compute", "ssh")], {"--zone", "--project", "--command", "--tunnel-through-iap", "--ssh-flag"})
+        self.assertEqual(inv[("storage", "rm")], {"-r", "--project"})
+
+    def test_without_gcloud_on_path_the_check_is_a_note(self):
+        script = ("set -euo pipefail\nSKIP_GCLOUD_ARGV=0\n" + shell_function(TEARDOWN, "td_gcloud_argv")
+                  + shell_function(TEARDOWN, "gcloud_argv_check") + "gcloud_argv_check\n")
+        with tempfile.TemporaryDirectory(prefix="no-gcloud-") as empty:
+            p = subprocess.run([shutil.which("bash"), "-c", script], env={"PATH": empty}, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertTrue(p.stdout.endswith("\n    - skipped: gcloud is not on PATH\n"), p.stdout)
+
+
 @unittest.skipUnless(shutil.which("git") and shutil.which("jq"), "needs git and jq")
 class TeardownLocalGateTests(unittest.TestCase):
     def setUp(self):
@@ -604,7 +811,16 @@ class TeardownLocalGateTests(unittest.TestCase):
                           files={"runs/r20261006-0458/results/manifest.json": b"{}"})
 
     def tearDown(self):
-        self._tmp.cleanup()
+        try:
+            self.assert_calls_listed()
+        finally:
+            self._tmp.cleanup()
+
+    def assert_calls_listed(self):
+        """A10: every gcloud call this test's teardown made, its helpers' included, is in td_gcloud_argv."""
+        gaps = sorted({g for c in self.cloud.calls() for g in inventory_gaps(
+            [a for a in c["argv"] if not a.startswith("-")], {a.split("=", 1)[0] for a in c["argv"] if a.startswith("-")})})
+        self.assertEqual(gaps, [], "gcloud calls td_gcloud_argv does not list (the dry run never checks them)")
 
     def env(self, **extra):
         return self.cloud.env(BENCH_TXGEN_SHA="abcdef1", BENCH_PARAMETERS_FILE=str(self.params),
@@ -904,6 +1120,8 @@ class TeardownLocalGateTests(unittest.TestCase):
         p = self.teardown("--yes")
         self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
         self.assertIn("✓ teardown left nothing behind.", p.stdout)
+        self.assertNotIn(">>> gcloud argv check", p.stdout)
+        self.assertEqual(self.cloud.help_calls(), [], "--yes never spends time on the argv check")
         out = p.stdout
         self.assertLess(out.index(">>> local gate"), out.index(">>> plan / execution"))
         self.assertLess(out.index(">>> plan / execution"), out.index(">>> final local index"))
@@ -1164,7 +1382,9 @@ class TeardownLocalGateTests(unittest.TestCase):
 
     def test_an_instance_still_deleting_after_the_wait_is_left(self):
         self.give_every_node_its_logs()
-        p = self.teardown("--yes", FAKE_DELETE_POLLS="never", BENCH_TEARDOWN_DELETE_WAIT_SECS="0")
+        # The delete runs in the background: the wait's one describe is held until the fake's delete landed.
+        p = self.teardown("--yes", FAKE_DELETE_POLLS="never", BENCH_TEARDOWN_DELETE_WAIT_SECS="0",
+                          FAKE_DESCRIBE_AWAITS_DELETE="1")
         self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
         self.assertIn("✗ %s (%s) still there after 0 s (status STOPPING) — the left-nothing checks below count it"
                       % (INST, ZONE), p.stdout)
@@ -1335,6 +1555,15 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertIn("(then one describe per instance every 10 s until each is gone, at most 600 s", out)
         self.assertEqual(self.done_line(p), (RUN, 0, 3, True))   # the live instance (labelled, named) + the run bucket
         self.assertEqual(self.recorded("sleeps"), [])
+        # A10: after the plan and the left-nothing checks, one --help per command the teardown can issue
+        # (the fake prints SDK 588's text, flags in ANSI bold), every flag found.
+        inv = gcloud_inventory()
+        self.assertIn("\nGCLOUD_ARGV_OK %d commands, %d flags\n" % (len(inv), sum(len(f) for f in inv.values())), out)
+        self.assertLess(out.index(">>> plan / execution"), out.index(">>> gcloud argv check"))
+        self.assertLess(out.index(">>> left-nothing checks"), out.index(">>> gcloud argv check"))
+        self.assertLess(out.index("GCLOUD_ARGV_OK"), out.index("DRY RUN — re-run with --yes"))
+        self.assertEqual(sorted(self.cloud.help_calls()), sorted(" ".join(c) for c in inv))
+        self.assertNotIn("GCLOUD_ARGV", p.stderr)
 
     def test_dry_run_says_where_the_coverage_gate_would_stop(self):
         self.give_every_node_its_logs()
@@ -1405,8 +1634,8 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.stub_df("/dev/fake 999999999 1 104857600 1% /")   # 100.0 GB free
         p = self.teardown("--yes")
         self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
-        self.assertIn("marker %s.pulled: not accepted — pulled %s, more than 15 min ago; the node has logged since"
-                      % (INST, pulled), p.stdout)
+        self.assertIn("marker %s.pulled: not accepted — pulled %s, more than 15 min ago; the node has logged since "
+                      "[stale]\n" % (INST, pulled), p.stdout)
         self.assertIn("+ %s: to pull" % INST, p.stdout)
         self.assertIn("✓ 100.0 GB free under %s (BENCH_TEARDOWN_MIN_FREE_GB=20) for 1 node(s)"
                       % (self.results / "logs"), p.stdout)
@@ -1425,8 +1654,8 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertIn("(nothing is deleted until these are saved) — BENCH_TEARDOWN_TRUST_MARKERS=1", p.stdout)
         self.assertIn("✓ %s: already saved — not pulled again (current-container log)" % INST, p.stdout)
         self.assertIn("marker %s.pulled: accepted — instance %s (created 2099-12-31T00:00:00.000-08:00), run %s, "
-                      "pulled %s; its 1 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1)\n"
-                      % (INST, INST_ID, RUN, pulled), p.stdout)
+                      "pulled %s; its 1 log(s) are here at their recorded sizes (BENCH_TEARDOWN_TRUST_MARKERS=1) "
+                      "[trusted]\n" % (INST, INST_ID, RUN, pulled), p.stdout)
         self.assertNotIn("GB free", p.stdout + p.stderr)
         self.assertEqual(self.log_pulls(), [])
         # No copy beside the saved logs: only the recovery evidence and the analysis inputs are new.
@@ -1499,7 +1728,9 @@ class TeardownLocalGateTests(unittest.TestCase):
                 ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "10m", "got '10m'"),
                 ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "060", "got '060'"),
                 ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "-5", "got '-5'"),
-                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "1000000", "got '1000000'")):
+                ("BENCH_TEARDOWN_DELETE_WAIT_SECS", "1000000", "got '1000000'"),
+                ("BENCH_SKIP_GCLOUD_ARGV_CHECK", "yes", "BENCH_SKIP_GCLOUD_ARGV_CHECK must be 0 or 1 (got 'yes')"),
+                ("BENCH_TEARDOWN_RECERTIFY", "yes", "BENCH_TEARDOWN_RECERTIFY='yes' must be 0 or 1.")):
             with self.subTest(knob=knob, value=value):
                 p = self.teardown("--yes", **{knob: value})
                 self.assertEqual(p.returncode, 1)
@@ -1510,6 +1741,162 @@ class TeardownLocalGateTests(unittest.TestCase):
                     self.assertIn("BENCH_TEARDOWN_DELETE_WAIT_SECS must be a whole number of seconds, 0 to 999999",
                                   p.stderr)
         self.assertEqual(self.cloud.calls(), [])
+
+
+    # ---- bench 5: the bench-4 teardown defects, end to end. D34: a pull longer than the freshness window
+    # refused its own markers. B9: a re-run read every log again for a certification already recorded.
+    # A10: the dry run checks every gcloud flag against the SDK's --help (D35's --async only met the fake).
+    RECORDED = "2099-12-31T10:00:00Z"
+    SKIPPED = ("    certification: already recorded at 2099-12-31T10:00:00Z — skipped "
+               "(BENCH_TEARDOWN_RECERTIFY=1 re-runs it)\n")
+
+    def certified_run(self, **extra):
+        """A run whose manifest has its phase and the certification an earlier teardown recorded (keys
+        set to None are left out); tools/cert-rate.py is the stub that logs its calls."""
+        shutil.copyfile(str(CERT_RATE_STUB), str(self.tree / "benchmark" / "tools" / "cert-rate.py"))
+        m = {"phases": [{"name": "mixed", "begin": DUE_ISO, "end": END_ISO}],
+             "certification": {INST: {"phase mixed": {"proposed": 10, "certified": 10, "rate_pct": 100.0}}},
+             "certification_meta": {"recorded_at": self.RECORDED}}
+        m.update(extra)
+        (self.results / "manifest.json").write_bytes(manifest_bytes(**{k: v for k, v in m.items() if v is not None}))
+
+    def cert_passes(self):
+        """The certification pass's cert-rate.py calls (--format json; the after-delete analysis has none)."""
+        p = self.cloud.state / "cert-rate.calls"
+        calls = [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+        return [c for c in calls if "--format" in c]
+
+    def test_a_pull_longer_than_the_freshness_window_passes_its_own_marker_check(self):
+        # D34: bench 4 pulled for 4h19m, then refused the 8 markers it had written over 15 min before and
+        # deleted nothing. Here the marker check reads a clock 20 min after the pull (SKEWED_CLOCK).
+        self.sandbox_node()   # the earlier teardown's marker is 9 h old: the node is pulled again
+        with (self.tree / "benchmark" / "bench-lib.sh").open("a") as fh:
+            fh.write(SKEWED_CLOCK)
+        p = self.teardown("--yes", BENCH_TEARDOWN_MIN_FREE_GB="0", FAKE_CLOCK_SKEW="1200")
+        self.assertEqual(p.returncode, 0, p.stdout[-4000:] + p.stderr[-4000:])
+        after = p.stdout[p.stdout.index("    markers after the pull (one this teardown pulled is exempt from the "
+                                        "15-min age rule):\n"):]
+        new = self.new_logs(INST + ".pulled-*")
+        self.assertEqual(len(new), 1, new)
+        pulled = re.search(r"(?m)^pulled (\S+)$", (self.results / "logs" / new[0]).read_text()).group(1)
+        self.assertIn("        marker %s: accepted — instance %s (created 2099-12-31T00:00:00.000-08:00), run %s, pulled %s; "
+                      "its 4 log(s) are here at their recorded sizes [fresh:this-invocation]\n"
+                      % (new[0], INST_ID, RUN, pulled), after)
+        self.assertRegex(after, r"(?m)^        marker %s\.pulled: not accepted — pulled \S+, more than 15 min ago; "
+                                r"the node has logged since \[stale\]$" % INST)
+        self.assertNotIn(INST, self.instance_names())
+        self.assertEqual(self.cloud.help_calls(), [])
+
+    def test_a_recorded_certification_is_not_run_again(self):
+        self.give_every_node_its_logs()
+        self.certified_run()
+        before = self.manifest()["certification"]
+        p = self.teardown()
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(self.SKIPPED, p.stdout)
+        self.assertNotIn("cert-rate.py --logs", p.stdout[:p.stdout.index(">>> local gate")])
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(self.SKIPPED, p.stdout)
+        self.assertEqual(self.cert_passes(), [])
+        self.assertNotIn("certification snapshots ->", p.stdout)
+        self.assertEqual(self.manifest()["certification"], before)
+        self.assertNotIn(INST, self.instance_names())
+
+    def test_recertify_runs_the_certification_again(self):
+        self.give_every_node_its_logs()
+        self.certified_run()
+        p = self.teardown("--yes", BENCH_TEARDOWN_RECERTIFY="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertNotIn("already recorded", p.stdout)
+        self.assertEqual(len(self.cert_passes()), 1, self.cert_passes())
+        self.assertIn("certification snapshots ->", p.stdout)
+        self.assertEqual(self.manifest()["certification_meta"]["source"], "analysis/certification.json")
+
+    def test_without_a_record_the_certification_runs_as_before(self):
+        self.give_every_node_its_logs()
+        self.certified_run(certification=None, certification_meta=None)
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertNotIn("already recorded", p.stdout)
+        self.assertEqual(len(self.cert_passes()), 1, self.cert_passes())
+
+    def test_a_skipped_certification_still_snapshots_a_listed_log_that_is_missing(self):
+        # The record is there, but a snapshot it lists is not (the first teardown's pull of it failed):
+        # cert-rate.py is not run again, the snapshot step is, or every re-run would stop the same way.
+        self.give_every_node_its_logs()
+        snap = "logs/%s-telcoin-cert-fail-20991231T000000Z.log.gz" % INST
+        self.certified_run(cert_failures=[{"inst": INST, "window": "phase mixed", "rate_pct": 0.0, "logs": [snap]}])
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(self.SKIPPED + "    ⚠ manifest.cert_failures lists log(s) not here (%s): the cert-fail snapshot "
+                      "step runs again\n" % snap, p.stdout)
+        self.assertIn("certification snapshots ->", p.stdout)
+        self.assertEqual(self.cert_passes(), [])
+        self.assertIn("✗ missing or empty: %s (manifest.cert_failures)" % snap, p.stdout)
+        self.assert_nothing_deleted(p)
+
+    def test_a_skipped_certification_snapshots_an_entry_that_lists_no_log(self):
+        # A teardown stopped between the certification record and its snapshots leaves cert_failures
+        # entries with logs: []. The re-run skips cert-rate.py but not the snapshot step for them: the
+        # fake ssh refuses the save, so the entry lists the node's logs on disk, which the gate requires.
+        self.give_every_node_its_logs()
+        self.certified_run(cert_failures=[{"inst": INST, "window": "phase mixed", "rate_pct": 0.0, "logs": []}])
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(self.SKIPPED + "    ⚠ manifest.cert_failures lists log(s) not here (%s:logs=[]): the cert-fail "
+                      "snapshot step runs again\n" % INST, p.stdout)
+        self.assertEqual(self.cert_passes(), [])
+        gate = p.stdout[p.stdout.index("certification snapshots ->"):p.stdout.index(">>> local gate")]
+        self.assertIn("⚠ %s: its container log could not be saved (see above) — no snapshot; 2 log(s) on disk "
+                      "listed in cert_failures[].logs" % INST, gate)
+        self.assertEqual(self.manifest()["cert_failures"][0]["logs"],
+                         ["logs/%s-telcoin.log.gz" % INST, "logs/%s-unit-stdout.log.gz" % INST])
+        self.assertIn("manifest.cert_failures logs", p.stdout)
+
+    def test_the_dry_run_reports_a_flag_the_sdk_does_not_know(self):
+        # D35: --async on the deletes, back on the call and on its td_gcloud_argv line. SDK 588's help
+        # (the fixture) has no such flag: the dry run says so and exits 1, before TEARDOWN_DONE.
+        self.give_every_node_its_logs()
+        td = self.tree / "benchmark" / "benchmark-teardown.sh"
+        line = '        "compute instances delete --zone --project --quiet" \\\n'
+        self.assertEqual(td.read_text().count(line), 1)
+        td.write_text(td.read_text().replace(line, line.replace("--quiet", "--quiet --async")))
+        p = self.teardown()
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("❌ GCLOUD_ARGV gcloud compute instances delete rejects --async\n", p.stderr)
+        self.assertIn("❌ 1 gcloud argument(s) above are not in this SDK's --help", p.stderr)
+        self.assertNotIn("GCLOUD_ARGV_OK", p.stdout)
+        self.assertNotIn("TEARDOWN_DONE", p.stdout)
+        for c in self.cloud.calls():
+            for words in MUTATIONS:
+                self.assertFalse(is_call(c, words), "dry run executed gcloud " + " ".join(c["argv"]))
+        # An SDK whose help has the flag passes it.
+        with_async = self.root / "help-with-async.txt"
+        with_async.write_text(HELP_FIX.read_text().replace("[--no-graceful-shutdown] [--zone=ZONE]",
+                                                           "[--async] [--no-graceful-shutdown] [--zone=ZONE]"))
+        p = self.teardown(FAKE_GCLOUD_HELP=str(with_async))
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("\nGCLOUD_ARGV_OK 19 commands, 43 flags\n", p.stdout)
+
+    def test_the_dry_run_reports_a_command_the_sdk_does_not_have(self):
+        self.give_every_node_its_logs()
+        older = self.root / "help-without-secrets-delete.txt"
+        older.write_text(HELP_FIX.read_text().replace("== secrets delete ==", "== secrets versions destroy =="))
+        p = self.teardown(FAKE_GCLOUD_HELP=str(older))
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("❌ GCLOUD_ARGV gcloud secrets delete: not a command of this SDK (--help exit 2: ERROR: "
+                      "(gcloud.secrets) Invalid choice: 'delete'.)\n", p.stderr)
+        self.assertNotIn("TEARDOWN_DONE", p.stdout)
+
+    def test_the_argv_check_skips_by_its_knob(self):
+        self.give_every_node_its_logs()
+        p = self.teardown(BENCH_SKIP_GCLOUD_ARGV_CHECK="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn(">>> gcloud argv check: every gcloud command and flag this teardown can issue, against this SDK's "
+                      "--help (dry run only)\n    - skipped (BENCH_SKIP_GCLOUD_ARGV_CHECK=1)\n", p.stdout)
+        self.assertEqual(self.cloud.help_calls(), [])
+        self.assertTrue(self.done_line(p)[3])
 
 
 class FakeGcloudTests(unittest.TestCase):
@@ -1530,6 +1917,21 @@ class FakeGcloudTests(unittest.TestCase):
     def ssh(self, header, **extra):
         return self.gcloud(["compute", "ssh", INST, "--zone=" + ZONE, "--project=p", "--ssh-flag=-T",
                             "--command=sudo bash -s"], header + "\nset -eu\necho from the script\n", **extra)
+
+    def test_help_prints_sdk_588s_text_in_bold_and_is_logged_apart(self):
+        p = self.gcloud(["compute", "instances", "delete", "--help"])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = p.stdout.decode()
+        self.assertIn("[\x1b[1m--no-graceful-shutdown\x1b[m] [\x1b[1m--zone\x1b[m=ZONE]", out)   # SYNOPSIS flags in bold
+        self.assertIn("--help, --impersonate-service-account, --log-http, --project, --quiet,", out)   # GCLOUD WIDE FLAGS
+        self.assertNotIn("--async", out)
+        self.assertEqual(self.cloud.help_calls(), ["compute instances delete"])
+        self.assertEqual(self.cloud.calls(), [], "a help call is not a call on the project")
+        p = self.gcloud(["compute", "instances", "frobnicate", "--help"])
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("ERROR: (gcloud.compute.instances) Invalid choice: 'frobnicate'.", p.stderr.decode())
+        p = self.gcloud(["compute", "instances", "delete", "--help"], FAKE_GCLOUD_HELP="")
+        self.assertEqual(p.returncode, 2)
 
     def test_span_session_prints_logspan_lines(self):
         p = self.ssh("# bench-pull: span")

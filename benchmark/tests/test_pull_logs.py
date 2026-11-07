@@ -42,7 +42,8 @@ LOGSPAN_RE = re.compile(r"^LOGSPAN (\S+) stream=([a-z]+) gen=(\d+) file=(\S+) by
 LOGCOV_RE = re.compile(r"^LOGCOV (\S+) gens=(\d+|-) first=(\S+) last=(\S+) due=(\S+) end=(\S+) ok=(0|1|-)$")
 T0 = 1793740000            # 2026-11-03T21:06:40Z
 PUBLIC = ("bench_pull_stream", "bench_unit_log_span_script", "bench_pull_unit_span", "bench_rotated_logs_script",
-          "bench_pull_rotated_logs", "bench_log_coverage_check", "bench_logrotate_text", "bench_drop_if_identical")
+          "bench_pull_rotated_logs", "bench_log_coverage_check", "bench_logrotate_text", "bench_drop_if_identical",
+          "bench_bucket_write_scope", "bench_bucket_logs_script", "bench_pull_node_logs_bucket")
 
 SHIM = r"""
 set -euo pipefail
@@ -688,6 +689,462 @@ class SourceTests(PullCase):
         before, after = variables("before"), variables("after")
         self.assertEqual(sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k)), [],
                          "sourcing pull-lib.sh set or changed variables")
+
+
+
+# ---------------------------------------------------------------------------------------------
+# The whole node-log pull on a fake fleet: bench_pull_node_logs (bench-lib.sh, over IAP) and
+# bench_pull_node_logs_bucket (this library, through the run bucket), run from the teardown's own
+# call site. bench-lib.sh's pull functions are cut out by name (as test_certification.py does);
+# GCP, the bucket and the nodes are fixtures/pull/fake-gcloud-fleet.py, the node's sudo and docker
+# fixtures/pull/stub-{sudo,docker}.sh.
+
+BENCH_LIB = (BENCH / "bench-lib.sh").read_text()
+TEARDOWN = (BENCH / "benchmark-teardown.sh").read_text()
+GS = "gs" + "://"
+RUN = "r20991231-0101"
+BUCKET = "tn-" + "devnet-bench-" + RUN
+FLEET = ("bench-validator-01", "bench-validator-02", "bench-validator-03")
+FLEET_ZONES = ("us-west2-a", "europe-west2-b", "asia-northeast1-c")
+SCOPE = "https://www.googleapis.com/auth/"
+LIB_FUNCTIONS = (
+    "bench_warn", "bench_now_iso", "bench_now_unix", "bench_iso_from_unix", "_bench_in_lines", "_bench_log_name_ok",
+    "_bench_unstamp_names", "_bench_log_sources_of", "_bench_logs_here", "_bench_marker_verdict",
+    "bench_node_vouched_logs", "bench_instance_json", "_bench_instance_ident", "_bench_unit_log_cmd",
+    "_bench_pull_node_log", "_bench_pull_unit_log", "_bench_saved_log_cmd_skip", "_bench_saved_log_cmd",
+    "_bench_pull_saved_logs", "_bench_write_marker", "_bench_pull_rc", "_bench_pull_node", "bench_pull_node_logs",
+    "bench_bucket_names")
+LIB_ASSIGNMENTS = ("BENCH_NODE_LOG_DIR", "BENCH_PULL_MARKER_V", "BENCH_MARKER_MAX_AGE_SECS", "BENCH_NODE_UNIT_LOGS")
+GOLDEN = FIX / "iap-golden.json"
+
+
+def shell_function(source, name):
+    """The text of shell function <name> in <source>: a block ending in a column-0 brace, or one line."""
+    m = re.search(r"^%s\(\) \{\n.*?^\}\n" % re.escape(name), source, re.M | re.S) \
+        or re.search(r"^%s\(\) \{ .*\}\n" % re.escape(name), source, re.M)
+    if not m:
+        raise AssertionError("function %s not found" % name)
+    return m.group()
+
+
+def shell_assignment(source, name):
+    m = re.search(r"^%s=.*\n" % re.escape(name), source, re.M)
+    if not m:
+        raise AssertionError("assignment %s not found" % name)
+    return m.group()
+
+
+def pull_call_site(teardown):
+    """The teardown's pull: from `pull_rc=0` through `stop_if_reauth "the log pull"`, its if closed."""
+    m = re.search(r"^pull_rc=0\n.*?^    stop_if_reauth \"the log pull\"\n", teardown, re.M | re.S)
+    if not m:
+        raise AssertionError("the teardown's pull call site was not found")
+    return m.group() + "fi\n"
+
+
+FLEET_SHIM = (
+    "set -euo pipefail\n"
+    'source "${DEVNET_LIB}"\n'
+    "declare -F tn_iap_fault_kind >/dev/null || tn_iap_fault_kind() {\n"
+    '    [ "$1" -eq 0 ] && { echo ok; return 0; }\n'
+    '    grep -Eq -- "Reauthentication failed|There was a problem refreshing your current auth tokens|invalid_grant" "$2" '
+    "&& { echo reauth; return 0; }\n"
+    '    { [ "$1" -eq 255 ] || grep -q \'gcloud crashed\' "$2"; } && { echo transport; return 0; }\n'
+    "    echo other\n"
+    "}\n"
+    "sleep() { printf '%s\\n' \"$1\" >> \"${FAKE_ROOT}/sleeps\"; }\n"
+    + "".join(shell_assignment(BENCH_LIB, n) for n in LIB_ASSIGNMENTS)
+    + "".join(shell_function(BENCH_LIB, n) for n in LIB_FUNCTIONS)
+    + 'source "${PULL_LIB}"\n'
+    + "stop_if_reauth() { [ -e \"${BENCH_PULL_STOP_FILE}\" ] && echo \"STOP_IF_REAUTH $1\" || true; }\n"
+    + 'LOG_DIR="$1"; shift\n'
+    + 'PULL_NAMES=(); PULL_ZONES=()\n'
+    + 'while [ "$#" -gt 0 ]; do PULL_NAMES+=("$1"); PULL_ZONES+=("$2"); shift 2; done\n')
+
+
+def gz0(text):
+    """gzip of <text> with a zero time in the header, so the bytes depend on the text alone."""
+    return gzip.compress(text.encode(), mtime=0)
+
+
+class FleetCase(unittest.TestCase):
+    """Three fake nodes with every kind of log the pull takes: the current container's log, a saved
+    log, the unit's stdout and stderr files, and two rotated generations of stdout (.1 plain, .2.gz)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="pull-fleet-")
+        self.root = Path(self._tmp.name)
+        self.bin, self.state, self.tmpdir = self.root / "bin", self.root / "state", self.root / "tmp"
+        self.dest = self.root / "results" / RUN / "logs"
+        for d in (self.bin, self.state, self.tmpdir, self.dest.parent, self.state / "gcs" / BUCKET):
+            d.mkdir(parents=True)
+        for name, src in (("gcloud", "fake-gcloud-fleet.py"), ("sudo", "stub-sudo.sh"), ("docker", "stub-docker.sh")):
+            shutil.copyfile(str(FIX / src), str(self.bin / name))
+            (self.bin / name).chmod(0o755)
+        config = self.root / "config.sh"
+        config.write_text("# empty: the test environment sets what devnet-lib.sh reads\n")
+        self.env = {
+            "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(self.root), "TMPDIR": str(self.tmpdir), "LC_ALL": "C",
+            "FAKE_ROOT": str(self.state), "PROJECT_ID": "acme-project", "CONFIG_FILE": str(config),
+            "TN_SSH_TRANSPORT": "iap", "TN_IAP_RETRIES": "0", "BENCH_IAP_RETRIES": "1",
+            "BENCH_APPLY": "1", "BENCH_RUN_ID": RUN, "BENCH_BUCKET": BUCKET,
+            "BENCH_PULL_STOP_FILE": str(self.state / "pull-stop"),   # the teardown exports one of its own
+            "DEVNET_LIB": str(DEVNET_LIB), "PULL_LIB": str(PULL_LIB),
+        }
+        self.set_instances(FLEET)
+        for i, inst in enumerate(FLEET):
+            self.give_logs(inst, i)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def set_instances(self, names, scopes=("cloud-platform",)):
+        (self.state / "instances.json").write_text(json.dumps([
+            {"name": n, "zone": "projects/acme-project/zones/" + FLEET_ZONES[FLEET.index(n)], "id": str(4200 + i),
+             "creationTimestamp": "2026-11-05T00:00:00.000-08:00", "status": "RUNNING",
+             "serviceAccounts": [{"email": "bench@acme-project.iam.gserviceaccount.com",
+                                  "scopes": [SCOPE + s for s in scopes]}]}
+            for i, n in enumerate(names)]))
+
+    def give_logs(self, inst, k):
+        node = self.state / "nodes" / inst
+        unit = node / "var" / "log" / "telcoin"
+        saved = node / "var" / "lib" / "bench-logs"
+        unit.mkdir(parents=True)
+        saved.mkdir(parents=True)
+        (unit / "telcoin.log").write_text(log_text(T0, 60 + k))
+        (unit / "telcoin.log.1").write_text(log_text(T0 - 3600, 30 + k))
+        (unit / "telcoin.log.2.gz").write_bytes(gz0(log_text(T0 - 7200, 20 + k)))
+        (unit / "telcoin-error.log").write_text("an error on %s\n" % inst)
+        (saved / "telcoin-cert-fail-20261105T120000Z.log.gz").write_bytes(gz0("saved snapshot of %s\n" % inst))
+        (node / "container.log").write_text(log_text(T0 + 1800, 40 + k))
+
+    def pull(self, names=FLEET[:1], teardown=None, **extra):
+        """The teardown's call site (pull_call_site) for <names>; its stdout, stderr and pull_rc."""
+        env = dict(self.env)
+        env.update(extra)
+        script = FLEET_SHIM + pull_call_site(TEARDOWN if teardown is None else teardown) + 'echo "PULL_RC=${pull_rc}"\n'
+        args = [str(self.dest)]
+        for n in names:
+            args += [n, FLEET_ZONES[FLEET.index(n)]]
+        p = subprocess.run(["bash", "-c", script, "fleet-test"] + args, env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        m = re.search(r"^PULL_RC=(\d+)$", p.stdout, re.M)
+        self.assertIsNotNone(m, p.stdout + p.stderr)
+        return p, int(m.group(1))
+
+    def calls(self, name="calls.jsonl"):
+        p = self.state / name
+        return [json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+
+    def ssh_calls(self):
+        return [c for c in self.calls() if c["argv"][:2] == ["compute", "ssh"]]
+
+    def marker(self, inst):
+        m = self.dest / (inst + ".pulled")
+        return m.read_text() if m.exists() else None
+
+    def marker_rows(self, inst):
+        """The marker's file rows, {name: bytes}, and its sources line."""
+        text = self.marker(inst) or ""
+        rows = {line.split()[2]: int(line.split()[1]) for line in text.splitlines() if line.startswith("file ")}
+        src = [line[len("sources "):] for line in text.splitlines() if line.startswith("sources ")]
+        return rows, (src[0] if src else None)
+
+    def landed(self):
+        return {p.name: p.stat().st_size for p in self.dest.iterdir() if p.is_file() and not p.name.startswith(".")} \
+            if self.dest.exists() else {}
+
+    def leftovers(self):
+        left = [p.name for p in self.dest.iterdir() if p.name.startswith(".") and not p.name.endswith(".pulled")] \
+            if self.dest.exists() else []
+        return sorted(left + ["tmp/" + p.name for p in self.tmpdir.iterdir()])
+
+    def normalized(self, text):
+        text = text.replace(str(self.root), "<ROOT>")
+        text = re.sub(STAMP_RE, "<STAMP>", text)
+        return re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", "<TIME>", text)
+
+    def capture(self, p):
+        """What the golden pins: every gcloud call (argv, stdin, session), stdout, stderr, the marker
+        and the landed files with their sizes, with the temp root, stamps and pull times normalized."""
+        return {
+            "calls": [{k: (self.normalized(v) if isinstance(v, str) else [self.normalized(a) for a in v])
+                       for k, v in c.items()} for c in self.calls()],
+            "node_calls": self.calls("node-calls.jsonl"),
+            "stdout": self.normalized(p.stdout).splitlines(),
+            "stderr": self.normalized(p.stderr).splitlines(),
+            "markers": {i: self.normalized(self.marker(i) or "") for i in FLEET if self.marker(i)},
+            "files": self.landed(),
+        }
+
+
+@unittest.skipUnless(shutil.which("jq") and shutil.which("tar"), "needs jq and tar")
+class IapGoldenTests(FleetCase):
+    def test_the_default_transfer_is_the_bench_4_iap_pull_byte_for_byte(self):
+        # Captured from the pull before the bucket transfer existed (pull-lib.sh and the teardown's
+        # one-line call site as they were): argv and stdin of every session, stdout, stderr, the marker.
+        want = json.loads(GOLDEN.read_text())
+        for extra in ({}, {"BENCH_LOG_TRANSFER": "iap"}):
+            with self.subTest(**extra):
+                shutil.rmtree(str(self.dest), ignore_errors=True)
+                for f in ("calls.jsonl", "node-calls.jsonl"):
+                    if (self.state / f).exists():
+                        (self.state / f).unlink()
+                p, rc = self.pull(**extra)
+                self.assertEqual(rc, 0, p.stdout + p.stderr)
+                self.assertEqual(self.capture(p), want)
+                self.assertNotIn("LOG_TRANSFER", p.stdout)
+
+
+
+def gcloud_inventory():
+    """td_gcloud_argv (benchmark-teardown.sh) with devnet-lib.sh's TN_SSH_FLAGS: {command words: flags}."""
+    script = 'source "$1" >/dev/null 2>&1; ' + shell_function(TEARDOWN, "td_gcloud_argv") + "td_gcloud_argv\n"
+    out = subprocess.run(["bash", "-c", script, "_", str(DEVNET_LIB)], stdout=subprocess.PIPE, universal_newlines=True,
+                         check=True, env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                                          "CONFIG_FILE": os.devnull, "TN_SSH_TRANSPORT": "iap"}).stdout
+    inv = {}
+    for line in out.splitlines():
+        words = line.split()
+        inv[tuple(w for w in words if not w.startswith("-"))] = {w for w in words if w.startswith("-")}
+    return inv
+
+
+@unittest.skipUnless(shutil.which("jq") and shutil.which("tar") and shutil.which("mkfifo"), "needs jq, tar and mkfifo")
+class BucketTransferTests(FleetCase):
+    """BENCH_LOG_TRANSFER=bucket through the teardown's call site: one session per node that sends every
+    log to the run bucket from the node, one local download, then the IAP pull's files and markers."""
+
+    EXPECTED = ("telcoin.log.gz", "telcoin-cert-fail-20261105T120000Z.log.gz", "unit-stdout.log.gz",
+                "unit-stderr.log.gz", "unit-stdout.rotated-1.log.gz", "unit-stdout.rotated-2.log.gz")
+
+    def bucket(self, names=FLEET, **extra):
+        return self.pull(names=names, BENCH_LOG_TRANSFER="bucket", **extra)
+
+    def objects(self):
+        base = self.state / "gcs" / BUCKET
+        return sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
+
+    def logs(self):
+        return {p.name: p.read_bytes() for p in self.dest.iterdir()
+                if p.is_file() and (p.name.endswith(".log.gz") or p.name.endswith(".logspan"))}
+
+    def reset_calls(self):
+        for f in ("calls.jsonl", "node-calls.jsonl"):
+            if (self.state / f).exists():
+                (self.state / f).unlink()
+
+    def assert_local_calls_listed(self):
+        """Every gcloud call made on the operator's side is on its td_gcloud_argv line (A10's inventory)."""
+        inv = gcloud_inventory()
+        for c in self.calls():
+            words = tuple(a for a in c["argv"] if not a.startswith("-"))
+            flags = {a.split("=", 1)[0] for a in c["argv"] if a.startswith("-")}
+            cmd = next((k for k in inv if words[:len(k)] == k), None)
+            self.assertIsNotNone(cmd, "not in td_gcloud_argv: gcloud " + " ".join(c["argv"]))
+            self.assertEqual(flags - inv[cmd], set(), "td_gcloud_argv lacks a flag of gcloud " + " ".join(c["argv"]))
+
+    def test_one_session_per_node_one_download_and_the_iap_pulls_files_and_markers(self):
+        # The IAP pull of the same three nodes first: what the bucket transfer must reproduce.
+        p, rc = self.pull(names=FLEET)
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        iap_logs = self.logs()
+        iap_rows = {i: self.marker_rows(i) for i in FLEET}
+        shutil.rmtree(str(self.dest))
+        self.reset_calls()
+
+        p, rc = self.bucket(BENCH_PULL_JOBS="2")
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        out = p.stdout
+        # One session per node, each a `sudo bash -s` script that streams every log to the bucket.
+        ssh = self.ssh_calls()
+        self.assertEqual(sorted(c["argv"][2] for c in ssh), sorted(FLEET))
+        for c in ssh:
+            inst = c["argv"][2]
+            self.assertEqual(c["session"], "# bench-pull: bucket")
+            self.assertIn("--command=sudo bash -s", c["argv"])
+            self.assertIn("--tunnel-through-iap", c["argv"])
+            self.assertIn("\ninst=%s\ndst=%s%s/logs/%s\n" % (inst, GS, BUCKET, inst), c["stdin"])
+            self.assertIn('"$@" | tee -- "$w/f" | gcloud storage cp - "$dst/$o"', c["stdin"])
+            self.assertIn("clog() { docker logs telcoin 2>&1 | gzip -1; }", c["stdin"])
+            self.assertIn("gz1() { gzip -1 < \"$1\"; }", c["stdin"])
+            self.assertIn("gzn() { gzip -1 -n < \"$1\"; }", c["stdin"])
+            self.assertIn("pairs=( stdout:/var/log/telcoin/telcoin.log stderr:/var/log/telcoin/telcoin-error.log )",
+                          c["stdin"])
+        # The node's own gcloud sent each log, rotated generations included, to <bucket>/logs/<inst>/ in GCS.
+        sent = sorted((c["node"], c["argv"][-1]) for c in self.calls("node-calls.jsonl"))
+        self.assertEqual(sent, sorted((i, "%s%s/logs/%s/%s-%s" % (GS, BUCKET, i, i, n)) for i in FLEET for n in self.EXPECTED))
+        for c in self.calls("node-calls.jsonl"):
+            self.assertEqual(c["argv"][:3], ["storage", "cp", "-"])
+        # Then exactly one download, after every session, and the objects are removed after it.
+        local = [c["argv"] for c in self.calls() if c["argv"][:1] == ["storage"]]
+        self.assertEqual([a[:3] for a in local], [["storage", "buckets", "list"], ["storage", "cp", "-r"],
+                                                  ["storage", "rm", GS + BUCKET + "/logs/**"]])
+        download = next(a for a in local if a[:2] == ["storage", "cp"])
+        self.assertEqual(download[3], GS + BUCKET + "/logs/*")
+        self.assertTrue(download[4].startswith(str(self.dest) + "/.bucket-pull.") and download[4].endswith("/objects/"))
+        order = [c["argv"][:2] for c in self.calls()]
+        self.assertLess(max(i for i, a in enumerate(order) if a == ["compute", "ssh"]), order.index(["storage", "cp"]))
+        self.assertEqual(self.objects(), [], "the logs left in the bucket would be copied again by the bucket backup")
+        self.assert_local_calls_listed()
+        # The same files, byte for byte, the same spans, and markers with the same rows and sources.
+        self.assertEqual(self.logs(), iap_logs)
+        for inst in FLEET:
+            self.assertEqual(self.marker_rows(inst), iap_rows[inst])
+            self.assertEqual(self.marker_rows(inst)[1], "current-container log, 1 saved log(s), unit stdout, "
+                                                        "unit stderr, 2 rotated unit stdout log(s)")
+            self.assertIn("      ✓ %s: current-container log, 1 saved log(s)" % inst, out)
+        # The stdout markers bracket the transfer; bytes = what the nodes sent = the landed logs.
+        self.assertTrue(out.startswith("LOG_TRANSFER mode=bucket nodes=3\n"), out)
+        done = re.search(r"^LOG_TRANSFER_DONE mode=bucket bytes=(\d+) secs=(\d+)$", out, re.M)
+        self.assertIsNotNone(done, out)
+        self.assertEqual(int(done.group(1)), sum(len(b) for n, b in self.logs().items() if n.endswith(".log.gz")))
+        self.assertLess(out.index("LOG_TRANSFER mode=bucket"), out.index("↑ "))
+        self.assertLess(out.index("LOG_TRANSFER_DONE"), out.index("    ✓ logs of 3 nodes in "))
+        self.assertNotIn("STOP_IF_REAUTH", out)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_node_whose_session_fails_is_recorded_and_the_others_complete(self):
+        for knob, why in ((dict(FAKE_SSH_FAIL=FLEET[1]), "✗ %s: the bucket session failed (rc 2)" % FLEET[1]),
+                          (dict(FAKE_UPLOAD_FAIL=FLEET[1] + "-unit-stdout.rotated-1"),
+                           "✗ %s: %s-unit-stdout.rotated-1.log.gz: the node could not send it" % (FLEET[1], FLEET[1])),
+                          (dict(FAKE_DOWNLOAD="skip:%s-unit-stderr" % FLEET[1]),
+                           "✗ %s: %s-unit-stderr.log.gz was not downloaded" % (FLEET[1], FLEET[1]))):
+            with self.subTest(**knob):
+                if self.dest.exists():
+                    shutil.rmtree(str(self.dest))
+                self.reset_calls()
+                p, rc = self.bucket(**knob)
+                self.assertEqual(rc, 1, p.stdout + p.stderr)
+                self.assertIn(why, p.stderr)
+                self.assertIn("❌ node logs not pulled from: %s\n" % FLEET[1], p.stderr)
+                self.assertIsNone(self.marker(FLEET[1]), "a node with a failed transfer gets no marker")
+                for inst in (FLEET[0], FLEET[2]):
+                    self.assertEqual(sorted(self.marker_rows(inst)[0]), sorted("%s-%s" % (inst, n) for n in self.EXPECTED))
+                self.assertEqual(len([c for c in self.calls() if c["argv"][:2] == ["storage", "cp"]]), 1)
+                self.assertRegex(p.stdout, r"(?m)^LOG_TRANSFER_DONE mode=bucket bytes=\d+ secs=\d+$")
+                self.assertEqual(self.leftovers(), [])
+                self.assertEqual(self.objects(), [])
+
+    def test_a_re_run_sends_only_what_no_marker_vouches_for(self):
+        p, rc = self.bucket(names=FLEET[:1])
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        first = self.logs()
+        self.reset_calls()
+        p, rc = self.bucket(names=FLEET[:1])
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        # The marker vouches for everything but the current container's log, which is always taken:
+        # it lands beside the first copy, is identical, and is dropped again.
+        self.assertEqual([c["argv"][-1] for c in self.calls("node-calls.jsonl")],
+                         ["%s%s/logs/%s/%s-telcoin.log.gz" % (GS, BUCKET, FLEET[0], FLEET[0])])
+        self.assertIn("- %s: %s-telcoin.log.gz counts as this pull's (the copy just pulled was identical)"
+                      % (FLEET[0], FLEET[0]), p.stdout)
+        self.assertEqual(self.logs(), first)
+        self.assertEqual(len(list(self.dest.glob(FLEET[0] + ".pulled*"))), 2)
+
+    def test_the_preflight_refuses_a_fleet_that_cannot_write_to_the_bucket(self):
+        read_only = ("devstorage.read_only", "logging.write", "monitoring.write")
+        for case in ("scopes", "bucket"):
+            with self.subTest(case=case):
+                self.reset_calls()
+                if case == "scopes":
+                    self.set_instances(FLEET, scopes=read_only)
+                else:
+                    self.set_instances(FLEET)
+                    shutil.rmtree(str(self.state / "gcs" / BUCKET))
+                p, rc = self.bucket()
+                self.assertEqual(rc, 1, p.stdout + p.stderr)
+                self.assertIn("❌ BENCH_LOG_TRANSFER=bucket cannot run here (✗ above) — nothing was sent; run with "
+                              "BENCH_LOG_TRANSFER=iap", p.stderr)
+                if case == "scopes":
+                    for inst in FLEET:
+                        self.assertIn("✗ %s: the access scopes of its service account (%s) allow no GCS write"
+                                      % (inst, ",".join(read_only)), p.stderr)
+                else:
+                    self.assertIn("✗ the run bucket %s%s does not exist" % (GS, BUCKET), p.stderr)
+                self.assertEqual(self.ssh_calls(), [])
+                self.assertEqual(self.calls("node-calls.jsonl"), [])
+                self.assertFalse(self.dest.exists(), "nothing created")
+                self.assertNotIn("LOG_TRANSFER_DONE", p.stdout)
+                # A dry run says the same and goes on with its plan.
+                self.reset_calls()
+                p, rc = self.bucket(BENCH_APPLY="0")
+                self.assertEqual(rc, 0, p.stdout + p.stderr)
+                self.assertIn("✗ with --yes the bucket transfer stops here, before any session: run with "
+                              "BENCH_LOG_TRANSFER=iap", p.stdout)
+                self.assertIn("      (dry run — not executed)", p.stdout)
+                self.assertEqual([c["argv"][:2] for c in self.calls() if c["argv"][:2] != ["compute", "instances"]],
+                                 [["storage", "buckets"]])
+                self.assertFalse(self.dest.exists())
+                (self.state / "gcs" / BUCKET).mkdir(parents=True, exist_ok=True)
+
+    def bare(self, overrides):
+        """bench_pull_node_logs_bucket called bare under the shim's `set -e` (the teardown's subshell turns
+        errexit off; a caller that does not must still get the per-node failure, not a silent abort)."""
+        script = (FLEET_SHIM + overrides + 'INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}")\n'
+                  'bench_pull_node_logs_bucket "${LOG_DIR}" "${BENCH_BUCKET}"\necho "BARE_RC=0"\n')
+        args = [str(self.dest)]
+        for n in FLEET:
+            args += [n, FLEET_ZONES[FLEET.index(n)]]
+        return subprocess.run(["bash", "-c", script, "fleet-test"] + args, stdin=subprocess.DEVNULL,
+                              env=dict(self.env, BENCH_LOG_TRANSFER="bucket"), stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+
+    def test_a_failed_lookup_fails_that_node_with_its_message_under_set_e(self):
+        # The preflight's describe (bench_instance_json) fails: every node gets its ✗ line, then the refusal.
+        p = self.bare("bench_instance_json() { return 1; }\n")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        for inst in FLEET:
+            self.assertIn("✗ %s: the access scopes of its service account (none) allow no GCS write" % inst, p.stderr)
+        self.assertIn("❌ BENCH_LOG_TRANSFER=bucket cannot run here", p.stderr)
+        self.assertEqual(self.ssh_calls(), [])
+        # The instance id lookup fails before the session: each node says so and is not pulled.
+        self.reset_calls()
+        p = self.bare("_bench_instance_ident() { return 1; }\n")
+        self.assertNotIn("BARE_RC=0", p.stdout)
+        for inst in FLEET:
+            self.assertIn("✗ %s: its instance id could not be looked up — not pulled (the marker must name it)" % inst,
+                          p.stderr)
+        self.assertEqual(self.ssh_calls(), [])
+        # The second lookup (after the download, before the marker) fails: no marker, and the node says why.
+        self.reset_calls()
+        once = ('eval "$(declare -f _bench_instance_ident | sed \'1s/_bench_instance_ident/_first_ident/\')"\n'
+                '_bench_instance_ident() { [ ! -e "${FAKE_ROOT}/ident-$1" ] || return 1; : > "${FAKE_ROOT}/ident-$1"; '
+                '_first_ident "$@"; }\n')
+        p = self.bare(once)
+        self.assertNotIn("BARE_RC=0", p.stdout)
+        for inst in FLEET:
+            self.assertIn("✗ %s: the instance changed during the pull (" % inst, p.stderr)
+            self.assertIsNone(self.marker(inst), inst)
+
+    def test_a_dry_run_plans_the_sessions_and_the_two_local_calls(self):
+        p, rc = self.bucket(BENCH_APPLY="0")
+        self.assertEqual(rc, 0, p.stdout + p.stderr)
+        out = p.stdout
+        self.assertTrue(out.startswith("LOG_TRANSFER mode=bucket nodes=3\n"), out)
+        for inst in FLEET:
+            self.assertIn("+ tn_iap_ssh_stdin %s %s <<< \"$(bench_bucket_logs_script %s %s)\"" % (
+                inst, FLEET_ZONES[FLEET.index(inst)], inst, BUCKET), out)
+        self.assertIn("    + gcloud storage cp -r %s%s/logs/\\* " % (GS, BUCKET), out)
+        self.assertIn("    + gcloud storage rm %s%s/logs/\\*\\* --project=acme-project" % (GS, BUCKET), out)
+        self.assertNotIn("LOG_TRANSFER_DONE", out)
+        self.assertEqual(self.ssh_calls(), [])
+        self.assertFalse(self.dest.exists())
+
+    def test_reauth_during_the_download_stops_with_nothing_marked(self):
+        p, rc = self.bucket(FAKE_REAUTH="download")
+        self.assertEqual(rc, 1, p.stdout + p.stderr)
+        self.assertIn("STOP_IF_REAUTH the log pull", p.stdout)
+        self.assertIn("Reauthentication failed", p.stderr)
+        self.assertIn("❌ node logs: gcloud needs re-authentication; 0 node(s) not attempted; not pulled from: "
+                      + " ".join(FLEET), p.stderr)
+        self.assertEqual([i for i in FLEET if self.marker(i)], [])
+        self.assertEqual([c["argv"][:2] for c in self.calls() if c["argv"][:2] == ["storage", "rm"]], [],
+                         "no further gcloud call once it needs re-authentication")
+        self.assertIn("the objects under %s%s/logs/ are left (gcloud needs re-authentication)" % (GS, BUCKET), p.stderr)
+        self.assertEqual(self.leftovers(), [])
 
 
 if __name__ == "__main__":

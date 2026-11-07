@@ -1,0 +1,147 @@
+The fake gcloud's `gcloud <command> --help` (FAKE_GCLOUD_HELP; test_teardown_local_gate.py). One section per
+command benchmark-teardown.sh issues (its td_gcloud_argv list): the SYNOPSIS as gcloud SDK 588.0.0 prints it,
+with the ANSI bold removed (fake-gcloud.py's help_session puts it back on the flags, as the SDK does even
+when its output is a pipe), and once at the end the GCLOUD WIDE FLAGS paragraph every command's help ends
+with. SDK 588 has no --async on `compute instances delete` (D35). Lines above the first section are ignored.
+
+== auth print-access-token ==
+SYNOPSIS
+    gcloud auth print-access-token [ACCOUNT] [--lifetime=LIFETIME]
+        [GCLOUD_WIDE_FLAG ...]
+== compute instances list ==
+SYNOPSIS
+    gcloud compute instances list [NAME ...] [--regexp=REGEXP, -r REGEXP]
+        [--zones=ZONE,[ZONE,...]] [--filter=EXPRESSION] [--limit=LIMIT]
+        [--page-size=PAGE_SIZE] [--sort-by=[FIELD,...]] [--uri]
+        [GCLOUD_WIDE_FLAG ...]
+== compute instances describe ==
+SYNOPSIS
+    gcloud compute instances describe INSTANCE_NAME [--zone=ZONE]
+        [GCLOUD_WIDE_FLAG ...]
+== compute instances delete ==
+SYNOPSIS
+    gcloud compute instances delete INSTANCE_NAMES [INSTANCE_NAMES ...]
+        [--no-graceful-shutdown] [--zone=ZONE]
+        [--delete-disks=DISK_TYPE | --keep-disks=DISK_TYPE]
+        [GCLOUD_WIDE_FLAG ...]
+== compute firewall-rules list ==
+SYNOPSIS
+    gcloud compute firewall-rules list [NAME ...] [--regexp=REGEXP, -r REGEXP]
+        [--filter=EXPRESSION] [--limit=LIMIT] [--page-size=PAGE_SIZE]
+        [--sort-by=[FIELD,...]] [--uri] [GCLOUD_WIDE_FLAG ...]
+== compute firewall-rules describe ==
+SYNOPSIS
+    gcloud compute firewall-rules describe NAME [GCLOUD_WIDE_FLAG ...]
+== compute firewall-rules delete ==
+SYNOPSIS
+    gcloud compute firewall-rules delete NAME [NAME ...] [GCLOUD_WIDE_FLAG ...]
+== compute disks list ==
+SYNOPSIS
+    gcloud compute disks list [NAME ...] [--regexp=REGEXP, -r REGEXP]
+        [--regions=[REGION,...] | --zones=[ZONE,...]] [--filter=EXPRESSION]
+        [--limit=LIMIT] [--page-size=PAGE_SIZE] [--sort-by=[FIELD,...]] [--uri]
+        [GCLOUD_WIDE_FLAG ...]
+== compute disks delete ==
+SYNOPSIS
+    gcloud compute disks delete DISK_NAME [DISK_NAME ...]
+        [--region=REGION | --zone=ZONE] [GCLOUD_WIDE_FLAG ...]
+== compute ssh ==
+SYNOPSIS
+    gcloud compute ssh [USER@]INSTANCE [--command=COMMAND]
+        [--container=CONTAINER] [--dry-run] [--force-key-file-overwrite]
+        [--plain] [--ssh-flag=SSH_FLAG] [--ssh-key-file=SSH_KEY_FILE]
+        [--strict-host-key-checking=STRICT_HOST_KEY_CHECKING] [--troubleshoot]
+        [--zone=ZONE] [--internal-ip | --tunnel-through-iap]
+        [--network=NETWORK --region=REGION : --dest-group=DEST_GROUP]
+        [--ssh-key-expiration=SSH_KEY_EXPIRATION
+          | --ssh-key-expire-after=SSH_KEY_EXPIRE_AFTER] [GCLOUD_WIDE_FLAG ...]
+        [-- SSH_ARGS ...]
+== storage ls ==
+SYNOPSIS
+    gcloud storage ls [PATH ...] [--additional-headers=HEADER=VALUE]
+        [--all-versions, -a] [--buckets, -b] [--etag, -e] [--exhaustive]
+        [--fetch-encrypted-object-hashes] [--format=FORMAT]
+        [--metadata-filter=METADATA_FILTER] [--next-page-token=NEXT_PAGE_TOKEN]
+        [--read-paths-from-stdin, -I] [--readable-sizes] [--recursive, -R, -r]
+        [--soft-deleted] [--full, -L | --json, -j | --long, -l]
+        [--decryption-keys=[DECRYPTION_KEY,...]] [GCLOUD_WIDE_FLAG ...]
+== storage buckets list ==
+SYNOPSIS
+    gcloud storage buckets list [URLS ...] [--additional-headers=HEADER=VALUE]
+        [--raw] [--filter=EXPRESSION] [--limit=LIMIT] [--page-size=PAGE_SIZE]
+        [--sort-by=[FIELD,...]] [--uri] [GCLOUD_WIDE_FLAG ...]
+== storage buckets delete ==
+SYNOPSIS
+    gcloud storage buckets delete URLS [URLS ...]
+        [--additional-headers=HEADER=VALUE] [--continue-on-error, -c]
+        [GCLOUD_WIDE_FLAG ...]
+== storage cp ==
+SYNOPSIS
+    gcloud storage cp [SOURCE ...] DESTINATION
+        [--additional-headers=HEADER=VALUE] [--all-versions, -A]
+        [--no-clobber, -n] [--content-md5=MD5_DIGEST] [--continue-on-error, -c]
+        [--daisy-chain, -D] [--do-not-decompress] [--include-managed-folders]
+        [--manifest-path=MANIFEST_PATH, -L MANIFEST_PATH]
+        [--preserve-posix, -P] [--print-created-message, -v]
+        [--read-paths-from-stdin, -I] [--recursive, -R, -r]
+        [--skip-unsupported, -U]
+        [--storage-class=STORAGE_CLASS, -s STORAGE_CLASS]
+        [--canned-acl=PREDEFINED_ACL, --predefined-acl=PREDEFINED_ACL,
+          -a PREDEFINED_ACL --[no-]preserve-acl, -p]
+        [--gzip-in-flight=[FILE_EXTENSIONS,...], -j [FILE_EXTENSIONS,...]
+          | --gzip-in-flight-all, -J
+          | --gzip-local=[FILE_EXTENSIONS,...], -z [FILE_EXTENSIONS,...]
+          | --gzip-local-all, -Z] [--ignore-symlinks | --preserve-symlinks]
+        [--decryption-keys=[DECRYPTION_KEY,...]
+          --encryption-key=ENCRYPTION_KEY]
+        [--cache-control=CACHE_CONTROL
+          --content-disposition=CONTENT_DISPOSITION
+          --content-encoding=CONTENT_ENCODING
+          --content-language=CONTENT_LANGUAGE --content-type=CONTENT_TYPE
+          --custom-time=CUSTOM_TIME --clear-custom-contexts
+          | --custom-contexts=[CUSTOM_CONTEXTS_KEYS_AND_VALUES,...]
+          | --custom-contexts-file=CUSTOM_CONTEXTS_FILE
+          | --remove-custom-contexts=[CUSTOM_CONTEXTS_KEYS,...]
+          --update-custom-contexts=[CUSTOM_CONTEXTS_KEYS_AND_VALUES,...]
+          --clear-custom-metadata
+          | --custom-metadata=[CUSTOM_METADATA_KEYS_AND_VALUES,...]
+          | --remove-custom-metadata=[METADATA_KEYS,...]
+          --update-custom-metadata=[CUSTOM_METADATA_KEYS_AND_VALUES,...]]
+        [--if-generation-match=GENERATION
+          --if-metageneration-match=METAGENERATION]
+        [--retain-until=DATETIME --retention-mode=RETENTION_MODE]
+        [GCLOUD_WIDE_FLAG ...]
+== storage rm ==
+SYNOPSIS
+    gcloud storage rm [URLS ...] [--additional-headers=HEADER=VALUE]
+        [--all-versions, -a] [--continue-on-error, -c]
+        [--exclude-managed-folders] [--read-paths-from-stdin, -I]
+        [--recursive, -R, -r]
+        [--if-generation-match=GENERATION
+          --if-metageneration-match=METAGENERATION] [GCLOUD_WIDE_FLAG ...]
+== secrets get-iam-policy ==
+SYNOPSIS
+    gcloud secrets get-iam-policy SECRET [--location=LOCATION]
+        [--filter=EXPRESSION] [--limit=LIMIT] [--page-size=PAGE_SIZE]
+        [--sort-by=[FIELD,...]] [GCLOUD_WIDE_FLAG ...]
+== secrets describe ==
+SYNOPSIS
+    gcloud secrets describe SECRET [--location=LOCATION] [GCLOUD_WIDE_FLAG ...]
+== secrets remove-iam-policy-binding ==
+SYNOPSIS
+    gcloud secrets remove-iam-policy-binding SECRET --member=PRINCIPAL
+        --role=ROLE [--location=LOCATION]
+        [--all | --condition=[KEY=VALUE,...]
+          | --condition-from-file=PATH_TO_FILE] [GCLOUD_WIDE_FLAG ...]
+== secrets delete ==
+SYNOPSIS
+    gcloud secrets delete SECRET [--etag=ETAG] [--location=LOCATION]
+        [GCLOUD_WIDE_FLAG ...]
+== GCLOUD WIDE FLAGS ==
+GCLOUD WIDE FLAGS
+    These flags are available to all commands: --access-token-file, --account,
+    --billing-project, --configuration, --flags-file, --flatten, --format,
+    --help, --impersonate-service-account, --log-http, --project, --quiet,
+    --trace-token, --user-output-enabled, --verbosity.
+
+    Run $ gcloud help for details.

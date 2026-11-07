@@ -1,0 +1,154 @@
+{
+ "calls": [
+  {
+   "argv": [
+    "compute",
+    "instances",
+    "describe",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--format=json"
+   ],
+   "session": "",
+   "stdin": ""
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--ssh-flag=-T",
+    "--command=sudo bash -s"
+   ],
+   "session": "# bench-pull: span",
+   "stdin": "# bench-pull: span\ninst=bench-validator-01\npairs=( stdout:/var/log/telcoin/telcoin.log stderr:/var/log/telcoin/telcoin-error.log )\nts() { sed -n -E 's/^(ts=)?\"?([0-9]{4}-[0-9]{2}-[0-9]{2})[T ]([0-9]{2}:[0-9]{2}:[0-9]{2}).*$/\\2T\\3Z/p'; }\ngens() {\n    for g in \"$1\".[0-9]*; do\n        [ -f \"$g\" ] || continue\n        n=${g#\"$1\".}; n=${n%.gz}\n        case $n in ''|*[!0-9]*) continue ;; esac\n        echo \"$n $g\"\n    done | sort -n -k1,1\n}\nspan() {\n    first=\"\"; last=\"\"\n    bytes=$(wc -c < \"$3\" | tr -d ' ')\n    case $3 in\n        *.gz) first=$(gzip -cd -- \"$3\" 2>/dev/null | head -n 20 | ts | head -n 1) ;;\n        *) first=$(head -n 20 -- \"$3\" | ts | head -n 1)\n           if [ \"$2\" -le 1 ]; then last=$(tail -n 20 -- \"$3\" | ts | tail -n 1); fi ;;\n    esac\n    echo \"LOGSPAN $inst stream=$1 gen=$2 file=$3 bytes=${bytes:--} first=${first:--} last=${last:--}\"\n}\nfor p in \"${pairs[@]}\"; do\n    s=${p%%:*}; f=${p#*:}\n    if [ -f \"$f\" ]; then span \"$s\" 0 \"$f\"; else echo \"LOGSPAN $inst stream=$s gen=0 file=$f bytes=- first=- last=-\"; fi\n    gens \"$f\" | while read -r n g; do span \"$s\" \"$n\" \"$g\"; done\ndone\nexit 0\n"
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--command=bash -o pipefail -c 'e=$(sudo docker container inspect telcoin 2>&1 >/dev/null) || { case $e in *\"No such container\"*) exit 0 ;; esac; echo \"docker container inspect failed: $e\" >&2; exit 1; }; sudo docker logs telcoin 2>&1 | gzip -1'"
+   ],
+   "session": "cmd",
+   "stdin": ""
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--command=sudo bash -o pipefail -c 'd=$1; shift; [ -d \"$d\" ] || exit 0; cd \"$d\" || exit 1; shopt -s nullglob; keep=(); for f in *.log.gz; do for s in \"$@\"; do [ \"$f\" = \"$s\" ] && continue 2; done; keep+=(\"$f\"); done; [ ${#keep[@]} -eq 0 ] || tar -cf - -- \"${keep[@]}\"' _ /var/lib/bench-logs"
+   ],
+   "session": "cmd",
+   "stdin": ""
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--command=sudo bash -c '[ -s \"$1\" ] || exit 0; gzip -1 < \"$1\"' _ /var/log/telcoin/telcoin.log"
+   ],
+   "session": "cmd",
+   "stdin": ""
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--command=sudo bash -c '[ -s \"$1\" ] || exit 0; gzip -1 < \"$1\"' _ /var/log/telcoin/telcoin-error.log"
+   ],
+   "session": "cmd",
+   "stdin": ""
+  },
+  {
+   "argv": [
+    "compute",
+    "ssh",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--tunnel-through-iap",
+    "--ssh-flag=-o ConnectTimeout=20",
+    "--ssh-flag=-o StrictHostKeyChecking=accept-new",
+    "--ssh-flag=-T",
+    "--command=sudo bash -s"
+   ],
+   "session": "# bench-pull: rotated",
+   "stdin": "# bench-pull: rotated\npairs=( stdout:/var/log/telcoin/telcoin.log stderr:/var/log/telcoin/telcoin-error.log )\nskip=' '\nw=\"\"\ntrap '[ -z \"$w\" ] || rm -rf -- \"$w\"' EXIT\nfor p in \"${pairs[@]}\"; do\n    s=${p%%:*}; f=${p#*:}\n    for g in \"$f\".[0-9]*; do\n        [ -f \"$g\" ] || continue\n        n=${g#\"$f\".}; n=${n%.gz}\n        case $n in ''|*[!0-9]*) continue ;; esac\n        name=unit-$s.rotated-$n.log.gz\n        case $skip in *\" $name \"*) continue ;; esac\n        if [ -z \"$w\" ]; then w=$(mktemp -d \"${f%/*}/.bench-pull.XXXXXX\") || exit 1; fi\n        [ ! -e \"$w/$name\" ] || continue\n        case $g in\n            *.gz) ln -- \"$g\" \"$w/$name\" 2>/dev/null || cp -p -- \"$g\" \"$w/$name\" || exit 1 ;;\n            *) gzip -1 -n < \"$g\" > \"$w/$name\" || exit 1 ;;\n        esac\n    done\ndone\n[ -n \"$w\" ] || exit 0\ncd \"$w\" || exit 1\ntar -cf - -- unit-*.rotated-*.log.gz\n"
+  },
+  {
+   "argv": [
+    "compute",
+    "instances",
+    "describe",
+    "bench-validator-01",
+    "--zone=us-west2-a",
+    "--project=acme-project",
+    "--format=json"
+   ],
+   "session": "",
+   "stdin": ""
+  }
+ ],
+ "files": {
+  "bench-validator-01-telcoin-cert-fail-20261105T120000Z.log.gz": 57,
+  "bench-validator-01-telcoin.log.gz": 353,
+  "bench-validator-01-unit-stderr.log.gz": 51,
+  "bench-validator-01-unit-stdout.log.gz": 473,
+  "bench-validator-01-unit-stdout.rotated-1.log.gz": 293,
+  "bench-validator-01-unit-stdout.rotated-2.log.gz": 218,
+  "bench-validator-01.logspan": 533,
+  "bench-validator-01.pulled": 565
+ },
+ "markers": {
+  "bench-validator-01": "tn-bench-pulled/v2\ninstance bench-validator-01\nid 4200\ncreated 2026-11-05T00:00:00.000-08:00\nrun r20991231-0101\npulled <TIME>\nsources current-container log, 1 saved log(s), unit stdout, unit stderr, 2 rotated unit stdout log(s)\nfile 57 bench-validator-01-telcoin-cert-fail-<STAMP>.log.gz\nfile 353 bench-validator-01-telcoin.log.gz\nfile 51 bench-validator-01-unit-stderr.log.gz\nfile 473 bench-validator-01-unit-stdout.log.gz\nfile 293 bench-validator-01-unit-stdout.rotated-1.log.gz\nfile 218 bench-validator-01-unit-stdout.rotated-2.log.gz\nend\n"
+ },
+ "node_calls": [],
+ "stderr": [],
+ "stdout": [
+  "    + bench_pull_unit_span bench-validator-01 us-west2-a <ROOT>/results/r20991231-0101/logs   # LOGSPAN per unit log generation -> <ROOT>/results/r20991231-0101/logs/bench-validator-01.logspan",
+  "      + tn_iap_ssh bench-validator-01 us-west2-a bash\\ -o\\ pipefail\\ -c\\ \\'e=\\$\\(sudo\\ docker\\ container\\ inspect\\ telcoin\\ 2\\>\\&1\\ \\>/dev/null\\)\\ \\|\\|\\ \\{\\ case\\ \\$e\\ in\\ \\*\\\"No\\ such\\ container\\\"\\*\\)\\ exit\\ 0\\ \\;\\;\\ esac\\;\\ echo\\ \\\"docker\\ container\\ inspect\\ failed:\\ \\$e\\\"\\ \\>\\&2\\;\\ exit\\ 1\\;\\ \\}\\;\\ sudo\\ docker\\ logs\\ telcoin\\ 2\\>\\&1\\ \\|\\ gzip\\ -1\\' > <ROOT>/results/r20991231-0101/logs/bench-validator-01-telcoin.log.gz",
+  "      + tn_iap_ssh bench-validator-01 us-west2-a sudo\\ bash\\ -o\\ pipefail\\ -c\\ \\'d=\\$1\\;\\ shift\\;\\ \\[\\ -d\\ \\\"\\$d\\\"\\ \\]\\ \\|\\|\\ exit\\ 0\\;\\ cd\\ \\\"\\$d\\\"\\ \\|\\|\\ exit\\ 1\\;\\ shopt\\ -s\\ nullglob\\;\\ keep=\\(\\)\\;\\ for\\ f\\ in\\ \\*.log.gz\\;\\ do\\ for\\ s\\ in\\ \\\"\\$@\\\"\\;\\ do\\ \\[\\ \\\"\\$f\\\"\\ =\\ \\\"\\$s\\\"\\ \\]\\ \\&\\&\\ continue\\ 2\\;\\ done\\;\\ keep+=\\(\\\"\\$f\\\"\\)\\;\\ done\\;\\ \\[\\ \\$\\{#keep\\[@\\]\\}\\ -eq\\ 0\\ \\]\\ \\|\\|\\ tar\\ -cf\\ -\\ --\\ \\\"\\$\\{keep\\[@\\]\\}\\\"\\'\\ _\\ /var/lib/bench-logs | tar -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-<file>",
+  "      + tn_iap_ssh bench-validator-01 us-west2-a sudo\\ bash\\ -c\\ \\'\\[\\ -s\\ \\\"\\$1\\\"\\ \\]\\ \\|\\|\\ exit\\ 0\\;\\ gzip\\ -1\\ \\<\\ \\\"\\$1\\\"\\'\\ _\\ /var/log/telcoin/telcoin.log > <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stdout.log.gz",
+  "      + tn_iap_ssh bench-validator-01 us-west2-a sudo\\ bash\\ -c\\ \\'\\[\\ -s\\ \\\"\\$1\\\"\\ \\]\\ \\|\\|\\ exit\\ 0\\;\\ gzip\\ -1\\ \\<\\ \\\"\\$1\\\"\\'\\ _\\ /var/log/telcoin/telcoin-error.log > <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stderr.log.gz",
+  "      + bench_pull_rotated_logs bench-validator-01 us-west2-a <ROOT>/results/r20991231-0101/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-<stream>.rotated-<N>.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-telcoin.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-telcoin-cert-fail-<STAMP>.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stdout.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stderr.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stdout.rotated-1.log.gz",
+  "      \u2713 bench-validator-01 -> <ROOT>/results/r20991231-0101/logs/bench-validator-01-unit-stdout.rotated-2.log.gz",
+  "      \u2713 bench-validator-01: current-container log, 1 saved log(s), unit stdout, unit stderr, 2 rotated unit stdout log(s)",
+  "    \u2713 logs of 1 nodes in <ROOT>/results/r20991231-0101/logs",
+  "PULL_RC=0"
+ ]
+}

@@ -35,12 +35,16 @@
 # size; a marker or a log an earlier fleet left under the same name never counts. An instance
 # already gone never blocks. A pull that hits an expired gcloud session stops the rest of the pull
 # (BENCH_PULL_STOP_FILE, touched by the pull helpers); the teardown then stops with nothing deleted
-# and says to run `gcloud auth login`. A marker also has to be fresh (pulled at most 15 min ago: after that
-# the node has logged more than it covers, and the node is pulled again).
+# and says to run `gcloud auth login`. A marker of an earlier teardown also has to be fresh (pulled at
+# most 15 min ago: after that the node has logged more than it covers, and the node is pulled again).
+# A marker of this run pulled at or after this teardown started (its own pull, however long that took)
+# is exempt from the age rule; every other check still holds (D34: bench 4's 4h19m pull refused the
+# markers it had written itself and deleted nothing).
 # BENCH_TEARDOWN_TRUST_MARKERS=1 lifts that age rule only, for a re-run after an interrupted
 # teardown: an older marker that is otherwise intact counts, its verdict line ends
-# "(BENCH_TEARDOWN_TRUST_MARKERS=1)", the node is not pulled again, and a manifest note lists
-# each node accepted that way with its marker's pull time.
+# "(BENCH_TEARDOWN_TRUST_MARKERS=1) [trusted]", the node is not pulled again, and a manifest note lists
+# each node accepted that way with its marker's pull time. Every marker line ends in how its age was
+# judged: [fresh:this-invocation], [fresh] (within the window), [trusted] or [stale] (older, refused).
 # The pull copies each node's whole log as it is now, and a fleet left up after the run keeps
 # logging, so it can far exceed the run's own log size: check df before a teardown. Before the pull
 # starts, the filesystem under results/<run>/logs/ must have BENCH_TEARDOWN_MIN_FREE_GB (default 20;
@@ -48,7 +52,10 @@
 # Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
 # runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
 # window gets a cert-fail log snapshot saved on the node and pulled, listed in
-# manifest.cert_failures[].logs[]. Then bench-obs's Prometheus TSDB snapshot is pulled into
+# manifest.cert_failures[].logs[]. A re-run whose manifest already holds certification skips that
+# pass and its snapshots (one line says when it was recorded; B9: bench 4's re-run read every log again
+# for about 70 min) unless BENCH_TEARDOWN_RECERTIFY=1; a log manifest.cert_failures lists that is not
+# here, or an entry that lists none, still gets its snapshot taken again. Then bench-obs's Prometheus TSDB snapshot is pulled into
 # logs/bench-obs-prometheus-<UTC>.tar.gz (bench_obs_prom_snapshot_pull; warn-only, BENCH_OBS_PULL_PROM=0
 # skips it), so the gates below see it and index it; neither requires it.
 # Then the COVERAGE GATE: every fleet node's pulled logs must span the run, its earliest line at or before manifest coordinated_start.due and its latest at or
@@ -96,7 +103,12 @@
 #
 # Usage: benchmark/benchmark-teardown.sh [--yes] [--run ID] [--purge]
 #        benchmark/benchmark-teardown.sh --run ID --reindex
-# Without --yes it lists the candidates + denylist, prints the delete argv and changes nothing.
+# Without --yes it lists the candidates + denylist, prints the delete argv and changes nothing. It
+# then checks every gcloud command and flag the teardown can issue against the installed SDK, one
+# local `gcloud <command> --help` each (no project, no network): GCLOUD_ARGV_OK <n> commands, <m>
+# flags, or one `❌ GCLOUD_ARGV gcloud <command> rejects --<flag>` line per flag the SDK does not
+# know and exit 1 (D35: the --async on instance deletes that only the fake gcloud accepted).
+# BENCH_SKIP_GCLOUD_ARGV_CHECK=1, or no gcloud on PATH, skips it with a note; --yes never runs it.
 # --reindex is local only, for files written into results/<run>/ after the teardown (analysis/
 # summaries, per-arm tables): it rewrites INDEX.md and CHECKSUMS.sha256 over the tree as it is now
 # (and, when the manifest has a local archive record, its files/bytes totals and
@@ -144,6 +156,9 @@ case "${DELETE_WAIT_SECS}" in
     *) echo "❌ BENCH_TEARDOWN_DELETE_WAIT_SECS must be a whole number of seconds, 0 to 999999 (got '${DELETE_WAIT_SECS}')" >&2; exit 1 ;;
 esac
 DELETE_POLL_SECS=10
+# 1 skips the dry run's gcloud argv check (gcloud_argv_check); --yes never runs it.
+SKIP_GCLOUD_ARGV="${BENCH_SKIP_GCLOUD_ARGV_CHECK:-0}"
+case "${SKIP_GCLOUD_ARGV}" in 0|1) ;; *) echo "❌ BENCH_SKIP_GCLOUD_ARGV_CHECK must be 0 or 1 (got '${SKIP_GCLOUD_ARGV}')" >&2; exit 1 ;; esac
 results_ids() { (cd "${DIR}/results" 2>/dev/null && ls -1d r* 2>/dev/null | paste -sd ' ' -) || true; }
 
 # --reindex: INDEX.md + CHECKSUMS.sha256 over results/<run>/ as it is now, then exit. Local only:
@@ -207,6 +222,9 @@ export BENCH_RUN_ID
 BENCH_APPLY="${CONFIRM}"
 # shellcheck source=bench-lib.sh
 source "${DIR}/bench-lib.sh"
+# D34: when this invocation started, read once. A marker of this run pulled at or after it is this
+# teardown's own (td_marker_age): the age rule does not apply to it.
+TD_STARTED_ISO="$(bench_iso_from_unix "$(bench_now_unix)")" || bench_die "the current time could not be read — nothing was done"
 
 echo "=========================================="
 echo "benchmark teardown — project ${PROJECT_ID}, run ${BENCH_RUN_ID}$([ "${PURGE}" -eq 1 ] && echo ' (--purge)')"
@@ -569,12 +587,63 @@ fi
 # Its row lets the delete loop re-check its id like every other instance's; without one it is not deleted.
 [ "${OBS_UP}" -ne 1 ] || GATE_IDS="${GATE_IDS}${OBS_CAND} $(inst_id "${OBS_CAND%% *}" "${OBS_CAND#* }")"$'\n'
 
+# td_marker_age <marker> — how the marker's age is judged, one word: fresh:this-invocation (a
+# marker of this run pulled at or after TD_STARTED_ISO, i.e. by this teardown: the age rule does not
+# apply to it, D34), fresh (pulled within BENCH_MARKER_MAX_AGE_SECS), trusted (older, accepted by
+# BENCH_TEARDOWN_TRUST_MARKERS=1) or stale (older: not accepted). Nothing when its pull time is not
+# a UTC time or is in the future (the verdict says why). Reads the marker's last "run" and "pulled"
+# lines, as _bench_marker_verdict (bench-lib.sh) does; the same clock (bench_now_unix).
+td_marker_age() {
+    local mp mr now since
+    mp="$(sed -n 's/^pulled \([^ ]*\).*$/\1/p' "$1" 2>/dev/null | tail -n 1)" || mp=""
+    mr="$(sed -n 's/^run \([^ ]*\).*$/\1/p' "$1" 2>/dev/null | tail -n 1)" || mr=""
+    case "${mp}" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+        *) return 0 ;;
+    esac
+    now="$(bench_now_unix)" || return 0
+    since="$(bench_iso_from_unix $((now - BENCH_MARKER_MAX_AGE_SECS)))" || return 0
+    now="$(bench_iso_from_unix "${now}")" || return 0
+    if [ "${mp//[!0-9]/}" -gt "${now//[!0-9]/}" ]; then
+        return 0
+    elif [ "${mr}" = "${BENCH_RUN_ID}" ] && [ "${mp//[!0-9]/}" -ge "${TD_STARTED_ISO//[!0-9]/}" ]; then echo "fresh:this-invocation"
+    elif [ "${mp//[!0-9]/}" -ge "${since//[!0-9]/}" ]; then echo "fresh"
+    elif [ "${BENCH_TEARDOWN_TRUST_MARKERS:-0}" = "1" ]; then echo "trusted"
+    else echo "stale"
+    fi
+}
+
+# td_markers_report <dest> <inst> <id> — bench_node_markers_report (bench-lib.sh) with this
+# teardown's exemption: one line per marker of <inst> in <dest>, its verdict for instance <id>, then
+# its age verdict in brackets (td_marker_age). A marker this teardown pulled is judged with the age
+# rule lifted for that one verdict (BENCH_TEARDOWN_TRUST_MARKERS=1 on that call only; every other
+# check holds), and its line loses the lib's "(BENCH_TEARDOWN_TRUST_MARKERS=1)", which would name a
+# knob nobody set. rc 0 when a marker vouches for the logs of instance <id>. Reads <dest> only.
+td_markers_report() {
+    local m v age rc=1 n=0
+    for m in "$1/$2.pulled" "$1/$2".pulled-*; do
+        [ -e "${m}" ] || [ -L "${m}" ] || continue
+        n=$((n + 1))
+        age="$(td_marker_age "${m}")" || age=""
+        if [ "${age}" = "fresh:this-invocation" ]; then
+            if v="$(BENCH_TEARDOWN_TRUST_MARKERS=1 _bench_marker_verdict "${m}" "$1" "$2" "$3")"; then rc=0; fi
+            v="${v%" (BENCH_TEARDOWN_TRUST_MARKERS=1)"}"
+        elif v="$(_bench_marker_verdict "${m}" "$1" "$2" "$3")"; then
+            rc=0
+        fi
+        echo "        marker ${m##*/}: ${v}${age:+ [${age}]}"
+    done
+    [ "${n}" -gt 0 ] || echo "        no marker"
+    return "${rc}"
+}
+
 # Log gate. The helper walks INSTANCE_NAMES and re-pulls an existing log under a new name, so
 # it gets a narrowed fleet in a subshell: live instances not saved yet. "Saved" means a marker
 # naming the id of the instance that holds the name now (from ALL_INST), whose logs are all still
-# here (bench_node_markers_report). A marker of an earlier fleet's instance, or of the older
+# here (td_markers_report). A marker of an earlier fleet's instance, or of the older
 # format, never counts: that node is pulled again and its new logs land beside the old ones.
-# A marker older than BENCH_MARKER_MAX_AGE_SECS counts only with BENCH_TEARDOWN_TRUST_MARKERS=1;
+# A marker of an earlier teardown older than BENCH_MARKER_MAX_AGE_SECS counts only with
+# BENCH_TEARDOWN_TRUST_MARKERS=1 (a marker this teardown pulled counts however old: D34);
 # TRUSTED collects "<inst>@<pull time>" for each marker accepted that way, for the manifest note.
 LOG_DIR="${BENCH_RESULTS_DIR}/logs"
 PULL_NAMES=(); PULL_ZONES=(); PULL_IDS=(); MISSING=(); TRUSTED=""
@@ -588,9 +657,9 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     fi
     id="$(inst_id "${ZONES[$i]}" "${inst}")"
     GATE_IDS="${GATE_IDS}${ZONES[$i]} ${inst} ${id}"$'\n'
-    if report="$(bench_node_markers_report "${LOG_DIR}" "${inst}" "${id}")"; then
+    if report="$(td_markers_report "${LOG_DIR}" "${inst}" "${id}")"; then
         echo "    ✓ ${inst}: already saved — not pulled again ($(bench_node_saved_sources "${LOG_DIR}" "${inst}" "${id}"))"
-        for t in $(printf '%s\n' "${report}" | sed -n 's/.*: accepted .*, pulled \([^;]*\);.*(BENCH_TEARDOWN_TRUST_MARKERS=1)$/\1/p'); do
+        for t in $(printf '%s\n' "${report}" | sed -n 's/.*: accepted .*, pulled \([^;]*\);.* \[trusted\]$/\1/p'); do
             TRUSTED="${TRUSTED} ${inst}@${t}"
         done
     else
@@ -629,13 +698,23 @@ if [ "${#PULL_NAMES[@]}" -gt 0 ] && [ "${MIN_FREE_GB}" -gt 0 ]; then
 fi
 pull_rc=0
 if [ "${#PULL_NAMES[@]}" -gt 0 ]; then
-    ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs "${LOG_DIR}" ) || pull_rc=$?
+    # BENCH_LOG_TRANSFER (config.sh; iap | bucket, default iap): bucket has each node send its logs to
+    # the run bucket and copies them down once (bench_pull_node_logs_bucket, pull-lib.sh: the same
+    # files, names, spans and markers; it refuses before any session when the bucket is gone or a
+    # node's service account cannot write to it). iap is the per-node IAP stream.
+    if [ "${BENCH_LOG_TRANSFER:-iap}" = "bucket" ]; then
+        ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs_bucket "${LOG_DIR}" "${BENCH_BUCKET}" ) || pull_rc=$?
+    else
+        ( INSTANCE_NAMES=("${PULL_NAMES[@]}"); ZONES=("${PULL_ZONES[@]}"); bench_pull_node_logs "${LOG_DIR}" ) || pull_rc=$?
+    fi
     stop_if_reauth "the log pull"
     if [ "${BENCH_APPLY}" = "1" ]; then
         # Trust the files, not only the exit status: fail closed on anything the helper missed,
-        # and on a marker naming any instance but the one listed above.
+        # and on a marker naming any instance but the one listed above. A marker this pull wrote
+        # counts however long the pull took (D34: bench 4's 4h19m pull refused 8 of its own markers).
+        echo "    markers after the pull (one this teardown pulled is exempt from the $((BENCH_MARKER_MAX_AGE_SECS / 60))-min age rule):"
         for i in "${!PULL_NAMES[@]}"; do
-            bench_node_marker_ok "${LOG_DIR}" "${PULL_NAMES[$i]}" "${PULL_IDS[$i]}" || MISSING+=("${PULL_NAMES[$i]}")
+            td_markers_report "${LOG_DIR}" "${PULL_NAMES[$i]}" "${PULL_IDS[$i]}" || MISSING+=("${PULL_NAMES[$i]}")
         done
     fi
 fi
@@ -685,11 +764,46 @@ done
 # tools/cert-rate.py over the logs just pulled: manifest.certification and .cert_failures. Each
 # failing validator still up gets a cert-fail container-log snapshot, pulled into logs/ and listed
 # in .cert_failures[].logs[], which the local gate below requires. Informational: it only warns.
+# B9: a re-run whose manifest already holds certification skips both (cert-rate.py reads every
+# pulled validator log, about 70 min on bench 4's, and the snapshots would repeat the first
+# teardown's) unless BENCH_TEARDOWN_RECERTIFY=1 (0|1, validated by config.sh). A log
+# manifest.cert_failures lists that is not here still gets the snapshot step, or the local gate
+# would refuse every re-run the same way; so does an entry that lists no log at all, or the gate
+# would pass over a failing validator nobody snapshotted.
+# cert_recorded_at — manifest.certification_meta.recorded_at ("an unknown time" without one) when the
+# manifest holds a certification record; rc 1 when it holds none or does not parse.
+cert_recorded_at() {
+    jq -e '.certification != null' "$(bench_manifest)" >/dev/null 2>&1 || return 1
+    jq -r '.certification_meta.recorded_at // "an unknown time" | tostring' "$(bench_manifest)" 2>/dev/null || echo "an unknown time"
+}
+# cert_logs_missing — the logs manifest.cert_failures[].logs[] lists (relative to the run's directory,
+# as the local gate reads them) that are missing or empty here, one per line; then `<inst>:logs=[]` for
+# every entry that lists no log at all (a teardown stopped between the certification record and its
+# snapshots: the gate has nothing to require for that validator until the snapshot step runs again).
+cert_logs_missing() {
+    local p f
+    jq -r '[(.cert_failures // [])[]? | objects | (.logs // [])[]? | strings] | unique[]' "$(bench_manifest)" 2>/dev/null \
+        | while IFS= read -r p; do
+            f="${BENCH_RESULTS_DIR}/${p}"; [ "${p#/}" = "${p}" ] || f="${p}"
+            [ -s "${f}" ] || printf '%s\n' "${p}"
+        done
+    jq -r '[(.cert_failures // [])[]? | objects | select(([(.logs // [])[]? | strings] | length) == 0)
+            | .inst | strings] | unique[] | . + ":logs=[]"' "$(bench_manifest)" 2>/dev/null || true
+}
 echo ""
 echo ">>> certification outcome: ${LOG_DIR} (before the local gate, which requires every log manifest.cert_failures lists)"
-bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
-bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
-stop_if_reauth "the certification snapshots"
+CERT_SKIP=0; cert_miss=""
+if [ "${BENCH_TEARDOWN_RECERTIFY:-0}" != "1" ] && cert_at="$(cert_recorded_at)"; then
+    CERT_SKIP=1
+    echo "    certification: already recorded at ${cert_at} — skipped (BENCH_TEARDOWN_RECERTIFY=1 re-runs it)"
+    cert_miss="$(cert_logs_missing | paste -sd ' ' -)" || cert_miss=""
+    [ -z "${cert_miss}" ] || echo "    ⚠ manifest.cert_failures lists log(s) not here (${cert_miss}): the cert-fail snapshot step runs again"
+fi
+[ "${CERT_SKIP}" = "1" ] || bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
+if [ "${CERT_SKIP}" != "1" ] || [ -n "${cert_miss}" ]; then
+    bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
+    stop_if_reauth "the certification snapshots"
+fi
 
 # ================================ bench-obs Prometheus snapshot (before the gates) ========
 # The run's metrics go with bench-obs: a TSDB snapshot lands in logs/ now, so the coverage and local
@@ -1101,5 +1215,112 @@ if [ "${BENCH_APPLY}" = "1" ]; then
     echo "TEARDOWN_DONE run=${BENCH_RUN_ID} deleted=${#GONE[@]} left=${LEFT_N} at=$(bench_now_iso)"
     exit "${lrc}"
 fi
+
+# ================================ gcloud argv check (dry run only) ========================
+# D35: `gcloud compute instances delete ... --async` passed every offline test (the fake gcloud took
+# the flag) and failed live at the first delete, 86 min into bench 4's third teardown attempt. A dry
+# run now checks the commands and flags this teardown can pass against the SDK installed here, the
+# one a --yes run will use. A --yes run never gets here and spends no time on it.
+# td_gcloud_argv — every gcloud command this teardown issues, its own calls and those of the helpers
+# it calls (bench-lib.sh, pull-lib.sh, obs-lib.sh, recovery-lib.sh, and devnet-lib.sh's tn_iap_ssh*,
+# whose ssh flags are TN_SSH_FLAGS as devnet-lib.sh sets them): one line each, the command words,
+# then every flag those calls give it, names only. A call that gains a flag adds it here too:
+# test_teardown_local_gate compares this list with the source and with every call the fake gcloud sees.
+td_gcloud_argv() {
+    local f ssh=""
+    for f in "${TN_SSH_FLAGS[@]}"; do ssh="${ssh} ${f%%=*}"; done
+    printf '%s\n' \
+        "auth print-access-token" \
+        "compute instances list --project --format" \
+        "compute instances describe --zone --project --format" \
+        "compute firewall-rules describe --project --format" \
+        "compute firewall-rules list --project --format" \
+        "compute disks list --project --format" \
+        "storage buckets list --project --format" \
+        "storage ls --project" \
+        "compute ssh --zone --project --command --tunnel-through-iap --ssh-flag${ssh}" \
+        "compute instances delete --zone --project --quiet" \
+        "compute firewall-rules delete --project --quiet" \
+        "compute disks delete --zone --project --quiet" \
+        "storage buckets delete --project --quiet" \
+        "storage cp -r" \
+        "storage rm -r --project" \
+        "secrets get-iam-policy --project --format" \
+        "secrets remove-iam-policy-binding --project --member --role --format" \
+        "secrets describe --project --format" \
+        "secrets delete --project --quiet"
+}
+
+# gcloud_argv_check — each td_gcloud_argv command's `gcloud <command> --help`, one call per command,
+# all at once (each is a 2-3 s Python start: about a minute in a row; local: no project, no network,
+# the update check and usage reporting off), and every flag looked for as a token in that text (ANSI
+# bold stripped; --[no-]<flag> counts for --<flag> and --no-<flag>).
+# Prints GCLOUD_ARGV_OK <n> commands, <m> flags; or, on stderr, one ❌ GCLOUD_ARGV line per flag the
+# SDK does not know and per command it does not have, and returns 1. Skipped with a note (rc 0) under
+# BENCH_SKIP_GCLOUD_ARGV_CHECK=1 or without gcloud on PATH.
+gcloud_argv_check() {
+    local line w f pat seen esc help i nf=0 bad=0 rc
+    local -a lines pids words cmd flags
+    echo ""
+    echo ">>> gcloud argv check: every gcloud command and flag this teardown can issue, against this SDK's --help (dry run only)"
+    if [ "${SKIP_GCLOUD_ARGV}" = "1" ]; then echo "    - skipped (BENCH_SKIP_GCLOUD_ARGV_CHECK=1)"; return 0; fi
+    if ! command -v gcloud >/dev/null 2>&1; then echo "    - skipped: gcloud is not on PATH"; return 0; fi
+    esc="$(printf '\033')"
+    lines=(); pids=()
+    while IFS= read -r line; do [ -z "${line}" ] || lines+=("${line}"); done < <(td_gcloud_argv)
+    for i in "${!lines[@]}"; do
+        read -r -a words <<< "${lines[$i]}"
+        cmd=()
+        for w in "${words[@]}"; do case "${w}" in -*) ;; *) cmd+=("${w}") ;; esac; done
+        CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=1 CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=1 CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+            perl -e 'alarm shift; exec @ARGV' 60 gcloud "${cmd[@]}" --help \
+            </dev/null >"${TD_TMP}/argv-help-${i}.out" 2>"${TD_TMP}/argv-help-${i}.err" &
+        pids+=("$!")
+    done
+    for i in "${!lines[@]}"; do
+        read -r -a words <<< "${lines[$i]}"
+        cmd=(); flags=()
+        for w in "${words[@]}"; do
+            case "${w}" in -*) flags+=("${w}") ;; *) cmd+=("${w}") ;; esac
+        done
+        rc=0; wait "${pids[$i]}" || rc=$?
+        if [ "${rc}" -ne 0 ]; then
+            echo "❌ GCLOUD_ARGV gcloud ${cmd[*]}: not a command of this SDK (--help exit ${rc}: $(tail -n 1 "${TD_TMP}/argv-help-${i}.err" 2>/dev/null))" >&2
+            bad=$((bad + 1))
+            continue
+        fi
+        help="${TD_TMP}/argv-help-${i}.txt"
+        sed "s/${esc}\[[0-9;]*m//g" "${TD_TMP}/argv-help-${i}.out" > "${help}"
+        seen=" "
+        for f in "${flags[@]+"${flags[@]}"}"; do
+            case "${seen}" in *" ${f} "*) continue ;; esac
+            seen="${seen}${f} "; nf=$((nf + 1))
+            case "${f}" in
+                -[A-Za-z]) pat="${f}" ;;
+                --|---*|--*[!a-z0-9-]*) pat="" ;;
+                --no-?*) pat="--(no-|\[no-\])${f#--no-}" ;;
+                --?*) pat="--(\[no-\])?${f#--}" ;;
+                *) pat="" ;;
+            esac
+            if [ -z "${pat}" ]; then
+                echo "❌ GCLOUD_ARGV gcloud ${cmd[*]}: '${f}' is not a flag this check can read" >&2
+                bad=$((bad + 1))
+                continue
+            fi
+            grep -Eq -- "(^|[^A-Za-z0-9_-])${pat}([^A-Za-z0-9_-]|\$)" "${help}" && continue
+            echo "❌ GCLOUD_ARGV gcloud ${cmd[*]} rejects ${f}" >&2
+            bad=$((bad + 1))
+        done
+    done
+    if [ "${bad}" -gt 0 ]; then
+        echo "" >&2
+        echo "❌ ${bad} gcloud argument(s) above are not in this SDK's --help: a --yes run would fail at that call (D35)." >&2
+        echo "   Fix the call and its td_gcloud_argv line; if the help text is what is wrong, re-run with BENCH_SKIP_GCLOUD_ARGV_CHECK=1." >&2
+        return 1
+    fi
+    echo "GCLOUD_ARGV_OK ${#lines[@]} commands, ${nf} flags"
+}
+gcloud_argv_check || exit 1
+
 echo "DRY RUN — re-run with --yes to delete the candidates above."
 echo "TEARDOWN_DONE run=${BENCH_RUN_ID} deleted=0 left=${LEFT_N} at=$(bench_now_iso) dry_run=1"

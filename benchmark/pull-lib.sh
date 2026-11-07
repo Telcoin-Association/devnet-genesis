@@ -23,11 +23,12 @@
 #   LOGSPAN <inst> stream=<s> gen=<N> file=<node path> bytes=<n|-> first=<ISO|-> last=<ISO|->
 #   LOGCOV <inst> gens=<n|-> first=<ISO|-> last=<ISO|-> due=<ISO|-> end=<ISO|-> ok=<0|1|->
 # Remote session headers (the first line of the script on stdin): "# bench-pull: span",
-# "# bench-pull: rotated".
+# "# bench-pull: rotated", "# bench-pull: bucket" (the bucket transfer, at the end of this file).
 # Files: <dest>/<inst>.logspan, <dest>/<inst>-unit-<stream>.rotated-<N>.log.gz (name taken:
 # <dest>/<inst>-unit-<stream>-<UTC stamp>.rotated-<N>.log.gz).
 # Knobs: BENCH_IAP_RETRIES (attempts per stream, default 3), BENCH_PULL_STOP_FILE (touched when
-# gcloud needs re-authentication; while it exists no pull starts).
+# gcloud needs re-authentication; while it exists no pull starts), BENCH_PULL_JOBS (the bucket
+# transfer's nodes at a time, default 4).
 
 # bench_pull_stream <inst> <zone> <gz|tar|txt> <out> <cmd|stdin> <text> — one stream from the
 # node into <out>. <text> is the remote command (cmd: tn_iap_ssh) or a script for the node's
@@ -146,6 +147,14 @@ bench_unit_log_span_script() {
     case "${inst}" in ''|*[!A-Za-z0-9._-]*) echo "❌ bench_unit_log_span_script <inst>: bad instance name '${inst}'" >&2; return 1 ;; esac
     pairs="$(_bench_pull_unit_pairs)" || return 1
     printf '%s\n' '# bench-pull: span' "inst=${inst}" "${pairs}"
+    _bench_span_body
+    echo 'exit 0'
+}
+
+# _bench_span_body — the span script's body (bench_unit_log_span_script), for a script that has
+# set inst= and pairs=( ... ) already: one LOGSPAN line per unit log stream and generation. The
+# bucket transfer's node script (bench_bucket_logs_script) starts with it too.
+_bench_span_body() {
     cat <<'EOS'
 ts() { sed -n -E 's/^(ts=)?"?([0-9]{4}-[0-9]{2}-[0-9]{2})[T ]([0-9]{2}:[0-9]{2}:[0-9]{2}).*$/\2T\3Z/p'; }
 gens() {
@@ -171,7 +180,6 @@ for p in "${pairs[@]}"; do
     if [ -f "$f" ]; then span "$s" 0 "$f"; else echo "LOGSPAN $inst stream=$s gen=0 file=$f bytes=- first=- last=-"; fi
     gens "$f" | while read -r n g; do span "$s" "$n" "$g"; done
 done
-exit 0
 EOS
 }
 
@@ -423,4 +431,416 @@ bench_drop_if_identical() {
     cmp -s -- "${new}" "${old}" || return 1
     rm -f -- "${new}" || return 1
     echo "      = ${new##*/} is identical to ${old##*/} — dropped"
+}
+
+# --- the bucket transfer (BENCH_LOG_TRANSFER=bucket) -----------------------------------------------
+# The logs bench_pull_node_logs (bench-lib.sh) pulls, with the same names, bytes, spans and markers,
+# but each node sends its own logs to the run bucket and the operator copies them down once. Bench 4's
+# IAP pull took 4h19m at about 2 MB/s per session, and each dropped session restarted an 8-GB stream
+# from byte 0 (A2, D25); the node's upload runs inside GCP, and the one download is gcloud storage's
+# (parallel, retried and resumed inside gcloud).
+# The node needs gcloud on root's PATH and a service account whose access scopes allow a GCS write
+# (cloud-platform, devstorage.read_write or devstorage.full_control). Instances made by
+# common/create-instances.sh get devstorage.read_only: the preflight refuses such a fleet before any
+# session is opened, and the pull is run with BENCH_LOG_TRANSFER=iap.
+# Lines on stdout: LOG_TRANSFER mode=bucket nodes=<n> first; LOG_TRANSFER_DONE mode=bucket bytes=<n>
+# secs=<n> once the transfer has run (bytes the nodes sent, seconds since the first session).
+# Node session header "# bench-pull: bucket". Objects: gs://<bucket>/logs/<inst>/<the local file
+# name>, removed again once they are here, so the teardown's bucket backup does not copy them twice.
+# Knob: BENCH_PULL_JOBS (nodes at a time, in the sessions and in the checks here; default 4).
+
+# bench_bucket_write_scope <instance json> — the access scopes of the instance's service accounts,
+# comma-joined without their URL prefix ("none" without any), on stdout; rc 0 when one allows a
+# GCS write.
+bench_bucket_write_scope() {
+    local scopes
+    scopes="$(printf '%s' "${1:-}" | jq -r '[.serviceAccounts[]?.scopes[]? | sub("^https://www.googleapis.com/auth/"; "")] | join(",")' 2>/dev/null)" || scopes=""
+    printf '%s\n' "${scopes:-none}"
+    case ",${scopes}," in *,cloud-platform,*|*,devstorage.read_write,*|*,devstorage.full_control,*) return 0 ;; esac
+    return 1
+}
+
+# bench_bucket_logs_script <inst> <bucket> [<skip>...] — the script (for the node's `sudo bash -s`)
+# of one node's bucket transfer. It prints the node's LOGSPAN lines (_bench_span_body), then sends
+# each log the IAP pull would take to gs://<bucket>/logs/<inst>/<local name>, through the node's own
+# gcloud, counting the bytes on the way: the current container's log (`docker logs telcoin 2>&1 |
+# gzip -1`), the saved logs in BENCH_NODE_LOG_DIR as they are, the unit files (BENCH_NODE_UNIT_LOGS,
+# `gzip -1 <`, skipped when missing or empty) and their rotated generations (<f>.N `gzip -1 -n <`,
+# <f>.N.gz as it is): the bytes the IAP pull lands. A skip is a name a marker of the instance
+# vouches for, in the node's form (<local name> minus "<inst>-"); the container's log is never
+# skipped (a copy already here lands beside it). Per file one line: PULLED <name> bytes=<n> or
+# FAILED <name> rc=<why> (the upload's stderr on the session's stderr). BUCKET_ERROR <inst> <why>
+# when it cannot start, BUCKET_ALIVE <inst> every 60 s (so the session never sits silent through a
+# long upload), BUCKET_END <inst> last. Always rc 0. It never changes a log.
+bench_bucket_logs_script() {
+    local inst="${1:-}" bucket="${2:-}" pairs n names=" "
+    case "${inst}" in ''|*[!A-Za-z0-9._-]*) echo "❌ bench_bucket_logs_script <inst> <bucket>: bad instance name '${inst}'" >&2; return 1 ;; esac
+    case "${bucket}" in ''|*[!a-z0-9._-]*) echo "❌ bench_bucket_logs_script <inst> <bucket>: bad bucket name '${bucket}'" >&2; return 1 ;; esac
+    case "${BENCH_NODE_LOG_DIR:-}" in /*) ;; *) echo "❌ bench_bucket_logs_script: BENCH_NODE_LOG_DIR '${BENCH_NODE_LOG_DIR:-}' is not an absolute path" >&2; return 1 ;; esac
+    pairs="$(_bench_pull_unit_pairs)" || return 1
+    shift 2
+    for n in "$@"; do
+        case "${n}" in *[!A-Za-z0-9._-]*|'') ;; *.log.gz) names="${names}${n} " ;; esac
+    done
+    printf '%s\n' '# bench-pull: bucket' "inst=${inst}" "dst=gs://${bucket}/logs/${inst}" \
+        "logdir=$(printf '%q' "${BENCH_NODE_LOG_DIR}")" "${pairs}" "skip='${names}'"
+    _bench_span_body
+    cat <<'EOS'
+w=""; hb=""
+trap '[ -z "$hb" ] || kill "$hb" 2>/dev/null; [ -z "$w" ] || rm -rf -- "$w"' EXIT
+end() { echo "BUCKET_END $inst"; exit 0; }
+command -v gcloud >/dev/null 2>&1 || { echo "BUCKET_ERROR $inst no gcloud on the node's PATH"; end; }
+w=$(mktemp -d) || { w=""; echo "BUCKET_ERROR $inst no temp directory on the node"; end; }
+( while sleep 60 </dev/null >/dev/null 2>&1; do echo "BUCKET_ALIVE $inst"; done ) &
+hb=$!
+set -o pipefail
+seen=" "
+send() {
+    o=$1; shift
+    case $seen in *" $o "*) return 0 ;; esac
+    seen="$seen$o "
+    rm -f -- "$w/f" "$w/n"
+    mkfifo -- "$w/f" || { echo "FAILED $o rc=mkfifo"; return 0; }
+    wc -c < "$w/f" > "$w/n" &
+    c=$!
+    r=0
+    "$@" | tee -- "$w/f" | gcloud storage cp - "$dst/$o" 2> "$w/e" || r=$?
+    wait "$c" 2>/dev/null || true
+    n=$(tr -d ' ' < "$w/n" 2>/dev/null) || n=""
+    case $r/$n in
+        0/[0-9]*) echo "PULLED $o bytes=$n" ;;
+        *) echo "FAILED $o rc=$r"; sed "s|^|      $inst: |" "$w/e" >&2 ;;
+    esac
+}
+up() { case $skip in *" ${1#"$inst"-} "*) return 0 ;; esac; send "$@"; }
+clog() { docker logs telcoin 2>&1 | gzip -1; }
+gz1() { gzip -1 < "$1"; }
+gzn() { gzip -1 -n < "$1"; }
+if e=$(docker container inspect telcoin 2>&1 >/dev/null); then
+    send "$inst-telcoin.log.gz" clog
+else
+    case $e in
+        *"No such container"*) ;;
+        *) echo "FAILED $inst-telcoin.log.gz rc=inspect"; echo "      $inst: docker container inspect failed: $e" >&2 ;;
+    esac
+fi
+if [ -d "$logdir" ]; then
+    for f in "$logdir"/*.log.gz; do
+        [ -f "$f" ] || continue
+        b=${f##*/}
+        case $b in [A-Za-z0-9]*) ;; *) echo "FAILED $inst-saved-log rc=name"; continue ;; esac
+        case $b in *[!A-Za-z0-9._-]*) echo "FAILED $inst-saved-log rc=name"; continue ;; esac
+        up "$inst-$b" cat -- "$f"
+    done
+fi
+for p in "${pairs[@]}"; do
+    s=${p%%:*}; f=${p#*:}
+    if [ -s "$f" ]; then up "$inst-unit-$s.log.gz" gz1 "$f"; fi
+done
+for p in "${pairs[@]}"; do
+    s=${p%%:*}; f=${p#*:}
+    for g in "$f".[0-9]*; do
+        [ -f "$g" ] || continue
+        n=${g#"$f".}; n=${n%.gz}
+        case $n in ''|*[!0-9]*) continue ;; esac
+        case $g in
+            *.gz) up "$inst-unit-$s.rotated-$n.log.gz" cat -- "$g" ;;
+            *) up "$inst-unit-$s.rotated-$n.log.gz" gzn "$g" ;;
+        esac
+    done
+done
+end
+EOS
+}
+
+# _bench_bucket_send_node <inst> <zone> <dest> <work> <bucket> — the bucket transfer's first phase
+# for one node, as _bench_pull_node starts: its instance id looked up now (<work>/<inst>.ident; the
+# marker names it, and the landing checks it again), the names a marker of that instance vouches for
+# (not sent again), then one session (bench_pull_stream: retries, the re-authentication stop) running
+# bench_bucket_logs_script. Its LOGSPAN lines replace <dest>/<inst>.logspan; the whole answer stays
+# in <work>/<inst>.session for the landing. A failed, empty or unfinished session, or one without a
+# LOGSPAN line, fails the node and removes a <inst>.logspan an earlier pass left. A file the node
+# could not send is reported here and marks the node (<work>/<inst>.xfer): what it did send still
+# lands, and it gets no marker. rc 0 = the session ran; 1 = it failed; 3 = gcloud needs
+# re-authentication.
+_bench_bucket_send_node() {
+    local inst="$1" zone="$2" dest="$3" work="$4" bucket="$5" ident vouched vbase n k=0 b=0 tag o v r=0 script skip=()
+    local out="$4/$1.session" span="$3/$1.logspan"
+    ident="$(_bench_instance_ident "${inst}" "${zone}")" || ident=""
+    if [ -z "${ident}" ]; then
+        echo "      ✗ ${inst}: its instance id could not be looked up — not pulled (the marker must name it)" >&2
+        return 1
+    fi
+    printf '%s\n' "${ident}" > "${work}/${inst}.ident" || return 1
+    vouched="$(bench_node_vouched_logs "${dest}" "${inst}" "${ident%% *}")"
+    # shellcheck disable=SC2086  # plain file names
+    vbase="$(_bench_unstamp_names ${vouched})"
+    for n in ${vouched} ${vbase}; do skip+=("${n#"${inst}"-}"); done
+    script="$(bench_bucket_logs_script "${inst}" "${bucket}" "${skip[@]+"${skip[@]}"}")" || return 1
+    bench_pull_stream "${inst}" "${zone}" txt "${out}" stdin "${script}" || r=$?
+    case "${r}" in
+        0)  if ! grep -qx "BUCKET_END ${inst}" "${out}"; then
+                echo "      ✗ ${inst}: the bucket session ended before its last line" >&2; r=2
+            elif ! grep '^LOGSPAN ' "${out}" > "${work}/${inst}.logspan" || ! mv -f -- "${work}/${inst}.logspan" "${span}"; then
+                echo "      ✗ ${inst}: the span of its unit logs was not recorded (no LOGSPAN line)" >&2; r=2
+            fi ;;
+        1) echo "      ✗ ${inst}: the bucket session answered nothing" >&2; r=2 ;;
+        3) ;;
+        *) echo "      ✗ ${inst}: the bucket session failed (rc ${r})" >&2 ;;
+    esac
+    if [ "${r}" -ne 0 ]; then
+        if [ -e "${span}" ]; then
+            rm -f -- "${span}" && echo "      - ${inst}: the ${inst}.logspan of an earlier pull is removed (it no longer describes the node)" >&2
+        fi
+        [ "${r}" -eq 3 ] && return 3
+        return 1
+    fi
+    while read -r tag o v; do
+        case "${tag}" in
+            PULLED) case "${v#bytes=}" in ''|*[!0-9]*) ;; *) k=$((k + 1)); b=$((b + ${v#bytes=})) ;; esac ;;
+            FAILED) echo "      ✗ ${inst}: ${o}: the node could not send it to the bucket (${v})" >&2; : > "${work}/${inst}.xfer" ;;
+            BUCKET_ERROR) echo "      ✗ ${inst}: nothing sent: ${o} ${v}" >&2; : > "${work}/${inst}.xfer" ;;
+        esac
+    done < "${out}"
+    echo "      ↑ ${inst}: ${k} log(s), ${b} bytes -> gs://${bucket}/logs/${inst}/"
+}
+
+# _bench_bucket_land_node <inst> <zone> <dest> <work> — the bucket transfer's last phase for one node:
+# each file its session sent (PULLED <name> bytes=<n>), from the download in <work>/objects/<inst>/,
+# checked (here, as many bytes as the node counted, gzip -t whole) and renamed into <dest> under the
+# name the IAP pull gives it: <name> when that is free (or a zero-byte leftover), else the stamped
+# name beside it (<base>-<UTC stamp>.log.gz, <base>-<UTC stamp>.rotated-<N>.log.gz), never over a
+# file. A current-container log with no line in it (no container, or an empty log) is dropped, as
+# the IAP pull drops it. Then _bench_pull_node's ending, the same rules: a stamped copy byte-identical
+# to the file it stands beside is dropped; the node passes when no transfer failed and a log counts;
+# the instance id must be the one looked up before the session; the marker (see "pull markers" in
+# bench-lib.sh) is written and verified. rc 0 = marker written; 1 = failed.
+_bench_bucket_land_node() {
+    local inst="$1" zone="$2" dest="$3" work="$4" ident ident2 id tag o v sz src out stamp before after vouched n u new="" stale=0 got m xfer=0 nl=$'\n'
+    ident="$(cat -- "${work}/${inst}.ident" 2>/dev/null)" || ident=""
+    id="${ident%% *}"
+    [ ! -e "${work}/${inst}.xfer" ] || xfer=1
+    before="$(_bench_logs_here "${dest}" "${inst}")"
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    while read -r tag o v; do
+        [ "${tag}" = PULLED ] || continue
+        case "${o}" in
+            *[!A-Za-z0-9._-]*) echo "      ✗ ${inst}: unexpected name '${o}' in its session — not landed" >&2; xfer=1; continue ;;
+            "${inst}"-*.log.gz) ;;
+            *) echo "      ✗ ${inst}: unexpected name '${o}' in its session — not landed" >&2; xfer=1; continue ;;
+        esac
+        src="${work}/objects/${inst}/${o}"
+        [ -f "${src}" ] || src="${work}/objects/logs/${inst}/${o}"
+        if [ ! -f "${src}" ]; then echo "      ✗ ${inst}: ${o} was not downloaded" >&2; xfer=1; continue; fi
+        sz="$(wc -c < "${src}" | tr -d ' ')" || sz="?"
+        if [ "${sz}" != "${v#bytes=}" ]; then echo "      ✗ ${inst}: ${o} is ${sz} bytes here; the node sent ${v#bytes=}" >&2; xfer=1; continue; fi
+        if ! gzip -t -- "${src}" 2>/dev/null; then echo "      ✗ ${inst}: ${o}: the gzip stream is not whole" >&2; xfer=1; continue; fi
+        if [ "${o}" = "${inst}-telcoin.log.gz" ] && [ "$(gzip -cd -- "${src}" 2>/dev/null | head -c 1 | wc -c)" -ne 1 ]; then
+            rm -f -- "${src}"
+            echo "      - ${inst}: no current-container log (no telcoin container, or its log is empty)"
+            continue
+        fi
+        out="${dest}/${o}"
+        if [ -s "${out}" ]; then
+            case "${o}" in
+                *.rotated-*.log.gz) out="${dest}/${o%%.rotated-*}-${stamp}.rotated-${o##*.rotated-}" ;;
+                *) out="${dest}/${o%.log.gz}-${stamp}.log.gz" ;;
+            esac
+            if [ -e "${out}" ]; then echo "      ✗ ${inst}: ${out} exists already — ${o} not landed" >&2; xfer=1; continue; fi
+            echo "      - ${inst}: ${dest}/${o} is here already — kept; this copy -> ${out}"
+        fi
+        if ! mv -f -- "${src}" "${out}"; then echo "      ✗ ${inst}: could not land ${o} as ${out}" >&2; xfer=1; continue; fi
+        echo "      ✓ ${inst} -> ${out}"
+    done < "${work}/${inst}.session"
+    # _bench_pull_node's ending (bench-lib.sh), the same rules; keep the two in step.
+    after="$(_bench_logs_here "${dest}" "${inst}")"
+    for n in ${after}; do
+        _bench_in_lines "${n}" "${before}" && continue
+        u="$(_bench_unstamp_names "${n}")"
+        if [ "${u}" != "${n}" ] && _bench_in_lines "${u}" "${before}"; then
+            bench_drop_if_identical "${dest}/${n}" "${dest}/${u}" || true
+            if [ ! -e "${dest}/${n}" ]; then
+                echo "      - ${inst}: ${u} counts as this pull's (the copy just pulled was identical)"
+                n="${u}"
+            fi
+        fi
+        _bench_in_lines "${n}" "${new}" || new="${new}${new:+${nl}}${n}"
+    done
+    vouched="$(bench_node_vouched_logs "${dest}" "${inst}" "${id}")"   # re-read: still here, same sizes
+    for n in ${vouched}; do _bench_in_lines "${n}" "${new}" || new="${new}${new:+${nl}}${n}"; done
+    for n in ${before}; do _bench_in_lines "${n}" "${new}" || stale=$((stale + 1)); done
+    # shellcheck disable=SC2086  # plain file names
+    got="$(_bench_log_sources_of "${inst}" ${new})" || got=""
+    if [ "${xfer}" -ne 0 ]; then
+        echo "      ✗ ${inst}: a transfer failed (see above) — got so far: ${got:-nothing}" >&2
+        return 1
+    fi
+    if [ -z "${got}" ]; then
+        echo "      ✗ ${inst}: no log from any source (current container, saved logs, unit files)$([ "${stale}" -eq 0 ] || echo "; the ${stale} log(s) of this name already here are not vouched for by a marker of this instance and do not count")" >&2
+        return 1
+    fi
+    ident2="$(_bench_instance_ident "${inst}" "${zone}")" || ident2=""
+    if [ -z "${ident}" ] || [ "${ident2}" != "${ident}" ]; then
+        echo "      ✗ ${inst}: the instance changed during the pull (${ident:-unknown} -> ${ident2:-not found}) — no marker" >&2
+        return 1
+    fi
+    # shellcheck disable=SC2086  # plain file names
+    m="$(_bench_write_marker "${dest}" "${inst}" "${id}" "${ident#* }" "${got}" ${new})" || return 1
+    if ! _bench_marker_verdict "${m}" "${dest}" "${inst}" "${id}" > /dev/null; then
+        echo "      ✗ ${inst}: its new marker ${m##*/} does not verify — not saved" >&2
+        return 1
+    fi
+    echo "      ✓ ${inst}: ${got}"
+}
+
+# _bench_bucket_gcloud <errfile> <args>... — gcloud <args> with its stderr kept in <errfile> and
+# shown; when it fails, its fault class (tn_iap_fault_kind) on stdout, and a re-authentication
+# failure touches BENCH_PULL_STOP_FILE. rc = gcloud's.
+_bench_bucket_gcloud() {
+    local errf="$1" rc=0 fault
+    shift
+    gcloud "$@" < /dev/null 2> "${errf}" || rc=$?
+    cat -- "${errf}" >&2
+    [ "${rc}" -ne 0 ] || return 0
+    fault="$(tn_iap_fault_kind "${rc}" "${errf}")" || fault=other
+    if [ "${fault}" = reauth ] && [ -n "${BENCH_PULL_STOP_FILE:-}" ]; then touch -- "${BENCH_PULL_STOP_FILE}" 2>/dev/null || true; fi
+    printf '%s\n' "${fault}"
+    return "${rc}"
+}
+
+# bench_pull_node_logs_bucket <dest-dir> <bucket> — bench_pull_node_logs (bench-lib.sh) for every
+# node in INSTANCE_NAMES/ZONES, through the run bucket <bucket> (see "the bucket transfer" above).
+# First a preflight, reads only and in a dry run too: the bucket must exist (bench_bucket_names) and
+# every node's service account must be able to write to it (bench_bucket_write_scope of its
+# describe); a dry run reports a failure on a ✗ line, a real run stops there, rc 1, nothing sent.
+# Then: (1) the sessions, BENCH_PULL_JOBS nodes at a time (_bench_bucket_send_node); (2) one
+# `gcloud storage cp -r gs://<bucket>/logs/* <work>/objects/` into a dot-named work directory in
+# <dest-dir> (same file system: the landing is a rename); (3) the landing and the marker of every
+# node whose session ran (_bench_bucket_land_node), BENCH_PULL_JOBS at a time; then the objects are
+# removed from the bucket (`gcloud storage rm gs://<bucket>/logs/** --project`; a failure is a
+# warning: the teardown's bucket backup would then copy them into results/<run>/bucket/ as well).
+# gcloud needing re-authentication anywhere touches BENCH_PULL_STOP_FILE (a temp file of this call
+# when unset) and stops the transfer, as bench_pull_node_logs does. Non-zero, naming the nodes, if
+# any node failed. Creates <dest-dir> but never its parent; the work directory is removed on every
+# path. Dry run: the preflight, one line per session and per local call, nothing sent or created.
+bench_pull_node_logs_bucket() {
+    local dest="${1:-}" bucket="${2:-}" jobs="${BENCH_PULL_JOBS:-4}" i inst scopes json bad=0 work="" stopd="" errf
+    local t0 bytes=0 files=0 tag o v failed="" pids=() names=() sent=() started=0 skipped=0 fault
+    local BENCH_PULL_STOP_FILE="${BENCH_PULL_STOP_FILE:-}"
+    if [ -z "${dest}" ] || [ -z "${bucket}" ]; then echo "❌ bench_pull_node_logs_bucket <dest-dir> <bucket>" >&2; return 1; fi
+    case "${bucket}" in *[!a-z0-9._-]*) echo "❌ bench_pull_node_logs_bucket: bad bucket name '${bucket}'" >&2; return 1 ;; esac
+    case "${jobs}" in ''|*[!0-9]*|0*) echo "⚠ BENCH_PULL_JOBS='${jobs}' is not a positive integer — using 4" >&2; jobs=4 ;; esac
+    echo "LOG_TRANSFER mode=bucket nodes=${#INSTANCE_NAMES[@]}"
+    json="$(bench_bucket_names < /dev/null)" || json=""
+    if _bench_in_lines "${bucket}" "${json}"; then
+        echo "    ✓ the run bucket gs://${bucket} exists"
+    else
+        echo "    ✗ the run bucket gs://${bucket} does not exist (or the bucket list failed)" >&2; bad=$((bad + 1))
+    fi
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        json="$(bench_instance_json "${inst}" "${ZONES[$i]}" < /dev/null)" || json=""
+        if ! scopes="$(bench_bucket_write_scope "${json}")"; then
+            echo "    ✗ ${inst}: the access scopes of its service account (${scopes}) allow no GCS write" >&2; bad=$((bad + 1))
+        fi
+    done
+    [ "${bad}" -gt 0 ] || echo "    ✓ every node's service account can write to the bucket"
+    if [ "${bad}" -gt 0 ]; then
+        if [ "${BENCH_APPLY}" = "1" ]; then
+            echo "❌ BENCH_LOG_TRANSFER=bucket cannot run here (✗ above) — nothing was sent; run with BENCH_LOG_TRANSFER=iap" >&2
+            return 1
+        fi
+        echo "    ✗ with --yes the bucket transfer stops here, before any session: run with BENCH_LOG_TRANSFER=iap"
+    fi
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        if [ ! -d "${dest}" ] && ! mkdir "${dest}"; then
+            echo "❌ bench_pull_node_logs_bucket: could not create ${dest} (its parent must exist already)" >&2
+            return 1
+        fi
+        if [ -z "${BENCH_PULL_STOP_FILE}" ]; then
+            stopd="$(mktemp -d "${TMPDIR:-/tmp}/bench-pull-stop.XXXXXX")" || { echo "❌ bench_pull_node_logs_bucket: no temp directory" >&2; return 1; }
+            BENCH_PULL_STOP_FILE="${stopd}/stop"
+        fi
+        if ! work="$(mktemp -d "${dest}/.bucket-pull.XXXXXX")"; then
+            _bench_bucket_rm_dir "${stopd}"
+            echo "❌ bench_pull_node_logs_bucket: no work directory in ${dest}" >&2
+            return 1
+        fi
+    fi
+    t0="$(date -u +%s)"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        printf '    + tn_iap_ssh_stdin %q %q <<< "$(bench_bucket_logs_script %q %q)"   # LOGSPAN -> %q; each log gzipped on the node -> %s\n' \
+            "${inst}" "${ZONES[$i]}" "${inst}" "${bucket}" "${dest}/${inst}.logspan" "gs://${bucket}/logs/${inst}/"
+        [ "${BENCH_APPLY}" = "1" ] || continue
+        if [ "${#pids[@]}" -ge "${jobs}" ]; then
+            if wait "${pids[0]}"; then sent+=("${names[0]}"); else failed="${failed} ${names[0]}"; fi
+            pids=("${pids[@]:1}"); names=("${names[@]:1}")
+        fi
+        if [ -e "${BENCH_PULL_STOP_FILE}" ]; then skipped=$((skipped + 1)); continue; fi
+        _bench_bucket_send_node "${inst}" "${ZONES[$i]}" "${dest}" "${work}" "${bucket}" &
+        pids+=("$!"); names+=("${inst}"); started=$((started + 1))
+    done
+    printf '    + gcloud storage cp -r %q %q\n' "gs://${bucket}/logs/*" "${work:-${dest}/.bucket-pull.<tmp>}/objects/"
+    printf '    + gcloud storage rm %q --project=%q   # once landed, so the bucket backup does not copy them again\n' \
+        "gs://${bucket}/logs/**" "${PROJECT_ID}"
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — not executed)"; return 0; fi
+    for i in "${!pids[@]}"; do
+        if wait "${pids[$i]}"; then sent+=("${names[$i]}"); else failed="${failed} ${names[$i]}"; fi
+    done
+    for inst in "${sent[@]+"${sent[@]}"}"; do
+        while read -r tag o v; do
+            [ "${tag}" = PULLED ] || continue
+            case "${v#bytes=}" in ''|*[!0-9]*) ;; *) files=$((files + 1)); bytes=$((bytes + ${v#bytes=})) ;; esac
+        done < "${work}/${inst}.session"
+    done
+    errf="${work}/gcloud.err"
+    if [ "${files}" -gt 0 ] && [ ! -e "${BENCH_PULL_STOP_FILE}" ]; then
+        echo "    ↓ gs://${bucket}/logs/ -> ${work}/objects/ (${files} log(s), ${bytes} bytes from ${#sent[@]} node(s))"
+        mkdir -p -- "${work}/objects"
+        if ! fault="$(_bench_bucket_gcloud "${errf}" storage cp -r "gs://${bucket}/logs/*" "${work}/objects/")"; then
+            echo "      ✗ the download from gs://${bucket}/logs/ failed (${fault:-other}) — a node whose logs are not all here fails below" >&2
+        fi
+    fi
+    if [ ! -e "${BENCH_PULL_STOP_FILE}" ]; then
+        pids=(); names=()
+        for inst in "${sent[@]+"${sent[@]}"}"; do
+            if [ "${#pids[@]}" -ge "${jobs}" ]; then
+                wait "${pids[0]}" || failed="${failed} ${names[0]}"
+                pids=("${pids[@]:1}"); names=("${names[@]:1}")
+            fi
+            for i in "${!INSTANCE_NAMES[@]}"; do [ "${INSTANCE_NAMES[$i]}" = "${inst}" ] && break; done
+            _bench_bucket_land_node "${inst}" "${ZONES[$i]}" "${dest}" "${work}" &
+            pids+=("$!"); names+=("${inst}")
+        done
+        for i in "${!pids[@]}"; do wait "${pids[$i]}" || failed="${failed} ${names[$i]}"; done
+    else
+        for inst in "${sent[@]+"${sent[@]}"}"; do failed="${failed} ${inst}"; done
+    fi
+    # Every session started may have sent something, a failed one included.
+    if [ "${started}" -gt 0 ] && [ -e "${BENCH_PULL_STOP_FILE}" ]; then
+        echo "⚠ the objects under gs://${bucket}/logs/ are left (gcloud needs re-authentication): a re-run with BENCH_LOG_TRANSFER=bucket removes them; until then the teardown's bucket backup would copy them into results/${BENCH_RUN_ID:-<run>}/bucket/ as well" >&2
+    elif [ "${started}" -gt 0 ] && ! fault="$(_bench_bucket_gcloud "${errf}" storage rm "gs://${bucket}/logs/**" --project="${PROJECT_ID}")" \
+        && ! grep -q 'matched no objects' "${errf}"; then
+        echo "⚠ the objects under gs://${bucket}/logs/ were not removed (${fault:-other}): the teardown's bucket backup copies them into results/${BENCH_RUN_ID:-<run>}/bucket/ as well" >&2
+    fi
+    _bench_bucket_rm_dir "${work}"
+    echo "LOG_TRANSFER_DONE mode=bucket bytes=${bytes} secs=$(( $(date -u +%s) - t0 ))"
+    if [ -e "${BENCH_PULL_STOP_FILE}" ]; then
+        _bench_bucket_rm_dir "${stopd}"
+        echo "❌ node logs: gcloud needs re-authentication; ${skipped} node(s) not attempted$([ -z "${failed}" ] || echo "; not pulled from:${failed}") — run: gcloud auth login, then run this again" >&2
+        return 1
+    fi
+    _bench_bucket_rm_dir "${stopd}"
+    if [ -n "${failed}" ]; then echo "❌ node logs not pulled from:${failed}" >&2; return 1; fi
+    echo "    ✓ logs of ${#INSTANCE_NAMES[@]} nodes in ${dest}"
+}
+
+# _bench_bucket_rm_dir <dir> — remove a work or stop directory this transfer made with mktemp -d
+# (a name with ".bucket-pull." or "bench-pull-stop." in it); anything else, or nothing, is left.
+_bench_bucket_rm_dir() {
+    case "${1:-}" in
+        */.bucket-pull.?*|*/bench-pull-stop.?*) [ ! -d "$1" ] || rm -rf -- "$1" ;;
+    esac
+    return 0
 }
