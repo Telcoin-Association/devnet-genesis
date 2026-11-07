@@ -66,10 +66,10 @@ devnet-genesis:
 
 ## Wave 3 — live run (orchestrator only, detached segments; `tasks/checkpoint-bench5-live.md`)
 - [x] Pre-run gates 14:49-14:55Z (obs-devnet 6 %, validator-1/2/4-devnet on `--log.file.filter info`, no bench-*/lat-* leftovers in tn-devnet, token fresh; quota by deploy step 0); RTT re-probe incl. us-east4 → benchmark/latency/2026-11-07 (18 files + README)
-- [ ] deploy `--yes --with-contracts --to 12` (FSYNC_PROBE per node, OBS_READY, OBSCFG_OK ×11, PRECFG_OK ×11, rc 0)
-- [ ] idle ≥ 10 min
-- [ ] blast `--yes --from 13 --to 15` with BENCH_LIGHT_LOAD=1 (LIGHT_LOAD_START/DONE, BENCH_BLAST_DONE ×10, chaos lines, 0 aborts)
-- [ ] teardown `--run $R --yes` (health table, pull ≤ projection, prometheus snapshot, TEARDOWN_DONE left=0, obs-devnet untouched); `--reindex`
+- [x] deploy `--yes --with-contracts --to 12` 15:04:50-15:50:54Z rc=0 (run r20261107-1504; FSYNC_PROBE ×11 median 986 µs slow=[v06], OBS_READY 47 s, OBSCFG_OK ×11, PRECFG_OK ×11, POSTCFG_OK ×11 sha 067639def, ADM_OK ×11)
+- [x] idle 15:50:54-16:01:58Z (11 min)
+- [x] blast `--yes --from 13 --to 15` with BENCH_LIGHT_LOAD=1 16:01:58Z→: fund ×4 ok; light idx 0 (8×16) / 1 (16×16) / 2 (600×4) LIGHT_LOAD_DONE rc=0 (blast-{0,1,2}-*/); LOG_RATE 8.2 / 8.4 / 10.8 MB/min (bench 4: 1,160); idx 3 (chaos profile) ABORTED on a gcloud client ReadTimeout creating bench-blaster-06 (partial in blast-3-*/, chaos had not fired; harness defect for A4o) → resumed per the driver's instruction as `BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=4 fund && run` 17:30-18:30Z rc=0: chaos kill v05 17:54:44Z / start 17:59:44Z / observer 18:04:44Z all rc=0, BENCH_BLAST_DONE ×10 rc=0, 0 aborts; step 15 by hand 18:31-18:41Z rc=0 (v05 CvvActive again by 18:33Z mid-epoch; prom_window 15:40:20→18:39:18Z fleet_ready; metrics.json 111 MB, prometheus missing=0)
+- [x] teardown `--run r20261107-1504 --yes` 18:42-19:17Z rc=0 (health table 10 cvv_active + observer, failed_rpt 0; 11 log pulls in 5 min, markers fresh:this-invocation; certification informational: v04 49.6 % / v08 44.4 % / v10 67.9 %; prometheus snapshot 20 MB; 804 files 2.64 GB; TEARDOWN_DONE deleted=12 left=0; obs-devnet untouched); `--reindex` launched 19:18Z
 
 ## Wave D — analysis (`benchmark/private/bench5-<run>/<unit>/`)
 - [ ] D1: A1, A2, A3 (F1/F3 verdicts), A4n (F2), A4o, A6 (land path) in parallel

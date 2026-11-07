@@ -1,0 +1,202 @@
+== step15 start 2026-11-07T18:31:13Z run=r20261107-1504
+BENCH_CHAOS=1
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:a1a82341129cfa82bf0f7f19fbfc26f84888995e96333f428bd726462f23e402
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:a1a82341129cfa82bf0f7f19fbfc26f84888995e96333f428bd726462f23e402
+BENCH_DURATION_SECS=2400
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=0
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=067639def8b9bd4664af05cdcaa3590661a5e0c7
+BENCH_RUN_ID=r20261107-1504
+BENCH_RUN_INDEX=4
+BENCH_TXGEN_SHA=6dad96f
+output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/logs/deploy-20261107T183113Z.log
+==========================================
+benchmark deploy — run r20261107-1504, project tn-devnet, chain 32286
+==========================================
+>>> gate: prerequisites of the selected steps
+    node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:a1a82341129cfa82bf0f7f19fbfc26f84888995e96333f428bd726462f23e402 (pinned by this run's gate probe: manifest node_image_pinned)
+    manifest exists: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/manifest.json (kept)
+
+##########################################
+>>> Step 15: collect
+>>> collect: output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/logs/blast-collect-20261107T183113Z.log
+>>> collect r20261107-1504 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504
+    bench-validator-01: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-01 us-west2-a /var/lib/bench-sampler/bench-validator-01.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-01.csv
+    + bench_iap_scp_down bench-validator-01 us-west2-a /var/lib/bench-sampler/bench-validator-01.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-01.epochs.txt
+    bench-validator-02: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-02 europe-west2-b /var/lib/bench-sampler/bench-validator-02.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-02.csv
+    + bench_iap_scp_down bench-validator-02 europe-west2-b /var/lib/bench-sampler/bench-validator-02.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-02.epochs.txt
+    bench-validator-03: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-03 australia-southeast1-c /var/lib/bench-sampler/bench-validator-03.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-03.csv
+    + bench_iap_scp_down bench-validator-03 australia-southeast1-c /var/lib/bench-sampler/bench-validator-03.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-03.epochs.txt
+    bench-validator-04: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-04 asia-northeast1-b /var/lib/bench-sampler/bench-validator-04.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-04.csv
+    + bench_iap_scp_down bench-validator-04 asia-northeast1-b /var/lib/bench-sampler/bench-validator-04.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-04.epochs.txt
+    bench-validator-05: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-05 us-east4-b /var/lib/bench-sampler/bench-validator-05.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-05.csv
+    + bench_iap_scp_down bench-validator-05 us-east4-b /var/lib/bench-sampler/bench-validator-05.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-05.epochs.txt
+    bench-validator-06: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-06 europe-west4-a /var/lib/bench-sampler/bench-validator-06.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-06.csv
+    + bench_iap_scp_down bench-validator-06 europe-west4-a /var/lib/bench-sampler/bench-validator-06.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-06.epochs.txt
+    bench-validator-07: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-07 asia-southeast1-b /var/lib/bench-sampler/bench-validator-07.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-07.csv
+    + bench_iap_scp_down bench-validator-07 asia-southeast1-b /var/lib/bench-sampler/bench-validator-07.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-07.epochs.txt
+    bench-validator-08: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-08 asia-east2-a /var/lib/bench-sampler/bench-validator-08.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-08.csv
+    + bench_iap_scp_down bench-validator-08 asia-east2-a /var/lib/bench-sampler/bench-validator-08.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-08.epochs.txt
+    bench-validator-09: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-09 asia-northeast3-a /var/lib/bench-sampler/bench-validator-09.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-09.csv
+    + bench_iap_scp_down bench-validator-09 asia-northeast3-a /var/lib/bench-sampler/bench-validator-09.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-09.epochs.txt
+    bench-validator-10: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-validator-10 asia-south1-c /var/lib/bench-sampler/bench-validator-10.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-10.csv
+    + bench_iap_scp_down bench-validator-10 asia-south1-c /var/lib/bench-sampler/bench-validator-10.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-validator-10.epochs.txt
+    bench-observer-11: sampler CSV (IAP scp)
+    + bench_iap_scp_down bench-observer-11 us-west2-a /var/lib/bench-sampler/bench-observer-11.csv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-observer-11.csv
+    + bench_iap_scp_down bench-observer-11 us-west2-a /var/lib/bench-sampler/bench-observer-11.epochs.txt /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/sampler/bench-observer-11.epochs.txt
+    commit stalls from sampler/*.csv: stall-scan.py --min-secs 60
+      1 flat stretch(es) in .commit_stalls_sampled
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-01.json
+  
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-01.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-01.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-02.txgen-20261107T173803Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-02.txgen-20261107T173803Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-03.txgen-20261107T173803Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-03.txgen-20261107T173803Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-04.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-04.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-05.txgen-20261107T173803Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-05.txgen-20261107T173803Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-06.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-06.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-07.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-07.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-08.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-08.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-08.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-09.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-09.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/bench-blaster-10.txgen-20261107T173802Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/bench-blaster-10.txgen-20261107T173802Z.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/blasters/landings-bench-blaster-10.ndjson.gz
+.....................................................................................................
+
+Average throughput: 6.7MiB/s
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/funder/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/funder/
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/funder/bench-funder.docker.log
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/funder/bench-funder.txgen-20261107T173120Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/funder/bench-funder.txgen-20261107T173120Z.log
+  
+Copying gs://tn-devnet-bench-r20261107-1504/r20261107-1504/index-4/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/funder/prepare.json
+...
+
+Average throughput: 151.5kiB/s
+    analysis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/analysis/ (informational)
+      - cert-rate: no validator log in logs/ yet (the teardown pulls them; glob bench-validator-*-unit-stdout*.log.gz)
+      ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/analysis/block-rate.md
+    certification -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/analysis/certification.json and manifest.certification (informational)
+⚠ certification: no validator log in /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/logs yet (the teardown pulls them; glob bench-validator-*-unit-stdout*.log.gz) — not recorded
+    certification snapshots -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/logs/ (informational; the local gate requires what manifest.cert_failures[].logs lists)
+      ✓ no validator in manifest.cert_failures — no snapshot
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/INDEX.md and CHECKSUMS.sha256: 497 file(s), 238233758 bytes
+    Prometheus window: a chaos kill landed — it ends once every validator is CvvActive again (BENCH_COLLECT_WAIT_REJOIN=1, at most 1500 s)
+    tunnel already up (pid 2144795) -> http://localhost:18545
+    fleet ready (step15): every validator CvvActive (max wait 1500s)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ fleet ready (step15): 10/10 validators CvvActive (passes 1, waited 0s)
+    every validator CvvActive; confirming the chaos target(s) in 180 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    Prometheus window: 2026-11-07T15:40:20Z -> 2026-11-07T18:39:18Z (fleet_ready, waited 253 s)
+    tunnel already up (pid 1931735) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 1940607) -> http://127.0.0.1:13000
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ bench-obs: Prometheus answers; data disk 1%
+    + python3 /home/drtnarg/coding/telcoin/tn-transaction-generator/bench/collect-gcp-metrics.py --manifest /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/manifest.json --out /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/metrics.json --start 2026-11-07T15:40:20Z --end 2026-11-07T18:39:18Z --prom-url http://127.0.0.1:19090/api/v1 --prom-no-auth
+wrote /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/metrics.json: 21 instances, 307 GCP series with points, 50 missing, prometheus missing=0 absent=0, errors=0
+    analysis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/analysis/ (informational)
+      - cert-rate: no validator log in logs/ yet (the teardown pulls them; glob bench-validator-*-unit-stdout*.log.gz)
+      ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/analysis/block-rate.md
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/INDEX.md and CHECKSUMS.sha256: 498 file(s), 349181911 bytes
+## step 15 done
+
+==========================================
+benchmark deploy: steps 15..15 complete — /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504
+==========================================
+BENCH_DEPLOY_RESULT rc=0 last_step=15 first_error=- log=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/logs/deploy-20261107T183113Z.log
+== step15 rc=0 2026-11-07T18:41:19Z
