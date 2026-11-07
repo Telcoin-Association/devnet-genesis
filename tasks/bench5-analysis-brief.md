@@ -52,7 +52,7 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   (1253 µs). RTT matrix for the ten zones incl. us-east4-b: benchmark/latency/2026-11-07/ (UDP headline).
 
 ## Run facts (orchestrator; cite, do not re-derive; teardown facts appended below once pulled)
-- Deploy `--yes --with-contracts --to 12` 15:04:50-15:50:54Z rc=0: coordinated start due 1794065010 (15:50:10Z? no — see manifest.coordinated_start) 11/11 started spread 0 s;
+- Deploy `--yes --with-contracts --to 12` 15:04:50-15:50:54Z rc=0: coordinated start 15:23:30Z (A4o from the logs; manifest.coordinated_start), 11/11 started spread 0 s;
   fsync probe median 986 µs, slow=[bench-validator-06] 1253 µs; OBS_STACK_OK 20 s, OBS_READY 47 s; fleet ready 10/10 CvvActive at the first pass; OBSCFG_OK ×11
   restarted=none; POSTCFG_OK ×11 sha 067639def forks subsecond-from-genesis params 1000/350/250 thr 5; ADM_OK ×11 denied 0/0; contracts deployed; bucket
   gs://tn-devnet-bench-r20261107-1504. Idle 15:50:54-16:01:58Z.
@@ -61,7 +61,8 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   `blast-0-20261107T163112Z/`, LIGHT_LOAD_DONE rc=0; index 1 (16 × 16) 16:31Z → 16:47:12Z, `blast-1-20261107T165107Z/`, rc=0; index 2 (600 × window 4)
   16:48Z → 17:08:04Z, `blast-2-20261107T171309Z/`, rc=0. LOG_RATE bench-validator-01: blast 0 8.2, blast 1 8.4, blast 2 (saturation) 10.8 MB/min
   (bench 4: 1,160 MB/min). Index 3 (the configured profile) ABORTED: `gcloud compute instances create bench-blaster-06` crashed client-side
-  (ReadTimeout 300 s; logs/create-bench-blaster-06.log); 9 blasters had started at 17:17:36Z and sent for ~2.5 min before the driver's exit cleanup
+  (ReadTimeout 300 s; the crash log is blast-3-20261107T173343Z/logs/create-bench-blaster-06.log — logs/create-bench-blaster-06.log is index 4's SUCCESSFUL create); of the 9
+  created blasters 6 started at 17:17:36Z and 08-10 started 1m40s-1m55s late; each sent at most ~90 s, all inside its warm-up, before the driver's exit cleanup
   stopped them (manifest copy + partial outputs in `blast-3-20261107T173343Z/`, abort reason=interrupted 17:20:07Z); the chaos had NOT fired. Sequence
   rc=1 at 17:29:10Z (BENCH_DEPLOY_RESULT rc=1 last_step=14). A4o: harness defect — one transient gcloud client timeout on a blaster create aborts the blast.
 - Resume per the driver's printed instruction: `BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=4 benchmark-blast.sh fund` 17:30:25-17:32:50Z rc=0 (funder-3-20261107T173046Z/
@@ -69,12 +70,24 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   cool-down to 18:23Z); chaos against epoch 7 (opened 17:35:43Z): kill -9 bench-validator-05 17:54:44Z rc=0 (59 s before the 17:55:43Z close; pre-kill
   container log saved on the node as /var/lib/bench-logs/telcoin-pre-kill-20261107T175417Z.log.gz), systemctl start 17:59:44Z rc=0, observer-11 systemctl
   restart 18:04:44Z rc=0; validator-05 polled cvv_inactive from its restart through the end of the load (last driver poll ~18:25Z); BENCH_BLAST_DONE ×10
-  rc=0 (blaster-05 first — its node was inactive), all reported 18:25:57Z; `blasters/` = index 4 (manifest .blast.run_index 4, chaos 3 entries, abort null);
+  rc=0 (blaster-05 first — its node was inactive), all reported 18:25:57Z; validator-05: killed 17:54:44.17Z, process start 17:59:44.51Z, CvvActive briefly then demoted `epoch_behind` 18:00:03.5Z (network already in epoch 8),
+  catch-up under saturation (replayed 30.5 outputs/min vs 23.3 produced → +7/min), `attempting to rejoin` round_gap=20 at 18:22:49.65Z → CvvActive 18:22:49.98Z (A3, log + Prometheus),
+  i.e. 1-2 min after the load ended at ~18:21:32Z, mid-epoch 9; kill → active 28m05.8s; `blasters/` = index 4 (manifest .blast.run_index 4, chaos 3 entries, abort null);
   run rc=0 18:30:14Z. Epochs 1200 s: epoch 8 17:55:43-18:15:43Z, epoch 9 18:15:43-18:35:43Z.
 - Step 15 (`--from 15 --to 15`, BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=4) 18:31:13-18:41:19Z rc=0: collect ok; rejoin wait found validator-05 CvvActive at the
-  first poll (~18:33Z → it rejoined MID-EPOCH 9, between 18:25Z and 18:33Z, within ~10 min of the load ending; bench 4's chaos node needed the next
+  first poll (consistent with the 18:24:47Z blast-driver poll above: it rejoined MID-EPOCH 9 within ≈ 1-5 min of the load ending; bench 4's chaos node needed the next
   boundary, 36 min); prom_window 15:40:20Z → 18:39:18Z end_reason=fleet_ready (waited 253 s); collector: metrics.json 111 MB, 21 instances, 307 GCP series,
   prometheus missing=0 absent=0 errors=0. Certification deferred to the teardown's log pull.
+- A3 DONE (benchmark/private/bench5-r20261107-1504/A3/verdicts.md, recovery.md, recovery.json, boundary.md): F1 CONFIRMED on every field (outside_gc_window demotions on healthy nodes 0 vs 2;
+  consensus_exec_lag_rounds max v01 62 / v03 54 / v09 58 with no demotion; commit_lag_rounds p99 ≤ 5 loaded, 6.12 in the chaos window; run-ahead blocked 0; CvvActive 10 until the kill; -32603 before
+  the kill 0); F3 CONFIRMED (v05: 1 rejoin vs 13; no restart_gap line (store−pack 30 rounds); primed primary_round ≥ newest_round on all 133 lines; first own cert 1.85 s after promotion; 8 stuck-replay
+  re-requests, 43 stalled-head lines all head_age with the replay moving; votes_refused_inactive 31,561 on v05 only); kill → CvvActive 28 min = INCONCLUSIVE (execution-bound catch-up). NEW WATCH
+  ITEMS for D3: v01 and v03 are the slow executors (not slow-fsync v06) — they reach loaded epoch closes 11-27 s late, never voted the epoch-7/8 records (formed at exactly 7/10), and after the kill
+  refused 14,785 / 11,953 votes as execution-behind → every remaining voter was on the critical path, commit gaps 4-15 s 18:16-18:21Z; loaded epoch closes wait for execution (22.6 s commit gap at
+  the epoch-7 close); the teardown's 37-round idle spread is a scrape-timing artifact. A4n owns why v01/v03 execute slower.
+- A4o DONE (benchmark/private/bench5-r20261107-1504/A4o/): whole run 4h12m34s (bench 4: 9h16m05s); teardown 35 min in one attempt (bench 4: 6h58m, five attempts); defects D36-D48
+  (D36 create path aborts on any gcloud client crash — third run in a row with this fault class; D42 the planned manifest.phases feed the stall scan and certification windows → a false
+  90-s 'commit stall' at the end of the load and a mixed window 77 s off — A2/A3/A6 use the blasters' REAL phase timestamps, not manifest.phases).
 - Interventions: none on the fleet. Orchestrator actions = the documented resume (fund+run index 4) and step 15 by hand. No SEC-2 restart was needed
   (commits continued with 9 voters while validator-05 was inactive — verify in A3).
 - Light-blast dirs: `blast-{0,1,2}-*/` (floor + Little's-law point), `blast-3-*/` (aborted partial, exclude from KPIs, keep for A4o), `blasters/` (index 4 =
