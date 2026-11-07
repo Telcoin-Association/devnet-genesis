@@ -1,0 +1,4 @@
+== reindex start 2026-11-07T19:18:50Z run=r20261107-1504 args=--run r20261107-1504 --reindex
+>>> reindex: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504 (local only: no gcloud call, no gate, nothing deleted)
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261107-1504/INDEX.md and CHECKSUMS.sha256: 804 file(s), 2640856554 bytes
+== reindex rc=0 2026-11-07T19:19:00Z

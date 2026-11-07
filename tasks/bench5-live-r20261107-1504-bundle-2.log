@@ -1,0 +1,4 @@
+== bundle start 2026-11-07T20:21:21Z run=r20261107-1504
+[make_bundle    0.0s] 0 setup: run r20261107-1504 (top level), compare r20261105-0803 (top level) -> /home/drtnarg/coding/telcoin/tn-benchmarks/runs/r20261107-1504 (tools /home/drtnarg/coding/telcoin/tn-transaction-generator/bench)
+make_bundle: error: scratch dir /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/report/r20261107-1504 exists; pass --force to delete and rebuild it
+== bundle rc=1 2026-11-07T20:21:21Z

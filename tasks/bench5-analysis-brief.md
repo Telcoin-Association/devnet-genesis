@@ -138,6 +138,23 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   `already known` (the generator counts it as accepted, sender.rs:123); (B) refuse a second report of an already sealed/pending digest; NOT dedupe at execution or by committed digests (the repeated copy can
   be the useful one). Fields: sampled landings ≥ 300 s = 0 (1,530); generator resends ≈ 0 (14,046); nonce_too_low skips ≈ 0 (37,683/node); duplicate digests executed 0 (5); add the sender address to the
   landings export and the skip line.
+- I-E DONE (tasks/issues/bench5-loaded-epoch-boundary-drain.md): a node cannot enter epoch N+1 before executing the closing output — the next committee/EpochInfo/start timestamp (start_epoch.rs:191-205),
+  the workers' base fees (run_epoch.rs:214) and the record's committee reads + final_state (close_epoch.rs:459-463) are read at the closing block; on a slow executor even DETECTING the close is late (S7: v01
+  detected it 25.9 s after the fleet's commit and kept proposing round 1780 into peers already in epoch 8), then close_epoch waits for the closing output (:814) = the drain (≈ outputs behind × engine cycle;
+  v01 27 × 1.8 ≈ 49 s predicted, 48.5 s measured). The new epoch's first certificate needs 7 members inside it → gap ≈ 1.4 s + the 7th-fastest member's drain (21.1 s → 22.5 s at epoch 7; 9.4 → 10.9 s at
+  epoch 8). RECORD AT 7/10 IS EXPECTED: super_quorum = 7, the collector waits only 1 s past quorum then saves the certificate (epoch_votes.rs:137); v01/v03 (12-28 s behind the 7th) downloaded the certified
+  record from a peer while draining, and `write_epoch_record` returns without building its own when one is stored (close_epoch.rs:416-421; the collector never votes a certified record :504) — safe, but a
+  late member never compares its own closing block with the certified final_state (side finding). NEAR-MISS: the `epoch_behind` certificate rule fires above new-epoch round 40 (handler.rs:251-256) ≈ 30 s
+  after the 7th enters; v01 entered at fleet round 39 — a margin of ONE round. TASK-TRACKER: each spawn try_sends its handle into a 1,000-slot channel (task_manager.rs:199, :298) drained only by the
+  `until_task_ends` select arm (run_epoch.rs:536), which stops being polled once the boundary arm wins (:481), while the closing epoch's network loops/batch builder keep spawning per message → v01's 950
+  errors (VoteRequest 239, process-report-batch 190, process-gossip 189, shed-sync-batches 142 …) all inside the drains; `wait_for_exit`/`abort_all_tasks` never read the channel either → up to 1,000 queued
+  tasks escape the abort and end only when the epoch manager drops, after finish_epoch cleared the tables (writes into cleared tables not checked). RECOMMENDATION: (C) pipelined persist scales every drain
+  by ≈ 0.70 (epoch-7 gap ≈ 16 s; v01's lag behind the 7th 27 → ≈ 19 s), not to the idle gap nor 9/10 signers — those need the lag-spread fix (I-F) or a pre-boundary taper (F, bench 7); riders, cherry-pickable
+  and not consensus-observable: (D) keep draining/reaping the epoch task tracker during the close + update_tasks() before the abort (raising the limit rejected: a 48-s drain needs ≈ 4,000 slots); (E) per-node
+  per-close fields: backlog outputs, detect lag, drain, entry lag, entry rounds-behind vs 40, record votes skipped as already-certified; the final_state self-check. Rejected: (A) sign the record without
+  executing (the record attests execution: final_state, next_committee), (B) hold the new epoch for the slowest (48.5 s instead of 22.5). WARNING: do NOT ship A6 lever 1 (admission bound) alone — it shrinks
+  the fast nodes' drain but not the slow nodes', so v01 would enter 46-61 rounds late and be demoted `epoch_behind` at every loaded close. Fields: 0 `Failed to track spawned task`; gap ≤ 0.72× at matched
+  backlog; every late member enters < 30 s after the 7th; no `epoch_behind` on a healthy validator; stretch ≥ 9/10 signers and gap ≤ idle 1.2 s.
 - D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
   landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
   v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
