@@ -1,0 +1,118 @@
+Long-running mixed-type saturation benchmark against a set of node RPC endpoints. Measures this blaster's own landed transactions from chain data and writes a `tn-blast/v2` results JSON. See docs/blast.md
+
+Usage: tn-transaction-generator blast [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>
+          [env: TXGEN_CONFIG=]
+          [default: config.toml]
+
+      --nodes <NODES>
+          RPC endpoints, comma-separated `label=url` (a bare URL is labelled by its host). Senders are pinned round-robin across them. Required unless `--nodes-file` is given
+
+      --duration <DURATION>
+
+      --nodes-file <NODES_FILE>
+          File with one `label=url` (or bare URL) per line; `#` comments and blanks skipped
+
+      --dry-run
+
+      --senders <SENDERS>
+          HD-derived sender accounts owned by this blaster
+
+          [default: 600]
+
+      --sender-start <SENDER_START>
+          Offset into the HD sender space. Each blaster owns a disjoint `[sender_start, sender_start + senders)` range, so no two blasters share a nonce
+
+          [default: 0]
+
+      --window <WINDOW>
+          Max txs a sender keeps ahead of its last landed nonce
+
+          [default: 16]
+
+      --fund-tel <FUND_TEL>
+          TEL each sender is topped up to by `--prepare`
+
+          [default: 2]
+
+      --types <TYPES>
+          Restrict the mix to these tx types (comma-separated names)
+
+      --weights <WEIGHTS>
+          Weight overrides `name=weight` (comma-separated); beats every config weight
+
+      --deployments-path <DEPLOYMENTS_PATH>
+          Deployments JSON; overrides `[deployments]` (and `TXGEN__DEPLOYMENTS__PATH`)
+
+      --prepare
+          Fund the sender range from master, run the global preflight, print a report, exit. A separate invocation so N blasters never contend on the master nonce
+
+          [aliases: --fund-only]
+
+      --warmup-secs <WARMUP_SECS>
+          Native-only warm-up (gas calibration) before the mixed window
+
+          [default: 120]
+
+      --duration-secs <DURATION_SECS>
+          Length of the mixed measurement window
+
+          [default: 2400]
+          [aliases: --max-submit-secs]
+
+      --cooldown-secs <COOLDOWN_SECS>
+          Upper bound on the drain after submission stops
+
+          [default: 180]
+          [aliases: --settle-secs]
+
+      --cooldown-idle-secs <COOLDOWN_IDLE_SECS>
+          Cooldown also ends after this many seconds without an own landing
+
+          [default: 30]
+
+      --preamble-timeout-secs <PREAMBLE_TIMEOUT_SECS>
+          Upper bound on the per-sender preamble phase
+
+          [default: 600]
+
+      --total <TOTAL>
+          Optional cap on accepted txs across this blaster (stops submission early)
+
+      --label <LABEL>
+          Blaster label in the results (default: `$HOSTNAME`, else the first node label)
+
+      --run-id <RUN_ID>
+          Run id shared by every blaster of one bench run (default: `r<UTC timestamp>`). Also seeds the per-sender type sampler
+
+      --receipts <RECEIPTS>
+          Receipt fetching: `all` (eth_getBlockReceipts), `sample:N` (1 in N own txs), `none`
+
+          [default: all]
+
+      --max-inflight-rpc <MAX_INFLIGHT_RPC>
+          Max concurrent in-flight RPCs per node (reth caps HTTP connections at 500)
+
+          [default: 256]
+
+      --metrics-bind <METRICS_BIND>
+          Serve Prometheus metrics on this address (e.g. `0.0.0.0:9100`)
+
+      --stdout-json <STDOUT_JSON>
+          Results on stdout: `chunked` (<=200 KB sections), `full`, or `none`
+
+          [default: chunked]
+          [possible values: chunked, full, none]
+
+      --allow-chain <ALLOW_CHAIN>
+          Extra chain ids to allow beyond the built-in allowlist (comma-separated)
+
+      --out <OUT>
+          Results JSON path
+
+          [default: blast-results.json]
+
+  -h, --help
+          Print help (see a summary with '-h')

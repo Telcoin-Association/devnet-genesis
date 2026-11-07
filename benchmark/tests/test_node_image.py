@@ -473,7 +473,8 @@ RELOCATED = ("/etc/telcoin/", "/etc/systemd/system/", "/etc/logrotate.d/", "/usr
              "/tmp/bench-obs")
 NODE_STUBS = (("systemctl", "stub-v2-node-systemctl.sh"), ("docker", "stub-v2-node-docker.sh"),
               ("date", "stub-v2-node-date.sh"), ("git", "stub-v2-node-git.sh"), ("stat", "stub-v2-node-stat.sh"),
-              ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"), ("logrotate", "stub-v2-node-logrotate.sh"))
+              ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"), ("logrotate", "stub-v2-node-logrotate.sh"),
+              ("python3", "stub-node-python3.sh"))
 STARTED = "2026-01-01T00:00:00.000000000Z"     # the container's StartedAt (stub date -d: 1767225600)
 CHAIN_HEX = "0x7e1e"                           # the bench chain 32286, as the nodes' RPC answers it
 GUARD_RPC = "http://127.0.0.1:9"               # BENCH_GUARD_PUBLIC_RPC (contract C5a)
@@ -696,6 +697,21 @@ class RemoteScriptTests(BashCase):
         self.assertEqual([l.rsplit(" ", 1)[1] for l in self.lib_calls("set")], ["rc=1"] * 6)
         self.assertEqual((self.node.start_script.read_text(), self.yaml_text()), first)
 
+    def test_db_sync_mode_is_set_read_back_and_reported(self):
+        # bench 5 D-IV H2: BENCH_NODE_DB_SYNC_MODE puts --db.sync-mode <v> on the node command once, through the
+        # lib like the other launch flags, reads it back, and names it on the PRECFG_OK line; a re-run converges.
+        script = self.script_for(BENCH_NODE_DB_SYNC_MODE="safe-no-sync")
+        for n, (rc, bak) in enumerate((("0", "written"), ("1", "kept"))):
+            with self.subTest(run=n):
+                (self.node.root / "calls").write_text("")
+                p, lines = self.node.run(script)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertEqual(lines, [self.precfg_ok(FILTER, "20", paramsbak=bak) + " dbsync=safe-no-sync"], p.stdout)
+                self.assertEqual(self.lib_calls("set")[-1], "lib set --db.sync-mode safe-no-sync rc=%s" % rc)
+                self.assertEqual(self.lib_calls("get")[-1], "lib get --db.sync-mode rc=0")
+                self.assertEqual(self.node.node_command(), v2_cmdline() + " --db.sync-mode safe-no-sync")
+                self.assertEqual(self.node.node_command().count("--db.sync-mode"), 1)
+
     def test_setter_rc_3_fails_naming_the_flag(self):
         p, lines = self.node.run(self.script_for(), STUB_LIB_FORCE="set:--ws.addr=3")
         self.assertEqual(p.returncode, 1, p.stdout)
@@ -786,6 +802,213 @@ class PreStartScriptTests(BashCase):
         runner = (FIX / "v2-node-run.sh").read_text()
         for path in RELOCATED:
             self.assertIn('"s#%s#${R}%s#g"' % (path, path), runner)
+
+
+# <tree>/benchmark <fn> <args...>: one bench-lib.sh function with its arguments. They are saved before the
+# source: a sourced file may reuse the positional parameters (`set --`), and sourcing shares them.
+LIB_CALL = r'''
+set -euo pipefail
+lib="$1"; shift
+argv=("$@")
+source "$lib/bench-lib.sh"
+"${argv[@]}"
+'''
+
+
+class PreStartKnobTests(BashCase):
+    """Bench 5 (D-IV H2): with every knob unset the pre-start script is bench 4's byte for byte (the fixture was
+    rendered by the unmodified bench-lib.sh: bench-validator-01, BENCH_LOGROTATE_SIZE empty so the logrotate text of
+    pull-lib.sh stays out of it, the default log filter pinned, TN_NODE_SCRIPTS_REF as a placeholder);
+    BENCH_NODE_DB_SYNC_MODE adds --db.sync-mode in the launch-flag block and nothing else."""
+
+    INST = "bench-validator-01"
+    PINNED = {"BENCH_LOGROTATE_SIZE": "", "BENCH_NODE_LOG_FILTER": FILTER}
+
+    def prestart(self, **env):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", self.INST],
+                           env=self.env(**dict(self.PINNED, **env)), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=60, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        return p.stdout
+
+    def bench4(self):
+        return (FIX / "prestart-knobs-unset.txt").read_text().replace("@TN_NODE_SCRIPTS_REF@", scripts_ref())
+
+    def test_knobs_unset_is_byte_identical_to_bench_4(self):
+        for value in (None, ""):
+            with self.subTest(BENCH_NODE_DB_SYNC_MODE=value):
+                script = self.prestart(BENCH_NODE_DB_SYNC_MODE=value)
+                self.assertEqual(script, self.bench4())
+                self.assertNotIn("db.sync-mode", script)
+                self.assertNotIn("FSYNC_PROBE", script)   # the probe is its own script, sent ahead of this one
+
+    def test_db_sync_mode_adds_the_flag_once_in_the_launch_flag_block(self):
+        for mode in ("durable", "safe-no-sync"):
+            with self.subTest(mode=mode):
+                lines = self.prestart(BENCH_NODE_DB_SYNC_MODE=mode).splitlines()
+                flagged = [l for l in lines if "--db.sync-mode" in l]
+                self.assertEqual(flagged, ["setf --db.sync-mode %s" % mode, "getf --db.sync-mode %s" % mode])
+                # Exactly bench 4's script plus the setter after the log flags, its readback after theirs, and the
+                # value on the PRECFG_OK line.
+                want = self.bench4().splitlines()
+                want.insert(want.index('setf --log.file.max-files "$MF"') + 1, "setf --db.sync-mode %s" % mode)
+                want.insert(want.index('getf --log.file.max-files "$MF"') + 1, "getf --db.sync-mode %s" % mode)
+                self.assertTrue(want[-1].endswith(' paramsbak=${BAK:--}"'), want[-1])
+                want[-1] = want[-1][:-1] + ' dbsync=%s"' % mode
+                self.assertEqual(lines, want)
+
+    def test_an_unknown_db_sync_mode_prints_nothing(self):
+        # config.sh refuses it first; the lib refuses it too when the variable changes after config.sh loaded.
+        p = self.bash('i="$2"; source "$1/bench-lib.sh"; BENCH_NODE_DB_SYNC_MODE=fast; bench_prestart_script "$i"',
+                      self.bench, self.INST)
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("BENCH_NODE_DB_SYNC_MODE='fast' is not empty, durable or safe-no-sync", p.stdout)
+        self.assertNotIn("set -euo pipefail", p.stdout)
+
+
+FSYNC_LINE = re.compile(r"^FSYNC_PROBE (\S+) p50_us=(0|[1-9]\d*) p95_us=(0|[1-9]\d*)$")
+
+
+class FsyncProbeTests(BashCase):
+    """Bench 5 (D-IV H2): the datadir fsync probe (bench_fsync_probe_script) on a sandbox v2 node, the record step 7
+    keeps of it (bench_fsync_probe_record) and the fleet summary (bench_fsync_probe_summary)."""
+
+    INST = "bench-validator-01"
+
+    def lib(self, *argv, **env):
+        return self.bash(LIB_CALL, self.bench, *argv, **env)
+
+    def probe_script(self, inst=None):
+        p = self.lib("bench_fsync_probe_script", inst or self.INST)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        return p.stdout
+
+    def node(self, name="node"):
+        return V2Node(self.root / name, self.INST, unit="inactive", params=staged_yaml())
+
+    def test_probe_times_fsync_in_the_datadir_and_leaves_nothing(self):
+        script = self.probe_script()
+        self.assertEqual(subprocess.run(["bash", "-n"], input=script, universal_newlines=True).returncode, 0)
+        self.assertEqual(relocation_problems(script), [])
+        self.assertIn('D="$(meta DATA_DIR)"', script)   # the pre-start script's own getter, never a fixed path
+        node = self.node()
+        before = sorted(os.listdir(str(node.datadir)))
+        p, _ = node.run(script)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        got = [l for l in p.stdout.splitlines() if l.startswith("FSYNC_PROBE ")]
+        self.assertEqual(len(got), 1, p.stdout)
+        m = FSYNC_LINE.match(got[0])
+        self.assertTrue(m and m.group(1) == self.INST, got)
+        self.assertLessEqual(int(m.group(2)), int(m.group(3)))
+        self.assertEqual(sorted(os.listdir(str(node.datadir))), before)   # the temp file is gone
+        self.assertIn("python3 - %s %s" % (node.datadir, self.INST), node.calls())
+
+    def test_probe_failure_never_stops_the_session(self):
+        # The probe's python3 dies (rc 3, no line): one probe_failed line, and the pre-start script that follows in
+        # the same session still runs to its PRECFG_OK.
+        pre = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", self.INST],
+                             env=self.env(), stdout=subprocess.PIPE, universal_newlines=True, timeout=60).stdout
+        node = self.node()
+        node.put("fsync-probe", "Traceback (most recent call last):")
+        node.put("fsync-probe-rc", "3")
+        p, lines = node.run(self.probe_script() + pre)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("FSYNC_PROBE %s probe_failed python3 exited 3" % self.INST, p.stdout.splitlines())
+        self.assertEqual(len(lines), 1, p.stdout)
+        self.assertTrue(lines[0].startswith("PRECFG_OK %s " % self.INST), lines)
+
+    def test_probe_reports_an_unusable_datadir(self):
+        cases = [("DATA_DIR=%s/nowhere", "DATA_DIR %s/nowhere is not a directory"),
+                 ("DATA_DIR=relative/dir", "DATA_DIR 'relative/dir' in /etc/telcoin/.node-meta is not an absolute path")]
+        for meta, want in cases:
+            with self.subTest(meta=meta):
+                node = self.node("node-%d" % len(meta))
+                f = node.root / "etc/telcoin/.node-meta"
+                r = str(node.root)
+                f.write_text(re.sub(r"(?m)^DATA_DIR=.*$", (meta % r) if "%s" in meta else meta, f.read_text()))
+                p, _ = node.run(self.probe_script())
+                self.assertEqual(p.returncode, 0, p.stdout)
+                want_line = "FSYNC_PROBE %s probe_failed %s" % (self.INST, (want % r) if "%s" in want else want)
+                self.assertEqual([l for l in p.stdout.splitlines() if l.startswith("FSYNC_PROBE")],
+                                 [want_line.replace("/etc/telcoin/", r + "/etc/telcoin/")])
+                self.assertFalse([c for c in node.calls() if c.startswith("python3 ")])
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root writes into a 0555 directory")
+    def test_probe_reports_an_io_error_from_python(self):
+        node = self.node()
+        node.datadir.chmod(0o555)
+        try:
+            p, _ = node.run(self.probe_script())
+        finally:
+            node.datadir.chmod(0o755)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        got = [l for l in p.stdout.splitlines() if l.startswith("FSYNC_PROBE")]
+        self.assertEqual(len(got), 1, p.stdout)
+        self.assertTrue(got[0].startswith("FSYNC_PROBE %s probe_failed PermissionError: " % self.INST), got)
+
+    def test_record_from_a_session_output(self):
+        text = (FIX / "fsync-probe-sessions.txt").read_text()
+        want = {
+            "bench-validator-01": {"p50_us": 1180, "p95_us": 2410},   # not bench-validator-010's line
+            "bench-validator-02": {"probe_failed": True, "reason": "OSError: [Errno 28] No space left on device"},
+            "bench-validator-03": {"probe_failed": True, "reason": "unparsed: p50_us=0912 p95_us=1000"},
+            "bench-validator-04": {"probe_failed": True, "reason": "unparsed: p50_us=1500"},
+            "bench-validator-05": {"probe_failed": True, "reason": "no FSYNC_PROBE line in the session output"},
+            "bench-validator-06": {"p50_us": 1300, "p95_us": 2600},   # the last line wins
+            "bench-validator-07": {"probe_failed": True, "reason": "no FSYNC_PROBE line in the session output"},
+            "bench-validator-08": {"p50_us": 0, "p95_us": 7},
+            "bench-validator-09": {"probe_failed": True, "reason": "(no reason given)"},
+        }
+        for inst, record in want.items():
+            with self.subTest(inst=inst):
+                p = subprocess.run(["bash", "-c", LIB_CALL, "benchmark-deploy.sh", str(self.bench),
+                                    "bench_fsync_probe_record", inst], input=text, env=self.env(),
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=60)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertEqual(json.loads(p.stdout), record)
+                self.assertEqual(p.stdout.count("\n"), 1)
+
+    def summary(self, records, insts=None):
+        m = self.root / "manifest.json"
+        m.write_text(json.dumps({"node_startup": {i: ({"fsync_probe": r} if r is not None else {"params_bak": "kept"})
+                                                  for i, r in records.items()}}))
+        p = self.lib("bench_fsync_probe_summary", m, *(insts or NODES))
+        self.assertEqual(p.returncode, 0, p.stdout)   # never fatal, slow nodes or not
+        return p.stdout
+
+    def test_summary_names_the_node_over_twenty_percent(self):
+        fail = {"probe_failed": True, "reason": "x"}
+        records = {"bench-validator-01": {"p50_us": 1000, "p95_us": 1}, "bench-validator-02": {"p50_us": 1100, "p95_us": 1},
+                   "bench-validator-03": {"p50_us": 1100, "p95_us": 1},
+                   "bench-validator-04": {"p50_us": 1320, "p95_us": 1},   # exactly 20 % over: not slow
+                   "bench-validator-05": {"p50_us": 1321, "p95_us": 1},   # more than 20 % over
+                   "bench-validator-06": fail, "bench-validator-07": None}  # 07: no probe record, left out
+        self.assertEqual(self.summary(records),
+                         "⚠ FSYNC_PROBE_SUMMARY median_us=1100 slow=[bench-validator-05] probe_failed=[bench-validator-06]\n")
+
+    def test_summary_without_a_slow_node_has_no_warning(self):
+        records = {"bench-validator-0%d" % (i + 1): {"p50_us": v, "p95_us": 2 * v} for i, v in enumerate((1000, 1300, 1100, 1200))}
+        # An even count: the mean of the middle two, 1150; 1380 would be 20 % over it.
+        self.assertEqual(self.summary(records), "FSYNC_PROBE_SUMMARY median_us=1150 slow=[] probe_failed=[]\n")
+
+    def test_summary_median_leaves_failed_probes_out(self):
+        fail = {"probe_failed": True, "reason": "no python3 on the node"}
+        records = {"bench-validator-01": fail, "bench-validator-02": {"p50_us": 1000, "p95_us": 1},
+                   "bench-validator-03": {"p50_us": 1250, "p95_us": 1}, "bench-validator-04": fail,
+                   "bench-validator-05": {"p50_us": 1100, "p95_us": 1}}
+        # Counted as anything the failures would move the median to 1000, which would make 1250 slow.
+        self.assertEqual(self.summary(records),
+                         "⚠ FSYNC_PROBE_SUMMARY median_us=1100 slow=[] probe_failed=[bench-validator-01 bench-validator-04]\n")
+        self.assertEqual(self.summary({"bench-validator-01": fail}),
+                         "⚠ FSYNC_PROBE_SUMMARY median_us=- slow=[] probe_failed=[bench-validator-01]\n")
+
+    def test_summary_of_an_unreadable_manifest_is_a_warning_not_a_failure(self):
+        p = self.lib("bench_fsync_probe_summary", self.root / "absent.json", *NODES)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(p.stdout, "⚠ FSYNC_PROBE_SUMMARY median_us=- slow=[] probe_failed=[] (cannot read %s)\n"
+                         % (self.root / "absent.json"))
 
 
 class FleetCase(BashCase):
@@ -1737,6 +1960,33 @@ class PlanTests(BashCase):
         self.assertIn("after a landed chaos kill: bench_fleet_ready", "\n".join(steps[15]))
         self.assertNotIn("BENCH_DEPLOY_RESULT", p.stdout)   # a dry run prints no result line
 
+    def test_plan_steps_13_and_14_name_the_light_load_arm_only_when_it_is_on(self):
+        p, off = self.plan()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("light-load arm", p.stdout)
+        self.assertEqual(len(off[13]), 2, off[13])
+        self.assertEqual(len(off[14]), 1, off[14])
+        p, on = self.plan(BENCH_LIGHT_LOAD="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        # The knob only adds lines: every line of the plan without it is still there, in order.
+        self.assertEqual(on[13][:2], off[13])
+        self.assertEqual(on[14][:1], off[14])
+        self.assertEqual(on[13][2:], [
+            "                     light-load arm (BENCH_LIGHT_LOAD=1): one fund per blast from BENCH_RUN_INDEX=0 up, "
+            "senders per blaster x window 8 x 16, 16 x 16, 600 x 4, the configured profile (600 x 16) funded last"])
+        self.assertEqual(on[14][1:], [
+            "                     light-load arm (BENCH_LIGHT_LOAD=1): first one light blast per senders x window "
+            "(8 x 16, 16 x 16, 600 x 4; 60s warmup, 360s mixed, 60s cooldown, chaos off), then the configured profile above;",
+            "                     LIGHT_LOAD_START/DONE around each light blast, manifest blasts[], one LOG_RATE line per "
+            "blast; about 15-20 min per light blast"])
+        p, after = self.plan(BENCH_LIGHT_LOAD="1", BENCH_LIGHT_LOAD_AFTER="1", BENCH_LIGHT_SENDERS="3",
+                             BENCH_LIGHT_WINDOWS="", BENCH_WINDOW="8", BENCH_RUN_INDEX="4")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertTrue(after[13][2].endswith("BENCH_RUN_INDEX=4 up, senders per blaster x window 3 x 8, the configured "
+                                              "profile (600 x 8) funded last, then one more light blast like the first"),
+                        after[13])
+        self.assertIn("(3 x 8; 60s warmup", after[14][1])
+
     def test_plan_lists_the_coordinated_start_and_the_gates(self):
         p, steps = self.plan()
         self.assertEqual(p.returncode, 0, p.stdout)
@@ -1835,6 +2085,25 @@ class Step7Tests(FleetCase):
         logs = sorted(f.name.split("-")[1] for f in (self.run_dir / "logs").glob("finalize-*.log"))
         self.assertEqual(logs, ["stage", "start"])
         self.assertIn("step_7_done", self.m()["timestamps"])
+
+    def test_db_sync_mode_is_recorded_per_node(self):
+        # The PRECFG_OK line's dbsync= field goes into node_startup[<inst>].db_sync_mode; with the knob unset
+        # the line has none and the record says durable (the node's default, no flag passed).
+        for mode, want in (("", "durable"), ("safe-no-sync", "safe-no-sync"), ("durable", "durable")):
+            with self.subTest(mode=mode):
+                m = self.m()
+                for key in ("node_startup", "coordinated_start", "coordinated_start_reruns"):
+                    m.pop(key, None)
+                self.manifest.write_text(json.dumps(m, indent=2) + "\n")
+                p = self.deploy7(BENCH_NODE_DB_SYNC_MODE=mode)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                startup = self.m()["node_startup"]
+                self.assertEqual(sorted(startup), sorted(NODES))
+                for inst in NODES:
+                    self.assertEqual(startup[inst]["db_sync_mode"], want, inst)
+                oks = [l for l in p.stdout.splitlines() if l.startswith("      PRECFG_OK ")]
+                self.assertEqual(len(oks), len(NODES), p.stdout)
+                self.assertEqual(sum(" dbsync=" in l for l in oks), len(NODES) if mode else 0, oks)
 
     def test_spread_over_ten_seconds_stops_after_recording_it(self):
         p = self.deploy7(start=self.START % 12)
@@ -1936,6 +2205,58 @@ class Step7Tests(FleetCase):
                 self.assertEqual(p.returncode, 0, p.stdout)
                 got = {i: (v.get("logrotate_size"), v.get("params_bak")) for i, v in self.m()["node_startup"].items()}
                 self.assertEqual(got, {i: ("20G", "written" if n == 0 else "kept") for i in NODES})
+
+    def test_fsync_probes_are_recorded_and_summarised_never_fatal(self):
+        # bench 5 D-IV H2: canned probe results (the node's python3 stub): one node 50 % over the median, one whose
+        # probe failed. Both the serial loop and side-by-side jobs record every node and print one summary after
+        # the last node's pre-start, before start-all; the step goes on to the coordinated start.
+        want = {}
+        for inst, node in self.nodes.items():
+            if inst == "bench-validator-07":
+                node.put("fsync-probe", "FSYNC_PROBE %s probe_failed OSError: [Errno 5] Input/output error" % inst)
+                want[inst] = {"probe_failed": True, "reason": "OSError: [Errno 5] Input/output error"}
+            else:
+                p50 = 1500 if inst == "bench-validator-03" else 1000
+                node.put("fsync-probe", "FSYNC_PROBE %s p50_us=%d p95_us=%d" % (inst, p50, 3 * p50))
+                want[inst] = {"p50_us": p50, "p95_us": 3 * p50}
+        for jobs in ("1", "4"):
+            with self.subTest(jobs=jobs):
+                m = self.m()
+                for key in ("node_startup", "coordinated_start", "coordinated_start_reruns"):
+                    m.pop(key, None)
+                self.manifest.write_text(json.dumps(m, indent=2) + "\n")
+                p = self.deploy7(BENCH_NODE_JOBS=jobs)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                out = p.stdout.splitlines()
+                for inst, node in self.nodes.items():
+                    self.assertIn("      " + node.root.joinpath("state/fsync-probe").read_text().strip(), out)
+                    self.assertEqual(self.m()["node_startup"][inst]["fsync_probe"], want[inst], inst)
+                    self.assertIn("python3 - %s %s" % (node.datadir, inst), node.calls())
+                summary = [i for i, l in enumerate(out) if "FSYNC_PROBE_SUMMARY" in l]
+                self.assertEqual([out[i] for i in summary], ["⚠ FSYNC_PROBE_SUMMARY median_us=1000 "
+                                                             "slow=[bench-validator-03] probe_failed=[bench-validator-07]"])
+                last_ok = max(i for i, l in enumerate(out) if l.startswith("      PRECFG_OK "))
+                start_all = next(i for i, l in enumerate(out) if l.startswith("    start-all: "))
+                self.assertTrue(last_ok < summary[0] < start_all, (last_ok, summary, start_all))
+                self.assertEqual(self.m()["coordinated_start"]["started"], 11)
+
+    def test_each_session_is_the_probe_then_the_pre_start_script(self):
+        # The real probe (python3 on each sandbox datadir): integer percentiles for every node, and each node's
+        # session stdin is bench_fsync_probe_script followed by exactly what --print-prestart prints.
+        p = self.deploy7()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        for inst in NODES:
+            probe = self.bash(LIB_CALL, self.bench, "bench_fsync_probe_script", inst)
+            pre = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", inst],
+                                 env=self.env(), stdout=subprocess.PIPE, universal_newlines=True, timeout=60)
+            self.assertEqual((probe.returncode, pre.returncode), (0, 0), probe.stdout)
+            self.assertEqual((self.spool / (inst + ".sh")).read_text(), probe.stdout + pre.stdout, inst)
+            rec = self.m()["node_startup"][inst]["fsync_probe"]
+            self.assertEqual(sorted(rec), ["p50_us", "p95_us"], inst)
+            self.assertTrue(all(isinstance(v, int) and v >= 0 for v in rec.values()), rec)
+        summary = [l for l in p.stdout.splitlines() if "FSYNC_PROBE_SUMMARY" in l]
+        self.assertEqual(len(summary), 1, p.stdout)
+        self.assertRegex(summary[0], r"^(⚠ )?FSYNC_PROBE_SUMMARY median_us=\d+ slow=\[[^\]]*\] probe_failed=\[\]$")
 
     def test_pre_start_failure_stops_before_start_all(self):
         self.nodes["bench-validator-05"].put("git-head", "0" * 40)

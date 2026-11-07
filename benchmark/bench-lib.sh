@@ -1217,8 +1217,12 @@ bench_txgen_cli_probe() {
         | docker --config "${cfg}" login -u oauth2accesstoken --password-stdin "https://${BENCH_TXGEN_IMAGE%%/*}" >/dev/null 2>&1 || true
     help="$(docker --config "${cfg}" run --rm --platform linux/amd64 "${BENCH_TXGEN_IMAGE}" blast --help 2>&1 || true)"
     rm -rf "${cfg}"
-    for f in ${BENCH_TXGEN_CONTRACT_FLAGS}; do
-        printf '%s\n' "${help}" | grep -Eq -- "(^|[^a-z-])${f}([^a-z-]|$)" || missing="${missing} ${f}"
+    # The landings export (BENCH_LANDINGS_SAMPLE > 0) adds two flags the bench-4 image lacks; require
+    # them here so an old blaster image fails in preflight, not on its VM.
+    local flags="${BENCH_TXGEN_CONTRACT_FLAGS}"
+    [ "${BENCH_LANDINGS_SAMPLE:-0}" = "0" ] || flags="${flags} --landings-out --landings-sample"
+    for f in ${flags}; do
+        grep -Eq -- "(^|[^a-z-])${f}([^a-z-]|$)" <<<"${help}" || missing="${missing} ${f}"
     done
     if [ -n "${missing}" ]; then
         printf '%s\n' "${help}" | head -15 >&2
@@ -1246,7 +1250,7 @@ _bench_help_missing() {
     shift
     for f in "$@"; do
         re="$(printf '%s' "${f}" | sed 's/[.]/[.]/g')"
-        printf '%s\n' "${help}" | LC_ALL=C grep -Eq -- "(^|[^a-z.-])${re}([^a-z.-]|$)" || missing="${missing} ${f}"
+        LC_ALL=C grep -Eq -- "(^|[^a-z.-])${re}([^a-z.-]|$)" <<<"${help}" || missing="${missing} ${f}"
     done
     printf '%s' "${missing}"
 }
@@ -2208,8 +2212,10 @@ EOS
 #   6. tn_launch_flag_set S: --http.addr 0.0.0.0, --ws.addr 0.0.0.0, --metrics 127.0.0.1:<MP> (byte for
 #      byte what setup-observability.sh --enable-metrics renders, so step 8 finds it on the node command
 #      and restarts nothing) and, when BENCH_NODE_LOG_FILTER is set, --log.stdout.filter <F>,
-#      --log.file.filter <F>, --log.file.max-files <BENCH_NODE_LOG_MAX_FILES>. rc 1 (the flag already
-#      reads that value) is accepted, so a re-run converges; any other rc fails, naming it.
+#      --log.file.filter <F>, --log.file.max-files <BENCH_NODE_LOG_MAX_FILES>; when BENCH_NODE_DB_SYNC_MODE
+#      is set (durable|safe-no-sync), --db.sync-mode <it> (unset: no flag, the image's default, durable;
+#      safe-no-sync is never for a published run). rc 1 (the flag already reads that value) is accepted,
+#      so a re-run converges; any other rc fails, naming it.
 #   7a. <D>/parameters.yaml.bak: `cp -p` of the file as the stage left it, unless one is there already
 #      (paramsbak=written|kept). A file that already holds `# bench-override` lines and has no .bak fails:
 #      it is not the original. tools/params-apply.sh treats marked lines without a .bak as an error.
@@ -2228,12 +2234,15 @@ EOS
 # Last line (contract C5b):
 #   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
 #     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive logrotate=<size|->
-#     paramsbak=<written|kept>
+#     paramsbak=<written|kept>[ dbsync=<BENCH_NODE_DB_SYNC_MODE>, only when that is set]
 # Any failure prints `PRECFG_FAIL <inst> <reason>` and exits 1. Prints the script only (no GCP call);
 # non-zero and nothing printed for an instance outside the fleet, a TN_NODE_SCRIPTS_REF that is
-# not 40 lower-case hex, or a BENCH_LOGROTATE_SIZE that is not <digits>K|M|G.
+# not 40 lower-case hex, a BENCH_LOGROTATE_SIZE that is not <digits>K|M|G, or a BENCH_NODE_DB_SYNC_MODE
+# other than empty, durable or safe-no-sync. Every knob unset: the script is byte for byte bench 4's.
+# Step 7 sends bench_fsync_probe_script ahead of it in the same session (below).
 bench_prestart_script() {
     local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov lrs="${BENCH_LOGROTATE_SIZE:-}" lrt=""
+    local dbs="${BENCH_NODE_DB_SYNC_MODE:-}"
     idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
     case "${ref}" in
         *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
@@ -2247,6 +2256,10 @@ bench_prestart_script() {
         lrt="$(bench_logrotate_text "${lrs}")" && [ -n "${lrt}" ] \
             || { echo "❌ bench_prestart_script: bench_logrotate_text ${lrs} gave no text" >&2; return 1; }
     fi
+    case "${dbs}" in
+        ''|durable|safe-no-sync) ;;
+        *) echo "❌ bench_prestart_script: BENCH_NODE_DB_SYNC_MODE='${dbs}' is not empty, durable or safe-no-sync" >&2; return 1 ;;
+    esac
     nov="$(bench_node_overrides "${idx}" | grep -c . || true)"
     echo 'set -euo pipefail'
     printf 'fail(){ echo "PRECFG_FAIL %s $*"; exit 1; }\n' "${inst}"
@@ -2298,6 +2311,7 @@ setf --log.file.filter "$F"
 setf --log.file.max-files "$MF"
 EOS
     fi
+    [ -z "${dbs}" ] || printf 'setf --db.sync-mode %s\n' "${dbs}"
     cat <<'EOS'
 # 7. this node's consensus parameter overrides (setp), marked `# bench-override`
 P="$D/parameters.yaml"
@@ -2356,6 +2370,7 @@ getf --log.file.filter "$F"
 getf --log.file.max-files "$MF"
 EOS
     fi
+    [ -z "${dbs}" ] || printf 'getf --db.sync-mode %s\n' "${dbs}"
     cat <<'EOS'
 # 9. the start script is still root:root 755 and parses
 o="$(stat -c '%U:%G %a' "$S" 2>/dev/null || true)"
@@ -2365,7 +2380,124 @@ bash -n "$S" || fail "$S does not parse (bash -n)"
 u="$(systemctl is-active telcoin 2>/dev/null || true)"
 [ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
 EOS
-    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}"\n' "${inst}"
+    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}%s"\n' "${inst}" "${dbs:+ dbsync=${dbs}}"
+}
+
+# bench_fsync_probe_script <inst> — the disk probe deploy step 7 sends first in each node's pre-start
+# session, ahead of bench_prestart_script (whose text it leaves alone). It runs in a subshell and only
+# prints, so nothing in it can stop the session. The directory is the node's datadir as the pre-start
+# script reads it: D = DATA_DIR from /etc/telcoin/.node-meta through the lib preamble's meta (the host
+# path the start script mounts at the container's /home/nonroot, where the node's databases live).
+# python3 (stdlib only; the bench nodes run the Ubuntu cloud image, which ships it) creates a temp file
+# there, times 200 x (write 4 KB + os.fsync), removes the file, and prints one line:
+#   FSYNC_PROBE <inst> p50_us=<n> p95_us=<n>     nearest-rank percentiles of the 200, integer µs
+#   FSYNC_PROBE <inst> probe_failed <reason>    no python3, DATA_DIR unusable, an I/O error, 60 s passed
+# In step 7 the unit is stopped (stage-only), so the node's own I/O is not in the numbers; the pre-start
+# script that follows refuses a node whose unit is not. Prints the script only (no GCP call); non-zero
+# and nothing printed for an instance outside the fleet.
+bench_fsync_probe_script() {
+    local inst="${1:-}"
+    bench_index_of "${inst}" >/dev/null || { echo "❌ bench_fsync_probe_script: '${inst}' is not a bench instance" >&2; return 1; }
+    echo '# fsync probe on the datadir (bench_fsync_probe_script): a subshell that only prints; the pre-start script follows'
+    echo '('
+    bench_remote_lib_preamble
+    printf 'I=%q\n' "${inst}"
+    cat <<'EOS'
+pf(){ echo "FSYNC_PROBE $I probe_failed $*"; exit 0; }
+r=0; D="$(meta DATA_DIR)" || r=$?
+[ "$r" = 0 ] || pf "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
+case "$D" in /?*) ;; *) pf "DATA_DIR '$D' in /etc/telcoin/.node-meta is not an absolute path" ;; esac
+[ -d "$D" ] || pf "DATA_DIR $D is not a directory"
+command -v python3 >/dev/null 2>&1 || pf "no python3 on the node"
+r=0; python3 - "$D" "$I" <<'PY' || r=$?
+import os, signal, sys, tempfile, time
+d, inst = sys.argv[1], sys.argv[2]
+def expired(signum, frame):
+    raise RuntimeError("not done after 60 s")
+signal.signal(signal.SIGALRM, expired)
+signal.alarm(60)
+path = None
+try:
+    fd, path = tempfile.mkstemp(prefix=".bench-fsync-probe.", dir=d)
+    buf, lap = os.urandom(4096), []
+    try:
+        for _ in range(200):
+            t0 = time.perf_counter()
+            os.write(fd, buf)
+            os.fsync(fd)
+            lap.append(time.perf_counter() - t0)
+    finally:
+        os.close(fd)
+    lap.sort()
+    def us(q):
+        return int(round(lap[-(-len(lap) * q // 100) - 1] * 1e6))
+    print("FSYNC_PROBE %s p50_us=%d p95_us=%d" % (inst, us(50), us(95)))
+except Exception as e:
+    print("FSYNC_PROBE %s probe_failed %s: %s" % (inst, type(e).__name__, " ".join(str(e).split())))
+finally:
+    signal.alarm(0)
+    if path:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+PY
+[ "$r" = 0 ] || pf "python3 exited $r"
+EOS
+    echo ') || true'
+}
+
+# bench_fsync_probe_record <inst> — node_startup[<inst>].fsync_probe from that node's pre-start session
+# output on stdin (CRs dropped): the last line that starts `FSYNC_PROBE <inst> ` gives
+#   {"p50_us":<n>,"p95_us":<n>}                 from `p50_us=<n> p95_us=<n>` (integers)
+#   {"probe_failed":true,"reason":"<text>"}    from `probe_failed <reason>`, a malformed line, or no line
+# One JSON object, rc 0 (a probe that failed never stops step 7).
+bench_fsync_probe_record() {
+    local inst="${1:-}" line rest v
+    line="$(awk -v p="FSYNC_PROBE ${inst} " 'index($0, p) == 1 { l = $0 } END { print l }')" || line=""
+    rest="${line#"FSYNC_PROBE ${inst} "}"
+    v="$(printf '%s\n' "${rest}" | sed -nE 's/^p50_us=(0|[1-9][0-9]{0,11}) p95_us=(0|[1-9][0-9]{0,11})$/\1 \2/p')" || v=""
+    if [ -n "${line}" ] && [ -n "${v}" ]; then
+        jq -n -c --argjson a "${v% *}" --argjson b "${v#* }" '{p50_us: $a, p95_us: $b}'
+        return 0
+    fi
+    if [ -z "${line}" ]; then
+        rest="no FSYNC_PROBE line in the session output"
+    else
+        case "${rest}" in
+            "probe_failed "*) rest="${rest#probe_failed }" ;;
+            probe_failed) rest="(no reason given)" ;;
+            *) rest="unparsed: ${rest}" ;;
+        esac
+    fi
+    jq -n -c --arg r "${rest}" '{probe_failed: true, reason: $r}'
+}
+
+# bench_fsync_probe_summary <manifest> <inst…> — one line on the fleet's fsync probes, read from
+# node_startup[<inst>].fsync_probe in <manifest> (an instance without a record is left out):
+#   FSYNC_PROBE_SUMMARY median_us=<n|-> slow=[<inst> …] probe_failed=[<inst> …]
+# median_us is the median p50 of the nodes that measured (failed probes are not in it; an even count
+# takes the mean of the middle two, rounded down); slow lists the nodes whose p50 is more than 20 % over
+# it (5 p50 > 6 median). The line starts with "⚠ " when slow or probe_failed lists anyone. rc 0 always:
+# a slow disk is a finding for the analysis, never a reason to stop.
+bench_fsync_probe_summary() {
+    local m="${1:-}" out
+    [ "$#" -eq 0 ] || shift
+    out="$(jq -r --arg ii "$*" '
+        [($ii | split(" ") | map(select(. != "")))[] as $i
+         | {i: $i, f: (.node_startup[$i].fsync_probe // null)} | select(.f != null)] as $r
+        | [$r[] | select((.f | type) == "object" and (.f.p50_us | type) == "number")] as $ok
+        | [$r[] | select(((.f | type) == "object" and (.f.p50_us | type) == "number") | not) | .i] as $bad
+        | ($ok | map(.f.p50_us) | sort) as $s | ($s | length) as $n
+        | (if $n == 0 then null elif $n % 2 == 1 then $s[($n - 1) / 2]
+           else (($s[$n / 2 - 1] + $s[$n / 2]) / 2 | floor) end) as $med
+        | [$ok[] | select($med != null and .f.p50_us * 5 > $med * 6) | .i] as $slow
+        | (if ($slow | length) + ($bad | length) > 0 then "⚠ " else "" end)
+          + "FSYNC_PROBE_SUMMARY median_us=\($med // "-") slow=[\($slow | join(" "))] probe_failed=[\($bad | join(" "))]"
+    ' "${m}" 2>/dev/null)" || out=""
+    [ -n "${out}" ] || out="⚠ FSYNC_PROBE_SUMMARY median_us=- slow=[] probe_failed=[] (cannot read ${m})"
+    printf '%s\n' "${out}"
+    return 0
 }
 
 # _bench_node_mode_cmd — the remote command bench_node_mode runs (one tn_iap_ssh, no sudo): the

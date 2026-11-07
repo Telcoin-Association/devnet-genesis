@@ -45,9 +45,13 @@
 #                                          nodes, rendered under benchmark/genesis/network-config/)
 #                        stage-only        ../devnet-finalize.sh --stage-only (stage + v2 finalize, then
 #                                          stop: unit enabled, inactive) -> logs/finalize-stage-<utc>.log
-#                        pre-start config  per node, ONE IAP session (bench_prestart_script, on stdin):
+#                        pre-start config  per node, ONE IAP session (bench_fsync_probe_script, then
+#                                          bench_prestart_script, on stdin): the datadir fsync probe
+#                                          (FSYNC_PROBE -> node_startup.fsync_probe; never fatal), then
 #                                          --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>, the
-#                                          log filter, per-node parameters.yaml overrides; PRECFG_OK
+#                                          log filter, BENCH_NODE_DB_SYNC_MODE when set, per-node
+#                                          parameters.yaml overrides; PRECFG_OK; after every node one
+#                                          FSYNC_PROBE_SUMMARY line (⚠: a slow node or a failed probe; never fatal)
 #                        start-all         ../devnet-finalize.sh --start-all (every unit at one due time)
 #                                          -> logs/finalize-start-<utc>.log; COORDINATED_START ->
 #                                          manifest.coordinated_start; stops when spread_secs > 10
@@ -968,22 +972,30 @@ bench_node_jobs_run() {
 }
 
 # prestart_node <index> — step 7's pre-start config on one node, one IAP session: skipped when
-# stage-only reported the node RUNNING (STEP7_RUNNING); dies without its PRECFG_OK line, else
+# stage-only reported the node RUNNING (STEP7_RUNNING). The session's stdin is the fsync probe
+# (bench_fsync_probe_script) followed by the pre-start script; dies without its PRECFG_OK line, else
 # records node_startup[<inst>].logrotate_size ("20G"|null) and .params_bak ("written"|"kept"|null)
-# from that line's logrotate= / paramsbak= fields ("-" or absent: null).
+# from that line's logrotate= / paramsbak= fields ("-" or absent: null), .db_sync_mode from its dbsync=
+# field ("durable" when absent: BENCH_NODE_DB_SYNC_MODE unset passes no flag, and durable is the node's
+# default; make_bundle.py refuses a run with any "safe-no-sync" node unless told otherwise), and
+# .fsync_probe from its FSYNC_PROBE line (bench_fsync_probe_record: {p50_us, p95_us}, or
+# {probe_failed: true, reason}).
 STEP7_RUNNING=""
 prestart_node() {
-    local inst="${INSTANCE_NAMES[$1]}" out line lr pb o
+    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o
     case " ${STEP7_RUNNING}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; return 0 ;; esac
-    out="$(bench_prestart_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
-    printf '%s\n' "${out}" | grep -E 'PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
+    out="$({ bench_fsync_probe_script "${inst}"; bench_prestart_script "${inst}"; } | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "${out}" | grep -E '^FSYNC_PROBE |PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
     line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
     [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
     lr="$(postcfg_field "${line}" logrotate)"; pb="$(postcfg_field "${line}" paramsbak)"
     case "${pb}" in written|kept) ;; *) pb="" ;; esac
-    o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" '
+    ds="$(postcfg_field "${line}" dbsync)"; ds="${ds:-durable}"
+    fp="$(printf '%s\n' "${out}" | bench_fsync_probe_record "${inst}")" || fp=""
+    [ -n "${fp}" ] || fp='{"probe_failed":true,"reason":"no record from bench_fsync_probe_record"}'
+    o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" --arg ds "${ds}" --argjson fp "${fp}" '
         def str: if . == "" or . == "-" then null else . end;
-        {logrotate_size: ($lr|str), params_bak: ($pb|str)}')" || bench_die "${inst}: cannot build its node_startup record"
+        {logrotate_size: ($lr|str), params_bak: ($pb|str), db_sync_mode: $ds, fsync_probe: $fp}')" || bench_die "${inst}: cannot build its node_startup record"
     node_startup_merge "${inst}" "${o}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
 }
 
@@ -992,7 +1004,9 @@ prestart_node() {
 # stopped, then devnet-finalize.sh starts them all at one due time on the nodes' clocks:
 #   network-config    devnet-network-config.sh --yes: Closed admission on every node (nothing restarts)
 #   stage-only        devnet-finalize.sh --stage-only: stage + v2 finalize + stop; the unit stays enabled
-#   pre-start config  bench_prestart_script per node over one IAP session (PRECFG_OK required)
+#   pre-start config  bench_fsync_probe_script + bench_prestart_script per node over one IAP session
+#                     (PRECFG_OK required; FSYNC_PROBE recorded, never required), then one
+#                     FSYNC_PROBE_SUMMARY line over the fleet (bench_fsync_probe_summary; never fatal)
 #   start-all         devnet-finalize.sh --start-all: COORDINATED_START -> manifest.coordinated_start
 # The two finalize runs are also copied to results/<run>/logs/finalize-{stage,start}-<utc>.log.
 # A re-run (--from 7) converges: network-config is idempotent, stage-only skips PRESTAGED and RUNNING
@@ -1028,6 +1042,8 @@ step_7() {
     echo "    pre-start config: per node, one IAP session (bench_prestart_script; review: --print-prestart <instance>)$([ "${jobs}" -le 1 ] || printf ', up to %s at a time' "${jobs}")"
     STEP7_RUNNING="${running}"
     bench_node_jobs_run "${jobs}" "pre-start config (no node has been started; re-run with --from 7)" prestart_node "${!INSTANCE_NAMES[@]}"
+    # Every node's probe is in the manifest now (side-by-side jobs' records were merged): one line, never fatal.
+    bench_fsync_probe_summary "$(bench_manifest)" "${INSTANCE_NAMES[@]}"
 
     log="${logs}/finalize-start-$(date -u +%Y%m%dT%H%M%SZ).log"
     echo "    start-all: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --start-all   (copy: ${log})"
@@ -1795,6 +1811,26 @@ plan_prestart_lines() {
     [ "${n}" -gt 0 ] || echo "                                       no per-node parameters (BENCH_NODE_PARAM_OVERRIDES is empty)"
 }
 
+# plan_light_lines <13|14> — with BENCH_LIGHT_LOAD=1, the light-load arm's line under step 13 (fund) or
+# 14 (blast), led by a newline so it sits on a line of its own; nothing at all when the knob is off (the
+# plan is then bench 4's, byte for byte). The sequence itself is benchmark-blast.sh's (light_plan).
+plan_light_lines() {
+    [ "${BENCH_LIGHT_LOAD:-0}" = "1" ] || return 0
+    local after="" pairs="" sn k=0 ws=()
+    [ "${BENCH_LIGHT_LOAD_AFTER:-0}" != "1" ] || after=", then one more light blast like the first"
+    read -r -a ws <<< "${BENCH_LIGHT_WINDOWS:-}"
+    for sn in ${BENCH_LIGHT_SENDERS:-}; do
+        pairs="${pairs}${pairs:+, }${sn} x ${ws[$k]:-${BENCH_WINDOW}}"; k=$((k + 1))
+    done
+    if [ "$1" = 13 ]; then
+        printf '\n                     light-load arm (BENCH_LIGHT_LOAD=1): one fund per blast from BENCH_RUN_INDEX=%s up, senders per blaster x window %s, the configured profile (%s x %s) funded last%s' \
+            "${BENCH_RUN_INDEX}" "${pairs}" "${BENCH_SENDERS}" "${BENCH_WINDOW}" "${after}"
+    else
+        printf '\n                     light-load arm (BENCH_LIGHT_LOAD=1): first one light blast per senders x window (%s; %ss warmup, %ss mixed, %ss cooldown, chaos off), then the configured profile above%s;\n                     LIGHT_LOAD_START/DONE around each light blast, manifest blasts[], one LOG_RATE line per blast; about 15-20 min per light blast' \
+            "${pairs}" "${BENCH_LIGHT_WARMUP_SECS}" "${BENCH_LIGHT_DURATION_SECS}" "${BENCH_LIGHT_COOLDOWN_SECS}" "${after}"
+    fi
+}
+
 # plan_tunnel_line — the RPC tunnel bench_tunnel_up opens, as this shell's BENCH_TUNNEL_MODE has it:
 # ssh (default) = one IAP ssh session carrying a port forward under a restarting supervisor;
 # websocket = gcloud compute start-iap-tunnel (a websocket per connection).
@@ -1878,7 +1914,9 @@ $(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
                      stage-only        ${REPO_ROOT}/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
                      pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
-                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }parameters.yaml overrides; PRECFG_OK <instance>
+                                       first the datadir fsync probe (200 x write 4 KB + fsync; FSYNC_PROBE <instance> p50_us= p95_us= -> node_startup.fsync_probe, never fatal), then
+                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }${BENCH_NODE_DB_SYNC_MODE:+--db.sync-mode ${BENCH_NODE_DB_SYNC_MODE}, }parameters.yaml overrides; PRECFG_OK <instance>
+                                       after every node: FSYNC_PROBE_SUMMARY median_us= slow=[p50 > 20 % over the median] probe_failed=[] (⚠ when either lists a node; never fatal)
 $(plan_prestart_lines)
                      start-all         ${REPO_ROOT}/devnet-finalize.sh --start-all (every unit at one due time, node clocks)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-start-<utc>.log; COORDINATED_START -> manifest.coordinated_start;
@@ -1914,8 +1952,8 @@ $(bench_obs_plan_lines 8 | sed 's/^[[:space:]]*/                       /')
   12  IAM + bucket   gcloud secrets add-iam-policy-binding ${BENCH_TXGEN_MASTER_SECRET}|${BENCH_TXGEN_SEED_SECRET} --member=serviceAccount:${SERVICE_ACCOUNT} --role=roles/secretmanager.secretAccessor
                      gcloud storage buckets create gs://${BENCH_BUCKET} --location=${BENCH_BUCKET_LOCATION}; update --update-labels=${BENCH_LABELS}
   13  fund           bench_obs_require; bench_fleet_ready ${BENCH_FLEET_READY_MAX_WAIT_SECS}: every validator CvvActive, waiting up to one epoch boundary (manifest.fleet_ready)
-                     benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))
-  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))
+                     benchmark/benchmark-blast.sh fund --yes   (bench-funder, --prepare $(( 10 * BENCH_SENDERS )) senders from $(( BENCH_RUN_INDEX * 100000 )))$(plan_light_lines 13)
+  14  blast          benchmark/benchmark-blast.sh run --yes    (bench-blaster-01..10, start now+${BENCH_START_DELAY_SECS}s, ${BENCH_DURATION_SECS}s mixed, $([ "${BENCH_CHAOS}" = "1" ] && echo "chaos on v05 + observer" || echo "chaos off (BENCH_CHAOS=0)"))$(plan_light_lines 14)
   15  collect        benchmark/benchmark-blast.sh collect --yes; ${BENCH_OBS_INSTANCE} gone = its series lost (stop, never --from 8); bench_obs_require; python3 ${COLLECT_METRICS_PY} --manifest ${BENCH_RESULTS_DIR}/manifest.json --out ${BENCH_RESULTS_DIR}/metrics.json$([ "${BENCH_PROM_AUTH:-0}" != 0 ] || printf ' --prom-url %s --prom-no-auth' "${BENCH_PROM_URL}")
                      $([ "${BENCH_COLLECT_WAIT_REJOIN:-0}" = "1" ] && echo "after a landed chaos kill: bench_fleet_ready + the killed node still CvvActive ${BENCH_NODE_BACK_SECS:-180} s later, within ${BENCH_FLEET_READY_MAX_WAIT_SECS} s (warn only), then --start <manifest window start> --end <then> (manifest.prom_window)" || echo "Prometheus window = the manifest's (BENCH_COLLECT_WAIT_REJOIN is not 1; manifest.prom_window end_reason knob_off)")
                      tools/cert-rate.py + tools/block-rate.py -> results/${BENCH_RUN_ID}/analysis/; INDEX.md + CHECKSUMS.sha256 (non-fatal; results/ is the only copy)

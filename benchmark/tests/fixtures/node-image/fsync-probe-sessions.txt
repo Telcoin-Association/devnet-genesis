@@ -1,0 +1,12 @@
+Warning: Permanently added 'compute.0000' (ED25519) to the list of known hosts.
+FSYNC_PROBE bench-validator-01 p50_us=1180 p95_us=2410
+PRECFG_OK bench-validator-01 datadir=/var/lib/telcoin http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:9101 filter=- maxfiles=- params=0 owner=root:root mode=755 unit=inactive logrotate=- paramsbak=written
+FSYNC_PROBE bench-validator-010 p50_us=5 p95_us=6
+FSYNC_PROBE bench-validator-02 probe_failed OSError: [Errno 28] No space left on device
+FSYNC_PROBE bench-validator-03 p50_us=0912 p95_us=1000
+FSYNC_PROBE bench-validator-04 p50_us=1500
+      FSYNC_PROBE bench-validator-05 p50_us=1 p95_us=2
+FSYNC_PROBE bench-validator-06 p50_us=1000 p95_us=900
+FSYNC_PROBE bench-validator-06 p50_us=1300 p95_us=2600
+FSYNC_PROBE bench-validator-08 p50_us=0 p95_us=7
+FSYNC_PROBE bench-validator-09 probe_failed
