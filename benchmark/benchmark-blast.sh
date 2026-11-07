@@ -56,6 +56,25 @@
 # `fund` under a new index first COPIES funder/ of the previous one into
 # results/<run>/funder-<its index>-<UTC>/. Each index has its own bucket prefix
 # (gs://<bucket>/<run>/index-<N>/), so no blast or fund reads another one's objects.
+#
+# Light-load arm (BENCH_LIGHT_LOAD=1; light_fund / light_run below): `fund` and `run` become a
+# sequence of single-blast invocations of this script on one fleet, each under its own
+# BENCH_RUN_INDEX (counting up from BENCH_RUN_INDEX, default 0) and therefore funded, archived and
+# bucket-prefixed as above: one light blast per entry of BENCH_LIGHT_SENDERS (that many senders per
+# blaster at the paired BENCH_LIGHT_WINDOWS entry, else BENCH_WINDOW; BENCH_LIGHT_WARMUP/DURATION/
+# COOLDOWN_SECS; chaos and lag injection off), then the configured profile (BENCH_SENDERS at
+# BENCH_WINDOW), then with BENCH_LIGHT_LOAD_AFTER=1 one more light blast like the first entry.
+# `run` prints LIGHT_LOAD_START i=<index> senders=<n> window=<w> / LIGHT_LOAD_DONE i=<index> rc=<rc>
+# around each light blast, appends manifest blasts[] {index, senders, window, chaos, started, ended,
+# rc} per blast, stops at the first rc != 0 with the commands that finish the sequence by hand, and
+# measures one node's unit-log growth in every blast (LOG_RATE, log_rate_check); a dry run prints
+# its plan instead of the LIGHT_LOAD_* markers. The configured
+# profile's outputs end in the usual places (blasters/, then the step-15 collect and metrics.json);
+# every light blast is archived in results/<run>/blast-<index>-<UTC>/. The sequence's own output is
+# logs/blast-light-<action>-<UTC>.log. BENCH_WINDOW (default 16) is the generator's --window: the
+# load VMs get a WINDOW metadata key only when it differs from 16. BENCH_LANDINGS_SAMPLE > 0 adds a
+# LANDINGS_SAMPLE key: the generator writes /out/landings-<label>.ndjson.gz, one row per N landings,
+# which comes back into results/<run>/blasters/ with the rest of its /out.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -193,6 +212,8 @@ create_vm() {
     meta="${meta}##BENCH_BUCKET=${BENCH_BUCKET}##RUN_ID=${BENCH_RUN_ID}##RUN_INDEX=${BENCH_RUN_INDEX}##LABEL=${name}"
     meta="${meta}##MASTER_SECRET=${BENCH_TXGEN_MASTER_SECRET}##SEED_SECRET=${BENCH_TXGEN_SEED_SECRET}"
     meta="${meta}##WARMUP_SECS=${BENCH_WARMUP_SECS}##DURATION_SECS=${BENCH_DURATION_SECS}##COOLDOWN_SECS=${BENCH_COOLDOWN_SECS}"
+    [ "${mode}" != blast ] || [ "${BENCH_WINDOW:-16}" = 16 ] || meta="${meta}##WINDOW=${BENCH_WINDOW}"
+    [ "${mode}" != blast ] || [ "${BENCH_LANDINGS_SAMPLE:-0}" = 0 ] || meta="${meta}##LANDINGS_SAMPLE=${BENCH_LANDINGS_SAMPLE}"
     local pre=(compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}")
     local post=(--image-family=cos-stable --image-project=cos-cloud
         --boot-disk-size="${BENCH_BLASTER_BOOT_DISK_GB}GB" --boot-disk-type=pd-balanced
@@ -324,8 +345,8 @@ copy_prefix() { # <gs-prefix> <results-subdir> — the prefix's objects -> resul
 # Moves go into a directory mkdir just created: nothing is overwritten or deleted.
 BLAST_LOG=""      # this invocation's copy of its output; never archived
 
-# start_blast_log — with --yes, copy everything this invocation prints to
-# logs/blast-<action>-<UTC>.log (a new file) while it still reaches the terminal. stdout and
+# start_blast_log [<name>] — with --yes, copy everything this invocation prints to
+# logs/blast-<name, default the action>-<UTC>.log (a new file) while it still reaches the terminal. stdout and
 # stderr keep separate tees. Both ignore HUP, INT (tee -i as well), TERM and PIPE, so they end
 # only when the script closes their input: a Ctrl-C, a TERM to the process group, a closed
 # terminal or a dead parent copy (deploy step 14) leaves the file copy running for the EXIT
@@ -335,7 +356,7 @@ start_blast_log() {
     [ "${BENCH_APPLY}" = "1" ] || return 0
     local n=0
     mkdir -p "${BENCH_RESULTS_DIR}/logs"
-    until BLAST_LOG="${BENCH_RESULTS_DIR}/logs/blast-${ACTION}-$(date -u +%Y%m%dT%H%M%SZ).log"; ( set -C; : > "${BLAST_LOG}" ) 2>/dev/null; do
+    until BLAST_LOG="${BENCH_RESULTS_DIR}/logs/blast-${1:-${ACTION}}-$(date -u +%Y%m%dT%H%M%SZ).log"; ( set -C; : > "${BLAST_LOG}" ) 2>/dev/null; do
         n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free log name in ${BENCH_RESULTS_DIR}/logs"
         sleep 1
     done
@@ -375,8 +396,12 @@ blast_indices_used() {
 }
 
 # prev_blast_items — what archive_prev_blast moves, relative to the results dir.
-prev_blast_items() {
-    local r="${BENCH_RESULTS_DIR}" f
+prev_blast_items() { blast_items_in "${BENCH_RESULTS_DIR}"; }
+
+# blast_items_in <dir> — the per-blast outputs in <dir> (the results dir, or a blast-<i>-<UTC>/ the
+# light-load arm moves back), relative to it; never this invocation's own output copy.
+blast_items_in() {
+    local r="$1" f
     for f in "${r}/blasters" "${r}"/meta/bench-blaster-* "${r}"/logs/create-bench-blaster-*.log \
              "${r}"/logs/blast-run-*.log "${r}"/logs/blast-collect-*.log "${r}/metrics.json"; do
         [ -e "${f}" ] && [ "${f}" != "${BLAST_LOG}" ] && printf '%s\n' "${f#"${r}"/}"
@@ -401,7 +426,7 @@ prev_attempt_unsent() {
 # exception is a previous attempt that never sent (prev_attempt_unsent): it is archived like any
 # blast and this run retries its index. Dry run: prints the plan, touches nothing.
 archive_prev_blast() {
-    local r="${BENCH_RESULTS_DIR}" prev dest it used next n=0 items=()
+    local used next
     case "${BENCH_RUN_INDEX}" in ''|*[!0-9]*|0?*) bench_die "BENCH_RUN_INDEX='${BENCH_RUN_INDEX}' must be a non-negative integer" ;; esac
     used="$(blast_indices_used)"
     if [ "$(grep -cx "${BENCH_RUN_INDEX}" <<< "${used}")" -eq 1 ] && prev_attempt_unsent; then
@@ -410,6 +435,13 @@ archive_prev_blast() {
         next="$(grep -x '[0-9][0-9]*' <<< "${used}" | sort -n | tail -1)"
         bench_die "an earlier blast on this fleet used BENCH_RUN_INDEX=${BENCH_RUN_INDEX}, so this one would reuse its senders. Fund and run under a new index: BENCH_RUN_INDEX=$(( next + 1 )) benchmark/benchmark-blast.sh fund --yes, then run --yes. Nothing was moved."
     fi
+    archive_blast_outputs
+}
+
+# archive_blast_outputs — archive_prev_blast's moves, without its index check: the blast in the
+# results dir (if any) into blast-<its index>-<UTC>/, its per-blast manifest keys reset.
+archive_blast_outputs() {
+    local r="${BENCH_RESULTS_DIR}" prev dest it n=0 items=()
     if ! prev_blast_recorded; then echo "    no previous blast in ${r} — nothing to archive"; return 0; fi
     prev="$(prev_blast_index)"
     [ "${prev}" != "unknown" ] || bench_warn "the previous blast recorded no BENCH_RUN_INDEX: make sure index ${BENCH_RUN_INDEX} was funded and never blasted"
@@ -1274,6 +1306,69 @@ on_run_exit() {
     exit "${rc}"
 }
 
+# --- LOG_RATE: one node's unit-log growth (light-load arm, every blast) ----------------------
+# log_rate_cmd — the remote command of one sample: "LOG_BYTES <bytes> <node unix time>", the size of
+# the unit's stdout log (BENCH_NODE_UNIT_LOGS, the file the teardown pulls) plus its rotated
+# siblings <file>.N[.gz], read under sudo as the pull reads them. Non-zero when that path is unusable.
+log_rate_cmd() {
+    local p f=""
+    for p in ${BENCH_NODE_UNIT_LOGS}; do case "${p}" in stdout:/*) f="${p#stdout:}" ;; esac; done
+    case "${f}" in ''|*[!A-Za-z0-9._/-]*) return 1 ;; esac
+    printf '%s' "sudo sh -c 't=0; for g in ${f} ${f}.[0-9]*; do if [ -f \"\$g\" ]; then t=\$((t + \$(wc -c < \"\$g\"))); fi; done; echo \"LOG_BYTES \$t \$(date +%s)\"'"
+}
+
+# log_rate_sample <node-idx> — "<bytes> <node unix time>" from one ssh session (tn_iap_ssh, so
+# devnet-lib's transport retry applies); non-zero and nothing printed when the session or its answer fails.
+log_rate_sample() {
+    local cmd out
+    cmd="$(log_rate_cmd)" || return 1
+    out="$(tn_iap_ssh "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}" "${cmd}" </dev/null)" || return 1
+    out="$(printf '%s\n' "${out}" | tr -d '\r' | sed -n 's/^LOG_BYTES \([0-9][0-9]*\) \([0-9][0-9]*\)$/\1 \2/p' | tail -1)"
+    [ -n "${out}" ] || return 1
+    printf '%s\n' "${out}"
+}
+
+# log_rate_mb_per_min <sample> <later sample> — MB (10^6 bytes) per minute between them, one decimal.
+# Non-zero when a sample is missing, the node clock did not advance or the total shrank (the log
+# rotated in between: copytruncate empties the file and delaycompress changes the siblings' sizes).
+log_rate_mb_per_min() {
+    [ -n "$1" ] && [ -n "$2" ] || return 1
+    awk -v a="$1" -v b="$2" 'BEGIN { split(a, x, " "); split(b, y, " "); d = y[2] - x[2]; g = y[1] - x[1]
+        if (d <= 0 || g < 0) exit 1; printf "%.1f\n", g / d * 60 / 1000000 }'
+}
+
+# log_rate_check <node-idx> <not-before-unix> — once the blasters send (not before <not-before>: their
+# start plus the generator's preamble), the growth of that node's unit log over 60 s: two samples, one
+# session each. Prints "LOG_RATE <inst> blast=<BENCH_RUN_INDEX> mb_per_min=<n.n>", with ⚠ when above
+# BENCH_LOG_RATE_WARN_MB_MIN (a log filter that floods the teardown pull: tasks/lessons.md, sizing
+# by bytes per minute), and appends {blast, inst, mb_per_min, warn} to the manifest's .log_rate list
+# (one entry per measured blast, in run order; the archive of a blast keeps the list, so the live
+# manifest holds every blast's). Never fatal: an unmeasured rate prints mb_per_min=? and records
+# null. Runs before the watch loop's first poll.
+log_rate_check() {
+    local inst="${INSTANCE_NAMES[$1]}" b="${BENCH_RUN_INDEX:-0}" s0 s1 rate warn=false
+    sleep_until "$2" 0
+    bench_log "LOG_RATE: ${inst}'s unit log over 60 s"
+    s0="$(log_rate_sample "$1")" || s0=""
+    sleep 60
+    s1="$(log_rate_sample "$1")" || s1=""
+    rate="$(log_rate_mb_per_min "${s0}" "${s1}")" || rate=""
+    if [ -z "${rate}" ]; then
+        echo "LOG_RATE ${inst} blast=${b} mb_per_min=?"
+        bench_warn "LOG_RATE ${inst}: not measured (a sample failed, or the log rotated between the samples); the run continues"
+    elif awk -v m="${rate}" -v t="${BENCH_LOG_RATE_WARN_MB_MIN}" 'BEGIN { exit !(m > t) }'; then
+        warn=true
+        echo "LOG_RATE ${inst} blast=${b} mb_per_min=${rate} ⚠ above BENCH_LOG_RATE_WARN_MB_MIN=${BENCH_LOG_RATE_WARN_MB_MIN}: check the node log filter before the teardown pull (the run continues)"
+    else
+        echo "LOG_RATE ${inst} blast=${b} mb_per_min=${rate}"
+    fi
+    bench_manifest_jq --arg b "${b}" --arg i "${inst}" --arg m "${rate}" --argjson w "${warn}" \
+        '.log_rate = ((.log_rate // []) | if type == "array" then . else [.] end)
+            + [{blast: ($b | tonumber? // $b), inst: $i, mb_per_min: (if $m == "" then null else ($m | tonumber) end), warn: $w}]' \
+        || bench_warn "LOG_RATE not recorded in $(bench_manifest)"
+    return 0
+}
+
 do_run() {
     preflight
     local k name zone urls start now start_at mixed_start deadline
@@ -1393,6 +1488,8 @@ do_run() {
         '.phases = [{name:"preamble",start:$a,end:$b},{name:"warmup",start:$b,end:$c},{name:"mixed",start:$c,end:$d},{name:"cooldown",start:$d,end:$e}]
          | .notes += ["phases are PLANNED from BENCH_START_AT + configured durations; the per-blaster tn-blast/v2 run.phases are authoritative"]'
     bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
+    # LOG_RATE: set by the light-load arm for each of its blasts (log_rate_check).
+    [ "${BENCH_LOG_RATE_CHECK:-0}" != 1 ] || log_rate_check 0 "$(( start_at + BENCH_PREAMBLE_SECS ))"
 
     # --- watch loop: chaos + abort watchers + done markers ---
     local next_poll=$(( start_at + 60 )) all_done=0 target due back_due n
@@ -1648,6 +1745,208 @@ do_chaos_stage_test() {
     if awk -v l="${late}" 'BEGIN { exit !(l >= 0 && l < 1) }'; then echo "    ✓ the action began within 1 s of its due time"
     else bench_warn "the action began ${late}s from its due time (expected 0 <= late < 1)"; fi
 }
+
+# ================================ light-load arm =====================================
+# BENCH_LIGHT_LOAD=1 (header): `fund` and `run` drive one single-blast invocation of this script per
+# blast of the sequence. Each child is the plain bench-4 path (BENCH_LIGHT_LOAD=0) under its own
+# BENCH_RUN_INDEX, so the index check, the archive, the funder copy and the bucket prefixes are the
+# second-blast support's; the sequence adds the plan, the markers, manifest blasts[] and the stop.
+LIGHT_IDX=(); LIGHT_SND=(); LIGHT_WIN=(); LIGHT_KIND=()
+
+# light_plan — LIGHT_IDX / LIGHT_SND / LIGHT_WIN / LIGHT_KIND (light|load): the sequence's blasts in run
+# order, indices counting up from BENCH_RUN_INDEX. A light entry's window is its BENCH_LIGHT_WINDOWS
+# entry (config.sh checks there is one per BENCH_LIGHT_SENDERS entry), else BENCH_WINDOW.
+light_plan() {
+    local i="${BENCH_RUN_INDEX}" n w k=0 ws=() first="" firstw=""
+    case "${i}" in ''|*[!0-9]*|0?*) bench_die "BENCH_RUN_INDEX='${i}' must be a non-negative integer" ;; esac
+    LIGHT_IDX=(); LIGHT_SND=(); LIGHT_WIN=(); LIGHT_KIND=()
+    for w in ${BENCH_LIGHT_WINDOWS:-}; do ws+=("${w}"); done
+    for n in ${BENCH_LIGHT_SENDERS}; do
+        w="${ws[$k]:-${BENCH_WINDOW}}"; k=$((k + 1))
+        [ -n "${first}" ] || { first="${n}"; firstw="${w}"; }
+        LIGHT_IDX+=("${i}"); LIGHT_SND+=("${n}"); LIGHT_WIN+=("${w}"); LIGHT_KIND+=(light); i=$((i + 1))
+    done
+    LIGHT_IDX+=("${i}"); LIGHT_SND+=("${BENCH_SENDERS}"); LIGHT_WIN+=("${BENCH_WINDOW}"); LIGHT_KIND+=(load); i=$((i + 1))
+    if [ "${BENCH_LIGHT_LOAD_AFTER}" = 1 ]; then
+        LIGHT_IDX+=("${i}"); LIGHT_SND+=("${first}"); LIGHT_WIN+=("${firstw}"); LIGHT_KIND+=(light)
+    fi
+}
+
+# light_env <p> — the environment of plan entry <p>'s single-blast invocation, as NAME=<integer> words:
+# a light blast has its senders and window, the BENCH_LIGHT_*_SECS phases, no chaos and no lag
+# injection; the configured profile keeps every setting but the index.
+light_env() {
+    printf 'BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=%s' "${LIGHT_IDX[$1]}"
+    [ "${LIGHT_KIND[$1]}" = light ] || return 0
+    printf ' BENCH_SENDERS=%s BENCH_WINDOW=%s BENCH_WARMUP_SECS=%s BENCH_DURATION_SECS=%s BENCH_COOLDOWN_SECS=%s BENCH_CHAOS=0 BENCH_LAG_INJECT=0' \
+        "${LIGHT_SND[$1]}" "${LIGHT_WIN[$1]}" "${BENCH_LIGHT_WARMUP_SECS}" "${BENCH_LIGHT_DURATION_SECS}" "${BENCH_LIGHT_COOLDOWN_SECS}"
+}
+
+# light_child <action> <p> [NAME=value...] — this script's <action> for plan entry <p> (light_env, then
+# the extra words), --yes when this invocation has it. Its status.
+light_child() {
+    local action="$1" p="$2" yes=()
+    shift 2
+    [ "${CONFIRM}" -ne 1 ] || yes=(--yes)
+    # shellcheck disable=SC2046  # light_env prints NAME=<integer> words, split on purpose
+    env $(light_env "${p}") "$@" bash "${DIR}/benchmark-blast.sh" "${action}" ${yes[@]+"${yes[@]}"} --run "${BENCH_RUN_ID}"
+}
+
+# light_show_plan <action> — the sequence, one line per blast.
+light_show_plan() {
+    local p
+    echo ">>> light-load arm (BENCH_LIGHT_LOAD=1): $1 ${#LIGHT_IDX[@]} blasts on ${BENCH_RUN_ID}"
+    for p in "${!LIGHT_IDX[@]}"; do
+        if [ "${LIGHT_KIND[$p]}" = light ]; then
+            echo "    index ${LIGHT_IDX[$p]}: light, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}, warmup ${BENCH_LIGHT_WARMUP_SECS}s mixed ${BENCH_LIGHT_DURATION_SECS}s cooldown ${BENCH_LIGHT_COOLDOWN_SECS}s, chaos off, lag injection off"
+        else
+            echo "    index ${LIGHT_IDX[$p]}: the configured profile, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}, warmup ${BENCH_WARMUP_SECS}s mixed ${BENCH_DURATION_SECS}s cooldown ${BENCH_COOLDOWN_SECS}s, chaos=${BENCH_CHAOS} lag_inject=${BENCH_LAG_INJECT}"
+        fi
+    done
+}
+
+# light_check_indices — refuse a plan index an earlier blast on this fleet used (its senders may have
+# sent): nothing is funded or run; the next free base is named.
+light_check_indices() {
+    local used i next
+    used="$(blast_indices_used)"
+    for i in "${LIGHT_IDX[@]}"; do
+        grep -qx "${i}" <<< "${used}" || continue
+        next="$(printf '%s\n' "${used}" "${LIGHT_IDX[@]}" | grep -x '[0-9][0-9]*' | sort -n | tail -1)"
+        bench_die "light-load arm: an earlier blast on this fleet used BENCH_RUN_INDEX=${i} (the sequence is ${LIGHT_IDX[*]}); fund and run it under a new base: BENCH_RUN_INDEX=$(( next + 1 )). Nothing was funded or run."
+    done
+}
+
+# light_record <p> <started> <ended> <rc> — with --yes, manifest blasts[] += plan entry <p>'s blast.
+light_record() {
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    local chaos=0
+    [ "${LIGHT_KIND[$1]}" = light ] || chaos="${BENCH_CHAOS}"
+    bench_manifest_jq --argjson i "${LIGHT_IDX[$1]}" --argjson s "${LIGHT_SND[$1]}" --argjson w "${LIGHT_WIN[$1]}" \
+        --argjson c "${chaos}" --arg a "$2" --arg e "$3" --argjson rc "$4" \
+        '.blasts = (.blasts // []) + [{index: $i, senders: $s, window: $w, chaos: $c, started: $a, ended: $e, rc: $rc}]' \
+        || bench_warn "blasts[] not updated in $(bench_manifest) (index ${LIGHT_IDX[$1]} rc=$4)"
+}
+
+# light_stop <action> <rc> <p> [<p>...] — plan entry <p> ended rc != 0: print the commands that finish
+# the sequence by hand (the entries given, in order), exit <rc>. A blast that ran may have sent from
+# its senders, so a failed `run` entry is funded and run again under a fresh index, one past every
+# index used or planned; the entries after it keep their funded, unused indices. A failed fund has
+# spent nothing: the remaining funds keep their indices, then the sequence's `run` follows.
+light_stop() {
+    local action="$1" rc="$2" p="$3" q f fresh cmd="benchmark/benchmark-blast.sh"
+    shift 2
+    echo "❌ light-load arm: ${action} of index ${LIGHT_IDX[$p]} (${LIGHT_KIND[$p]}, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}) ended rc=${rc}; the sequence stopped there" >&2
+    echo "   Resume by hand, one command at a time, each once the one before it succeeded:" >&2
+    if [ "${action}" = fund ]; then
+        for q in "$@"; do echo "     $(light_env "${q}") ${cmd} fund --yes --run ${BENCH_RUN_ID}" >&2; done
+        echo "     BENCH_LIGHT_LOAD=1 BENCH_RUN_INDEX=${LIGHT_IDX[0]} ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2
+        exit "${rc}"
+    fi
+    fresh="$( { blast_indices_used; printf '%s\n' "${LIGHT_IDX[@]}"; } | grep -x '[0-9][0-9]*' | sort -n | tail -1)"
+    LIGHT_IDX[p]=$(( fresh + 1 ))
+    echo "     $(light_env "${p}") ${cmd} fund --yes --run ${BENCH_RUN_ID}" >&2
+    for q in "$@"; do echo "     $(light_env "${q}") ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2; done
+    echo "   blasts[] records this sequence's blasts only; a blast run by hand is recorded in its own manifest .blast." >&2
+    [ "${LIGHT_KIND[$q]}" = load ] \
+        || echo "   A light blast run by hand after the load stays current: the configured profile's outputs are then in its blast-<index>-<UTC>/." >&2
+    for f in "$@"; do
+        [ "${LIGHT_KIND[$f]}" = light ] || continue
+        echo "   A light blast run by hand is not in blasts[], so the floor KPIs miss it: pass its blast-<index>-<UTC>/ as --floor-blast-dir to report/make_bundle.py and report/kpis.py." >&2
+        break
+    done
+    exit "${rc}"
+}
+
+# light_swap_back — after the light blast that follows the load: archive it like any blast, then move
+# the configured profile's outputs back from the blast-<its index>-<UTC>/ that blast's run archived them
+# into, and make that directory's manifest copy the live manifest again with the live notes, blasts[]
+# and log_rate. The emptied directory goes. Dry run: the plan only.
+light_swap_back() {
+    local r="${BENCH_RESULTS_DIR}" load="" p d src="" it items=() m tmp
+    for p in "${!LIGHT_KIND[@]}"; do [ "${LIGHT_KIND[$p]}" != load ] || load="${LIGHT_IDX[$p]}"; done
+    for d in "${r}/blast-${load}-"*; do [ -d "${d}" ] || continue; src="${d}"; done   # the newest: UTC stamps sort
+    echo ">>> light-load arm: archive the light blast after the load, move the configured profile (index ${load}) back into place"
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing moved)"; return 0; fi
+    { [ -n "${src}" ] && [ -f "${src}/manifest.json" ]; } \
+        || bench_die "light-load arm: no blast-${load}-<UTC>/ with a manifest.json in ${r}; nothing was moved: the light blast after the load is current, the configured profile's outputs are where its run put them"
+    archive_blast_outputs
+    while IFS= read -r it; do items+=("${it}"); done < <(blast_items_in "${src}")
+    [ "${#items[@]}" -eq 0 ] || for it in "${items[@]}"; do
+        if [ -e "${r}/${it}" ] || ! mkdir -p "${r}/$(dirname "${it}")" || ! mv "${src}/${it}" "${r}/${it}"; then
+            bench_die "light-load arm: could not move ${it} back from ${src}/ — what moved is in ${r}, the rest (and the manifest copy) is still in ${src}/"
+        fi
+    done
+    m="$(bench_manifest)"
+    tmp="$(mktemp "${m}.XXXXXX")" \
+        || bench_die "light-load arm: index ${load}'s outputs are back in ${r} but no temporary file could be made next to ${m}; its manifest copy ${src}/manifest.json is not live yet: put it in place of ${m} by hand"
+    if jq --slurpfile live "${m}" '$live[0] as $l | . + {notes: ($l.notes // []), blasts: ($l.blasts // [])}
+            | if ($l | has("log_rate")) then .log_rate = $l.log_rate else . end' "${src}/manifest.json" > "${tmp}"; then
+        mv "${tmp}" "${m}"
+    else
+        rm -f "${tmp}"
+        bench_die "light-load arm: index ${load}'s outputs are back in ${r} but its manifest copy ${src}/manifest.json could not be made live"
+    fi
+    rm -f "${src}/manifest.json"
+    find "${src}" -depth -type d -empty -exec rmdir {} + 2>/dev/null || true
+    [ ! -e "${src}" ] || bench_warn "light-load arm: ${src} still holds files after the move back; left in place"
+    bench_manifest_note "light-load arm: index ${load} (the configured profile) moved back from $(basename "${src}")/ at $(bench_now_iso)" || true
+    echo "    ✓ ${r}/blasters/ holds index ${load} again"
+}
+
+# light_fund — `fund`: one single-blast fund per blast of the sequence, the configured profile's last,
+# so funder/ and manifest .fund end with its output as after a plain fund (the light indices' are
+# copied aside into funder-<index>-<UTC>/ by the next fund).
+light_fund() {
+    local p order=() rc k
+    light_plan
+    light_check_indices
+    for p in "${!LIGHT_IDX[@]}"; do [ "${LIGHT_KIND[$p]}" = load ] || order+=("${p}"); done
+    for p in "${!LIGHT_IDX[@]}"; do [ "${LIGHT_KIND[$p]}" != load ] || order+=("${p}"); done
+    light_show_plan fund
+    for k in "${!order[@]}"; do
+        p="${order[$k]}"; rc=0
+        echo ">>> light-load arm: fund index ${LIGHT_IDX[$p]} (${LIGHT_KIND[$p]}, ${LIGHT_SND[$p]} senders per blaster)"
+        light_child fund "${p}" || rc=$?
+        [ "${rc}" -eq 0 ] || light_stop fund "${rc}" "${order[@]:$k}"
+    done
+    [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN (light-load arm) — re-run with --yes."; return 0; }
+    echo "    ✓ light-load arm: indices ${LIGHT_IDX[*]} funded"
+}
+
+# light_run — `run`: each blast in order, LIGHT_LOAD_START/DONE around the light ones (a dry run
+# prints a plan line instead: a log watcher must not read a plan as a run), blasts[] after every
+# one, the stop at the first rc != 0; every blast also measures LOG_RATE, the configured profile's
+# under load too (each child gets BENCH_LOG_RATE_CHECK set to 1, whatever the caller's environment holds).
+light_run() {
+    local p rc started ended
+    light_plan
+    light_check_indices
+    light_show_plan run
+    for p in "${!LIGHT_IDX[@]}"; do
+        if [ "${LIGHT_KIND[$p]}" != light ]; then echo ">>> light-load arm: the configured profile, index ${LIGHT_IDX[$p]}"
+        elif [ "${BENCH_APPLY}" = "1" ]; then echo "LIGHT_LOAD_START i=${LIGHT_IDX[$p]} senders=${LIGHT_SND[$p]} window=${LIGHT_WIN[$p]}"
+        else echo ">>> light-load arm (plan): light blast, index ${LIGHT_IDX[$p]}, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}"; fi
+        started="$(bench_now_iso)"; rc=0
+        light_child run "${p}" BENCH_LOG_RATE_CHECK=1 || rc=$?
+        ended="$(bench_now_iso)"
+        light_record "${p}" "${started}" "${ended}" "${rc}"
+        [ "${LIGHT_KIND[$p]}" != light ] || [ "${BENCH_APPLY}" != "1" ] || echo "LIGHT_LOAD_DONE i=${LIGHT_IDX[$p]} rc=${rc}"
+        [ "${rc}" -eq 0 ] || light_stop run "${rc}" $(seq "${p}" $(( ${#LIGHT_IDX[@]} - 1 )))
+    done
+    [ "${LIGHT_KIND[$p]}" = load ] || light_swap_back
+    [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN (light-load arm) — re-run with --yes."; return 0; }
+    echo "    ✓ light-load arm complete: indices ${LIGHT_IDX[*]}; the configured profile's outputs are in ${BENCH_RESULTS_DIR}/blasters/"
+}
+
+case "${BENCH_LIGHT_LOAD:-0}:${ACTION}" in
+    1:fund|1:run)
+        [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"
+        [ "${KEEP}" -eq 0 ] || bench_die "--keep cannot be used with BENCH_LIGHT_LOAD=1: the next blast of the sequence needs the load VMs' names"
+        start_blast_log "light-${ACTION}"
+        if [ "${ACTION}" = fund ]; then light_fund; else light_run; fi
+        exit 0 ;;
+esac
 
 start_blast_log
 case "${ACTION}" in

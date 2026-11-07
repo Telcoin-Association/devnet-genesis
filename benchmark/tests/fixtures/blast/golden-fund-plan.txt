@@ -1,0 +1,19 @@
+rc=0
+--- output
+>>> preflight
+    ✓ gcloud
+    ✓ jq
+⚠ txgen config <ROOT>/tn-transaction-generator/config.bench.toml missing
+⚠ address book <ROOT>/tree/benchmark/results/rtest-blast/deployments-bench.json missing (benchmark-deploy.sh --with-contracts --only 11)
+    image us-west2-docker.pkg.dev/<PROJECT>/txgen/tn-transaction-generator:blast-v2-abcdef1
+>>> fund: bench-funder (us-west2-a) --prepare senders=6000 sender-start=0 against bench-validator-01=http://<internal-ip-of-bench-validator-01>:8545
+    bucket prefix: gs://<PROJECT>-bench-rtest-blast/rtest-blast/index-0/funder/
+      (no manifest yet — skipped manifest update)
+    + perl -e alarm\ shift\;\ exec\ @ARGV 600 gcloud compute instances create bench-funder --project=<PROJECT> --zone=us-west2-a --machine-type=e2-standard-2 --image-family=cos-stable --image-project=cos-cloud --boot-disk-size=20GB --boot-disk-type=pd-balanced --service-account=<SA> --scopes=cloud-platform --tags=bench-blaster --labels=benchmark=1\,network=bench\,bench-run=rtest-blast\,tn-role=blaster --metadata-from-file=startup-script=<ROOT>/tree/benchmark/blaster-startup.sh\,txgen-config=<ROOT>/tn-transaction-generator/config.bench.toml\,txgen-deployments=<ROOT>/tree/benchmark/results/rtest-blast/deployments-bench.json\,NODE_URLS=<ROOT>/tree/benchmark/results/rtest-blast/meta/bench-funder/NODE_URLS --metadata=\^##\^BENCH_MODE=fund##TXGEN_IMAGE=us-west2-docker.pkg.dev/<PROJECT>/txgen/tn-transaction-generator:blast-v2-abcdef1##SENDERS=6000##SENDER_START=0##BENCH_BUCKET=<PROJECT>-bench-rtest-blast##RUN_ID=rtest-blast##RUN_INDEX=0##LABEL=bench-funder##MASTER_SECRET=bench-txgen-master-key##SEED_SECRET=bench-txgen-children-seed##WARMUP_SECS=120##DURATION_SECS=2400##COOLDOWN_SECS=180
+      (dry run — not executed)
+      on a zone stockout: the same create with --machine-type=n2-standard-2 n2d-standard-2 (in turn)
+DRY RUN — re-run with --yes.
+--- gcloud
+gcloud compute instances describe bench-validator-01 --zone=us-west2-a --project=<PROJECT> --format=value\(networkInterfaces\[0\].networkIP\)
+gcloud compute instances describe bench-funder --zone=us-west2-a --project=<PROJECT> --format=json
+gcloud auth print-access-token

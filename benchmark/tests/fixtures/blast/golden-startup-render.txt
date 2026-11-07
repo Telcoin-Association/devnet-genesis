@@ -1,0 +1,10 @@
+rc=0
+[bench-startup] mode=blast label=bench-blaster-01 run=rtest-blast image=us-west2-docker.pkg.dev/<PROJECT>/txgen/tn-transaction-generator:blast-v2-abcdef1 senders=600@0 nodes=bench-validator-01=http://node-01.invalid:8545 objects=gs://<PROJECT>-bench-rtest-blast/rtest-blast/index-0/blasters/
+[bench-startup] DRY_RUN: would fetch secrets bench-txgen-master-key + bench-txgen-children-seed via Secret Manager REST
+DRY_RUN: docker-credential-gcr configure-docker --registries=us-west2-docker.pkg.dev
+DRY_RUN: docker pull us-west2-docker.pkg.dev/\<PROJECT\>/txgen/tn-transaction-generator:blast-v2-abcdef1
+[bench-startup] sleeping 300s until BENCH_START_AT=1767225900
+[bench-startup] BENCH_BLAST_START ts=1767225600
+DRY_RUN: docker run --rm --name txgen --network host --env-file <ROOT>/state/txgen.env -e TXGEN_LOG_DIR=/out/logs -v <ROOT>/state/etc-txgen:/etc/txgen:ro -v <ROOT>/state/out:/out us-west2-docker.pkg.dev/\<PROJECT\>/txgen/tn-transaction-generator:blast-v2-abcdef1 --config /etc/txgen/config.toml blast --nodes bench-validator-01=http://node-01.invalid:8545 --senders 600 --sender-start 0 --window 16 --warmup-secs 120 --duration-secs 2400 --cooldown-secs 180 --receipts all --deployments-path /etc/txgen/deployments.json --label bench-blaster-01 --run-id rtest-blast --out /out/bench-blaster-01.json --stdout-json chunked
+[bench-startup] generator exited rc=0
+[bench-startup] BENCH_BLAST_DONE rc=0 reason=ok

@@ -332,6 +332,37 @@ export BENCH_RUN_INDEX="${BENCH_RUN_INDEX:-0}"          # re-blast on the same f
 export BENCH_WARMUP_SECS="${BENCH_WARMUP_SECS:-120}"
 export BENCH_DURATION_SECS="${BENCH_DURATION_SECS:-2400}"
 export BENCH_COOLDOWN_SECS="${BENCH_COOLDOWN_SECS:-180}"
+# ---- bench 5 knobs (orchestrator-owned block; the drivers read these, never set them) ----
+# Light-load arm (benchmark-blast.sh): BENCH_LIGHT_LOAD=1 runs one short blast per entry of
+# BENCH_LIGHT_SENDERS (senders per blaster, chaos off, BENCH_LIGHT_*_SECS) before the configured
+# profile, each archived under results/<run>/blast-<index>-<UTC>/; BENCH_LIGHT_LOAD_AFTER=1 adds one
+# more light blast (the first entry's senders) after the load. Unset: exactly the single-blast run.
+export BENCH_LIGHT_LOAD="${BENCH_LIGHT_LOAD:-0}"
+export BENCH_LIGHT_LOAD_AFTER="${BENCH_LIGHT_LOAD_AFTER:-0}"
+# One blast per entry; BENCH_LIGHT_WINDOWS pairs a --window with each entry (empty = BENCH_WINDOW for
+# every entry). The default third entry (600 senders at window 4) is the reduced-in-flight point that
+# tests "seen latency = in flight / throughput" below the bench-4 profile's 9,600 in flight.
+export BENCH_LIGHT_SENDERS="${BENCH_LIGHT_SENDERS:-8 16 600}"
+export BENCH_LIGHT_WINDOWS="${BENCH_LIGHT_WINDOWS-16 16 4}"
+export BENCH_LIGHT_WARMUP_SECS="${BENCH_LIGHT_WARMUP_SECS:-60}"
+export BENCH_LIGHT_DURATION_SECS="${BENCH_LIGHT_DURATION_SECS:-360}"
+export BENCH_LIGHT_COOLDOWN_SECS="${BENCH_LIGHT_COOLDOWN_SECS:-60}"
+# Closed-loop window per sender (the blaster's --window); 16 is the bench-3/4 value.
+export BENCH_WINDOW="${BENCH_WINDOW:-16}"
+# Sampled per-transaction landings export from the blaster (--landings-out/--landings-sample): 0 = off
+# (no flags, the bench-4 argv); N = one row in every N landed transactions. Needs a blaster image with
+# the flags (BENCH_TXGEN_SHA at or after the bench-5 scanner change).
+export BENCH_LANDINGS_SAMPLE="${BENCH_LANDINGS_SAMPLE:-0}"
+# Node MDBX sync mode (benchmark-deploy.sh pre-start): empty = the image default (durable), or
+# durable | safe-no-sync (adds --db.sync-mode <v> to the launch line). Never set for a published run.
+export BENCH_NODE_DB_SYNC_MODE="${BENCH_NODE_DB_SYNC_MODE:-}"
+# Unit-log growth warning threshold (MB per minute on one node, measured at the first blast).
+export BENCH_LOG_RATE_WARN_MB_MIN="${BENCH_LOG_RATE_WARN_MB_MIN:-30}"
+# Teardown log transfer: iap (per-node IAP stream, the bench-4 path) or bucket (gzip to the run
+# bucket on the node, one copy down).
+export BENCH_LOG_TRANSFER="${BENCH_LOG_TRANSFER:-iap}"
+# A teardown re-run skips certification when manifest.certification exists unless this is 1.
+export BENCH_TEARDOWN_RECERTIFY="${BENCH_TEARDOWN_RECERTIFY:-0}"
 export BENCH_PREAMBLE_SECS="${BENCH_PREAMBLE_SECS:-90}" # estimate of the generator's own preamble
 export BENCH_START_DELAY_SECS="${BENCH_START_DELAY_SECS:-300}"
 export BENCH_POLL_SECS="${BENCH_POLL_SECS:-240}"        # >= 240: IAP/serial polling lesson
@@ -567,6 +598,50 @@ for _bench_knob in NODE_DISK_IOPS NODE_DISK_THROUGHPUT; do
         *) echo "❌ benchmark/config.sh: BENCH_${_bench_knob} is set but BENCH_NODE_DISK_TYPE='${NODE_DISK_TYPE}'; provisioned IOPS/throughput need a hyperdisk-* type." >&2; exit 1 ;;
     esac
 done
+for _bench_knob in BENCH_LIGHT_LOAD BENCH_LIGHT_LOAD_AFTER BENCH_TEARDOWN_RECERTIFY; do
+    case "${!_bench_knob}" in
+        0|1) ;;
+        *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
+    esac
+done
+for _bench_knob in BENCH_LIGHT_WARMUP_SECS BENCH_LIGHT_DURATION_SECS BENCH_LIGHT_COOLDOWN_SECS BENCH_LOG_RATE_WARN_MB_MIN; do
+    case "${!_bench_knob}" in
+        ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be a non-negative integer." >&2; exit 1 ;;
+    esac
+done
+case "${BENCH_WINDOW}" in
+    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_WINDOW='${BENCH_WINDOW}' must be a positive integer." >&2; exit 1 ;;
+esac
+case "${BENCH_LIGHT_SENDERS}" in
+    ''|' '*|*' '|*'  '*|*[!0-9\ ]*|0*|*' 0'*) echo "❌ benchmark/config.sh: BENCH_LIGHT_SENDERS='${BENCH_LIGHT_SENDERS}' must be positive integers separated by single spaces." >&2; exit 1 ;;
+esac
+case "${BENCH_LIGHT_WINDOWS}" in
+    '') ;;
+    ' '*|*' '|*'  '*|*[!0-9\ ]*|0*|*' 0'*) echo "❌ benchmark/config.sh: BENCH_LIGHT_WINDOWS='${BENCH_LIGHT_WINDOWS}' must be empty or positive integers separated by single spaces." >&2; exit 1 ;;
+    *)
+        # Count words without `set --`: this file is sourced, and `set --` would overwrite the
+        # caller's own positional parameters.
+        _bench_nwords() { echo $#; }
+        # shellcheck disable=SC2086
+        _bench_n_senders="$(_bench_nwords ${BENCH_LIGHT_SENDERS})"
+        # shellcheck disable=SC2086
+        _bench_n_windows="$(_bench_nwords ${BENCH_LIGHT_WINDOWS})"
+        if [ "${_bench_n_senders}" -ne "${_bench_n_windows}" ]; then
+            echo "❌ benchmark/config.sh: BENCH_LIGHT_WINDOWS has ${_bench_n_windows} entries but BENCH_LIGHT_SENDERS has ${_bench_n_senders}; give one window per senders entry (or leave it empty for BENCH_WINDOW)." >&2; exit 1
+        fi
+        unset _bench_n_senders _bench_n_windows; unset -f _bench_nwords ;;
+esac
+case "${BENCH_LANDINGS_SAMPLE}" in
+    ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: BENCH_LANDINGS_SAMPLE='${BENCH_LANDINGS_SAMPLE}' must be a non-negative integer." >&2; exit 1 ;;
+esac
+case "${BENCH_NODE_DB_SYNC_MODE}" in
+    ''|durable|safe-no-sync) ;;
+    *) echo "❌ benchmark/config.sh: BENCH_NODE_DB_SYNC_MODE='${BENCH_NODE_DB_SYNC_MODE}' must be empty, durable or safe-no-sync." >&2; exit 1 ;;
+esac
+case "${BENCH_LOG_TRANSFER}" in
+    iap|bucket) ;;
+    *) echo "❌ benchmark/config.sh: BENCH_LOG_TRANSFER='${BENCH_LOG_TRANSFER}' must be iap or bucket." >&2; exit 1 ;;
+esac
 for _bench_knob in BENCH_CHAOS BENCH_LAG_INJECT; do
     case "${!_bench_knob}" in
         0|1) ;;

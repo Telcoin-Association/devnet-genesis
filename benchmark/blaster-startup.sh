@@ -6,7 +6,11 @@
 #   --metadata-from-file=startup-script=blaster-startup.sh,txgen-config=<toml>,txgen-deployments=<json>
 #   --metadata=BENCH_MODE=fund|blast,TXGEN_IMAGE=...,NODE_URLS=...,SENDERS=...,SENDER_START=...,
 #              BLAST_ARGS=...,BENCH_START_AT=<unix>,BENCH_BUCKET=...,RUN_ID=...,RUN_INDEX=...,LABEL=...,
-#              MASTER_SECRET=...,SEED_SECRET=...
+#              MASTER_SECRET=...,SEED_SECRET=...[,WINDOW=<n>][,LANDINGS_SAMPLE=<n>]
+# (WINDOW, the generator's closed-loop window per sender, is set only when BENCH_WINDOW is not
+# the default 16; LANDINGS_SAMPLE, one sampled landing row per <n> landed transactions in
+# /out/landings-<label>.ndjson.gz, only when BENCH_LANDINGS_SAMPLE is not 0. A default blast's
+# metadata is unchanged.)
 #
 # Flow: done-guard -> SA token from the metadata server -> Secret Manager REST :access for
 # the txgen master key + children seed (into a root-only docker --env-file; they never
@@ -62,6 +66,8 @@ WARMUP_SECS="$(attr WARMUP_SECS)";     WARMUP_SECS="${WARMUP_SECS:-120}"
 DURATION_SECS="$(attr DURATION_SECS)"; DURATION_SECS="${DURATION_SECS:-2400}"
 COOLDOWN_SECS="$(attr COOLDOWN_SECS)"; COOLDOWN_SECS="${COOLDOWN_SECS:-180}"
 FUND_TEL="$(attr FUND_TEL)";           FUND_TEL="${FUND_TEL:-2}"
+WINDOW="$(attr WINDOW)";               WINDOW="${WINDOW:-16}"
+LANDINGS_SAMPLE="$(attr LANDINGS_SAMPLE)"; LANDINGS_SAMPLE="${LANDINGS_SAMPLE:-0}"
 
 case "${MODE}" in
     fund)  MARK="BENCH_FUND_DONE";  PREFIX="funder" ;;
@@ -99,6 +105,8 @@ for k in TXGEN_IMAGE NODE_URLS SENDERS SENDER_START BENCH_BUCKET RUN_ID MASTER_S
 done
 [ -z "${missing}" ] || fail 2 "missing-metadata:${missing# }"
 case "${RUN_INDEX}" in *[!0-9]*|0?*) fail 2 "bad-RUN_INDEX:'${RUN_INDEX}'" ;; esac
+case "${WINDOW}" in *[!0-9]*|0*) fail 2 "bad-WINDOW:'${WINDOW}'" ;; esac
+case "${LANDINGS_SAMPLE}" in *[!0-9]*|0?*) fail 2 "bad-LANDINGS_SAMPLE:'${LANDINGS_SAMPLE}'" ;; esac
 # Bucket objects of this VM: one prefix per BENCH_RUN_INDEX, so a second blast (or funding) on
 # the fleet never shares an object name with the first. A VM created by a benchmark-blast.sh
 # that set no RUN_INDEX keeps the old flat prefix, where that script looks for its objects.
@@ -170,10 +178,13 @@ if [ "${MODE}" = "fund" ]; then
     args+=(--prepare --nodes "${NODE_URLS}" --senders "${SENDERS}" --sender-start "${SENDER_START}"
            --fund-tel "${FUND_TEL}" --deployments-path /etc/txgen/deployments.json --out /out/prepare.json)
 else
-    args+=(--nodes "${NODE_URLS}" --senders "${SENDERS}" --sender-start "${SENDER_START}" --window 16
+    args+=(--nodes "${NODE_URLS}" --senders "${SENDERS}" --sender-start "${SENDER_START}" --window "${WINDOW}"
            --warmup-secs "${WARMUP_SECS}" --duration-secs "${DURATION_SECS}" --cooldown-secs "${COOLDOWN_SECS}"
            --receipts all --deployments-path /etc/txgen/deployments.json --label "${LABEL}"
            --run-id "${RUN_ID}" --out "/out/${LABEL}.json" --stdout-json chunked)
+    # Uploaded with the rest of /out (flat under the blasters prefix), so the copy into
+    # results/<run>/blasters/ brings it back.
+    [ "${LANDINGS_SAMPLE}" = 0 ] || args+=(--landings-out "/out/landings-${LABEL}.ndjson.gz" --landings-sample "${LANDINGS_SAMPLE}")
 fi
 if [ -n "${BLAST_ARGS}" ]; then
     # Operator-supplied extra flags, appended verbatim (word-split on whitespace).
