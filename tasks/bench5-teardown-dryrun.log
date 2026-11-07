@@ -1,0 +1,112 @@
+== teardown DRY RUN start 2026-11-07T14:48:18Z
+==========================================
+benchmark teardown — project tn-devnet, run r20261105-0803
+Mode: DRY RUN — nothing will be changed
+==========================================
+>>> gcloud credentials: gcloud auth print-access-token (60 s)
+    ✓ gcloud prints an access token
+>>> devnet denylist (never deleted): validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet obs-devnet txgen-devnet devnet-indexer
+>>> instance candidates (0):
+    ✓ no devnet instance is a candidate
+    ✓ every candidate instance is labelled bench-run=r20261105-0803
+>>> firewall candidates (0): none
+>>> bucket candidates (0): none
+>>> disk candidates (0; boot disks auto-delete with their instance):
+>>> IAP tunnel pids: none
+>>> contracts worktree: absent; branches: none
+>>> secrets: bench-txgen-master-key bench-txgen-children-seed — kept; accessor binding for the compute SA removed
+>>> local: no benchmark/genesis to move
+
+>>> bench-obs: bench-obs (us-west2-a), the run's Prometheus, read before any delete
+⚠ bench-obs absent — no Prometheus snapshot
+
+>>> node health (Prometheus network="bench"; informs, never blocks)
+    query: tn_node_mode{network="bench"} == 1
+    query: sum by (node) (increase(tn_batch_builder_seal_failures_total{network="bench",reason="failed_to_report"}[30m]))
+    query: bench_prom_rounds max = max by (node) (tn_epoch_current{network="bench"}) * 100000000 + max by (node) (tn_primary_round{network="bench"})
+      (dry run — not queried)
+
+>>> node logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (nothing is deleted until these are saved)
+    - bench-validator-01: instance gone — no log to pull
+    - bench-validator-02: instance gone — no log to pull
+    - bench-validator-03: instance gone — no log to pull
+    - bench-validator-04: instance gone — no log to pull
+    - bench-validator-05: instance gone — no log to pull
+    - bench-validator-06: instance gone — no log to pull
+    - bench-validator-07: instance gone — no log to pull
+    - bench-validator-08: instance gone — no log to pull
+    - bench-validator-09: instance gone — no log to pull
+    - bench-validator-10: instance gone — no log to pull
+    - bench-observer-11: instance gone — no log to pull
+
+>>> certification outcome: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (before the local gate, which requires every log manifest.cert_failures lists)
+    certification: already recorded at 2026-11-05T16:01:52Z — skipped (BENCH_TEARDOWN_RECERTIFY=1 re-runs it)
+
+>>> bench-obs Prometheus snapshot -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (informs, never blocks)
+    - no bench-obs of this run: no snapshot
+
+>>> log coverage: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs (each node's logs from the coordinated start to the blast end)
+LOGCOV bench-validator-01 gens=1 first=2026-11-05T08:15:48Z last=2026-11-05T10:22:18Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-02 gens=1 first=2026-11-05T08:15:55Z last=2026-11-05T10:22:20Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-03 gens=1 first=2026-11-05T08:16:13Z last=2026-11-05T10:22:22Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-04 gens=1 first=2026-11-05T08:16:05Z last=2026-11-05T10:22:21Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-05 gens=1 first=2026-11-05T08:16:22Z last=2026-11-05T11:31:45Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-06 gens=1 first=2026-11-05T08:16:48Z last=2026-11-05T11:38:44Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-07 gens=1 first=2026-11-05T08:17:27Z last=2026-11-05T12:05:19Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-08 gens=1 first=2026-11-05T08:17:25Z last=2026-11-05T12:05:18Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-09 gens=1 first=2026-11-05T08:17:22Z last=2026-11-05T12:31:38Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-validator-10 gens=1 first=2026-11-05T08:19:21Z last=2026-11-05T12:44:34Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+LOGCOV bench-observer-11 gens=1 first=2026-11-05T08:18:46Z last=2026-11-05T13:28:19Z due=2026-11-05T08:22:35Z end=2026-11-05T09:53:12Z ok=1
+    ✓ 11 node(s): 11 cover the run
+
+>>> local gate: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803 (the only copy; nothing is deleted until it holds every node's logs)
+    (dry run — the pulls above did not run; this is what results/r20261105-0803/ holds now)
+    ✓ 46 required file(s) present and non-empty: logs of 11 node(s) (container, unit stdout, recovery evidence), manifest.json, manifest.cert_failures logs
+      (dry run) would write /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/INDEX.md and /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/CHECKSUMS.sha256, and set manifest.archive
+
+>>> plan / execution
+    (orphan disks are re-listed after the instances; only unattached ones labelled bench-run=r20261105-0803 are deleted)
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch worktree prune
+      (dry run — not executed)
+
+>>> node startup provenance (informational — never blocks the teardown)
+    + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/report/provenance.py --run-dir /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803 --update-manifest
+      (dry run — not executed)
+
+>>> final local index: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803 (informational — never blocks the teardown)
+    analysis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/analysis/ (informational)
+      + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/cert-rate.py --logs /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/logs --windows /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/manifest.json --node-glob 'bench-validator-*-unit-stdout*.log.gz' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/analysis/cert-rate.md
+      + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/block-rate.py --run /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803 > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/analysis/block-rate.md
+      (dry run — not executed)
+      (dry run) would write /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/INDEX.md and /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261105-0803/CHECKSUMS.sha256
+
+>>> left-nothing checks (current state — dry run deleted nothing)
+    ✓ instances labelled benchmark=1: none
+    ✓ instances named bench-*: none
+    ✓ bench-obs (bench-obs): none
+    ✓ firewall rules ^bench- or targeting bench-node: none
+    ✓ buckets labelled benchmark=1 / named tn-devnet-bench-*: none
+    ✓ disks of run r20261105-0803 (labelled benchmark=1 / named bench-*): none
+    ✓ disks labelled bench-run=r20261105-0803 (any name): none
+    ✓ local IAP tunnels on :18545, :19090, :13000 (supervisor, ssh forward or websocket): none
+    ✓ contracts worktree: none
+    ✓ bench/r* branches: none
+    ✓ compute-SA bindings on bench secrets: none
+    · results/r20261105-0803/ kept, the only copy (back it up outside the repo): 251 file(s), 91449823676 bytes
+    · certification: 3 validator(s) below 90 %: bench-validator-08 58.6 % in phase preamble, bench-validator-09 80.2 % in phase warmup, bench-validator-10 84.7 % in phase preamble; logs in manifest.cert_failures
+    devnet instances (must all be present):
+      ✓ validator-1-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-2-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-3-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-4-devnet RUNNING (pre-run RUNNING)
+      ✓ observer-5-devnet RUNNING (pre-run RUNNING)
+      ✓ obs-devnet RUNNING (pre-run RUNNING)
+      ✓ txgen-devnet RUNNING (pre-run RUNNING)
+      ✓ devnet-indexer TERMINATED (pre-run TERMINATED)
+    ✓ devnet-allow-consensus identical to the run pre-snapshot
+
+>>> gcloud argv check: every gcloud command and flag this teardown can issue, against this SDK's --help (dry run only)
+GCLOUD_ARGV_OK 19 commands, 42 flags
+DRY RUN — re-run with --yes to delete the candidates above.
+TEARDOWN_DONE run=r20261105-0803 deleted=0 left=0 at=2026-11-07T14:48:42Z dry_run=1
+== teardown dry run rc=0 2026-11-07T14:48:42Z

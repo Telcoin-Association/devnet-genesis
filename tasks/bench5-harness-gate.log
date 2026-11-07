@@ -1,0 +1,35 @@
+== harness gate start 2026-11-07T14:48:20Z head=538af51
+== bash -n
+bash -n rc=0
+== shellcheck
+shellcheck rc=0
+== py_compile
+py_compile rc=0
+== unittest
+    self.assertEqual(self.sb.finish(proc), rc, self.why())
+                     ~~~~~~~~~~~~~~^^^^^^
+  File "/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tests/test_keygen.py", line 179, in finish
+    rc = proc.wait(timeout=timeout)
+  File "/usr/lib/python3.14/subprocess.py", line 1279, in wait
+    return self._wait(timeout=timeout)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2076, in _wait
+    raise TimeoutExpired(self.args, timeout)
+subprocess.TimeoutExpired: Command '['bash', '/tmp/keygen-test-8gajx5u5/tree/devnet-keygen.sh']' timed out after 60 seconds
+
+----------------------------------------------------------------------
+Ran 961 tests in 706.005s
+
+FAILED (errors=1, skipped=7)
+unittest rc=1
+== check_mutations
+  killed    benchmark/tools/stage-latency.py   test_stage_latency.StageLatencyTests.test_window_filter_and_epoch_boundary_exclusion
+  killed    benchmark/report/windows.py        test_report_kpis.LightWindowTests.test_cli_light_only_with_run_dir
+  killed    benchmark/tools/stage-latency.py   test_stage_latency.StageLatencyTests.test_digests_resent_split_by_cause
+  killed    benchmark/benchmark-blast.sh       test_blast_argv.SequenceTests.test_markers_children_and_blasts_in_order
+  killed    benchmark/benchmark-blast.sh       test_blast_argv.LightPlanTests.test_light_blasts_then_the_configured_profile
+  killed    benchmark/pull-lib.sh              test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e
+  killed    benchmark/pull-lib.sh              test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e
+  killed    benchmark/pull-lib.sh              test_pull_logs.BucketTransferTests.test_a_failed_lookup_fails_that_node_with_its_message_under_set_e
+check_mutations rc=0
+== harness gate done 2026-11-07T15:03:03Z

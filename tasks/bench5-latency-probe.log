@@ -1,0 +1,65 @@
+== latency probe start 2026-11-07T14:51:11Z
+[14:51:11] latency probe: 10 zones, project tn-devnet, network default, e2-small, addresses both
+[14:51:11]   zones: us-west2-a europe-west2-b australia-southeast1-c asia-northeast1-b us-east4-b europe-west4-a asia-southeast1-b asia-east2-a asia-northeast3-a asia-south1-c
+[14:51:11] preflight: no earlier probe VMs or firewall rules may exist
+[14:51:14] firewall: latency-probe-allow (probe<->probe icmp tcp:7777 udp:7778), latency-probe-allow-iap (IAP -> tcp:22)
+[14:51:14]   latency-probe-allow-ext (probe external IPs -> same ports) follows once the external IPs are known
+Creating firewall...
+..Created [https://www.googleapis.com/compute/v1/projects/tn-devnet/global/firewalls/latency-probe-allow].
+done.
+Creating firewall...
+..Created [https://www.googleapis.com/compute/v1/projects/tn-devnet/global/firewalls/latency-probe-allow-iap].
+done.
+[14:51:29] create: 10 VMs, up to 8 at a time
+[14:51:40]   created lat-us-east4-b (e2-small)
+[14:51:42]   created lat-us-west2-a (e2-small)
+[14:51:42]   created lat-europe-west2-b (e2-small)
+[14:51:42]   created lat-asia-east2-a (e2-small)
+[14:51:42]   created lat-europe-west4-a (e2-small)
+[14:51:43]   created lat-asia-northeast1-b (e2-small)
+[14:51:44]   created lat-asia-southeast1-b (e2-small)
+[14:51:45]   created lat-australia-southeast1-c (e2-small)
+[14:51:55]   created lat-asia-northeast3-a (e2-small)
+[14:51:57]   created lat-asia-south1-c (e2-small)
+[14:52:01] firewall: latency-probe-allow-ext (icmp tcp:7777 udp:7778 from the 10 probe VMs' external IPs)
+Creating firewall...
+..Created [https://www.googleapis.com/compute/v1/projects/tn-devnet/global/firewalls/latency-probe-allow-ext].
+done.
+[14:52:08] ssh: waiting for IAP SSH on 10 VMs, up to 5 at a time
+[14:52:11]   ssh ready: lat-us-east4-b (attempt 1)
+[14:52:11]   ssh ready: lat-us-west2-a (attempt 1)
+[14:52:12]   ssh ready: lat-europe-west2-b (attempt 1)
+[14:52:13]   ssh ready: lat-asia-northeast1-b (attempt 1)
+[14:52:14]   ssh ready: lat-australia-southeast1-c (attempt 1)
+[14:52:16]   ssh ready: lat-europe-west4-a (attempt 1)
+[14:52:18]   ssh ready: lat-asia-southeast1-b (attempt 1)
+[14:52:19]   ssh ready: lat-asia-east2-a (attempt 1)
+[14:52:23]   ssh ready: lat-asia-south1-c (attempt 1)
+[14:52:34]   ssh ready: lat-asia-northeast3-a (attempt 2)
+[14:52:34] echo: starting TCP :7777 and UDP :7778 echo servers on 10 VMs
+[14:52:37]   echo servers up: lat-us-east4-b
+[14:52:37]   echo servers up: lat-us-west2-a
+[14:52:38]   echo servers up: lat-europe-west2-b
+[14:52:39]   echo servers up: lat-asia-northeast1-b
+[14:52:41]   echo servers up: lat-australia-southeast1-c
+[14:52:41]   echo servers up: lat-europe-west4-a
+[14:52:44]   echo servers up: lat-asia-east2-a
+[14:52:45]   echo servers up: lat-asia-southeast1-b
+[14:52:46]   echo servers up: lat-asia-northeast3-a
+[14:52:49]   echo servers up: lat-asia-south1-c
+[14:52:49] measure: 10 VMs, up to 5 at a time (40 pings, 40 x 1200 B UDP, 20 TCP connects per pair)
+[14:53:17]   measured from lat-us-east4-b
+[14:53:18]   measured from lat-us-west2-a
+[14:53:19]   measured from lat-europe-west2-b
+[14:53:20]   measured from lat-asia-northeast1-b
+[14:53:21]   measured from lat-australia-southeast1-c
+[14:53:47]   measured from lat-europe-west4-a
+[14:53:50]   measured from lat-asia-southeast1-b
+[14:53:51]   measured from lat-asia-east2-a
+[14:53:52]   measured from lat-asia-northeast3-a
+[14:53:56]   measured from lat-asia-south1-c
+[14:53:56] results: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/latency/20261107T145111Z
+[14:53:56]   all 10 measured zones wrote JSON; next: benchmark/tools/latency-matrix.py /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/latency/20261107T145111Z
+[14:53:56] cleanup: deleting the probe VMs and firewall rules
+[14:55:13] cleanup: done — no lat-* VMs or latency-probe-allow* rules left
+== latency probe rc=0 2026-11-07T14:55:13Z

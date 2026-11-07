@@ -1,0 +1,70 @@
+{
+  "buildx.build.provenance": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/debian@bookworm-slim?digest=sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587\u0026platform=linux%2Famd64",
+        "digest": {
+          "sha256": "7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587"
+        }
+      },
+      {
+        "uri": "pkg:docker/rust@1.94-slim-bookworm?digest=sha256:cf9dd0ec73e75f827fe59123fff9dc65af1a1c8363c3c31ee8d7f8ad0b6a5fb2\u0026platform=linux%2Famd64",
+        "digest": {
+          "sha256": "cf9dd0ec73e75f827fe59123fff9dc65af1a1c8363c3c31ee8d7f8ad0b6a5fb2"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "args": {
+          "build-arg:CARGO_FEATURES": "faucet",
+          "build-arg:GIT_SHA": "067639def8b9bd4664af05cdcaa3590661a5e0c7"
+        },
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ],
+        "root": {
+          "configSource": {
+            "path": "Dockerfile"
+          },
+          "request": {
+            "args": {
+              "build-arg:CARGO_FEATURES": "faucet",
+              "build-arg:GIT_SHA": "067639def8b9bd4664af05cdcaa3590661a5e0c7",
+              "vcs:localdir:context": ".",
+              "vcs:localdir:dockerfile": "etc",
+              "vcs:revision": "067639def8b9bd4664af05cdcaa3590661a5e0c7",
+              "vcs:source": "https://github.com/Telcoin-Association/telcoin-network.git"
+            }
+          }
+        },
+        "compatibilityVersion": 30
+      },
+      "environment": {
+        "dockerfileVersion": "1.27.0",
+        "platform": "linux/amd64"
+      }
+    }
+  },
+  "buildx.build.ref": "default/default/ge56ai3w3qqx5djllgsqy60n7",
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.index.v1+json",
+    "digest": "sha256:a1a82341129cfa82bf0f7f19fbfc26f84888995e96333f428bd726462f23e402",
+    "size": 856
+  },
+  "containerimage.digest": "sha256:a1a82341129cfa82bf0f7f19fbfc26f84888995e96333f428bd726462f23e402",
+  "image.name": "us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench-main-fixes-20261107"
+}

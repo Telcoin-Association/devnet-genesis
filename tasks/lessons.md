@@ -1433,3 +1433,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   breaks — was only run by the final `make public-tests`, hours later.
 - Rule: a consensus-path change to restart/rejoin/catch-up code gets the full `test_restarts` nextest set (and the epoch set
   when epoch state is touched) before integration, in the unit worktree, recorded in the unit's checkpoint with per-test times.
+
+## 2026-11-07 — the gcloud default project is not the fleet's project: pass `--project tn-devnet` on every read
+- Symptom: the pre-run gates "obs-devnet < 60 %" and "devnet nodes on `--log.file.filter info`" were first run against
+  `obs-adiri` / `validator-*-adiri` (the default project telcoin-network, a different network) because the instance list
+  without `--project` showed plausible names. Read-only, no harm, but the gate was answered about the wrong fleet.
+- Rule: the bench and devnet fleets live in `tn-devnet` (`config.sh` PROJECT_ID); every ad-hoc `gcloud compute …` / `gcloud
+  storage …` carries `--project tn-devnet`, and an instance list is read with its project in the heading before any ssh.
+  The drivers already do this (`--project="${PROJECT_ID}"`); only hand-typed reads are exposed.

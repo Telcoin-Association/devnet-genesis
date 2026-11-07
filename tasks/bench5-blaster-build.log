@@ -1,0 +1,13 @@
+== blaster Cloud Build start 2026-11-07T14:50:07Z tag=blast-v2-6dad96f
+Creating temporary archive of 68 file(s) totalling 1.8 MiB before compression.
+Uploading tarball of [/home/drtnarg/coding/telcoin/tn-transaction-generator] to [gs://tn-devnet_cloudbuild/source/1794063008.149428-cf8a9c3780ec430da3b3383ef1b78011.tgz]
+Created [https://cloudbuild.googleapis.com/v1/projects/tn-devnet/locations/global/builds/cff3435c-374c-413b-98b0-853881688cb4].
+Logs are available at [ https://console.cloud.google.com/cloud-build/builds/cff3435c-374c-413b-98b0-853881688cb4?project=1095385745561 ].
+
+gcloud builds submit only displays logs from Cloud Storage. To view logs from Cloud Logging, run:
+gcloud beta builds submit
+
+Waiting for build to complete. Polling interval: 1 second(s).
+ID                                    CREATE_TIME                DURATION  SOURCE                                                                                   IMAGES                                                                             STATUS
+cff3435c-374c-413b-98b0-853881688cb4  2026-11-07T14:50:09+00:00  3M15S     gs://tn-devnet_cloudbuild/source/1794063008.149428-cf8a9c3780ec430da3b3383ef1b78011.tgz  us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-6dad96f  SUCCESS
+== blaster Cloud Build rc=0 2026-11-07T14:54:27Z

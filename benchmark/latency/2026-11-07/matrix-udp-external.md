@@ -1,0 +1,18 @@
+# UDP echo RTT (median, ms) — external IPs
+
+run 20261107T145111Z · probe VMs e2-small · addresses both (PREMIUM tier) · 10 zones
+
+Cells average both directions; `*` = one direction only; `—` = no data (not measured or every probe lost).
+
+| zone | us-west2-a | europe-west2-b | australia-southeast1-c | asia-northeast1-b | us-east4-b | europe-west4-a | asia-southeast1-b | asia-east2-a | asia-northeast3-a | asia-south1-c |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| us-west2-a | — | 137.14 | 155.97 | 100.28 | 61.73 | 150.70 | 160.40 | 143.94 | 127.25 | 220.18 |
+| europe-west2-b | 137.14 | — | 274.23 | 218.15 | 76.89 | 12.41 | 168.64 | 200.76 | 233.91 | 147.88 |
+| australia-southeast1-c | 155.97 | 274.23 | — | 108.85 | 199.22 | 256.69 | 94.67 | 122.21 | 128.84 | 154.30 |
+| asia-northeast1-b | 100.28 | 218.15 | 108.85 | — | 148.48 | 225.57 | 65.73 | 48.82 | 32.30 | 124.96 |
+| us-east4-b | 61.73 | 76.89 | 199.22 | 148.48 | — | 89.06 | 209.38 | 186.30 | 174.86 | 215.17 |
+| europe-west4-a | 150.70 | 12.41 | 256.69 | 225.57 | 89.06 | — | 164.10 | 195.91 | 230.30 | 150.35 |
+| asia-southeast1-b | 160.40 | 168.64 | 94.67 | 65.73 | 209.38 | 164.10 | — | 34.70 | 68.21 | 63.45 |
+| asia-east2-a | 143.94 | 200.76 | 122.21 | 48.82 | 186.30 | 195.91 | 34.70 | — | 36.66 | 87.88 |
+| asia-northeast3-a | 127.25 | 233.91 | 128.84 | 32.30 | 174.86 | 230.30 | 68.21 | 36.66 | — | 123.13 |
+| asia-south1-c | 220.18 | 147.88 | 154.30 | 124.96 | 215.17 | 150.35 | 63.45 | 87.88 | 123.13 | — |

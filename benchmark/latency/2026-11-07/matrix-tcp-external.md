@@ -1,0 +1,18 @@
+# TCP connect RTT (median, ms) — external IPs
+
+run 20261107T145111Z · probe VMs e2-small · addresses both (PREMIUM tier) · 10 zones
+
+Cells average both directions; `*` = one direction only; `—` = no data (not measured or every probe lost).
+
+| zone | us-west2-a | europe-west2-b | australia-southeast1-c | asia-northeast1-b | us-east4-b | europe-west4-a | asia-southeast1-b | asia-east2-a | asia-northeast3-a | asia-south1-c |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| us-west2-a | — | 136.68 | 138.88 | 100.36 | 61.97 | 149.36 | 160.51 | 143.40 | 127.31 | 219.93 |
+| europe-west2-b | 136.68 | — | 274.02 | 218.21 | 76.38 | 10.69 | 168.55 | 201.32 | 235.84 | 142.47 |
+| australia-southeast1-c | 138.88 | 274.02 | — | 107.71 | 199.63 | 256.57 | 94.63 | 122.65 | 128.42 | 152.92 |
+| asia-northeast1-b | 100.36 | 218.21 | 107.71 | — | 146.91 | 225.79 | 67.17 | 49.14 | 32.92 | 125.36 |
+| us-east4-b | 61.97 | 76.38 | 199.63 | 146.91 | — | 88.62 | 207.33 | 186.62 | 173.72 | 209.97 |
+| europe-west4-a | 149.36 | 10.69 | 256.57 | 225.79 | 88.62 | — | 164.32 | 197.52 | 232.00 | 144.44 |
+| asia-southeast1-b | 160.51 | 168.55 | 94.63 | 67.17 | 207.33 | 164.32 | — | 34.58 | 68.90 | 59.86 |
+| asia-east2-a | 143.40 | 201.32 | 122.65 | 49.14 | 186.62 | 197.52 | 34.58 | — | 37.21 | 87.67 |
+| asia-northeast3-a | 127.31 | 235.84 | 128.42 | 32.92 | 173.72 | 232.00 | 68.90 | 37.21 | — | 122.49 |
+| asia-south1-c | 219.93 | 142.47 | 152.92 | 125.36 | 209.97 | 144.44 | 59.86 | 87.67 | 122.49 | — |
