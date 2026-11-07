@@ -86,6 +86,14 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   08 Hong Kong / 10 Mumbai landed NOTHING for 802 / 853 / 491 s before the kill, no RPC error, all resumed 7-13 s AFTER the kill — the same three the certification pass flagged (A2 asked: far-validator
   starvation under load, relieved when the committee dropped to 9 voters?); (3) seen−land 21-35 s on generators 01/03/05 (execution behind on the slow executors); (4) at LIGHT load London (02) and
   Netherlands (06) land at p50 11-17 s in synchronized bursts while the rest land in 0.12-0.84 s (A6 asked); (5) epoch-7 boundary gap 24 s (bench 4 13 s); land p99 402.6 s from the stalls.
+- D3 TRIAGE DONE (benchmark/private/bench5-r20261107-1504/D3/triage.md): SYSTEMIC (investigators launched): (1) accepted txs silently dropped until the generator's 300-s resend (1.85 % of sampled
+  landings ≥ 300 s, none in 250-300 s, 8 of 10 generators; 53 % with a nonce skip first) + duplicate inclusion of the resends (37,683 `nonce too low` skips per node in outputs 12084-12091 at 17:55:01-20Z;
+  v04 re-sealed byte-identical batches every 300 s → 5 digests committed/executed 2-3×; no dedupe between seal and execution) → bench5-sealed-tx-invisible-drops-and-duplicates (I-D); (2) loaded epoch
+  boundary drain (close waits for the 7th executor; gaps 22.6 / 11.0 s; records at exactly 7/10; ≈ 1,400 tn::tasks capacity errors on v01/v03/v05 at late entry) → bench5-loaded-epoch-boundary-drain (I-E);
+  (3) execution lag feeds itself (`finish` + signer job cost rise with queue depth; E4's per-queued-output rayon recovery; slow set changes with load, so not hardware) → bench5-execution-lag-feedback (I-F).
+  KNOWN: London/NL leader share = certificate inclusion (not election skew); seen−land on 01/03/05 = S7 + S10; bench-4 items closed: Seoul certification (100 %), v05 cold save_blocks, obs-11 disk. NOISE:
+  37-round teardown spread, v06 fsync probe, obs-11 'sync exchange failed'. NEEDS DATA: 600×4 vs 600×16 capacity (recut sat4 without the 81 s of cool-down — D42), v09's 3 not-found leader rounds, RSS
+  growth 6.3-8.5 GB after the restart, whether bench 3/4 had the 300-s cliff.
 - A2 DONE (benchmark/private/bench5-r20261107-1504/A2/certification.md §"Far-validator starvation under load", vote-path.md, numbers.json): own-header certification in load_all10 — v04 Tokyo 0.2 %, v08 Hong Kong
   0.0 %, v10 Mumbai 16.3 %, the other seven 99.7-100 % (idle/light/600×4 all ≈ 100 %). MECHANISM = F3-6 REGRESSION: the voter waits ≤ 1 s for its own execution to reach the header's execution block, then
   refuses `ExecutionBehind`; v04/v08/v10 were the FASTEST executors (exec lag 6.4-9.1 rounds vs 12.6-13.5 middle, 22-31 for v01/v03/v05), so their headers named blocks the others had not executed → seven
