@@ -78,6 +78,27 @@ tasks/bench5-land-time-baseline.md state what each fix is expected to change —
   first poll (consistent with the 18:24:47Z blast-driver poll above: it rejoined MID-EPOCH 9 within ≈ 1-5 min of the load ending; bench 4's chaos node needed the next
   boundary, 36 min); prom_window 15:40:20Z → 18:39:18Z end_reason=fleet_ready (waited 253 s); collector: metrics.json 111 MB, 21 instances, 307 GCP series,
   prometheus missing=0 absent=0 errors=0. Certification deferred to the teardown's log pull.
+- A1 DONE (benchmark/private/bench5-r20261107-1504/A1/kpis.md, light.md, kpis.json, kpis_table.md, bundle_*.json; driver reproduces bench 4 and the three earlier runs exactly): index-4 load 3,448.7 tx/s
+  (−24.7 % vs 4,578; best 60 s 4,939; 12.96 blocks/s vs 15.84; rounds/s 0.97-1.0 vs 0.84-0.91), land p50/p95 2.81/14.40 s (3.30/12.84), seen p50/p95 14.18/53.39 s (12.92/29.78), bias-free commit p50 3.07 s
+  (the whole-second bias is exactly 500 ms mean); FLOOR 8 senders land p50 0.25 s / seen 1.63 s / commit 0.64 s, 16 senders 0.31 / 1.73 / 0.65 s (predicted 1.2 / 2.2 s — better); 600×4 = 3,868.5 tx/s
+  (+12 % over 600×16!), land 0.88 s, seen 3.22 s, 18,544 in flight (77 % of cap); -32603 before the kill = 0 across all 10 generators (bench 4 lost two); v05 caught up in 1,365 s (bench 4 2,160).
+  SURPRISES → D3 candidates: (1) validators LESS busy (CPU 18 % vs 33 %) but the telcoin process wrote 498.7 vs 131.6 MiB/s, PSI io 31-34 % vs 10-17 % — IO-bound? (A4n asked); (2) generators 04 Tokyo /
+  08 Hong Kong / 10 Mumbai landed NOTHING for 802 / 853 / 491 s before the kill, no RPC error, all resumed 7-13 s AFTER the kill — the same three the certification pass flagged (A2 asked: far-validator
+  starvation under load, relieved when the committee dropped to 9 voters?); (3) seen−land 21-35 s on generators 01/03/05 (execution behind on the slow executors); (4) at LIGHT load London (02) and
+  Netherlands (06) land at p50 11-17 s in synchronized bursts while the rest land in 0.12-0.84 s (A6 asked); (5) epoch-7 boundary gap 24 s (bench 4 13 s); land p99 402.6 s from the stalls.
+- A6 DONE (benchmark/private/bench5-r20261107-1504/A6/stages.md, stages-<window>.json, landings.md, levers.md, littles-law.json; windows cut from the blasters' REAL phases): floor pooled ts 0.65-0.67 s,
+  commit 1.25-1.27 s, seen 1.50-1.51 s at 8/16 senders (predicted 1.2 / 2.2 s → 0.5-0.7 s better); sanity Σ−seen ≤ 250 ms on 100 % (light) / 97-99 % (load) of blocks. Light-load stage p50 (ms): S1 pool 26,
+  S2 batch quorum 171, S4 digest wait 155, S5 cert 155, S6a 155, S6b leader-created→commit 611 (40 % of seen; consensus S2-S6b = 82 %), S11x execute 37, S13x visibility 152. Saturation (600×16 pre-kill):
+  S1 423, S4 418, S5 396, S6a 750, S6b 1,264, S7 wait-for-execution p95 16.9 s (slow executors LA/Sydney/Ashburn), S10 ENGINE QUEUE 9,566 (64 % of seen 14.87 s), S11x 282; one output 1,658 ms = execute 479
+  + persist 1,167 of which MDBX commit 1,035 ms (190 µs/tx) → PERSIST-BOUND (bench 4: execute 75 % / persist 24 %); persist is off the visibility path (blocks hit RPC at execution) and reaches seen only via
+  the queue. Little's law holds (ratio 0.97-1.04): 600×4 24k in flight 4,006 tx/s mean seen 4.59 s; 600×16 96k in flight 3,481 tx/s mean 23.69 s — 4× in-flight = −13 % throughput, 5.2× latency.
+  FINDINGS → D3: (i) London (v02) and Netherlands (v06) at light load: only 18 % of their certified headers ever COMMITTED; the rest are orphaned and re-sent on a synchronized ~60-round (~20 s) cycle →
+  their generators' p50 14.5-18.7 s vs 1.3-2.0 s elsewhere (far-validator certificate inclusion; #1781 territory); (ii) pre-kill Tokyo/HK/Mumbai certified only 52 / 40 / 271 of 1,041 headers: voters answered
+  `outcome=behind` (F3-6 execution-behind refusal; exec_wait 1 s, lock ≈ 8.5 s) → 0 tx landed 17:42-17:54Z (Tokyo, HK), 17:44-17:53Z (Mumbai) — the F3-6 commit × 3 slow executors starved them (A2 confirms).
+  LEVERS (levers.md, 13 with arithmetic): 1 bound in-flight at the node by the execution backlog (seen p50 14.9 → 3.2-4.7 s at saturation; no new capacity); 2 pipelined persist (×1.42 throughput, p50 −4.4 s);
+  3 far-validator orphan re-send / inclusion (−10 to −16 s for London/NL at light load — largest light-load p95 lever); 4 fix the execution-behind refusal starvation; 5 #532 fast direct commit (S6b −0.15-0.35 s
+  light); then #552 multi-anchor p95 −0.35 s; min_header_delay 250 + threshold 1 only −0.19 s p50 (headers are 100 % min_delay, threshold 5 never fires) and must follow lever 3; overlap batch quorum −0.1-0.15 s;
+  L6 batch-wake already in (−0.07-0.10 s, 66-76 % wake=arrival, S1 26-31 ms); max_batch_delay 100 ≈ 0 (drop the arm); L7 +113-118 ms per re-queued digest vs a 20-45 s fallback, no p50 effect; per-type latency flat.
 - A3 DONE (benchmark/private/bench5-r20261107-1504/A3/verdicts.md, recovery.md, recovery.json, boundary.md): F1 CONFIRMED on every field (outside_gc_window demotions on healthy nodes 0 vs 2;
   consensus_exec_lag_rounds max v01 62 / v03 54 / v09 58 with no demotion; commit_lag_rounds p99 ≤ 5 loaded, 6.12 in the chaos window; run-ahead blocked 0; CvvActive 10 until the kill; -32603 before
   the kill 0); F3 CONFIRMED (v05: 1 rejoin vs 13; no restart_gap line (store−pack 30 rounds); primed primary_round ≥ newest_round on all 133 lines; first own cert 1.85 s after promotion; 8 stuck-replay
