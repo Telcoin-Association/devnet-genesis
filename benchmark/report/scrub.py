@@ -10,7 +10,9 @@ Two jobs:
 
 1. ``scrub_inputs(scratch_dir, scrubbed_dir)`` writes scrubbed copies of
    manifest.json, metrics.json, combined.json and sizing.json (and copies
-   sampler/*.csv) so build-report.py only ever sees clean inputs.
+   sampler/*.csv) so build-report.py only ever sees clean inputs. A
+   stage-latency.json (tools/stage-latency.py) in the scratch dir is scrubbed
+   too, with scrub_stage_latency().
 2. ``scan_dir(bundle_dir, manifest)`` scans a finished bundle. Findings name
    the file, line and rule, never the matched text, so a public CI log does
    not re-publish the leak it reports.
@@ -25,6 +27,14 @@ What the scrub does to strings, in every file:
 * An absolute host path (/Users, /home, /private, /var/folders, /root, /tmp)
   becomes its basename. Container paths such as /var/lib/bench or /etc/txgen
   are not secrets and are kept.
+
+The stage-latency tool's outputs (its JSON and its markdown) name instances and
+input files. scrub_stage_latency() and scrub_text() apply the rewrites above
+plus two more, used only there: a bucket URL becomes the base name of the
+object it names, and any remaining private project name (the built-in list
+and the manifest's ``project``) becomes ``redacted-project``. Instance names
+are kept. The markdown is not a bundle file: scan_dir() reports a ``.md`` (or
+a gzip such as a ``landings-*.ndjson.gz`` export) as ``unexpected-file``.
 
 Keys named ``internal_ip``, ``external_ip``, ``instance_id``, ``node_url``,
 ``grafana_url``, ``bucket``, ``bucket_name`` or ``bucket_prefix`` are dropped
@@ -59,9 +69,12 @@ __all__ = [
     "scrub_manifest",
     "scrub_metrics",
     "scrub_sizing",
+    "scrub_stage_latency",
+    "scrub_text",
 ]
 
 REDACTED_IP = "redacted-ip"
+REDACTED_PROJECT = "redacted-project"
 REDACTED_HOST_PORT = 8545
 
 # Dotted quads that are never a leak (the site gate allows the same two).
@@ -102,6 +115,9 @@ _LOCAL_PATH_RE = re.compile(
     r"(?<![\w.-])(?:/Users|/home|/private|/var/folders|/root|/tmp)/[^\s\"'<>|,;]*"
 )
 
+# A bucket URL and the object path after it (the scheme is split so this file passes its own scan).
+_BUCKET_URL_RE = re.compile("gs:" "//([A-Za-z0-9._-]+)(/[^\\s\"'<>|,;]*)?")
+
 _SAMPLER_HEADER_CELL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SAMPLER_VALUE_CELL = re.compile(r"^(?:-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)?$")
 
@@ -134,6 +150,9 @@ class _Ctx(object):
         self.replaced_ips = 0
         self.replaced_paths = 0
         self.rewritten_images = 0
+        self.redacted_names = 0
+        alt = "|".join(re.escape(p) for p in sorted(self.projects, key=len, reverse=True))
+        self._project_re = re.compile(alt, re.IGNORECASE)
 
     def drop(self, path):
         if path not in self.dropped:
@@ -164,6 +183,22 @@ class _Ctx(object):
         s = self.ips(s)
         s = self.registry.sub(self._image, s)
         return _LOCAL_PATH_RE.sub(self._path, s)
+
+    def _bucket(self, match):
+        self.redacted_names += 1
+        base = os.path.basename((match.group(2) or "").rstrip("/"))
+        return base or "redacted-bucket"
+
+    def _project(self, match):
+        self.redacted_names += 1
+        return REDACTED_PROJECT
+
+    def text(self, s):
+        """string() plus the stage-tool rewrites: bucket URLs to the object's base name, then any
+        private project name left over (in a file name, say) to REDACTED_PROJECT."""
+        s = self.string(s)
+        s = _BUCKET_URL_RE.sub(self._bucket, s)
+        return self._project_re.sub(self._project, s)
 
     def walk(self, obj, fn):
         """New copy of ``obj`` with ``fn`` applied to every string and key."""
@@ -333,6 +368,21 @@ def scrub_sizing(s, ipmap, ctx=None):
     return ctx.walk(out, ctx.string)
 
 
+def scrub_stage_latency(doc, ipmap, ctx=None):
+    """Scrubbed copy of a tools/stage-latency.py JSON result: the keys dropped everywhere, every
+    string and key through the IP, registry, local-path, bucket-URL and project-name rewrites.
+    Instance names, window names and numbers are kept."""
+    ctx = _ctx_for(ipmap, ctx)
+    out = ctx.drop_anywhere(doc, "stage-latency")
+    return ctx.walk(out, ctx.text)
+
+
+def scrub_text(text, ipmap, ctx=None, projects=()):
+    """Scrubbed copy of free text (the stage-latency markdown): the same rewrites as
+    scrub_stage_latency(); ``projects`` adds project names to the built-in list."""
+    return _ctx_for(ipmap, ctx, projects).text(text)
+
+
 def _check_sampler_csv(path):
     """Raise ValueError unless the CSV is a name header plus numeric rows."""
     with open(path, "r", encoding="utf-8", errors="strict") as fh:
@@ -376,6 +426,7 @@ def scrub_inputs(scratch_dir, scrubbed_dir):
         ("metrics.json", scrub_metrics, True),
         ("combined.json", scrub_combined, True),
         ("sizing.json", scrub_sizing, False),
+        ("stage-latency.json", scrub_stage_latency, False),
     )
     written = []
     for name, fn, required in jobs:
@@ -407,6 +458,7 @@ def scrub_inputs(scratch_dir, scrubbed_dir):
         "replaced_ips": ctx.replaced_ips,
         "replaced_paths": ctx.replaced_paths,
         "rewritten_images": ctx.rewritten_images,
+        "redacted_names": ctx.redacted_names,
         "files": written + ["sampler/" + c for c in csvs],
     }
 

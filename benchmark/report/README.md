@@ -37,7 +37,7 @@ The directory is not a package. Each module is a script with the standard librar
 | `make_bundle.py` | The entry point. Runs the pipeline below and writes the bundle. |
 | `provenance.py` | Reads the node logs saved with the run and checks which build ran. |
 | `windows.py` | Works out the measurement windows, the 5-minute blocks and the 1-second series. |
-| `kpis.py` | Computes the 13 KPIs and the recovery record. |
+| `kpis.py` | Computes the KPIs (18 ids) and the recovery record; offline CLI on a results dir. |
 | `scrub.py` | The first leak gate. Scrubs the report inputs and scans the finished bundle. |
 
 ### provenance.py
@@ -85,6 +85,18 @@ python3 benchmark/report/windows.py <blasters-dir> <combined.json> [--blocks]
 It prints the windows as JSON, plus 5-minute blocks with `--blocks`. Exit 1 when it finds a
 problem, 2 on bad input.
 
+Light blasts (the light-load arm, `BENCH_LIGHT_LOAD=1`): `--run-dir benchmark/results/<run>` adds
+a `light` list, one entry per light blast of the manifest's `blasts[]` (chaos off, not the blast at
+the top of the results dir), named `light<senders>` at window 16 and `light<senders>x<window>`
+otherwise (`light8`, `light16`, `light600x4`). Each window is the merged mixed phase of the
+blast's own archived blasters (`blast-<index>-<UTC>/blasters/`), else the `mixed` entry of its
+manifest copy's `phases`, else `blasts[]` `started` + warm-up to `ended` - cool-down (approximate:
+those two bracket the whole single-blast invocation). `boundaries` lists the epoch boundaries
+inside it (blocks with `closes_epoch` set, read by column name). By default each entry also has
+`exclude_secs` (30), `intervals` and `kept_secs`: the window with +/- 30 s dropped around each
+boundary (`--exclude-boundaries SECS` sets the width; `--keep-boundaries` leaves the three out, and
+`boundaries` then lists only those inside the window). Without `--run-dir` the output is unchanged.
+
 ### kpis.py
 
 Healthy validators are the manifest's validators minus the chaos targets. A chaos target is an
@@ -101,6 +113,11 @@ uses. Values are rounded half-up to a fixed number of decimals per KPI.
 | `blocks_per_sec` | merged mixed | `combined.blocks.rows[timestamp]` | blocks in the window / its length |
 | `time_to_land_p50_s` | run | `combined.latency.ts_ms.p50` | s |
 | `time_to_land_p95_s` | run | `combined.latency.ts_ms.p95` | s |
+| `time_to_land_corrected_p50_s` | run | `combined.latency.ts_ms.p50` + 0.5 s | s; the block timestamp is the leader's creation time cut to the whole second, 0.5 s low on average |
+| `time_to_seen_p50_s` | run | `combined.latency.seen_ms.p50` | s; submit to the generator's scanner having the block from its own node |
+| `time_to_seen_p95_s` | run | `combined.latency.seen_ms.p95` | s |
+| `floor_time_to_land_p50_s` | `light8` | the light8 blast's blasters, `latency.ts_ms`, pooled as `aggregate.py` does | s; only with a light-load arm |
+| `floor_time_to_seen_p50_s` | `light8` | the same, `latency.seen_ms` | s; only with a light-load arm |
 | `commit_latency_p95_s` | merged mixed | `metrics.prometheus.series.tn_primary_commit_latency_seconds`, p95 per healthy validator | s, range over validators |
 | `execution_time_per_output_s` | merged mixed | `metrics.prometheus.series.tn_engine_execution_duration_seconds`, median of the mean per healthy validator | s, range over validators |
 | `disk_write_p95_mibps_busiest` | merged mixed | `metrics.gcp[<busiest>].disk_write_bytes_per_sec` p95 | MiB/s |
@@ -109,7 +126,21 @@ uses. Values are rounded half-up to a fixed number of decimals per KPI.
 | `rss_p95_gib_busiest` | merged mixed | `metrics.gcp[<busiest>].telcoin_rss_bytes` p95 | GiB |
 | `psi_io_max_pct` | merged mixed | `sampler[healthy validators].psi_io_some_avg10` max | %, range over validators |
 
-A KPI whose inputs are missing is left out and a caveat says why.
+A KPI whose inputs are missing is left out and a caveat says why; a run without a light blast
+has no floor KPIs and no caveat about them. With a light blast, `compute()` also returns
+`floor_by_generator` (each generator's own light8 quantiles; not published) and a caveat when an
+epoch boundary fell inside the light8 mixed window (the histograms carry no time, so the floor
+pools the whole mixed phase).
+
+```
+python3 benchmark/report/kpis.py --run-dir benchmark/results/<run> [--blast-dir DIR]
+    [--floor-blast-dir DIR] [--txgen-bench DIR] [--combined FILE] [--table] [--out FILE]
+```
+
+The command line runs `aggregate.py` itself (unscrubbed inputs: the output is private), takes the
+load from `--blast-dir` (an archived `blast-<i>-<UTC>/`; default the top of the run dir) and the
+floor from `--floor-blast-dir` (default the light8 entry of `blasts[]`), and prints JSON or, with
+`--table`, a markdown table.
 
 Recovery covers one chaos target. Killed and restarted come from `manifest.chaos`. Demoted and
 rejoined come from `tn_node_mode{mode="cvv_inactive"}`, at 15-second resolution: the rejoin is
@@ -172,6 +203,12 @@ text, so a CI log does not repeat the leak. The denylist:
 | `manifest-ip`, `manifest-instance-id`, `manifest-name` | built from the raw manifest: its IPs, instance ids, project, bucket names and Grafana host |
 | `symlink`, `unexpected-file` | a symlink, or a file that is not `.json`, `.csv` or `.html` text |
 
+`scrub_stage_latency()` and `scrub_text()` cover the stage tool's JSON and markdown: the string
+rewrites above, plus bucket URLs reduced to the object's base name and any private project name
+left over replaced by `redacted-project`; instance names stay. A `stage-latency.json` in the
+scratch dir is scrubbed by `scrub_inputs()`. The markdown and the landings exports are never
+bundle files (`unexpected-file`).
+
 This list is a first pass. The rule table that decides what is published lives in the site
 repository's `scrub.py`, and its `build.py --check` is the final gate. If the two disagree, the
 site wins. Fix this side to match, not the other way round.
@@ -191,8 +228,16 @@ site wins. Fix this side to match, not the other way round.
    manifest, metrics and blasters come from `blast-N-*/`. Nothing else is copied: no node logs
    (25-80 GB for a run with a debug log filter), no `genesis/`, `bucket/`, `meta/`, `funder/` or
    `evidence/`. The scratch directory holds the tools' inputs and outputs only. An existing
-   scratch directory is refused unless you pass `--force`.
-3. **Provenance** (`2 provenance`). The node logs in `results/<run>/logs/` are read in place
+   scratch directory is refused unless you pass `--force`. A run with a light-load arm also gets
+   its light8 blast (manifest `blasts[]`, or `--floor-blast-dir DIR`) under `floor/`: that
+   blast's manifest copy and `blasters/*.json`, read by the floor KPIs at step 7. The sampled
+   landings exports (`landings-*.ndjson.gz`, for the stage tool) are never copied.
+3. **Provenance** (`2 provenance`). First the MDBX sync mode: a manifest whose
+   `node_startup[<inst>].db_sync_mode` is `safe-no-sync` on any node (deploy step 7,
+   `BENCH_NODE_DB_SYNC_MODE`) stops the run here unless you pass `--allow-safe-no-sync`, which
+   publishes with the caveat "MDBX sync mode safe-no-sync on <nodes>: durability relaxed; not
+   comparable with durable runs." `durable` or no record (a bench-4 manifest) passes.
+   Then the node logs in `results/<run>/logs/` are read in place
    (never copied) and checked against the expected sha:
    `manifest.node_git_sha`, else the backfill's `upstream.sha`. A mismatch stops the run here,
    before the slow steps, unless you pass `--allow-provenance-mismatch`. That publishes with
@@ -232,7 +277,10 @@ Exit status: 0 ok, 1 refused or a gate failed, 2 usage error.
 
 The scratch directory is kept after a run, so a later `--compare` can reuse it. `--force`
 deletes and rebuilds it, and only after the sources are known to be usable. Each scratch
-directory holds a `.source.json` marker: `{run, blast_index, source, built_at}`.
+directory holds a `.source.json` marker: `{run, blast_index, source, built_at, inputs,
+archives, landings, floor}`. `inputs` lists every file copied in (`floor/` included) with its
+path under `benchmark/results/`, size and sha256; `archives` the run's `blast-<i>-<UTC>/` dirs;
+`landings` the landings exports with size and sha256; `floor` the light blast read, or null.
 
 ## Usage
 

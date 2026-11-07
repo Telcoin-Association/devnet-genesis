@@ -7,6 +7,7 @@ a real tn-bench-manifest/v1: instances carry internal/external IPs and instance 
 carry an instance id and a node_url.
 """
 import copy
+import gzip
 import importlib.util
 import json
 import os
@@ -504,6 +505,100 @@ class ScrubInputsTests(unittest.TestCase):
             fh.write("ts unix,rss\n1,2\n")
         with self.assertRaises(ValueError):
             scrub.scrub_inputs(self.scratch, self.out)
+
+
+def stage_latency_doc(*inputs):
+    """A tools/stage-latency.py result: windows by name, per-stage quantiles, headline sums."""
+    return {
+        "schema": "tn-stage-latency/v1",
+        "run": "r20260101-0000",
+        "inputs": list(inputs) or ["logs/val-1-telcoin.log.gz", "blasters/load-1.json"],
+        "nodes": ["val-1", "val-2", "bench-validator-01"],
+        "windows": {"light8": {"start_utc": "2026-01-01T00:01:40Z", "end_utc": "2026-01-01T00:07:40Z",
+                               "stages": {"S5": {"count": 120, "p50_ms": 149, "p95_ms": 272}}}},
+        "headline": {"light8": {"ts_p50_s": 0.95, "seen_p50_s": 1.88, "seen_p95_s": 3.0}},
+    }
+
+
+class StageLatencyScrubTests(unittest.TestCase):
+    """The stage tool's JSON and markdown: instance names stay, IPs, local paths, bucket URLs and the
+    project name do not; neither the markdown nor a landings export is ever a bundle file."""
+
+    def setUp(self):
+        self.manifest = synthetic_manifest()
+        self.ipmap = scrub.ip_label_map(self.manifest)
+        self.leaky = [HOME + "alice/" + PRIVATE_PROJECT + "-work/results/r1/logs/val-1-telcoin.log.gz",
+                      GS + BUCKET + "/r1/logs/val-2/telcoin.log.gz",
+                      GS + PRIVATE_PROJECT + "-bench-r1/",
+                      "/tmp/" + PROJECT + "-stage.json",
+                      "peer %s at %s" % (INT_V1, UNMAPPED_PUBLIC)]
+
+    def scan(self, text, name="stage-latency.json"):
+        return {f.rsplit(": ", 1)[-1] for f in scrub.scan_text(text, name, self.manifest)}
+
+    def test_clean_result_is_unchanged_and_scans_clean(self):
+        doc = stage_latency_doc()
+        self.assertEqual(scrub.scrub_stage_latency(doc, self.ipmap), doc)
+        self.assertEqual(self.scan(json.dumps(doc, indent=1)), set())
+
+    def test_leaky_result_is_rewritten(self):
+        doc = stage_latency_doc(*self.leaky)
+        doc["nodes_detail"] = [{"name": "val-1", "instance" "_id": ID_V1, "internal" "_ip": INT_V1}]
+        self.assertTrue({"local-path", "internal-name", "private-ip", "ipv4", "manifest-name"}
+                        <= self.scan(json.dumps(doc, indent=1)))
+        ctx = scrub._Ctx(self.ipmap, [PROJECT])
+        out = scrub.scrub_stage_latency(doc, self.ipmap, ctx=ctx)
+        self.assertEqual(out["inputs"], ["val-1-telcoin.log.gz", "telcoin.log.gz", "redacted-bucket",
+                                         "redacted-project-stage.json", "peer val-1 at redacted-ip"])
+        self.assertEqual(out["nodes_detail"], [{"name": "val-1"}])
+        self.assertEqual(out["nodes"], ["val-1", "val-2", "bench-validator-01"])
+        self.assertEqual(out["headline"], doc["headline"])
+        self.assertEqual(self.scan(json.dumps(out, indent=1)), set())
+        self.assertEqual(ctx.redacted_names, 3)
+
+    def test_markdown_is_rewritten(self):
+        md = ("| window | stage | p50 ms |\n|---|---|---:|\n| light8 | S5 | 149 |\n\n"
+              "Inputs: %s, %s; %s\nnode bench-validator-01 (%s)\n" % tuple(self.leaky[:3] + [INT_V2]))
+        self.assertTrue({"local-path", "internal-name", "private-ip"} <= self.scan(md, "stage-latency.md"))
+        out = scrub.scrub_text(md, self.ipmap, projects=[PROJECT])
+        self.assertEqual(self.scan(out, "stage-latency.md"), set())
+        self.assertIn("| light8 | S5 | 149 |", out)
+        self.assertIn("node bench-validator-01 (val-2)", out)
+        self.assertIn("Inputs: val-1-telcoin.log.gz, telcoin.log.gz; redacted-bucket", out)
+        # The project in a bare file name is caught by the text scrub, not by string() alone.
+        self.assertEqual(scrub.scrub_text("x " + PRIVATE_PROJECT + "-notes.md", {}), "x redacted-project-notes.md")
+
+    def test_bundle_gate_refuses_markdown_and_landings(self):
+        tmp = tempfile.mkdtemp(prefix="tb2-stage-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with open(os.path.join(tmp, "stage-latency.md"), "w") as fh:
+            fh.write("| light8 | S5 | 149 |\n")
+        with gzip.open(os.path.join(tmp, "landings-load-1.ndjson.gz"), "wt") as fh:
+            fh.write(json.dumps({"node": "val-1", "phase": "mixed"}) + "\n")
+        with open(os.path.join(tmp, "stage-latency.json"), "w") as fh:
+            json.dump(scrub.scrub_stage_latency(stage_latency_doc(*self.leaky), self.ipmap,
+                                                ctx=scrub._Ctx(self.ipmap, [PROJECT])), fh)
+        self.assertEqual(scrub.scan_dir(tmp, self.manifest),
+                         ["landings-load-1.ndjson.gz:0: unexpected-file", "stage-latency.md:0: unexpected-file"])
+
+    def test_scrub_inputs_takes_an_optional_stage_latency_result(self):
+        tmp = tempfile.mkdtemp(prefix="tb2-stage-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        scratch, out = os.path.join(tmp, "scratch"), os.path.join(tmp, "scrubbed")
+        os.makedirs(scratch)
+        for name, doc in (("manifest.json", self.manifest), ("metrics.json", synthetic_metrics()),
+                          ("combined.json", synthetic_combined())):
+            with open(os.path.join(scratch, name), "w") as fh:
+                json.dump(doc, fh)
+        self.assertNotIn("stage-latency.json", scrub.scrub_inputs(scratch, out)["files"])
+        with open(os.path.join(scratch, "stage-latency.json"), "w") as fh:
+            json.dump(stage_latency_doc(*self.leaky), fh)
+        summary = scrub.scrub_inputs(scratch, out)
+        self.assertEqual(summary["files"], ["manifest.json", "metrics.json", "combined.json", "stage-latency.json"])
+        self.assertEqual(summary["redacted_names"], 3)  # two bucket URLs, one project name
+        self.assertEqual(scrub.scan_dir(out, os.path.join(scratch, "manifest.json")), [])
+        with open(os.path.join(out, "stage-latency.json")) as fh:
+            self.assertEqual(json.load(fh)["inputs"][-1], "peer val-1 at redacted-ip")
 
 
 class CliTests(unittest.TestCase):

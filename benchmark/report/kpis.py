@@ -13,6 +13,15 @@ from the run's own files:
   sampler   {instance: [csv.DictReader rows]} from the on-node sampler (load_sampler)
   manifest  tn-bench-manifest/v1 (instance roles, chaos log)
   windows   {"merged": {...}, "all_generators": {...} | None, ...} from windows.py
+  floor     optional: the light8 blast of a light-load arm, {name, index, dir, docs, boundaries}
+            (docs = its archived tn-blast/v2 documents); see floor_input()
+
+Latency. time_to_land_* and time_to_seen_* are the combined result's latency.ts_ms / seen_ms
+(aggregate.py merge_latency over the load generators' histograms; mixed-phase submissions
+only). time_to_land_corrected_p50_s adds the 0.5-s whole-second bias (see LAND_FLOOR_BIAS_S).
+The floor KPIs pool the light8 blast's own documents with the same method (merge_latency below,
+copied from aggregate.py), and floor_by_generator lists each generator's own quantiles; neither
+exists when the run had no light blast.
 
 Windows. "all_generators" is [latest mixed start, earliest mixed end), when every load generator
 was running; "merged_mixed" is [earliest mixed start, latest mixed end), the window aggregate.py
@@ -23,15 +32,28 @@ lo <= t <= hi, as derive-sizing.py summarize() does.
 Healthy validators are the manifest's validators minus the chaos targets; "busiest" is the healthy
 validator with the highest p95 of that measure over the window.
 
+Command line (offline; aggregate.py from the generator's bench/ dir builds the combined result)::
+
+    python3 benchmark/report/kpis.py --run-dir benchmark/results/<run> [--blast-dir DIR]
+        [--floor-blast-dir DIR] [--txgen-bench DIR] [--combined FILE] [--table] [--out FILE]
+
+--blast-dir takes the load KPIs' manifest, metrics and blasters/ from an archived blast-<i>-<UTC>/
+(default: the top of the run dir, as make_bundle.py); --floor-blast-dir names the light blast the
+floor KPIs read (default: the light8 entry of the manifest's blasts[] -> its blast-<index>-<UTC>/).
+
 Python 3.9+, standard library only.
 """
 
+import argparse
 import csv
 import datetime
 import glob
 import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
 
@@ -53,6 +75,11 @@ DECIMALS = {
     "blocks_per_sec": 2,
     "time_to_land_p50_s": 2,
     "time_to_land_p95_s": 2,
+    "time_to_land_corrected_p50_s": 2,
+    "time_to_seen_p50_s": 2,
+    "time_to_seen_p95_s": 2,
+    "floor_time_to_land_p50_s": 2,
+    "floor_time_to_seen_p50_s": 2,
     "commit_latency_p95_s": 2,
     "execution_time_per_output_s": 2,
     "disk_write_p95_mibps_busiest": 1,
@@ -61,6 +88,13 @@ DECIMALS = {
     "rss_p95_gib_busiest": 2,
     "psi_io_max_pct": 1,
 }
+
+
+# The block timestamp a time-to-land sample is read against is floor(commit_timestamp_ms / 1000):
+# the leader header's millisecond creation time cut to the whole second, so every sample reads
+# between 0 and 999 ms low, 0.5 s on average (I-3, tasks/bench5-land-time-baseline.md section 5:
+# deconvolving bench 4's histogram with U[0, 1) s moved p50 3.30 -> 3.80 s and p95 12.84 -> 13.34 s).
+LAND_FLOOR_BIAS_S = 0.5
 
 
 # Nearest-rank percentile, copied verbatim from tn-transaction-generator bench/derive-sizing.py:25-26
@@ -81,6 +115,103 @@ def best_window_mean(vals: List[float], width: int) -> Optional[float]:
         cur += vals[i] - vals[i - width]
         best = max(best, cur)
     return best / width
+
+
+# Histogram pooling, copied from tn-transaction-generator bench/aggregate.py (hist_quantile,
+# hist_saturated, merge_hist, merge_latency) so the floor KPIs pool a light blast's documents
+# exactly as aggregate.py pools the load's into combined.latency.
+
+def _is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def hist_quantile(bounds, counts, q):
+    total = sum(counts)
+    if total <= 0 or not bounds:
+        return None
+    rank = q * total
+    cum = 0
+    for i, c in enumerate(counts):
+        if c <= 0:
+            continue
+        if cum + c >= rank:
+            if i >= len(bounds):
+                return float(bounds[-1])
+            lo = 0.0 if i == 0 else float(bounds[i - 1])
+            hi = float(bounds[i])
+            return lo + (hi - lo) * max(0.0, min(1.0, (rank - cum) / c))
+        cum += c
+    return float(bounds[-1])
+
+
+def hist_saturated(counts, q):
+    total = sum(counts)
+    return total > 0 and counts[-1] > 0 and q * total > total - counts[-1]
+
+
+def merge_hist(hists):
+    """Summed histogram, or None; differing bounds raise ValueError (aggregate.py refuses too)."""
+    hists = [h for h in hists if h and h.get("bounds_ms") is not None]
+    if not hists:
+        return None
+    bounds = list(hists[0]["bounds_ms"])
+    counts = [0] * (len(bounds) + 1)
+    for h in hists:
+        if list(h["bounds_ms"]) != bounds:
+            raise ValueError("latency histogram bounds differ (%s vs %s)" % (h["bounds_ms"], bounds))
+        hc = list(h.get("counts") or [])
+        if len(hc) != len(counts):
+            raise ValueError("latency histogram has %d counts, expected %d" % (len(hc), len(counts)))
+        counts = [a + b for a, b in zip(counts, hc)]
+    return {"bounds_ms": bounds, "counts": counts}
+
+
+def merge_latency(parts, hist):
+    """parts: [(weight, {"p50","p95","p99","mean"})]; one live part passes through, several are
+    interpolated from the summed histogram (aggregate.py merge_latency)."""
+    parts = [(w, q) for w, q in parts if q]
+    if not parts:
+        return {}
+    live = [(w, q) for w, q in parts if w > 0] or parts
+    if len(live) == 1:
+        return dict(live[0][1])
+    out, saturated = {}, False
+    for key, qv in (("p50", 0.50), ("p95", 0.95), ("p99", 0.99)):
+        est = hist_quantile(hist["bounds_ms"], hist["counts"], qv) if hist else None
+        if est is None:
+            vals = [q[key] for _, q in live if _is_num(q.get(key))]
+            est = max(vals) if vals else None
+            saturated = saturated or any(q.get("saturated") is True for _, q in live)
+        else:
+            saturated = saturated or hist_saturated(hist["counts"], qv)
+        if est is not None:
+            out[key] = round(est, 3)
+    means = [(w, q["mean"]) for w, q in live if _is_num(q.get("mean"))]
+    wsum = sum(w for w, _ in means)
+    if wsum > 0:
+        out["mean"] = round(sum(w * m for w, m in means) / wsum, 3)
+    out["saturated"] = saturated
+    return out
+
+
+def pooled_latency(docs: List[dict]) -> dict:
+    """{"ts_ms": {...}, "seen_ms": {...}} over tn-blast/v2 documents, as aggregate.py builds
+    combined.latency: each document's latency.<key> weighted by totals.landed_own, quantiles from
+    the sum of every type's latency_hist_<ts|seen> (mixed-phase submissions only)."""
+    weights = [(d.get("totals") or {}).get("landed_own") for d in docs]
+    weights = [w if _is_num(w) else 0 for w in weights]
+    lats = [d.get("latency") or {} for d in docs]
+    out = {}
+    for key, hkey in (("ts_ms", "latency_hist_ts"), ("seen_ms", "latency_hist_seen")):
+        by_type = {}
+        for d in docs:
+            for name, t in (d.get("types") or {}).items():
+                if isinstance(t, dict) and t.get(hkey):
+                    by_type.setdefault(name, []).append(t[hkey])
+        # aggregate.py sums each type across documents, then the types.
+        hist = merge_hist([merge_hist(hs) for hs in by_type.values()])
+        out[key] = merge_latency(list(zip(weights, (l.get(key) for l in lats))), hist)
+    return out
 
 
 # ---------------------------------------------------------------- time and loaders
@@ -338,6 +469,83 @@ def _chain_kpis(combined: dict, windows: dict, caveats: List[str]) -> List[dict]
     if lat.get("saturated") is True:
         caveats.append("combined.latency.ts_ms is saturated: a time-to-land quantile fell in the open last "
                        "histogram bucket and is a lower bound")
+    if lat.get("p50") is not None:
+        out.append(_kpi(
+            "time_to_land_corrected_p50_s", "Time to land, median, whole-second bias removed", "Land p50 corrected",
+            "s", W_RUN, "combined.latency.ts_ms.p50 + %.1f s" % LAND_FLOOR_BIAS_S,
+            "Time to land, median, plus 0.5 s. The block timestamp is the committing leader's header creation "
+            "time cut to the whole second, so every sample reads 0 to 999 ms low, 0.5 s on average.",
+            value=lat["p50"] / 1000.0 + LAND_FLOOR_BIAS_S))
+
+    seen = ((combined or {}).get("latency") or {}).get("seen_ms") or {}
+    for kid, q, label, short in (("time_to_seen_p50_s", "p50", "Time to seen, median", "Seen p50"),
+                                 ("time_to_seen_p95_s", "p95", "Time to seen, p95", "Seen p95")):
+        if seen.get(q) is None:
+            caveats.append(f"combined.latency.seen_ms.{q} missing: {kid} not computed")
+            continue
+        out.append(_kpi(
+            kid, label, short, "s", W_RUN, f"combined.latency.seen_ms.{q}",
+            "Submit time to the moment the load generator's block scanner had the block holding the "
+            "transaction (block and receipts fetched from the generator's own node), over every landed own "
+            "transaction in the blast, from the load generators' merged latency histograms "
+            "(aggregate.py merge_latency), in seconds.",
+            value=seen[q] / 1000.0))
+    if seen.get("saturated") is True:
+        caveats.append("combined.latency.seen_ms is saturated: a time-to-seen quantile fell in the open last "
+                       "histogram bucket and is a lower bound")
+    return out
+
+
+def floor_by_generator(docs: List[dict]) -> List[dict]:
+    """Each light-blast generator's own mixed-phase quantiles (its document's latency.ts_ms /
+    seen_ms, nearest-rank over its samples), in seconds, by label."""
+    rows = []
+    for i, d in enumerate(docs):
+        run, lat = d.get("run") or {}, d.get("latency") or {}
+        ts, seen = lat.get("ts_ms") or {}, lat.get("seen_ms") or {}
+
+        def sec(q, key):
+            return None if not _is_num(q.get(key)) else round(q[key] / 1000.0, 3)
+        rows.append({"generator": run.get("label") or run.get("run_id") or "blaster-%d" % i,
+                     "samples": (d.get("totals") or {}).get("landed_own"),
+                     "time_to_land_p50_s": sec(ts, "p50"), "time_to_land_p95_s": sec(ts, "p95"),
+                     "time_to_seen_p50_s": sec(seen, "p50"), "time_to_seen_p95_s": sec(seen, "p95")})
+    rows.sort(key=lambda r: str(r["generator"]))
+    return rows
+
+
+def _floor_kpis(floor: dict, caveats: List[str]) -> List[dict]:
+    out = []
+    name, idx = floor.get("name") or "light8", floor.get("index")
+    where = "%s/blasters" % (floor.get("dir") or "blast-%s-<UTC>" % idx)
+    try:
+        lat = pooled_latency(floor.get("docs") or [])
+    except ValueError as e:
+        caveats.append("%s blast: %s; floor KPIs not computed" % (name, e))
+        return out
+    what = ("submitted in the mixed phase of the light-load blast %s (index %s: %s senders per load "
+            "generator at window %s, chaos off)" % (name, idx, floor.get("senders", 8), floor.get("window", 16)))
+    for kid, key, label, short, measure in (
+            ("floor_time_to_land_p50_s", "ts_ms", "Time to land at light load, median", "Floor land p50",
+             "Block timestamp minus submit time"),
+            ("floor_time_to_seen_p50_s", "seen_ms", "Time to seen at light load, median", "Floor seen p50",
+             "Submit time to the generator's block scanner having the block")):
+        q = lat.get(key) or {}
+        if q.get("p50") is None:
+            caveats.append("%s blast: latency.%s.p50 missing in %s: %s not computed" % (name, key, where, kid))
+            continue
+        out.append(_kpi(
+            kid, label, short, "s", name, "%s latency.%s.p50" % (where, key),
+            "%s over every landed own transaction %s, pooled from the generators' latency histograms with "
+            "the aggregate.py merge_latency method, in seconds; not bias-corrected." % (measure, what),
+            value=q["p50"] / 1000.0))
+        if q.get("saturated") is True:
+            caveats.append("%s blast: latency.%s is saturated; %s is a lower bound" % (name, key, kid))
+    cuts = floor.get("boundaries") or []
+    if out and cuts:
+        caveats.append("%d epoch boundar%s fell inside the %s mixed window (%s); the floor KPIs pool its whole "
+                       "mixed phase (windows.py --exclude-boundaries gives the boundary-free intervals)"
+                       % (len(cuts), "y" if len(cuts) == 1 else "ies", name, ", ".join(unix_to_iso(b) for b in cuts)))
     return out
 
 
@@ -507,7 +715,9 @@ def healthy_validators(manifest: dict, chaos_targets: List[str]) -> List[str]:
 
 
 def compute(combined: dict, metrics: dict, sampler: dict, manifest: dict, windows: dict,
-            chaos_targets: list) -> dict:
+            chaos_targets: list, floor: Optional[dict] = None) -> dict:
+    """KPIs, recovery and caveats; with `floor` (a light8 blast) also the floor KPIs and the
+    floor_by_generator side table."""
     caveats = []
     healthy = healthy_validators(manifest, chaos_targets)
     roles = {i["name"]: i.get("role") for i in (manifest or {}).get("instances") or []}
@@ -519,6 +729,8 @@ def compute(combined: dict, metrics: dict, sampler: dict, manifest: dict, window
                        "as chaos target(s)")
 
     kpis = _chain_kpis(combined, windows, caveats)
+    if floor is not None:
+        kpis += _floor_kpis(floor, caveats)
     if healthy:
         kpis += _prom_range_kpis(metrics, healthy, windows, caveats)
         kpis += _resource_kpis(metrics, sampler, healthy, windows, caveats)
@@ -533,4 +745,145 @@ def compute(combined: dict, metrics: dict, sampler: dict, manifest: dict, window
             caveats.append(f"recovery covers {target} only; other chaos targets: "
                            f"{', '.join(n for n in targets if n != target)}")
         rec = recovery(metrics, manifest, target, caveats)
-    return {"kpis": round_kpis(kpis), "recovery": rec, "caveats": caveats}
+    out = {"kpis": round_kpis(kpis), "recovery": rec, "caveats": caveats}
+    if floor is not None:
+        out["floor_by_generator"] = floor_by_generator(floor.get("docs") or [])
+    return out
+
+
+# ---------------------------------------------------------------- light blast and command line
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+_BLAST_DIR_RE = re.compile(r"^blast-([0-9]+)-")
+
+
+def _windows():
+    """windows.py next to this file (imported on demand: the tests load this module by path)."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import windows  # noqa: E402
+    return windows
+
+
+def blast_from_dir(manifest: dict, path: str) -> dict:
+    """A light-blast record for an explicit --floor-blast-dir: the index from its
+    blast-<index>-<UTC> name, the rest from the manifest's blasts[] entry of that index (8 senders
+    at window 16 when there is none)."""
+    win = _windows()
+    m = _BLAST_DIR_RE.match(os.path.basename(os.path.normpath(path)))
+    idx = int(m.group(1)) if m else None
+    e = next((e for e in (manifest or {}).get("blasts") or []
+              if isinstance(e, dict) and idx is not None and e.get("index") == idx), {})
+    senders = int(e.get("senders") or 8)
+    window = int(e.get("window") or win.DEFAULT_WINDOW)
+    return {"name": win.light_name(senders, window), "index": idx, "senders": senders, "window": window,
+            "rc": e.get("rc"), "started": e.get("started"), "ended": e.get("ended"), "dir": path}
+
+
+def floor_input(blast: dict, directory: Optional[str] = None) -> dict:
+    """compute()'s `floor` for a light blast (windows.floor_blast() or blast_from_dir()): the
+    tn-blast documents in <directory or blast dir>/blasters and the epoch boundaries inside its
+    mixed window. `dir` keeps only the archive's own name, for the KPI source text."""
+    win = _windows()
+    d = directory or blast["dir"]
+    w = win.light_window(dict(blast, dir=d))
+    return {"name": blast["name"], "index": blast["index"], "senders": blast.get("senders"),
+            "window": blast.get("window"), "dir": os.path.basename(os.path.normpath(blast["dir"])),
+            "docs": win.load_blasters(os.path.join(d, "blasters")), "boundaries": w.get("boundaries") or [],
+            "mixed": {k: w.get(k) for k in ("start_unix", "end_unix", "secs", "source")}}
+
+
+def _load_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def _aggregate(tool_dir: str, blasters_dir: str) -> dict:
+    """aggregate.py over blasters_dir (as make_bundle.py step 3), in a temporary dir."""
+    with tempfile.TemporaryDirectory(prefix="kpis-") as tmp:
+        out = os.path.join(tmp, "combined.json")
+        r = subprocess.run([sys.executable, os.path.join(tool_dir, "aggregate.py"), "--out", out,
+                            os.path.abspath(blasters_dir)], cwd=tmp, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True)
+        if r.returncode != 0:
+            raise RuntimeError("aggregate.py exited %d: %s" % (r.returncode, r.stdout.strip()[-400:]))
+        return _load_json(out)
+
+
+def table(res: dict) -> str:
+    """The KPIs (and the floor side table) as markdown."""
+    lines = ["| KPI | value | unit | window |", "|---|---:|---|---|"]
+    for k in res["kpis"]:
+        v = "%s-%s" % tuple(k["range"]) if "range" in k else k["value"]
+        lines.append("| %s | %s | %s | %s |" % (k["id"], v, k["unit"], k["window"]))
+    rows = res.get("floor_by_generator")
+    if rows:
+        lines += ["", "| generator | samples | land p50 s | land p95 s | seen p50 s | seen p95 s |",
+                  "|---|---:|---:|---:|---:|---:|"]
+        for r in rows:
+            lines.append("| %s | %s | %s | %s | %s | %s |" % (
+                r["generator"], r["samples"], r["time_to_land_p50_s"], r["time_to_land_p95_s"],
+                r["time_to_seen_p50_s"], r["time_to_seen_p95_s"]))
+    return "\n".join(lines) + "\n"
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description="Headline KPIs of one benchmark run (offline).")
+    ap.add_argument("--run-dir", required=True, help="benchmark/results/<run>")
+    ap.add_argument("--blast-dir", help="take the load's manifest, metrics and blasters/ from this "
+                                        "blast-<i>-<UTC>/ (default: the run dir)")
+    ap.add_argument("--floor-blast-dir", help="the light blast the floor KPIs read (default: the light8 entry "
+                                              "of manifest blasts[] -> its blast-<index>-<UTC>/)")
+    ap.add_argument("--txgen-bench", default=os.environ.get("BENCH_TXGEN_REPO") and
+                    os.path.join(os.environ["BENCH_TXGEN_REPO"], "bench"),
+                    help="the generator's bench/ dir with aggregate.py (default ${BENCH_TXGEN_REPO}/bench, "
+                         "else ../tn-transaction-generator/bench beside this repository)")
+    ap.add_argument("--combined", help="an aggregate.py result to use instead of running aggregate.py")
+    ap.add_argument("--table", action="store_true", help="print a markdown table instead of JSON")
+    ap.add_argument("--out", help="write the JSON here as well")
+    a = ap.parse_args(argv)
+    run_dir = os.path.abspath(a.run_dir)
+    src = os.path.abspath(a.blast_dir) if a.blast_dir else run_dir
+    tool_dir = a.txgen_bench or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))),
+                                             "tn-transaction-generator", "bench")
+    win = _windows()
+    try:
+        live = _load_json(os.path.join(run_dir, "manifest.json"))
+        manifest = live if src == run_dir else _load_json(os.path.join(src, "manifest.json"))
+        metrics = _load_json(os.path.join(src, "metrics.json"))
+        blasters = win.load_blasters(os.path.join(src, "blasters"))
+        combined = _load_json(a.combined) if a.combined else _aggregate(tool_dir, os.path.join(src, "blasters"))
+    except (OSError, ValueError, RuntimeError) as e:
+        print("kpis.py: %s" % e, file=sys.stderr)
+        return 2
+    if not blasters:
+        print("kpis.py: no tn-blast results in %s/blasters" % src, file=sys.stderr)
+        return 2
+    built = win.build(blasters, combined)
+    sampler_dir = os.path.join(run_dir, "sampler")
+    sampler = load_sampler(sampler_dir) if os.path.isdir(sampler_dir) else {}
+    floor_caveats = []
+    if a.floor_blast_dir:
+        blast = blast_from_dir(live, os.path.abspath(a.floor_blast_dir))
+    else:
+        blast, floor_caveats = win.floor_blast(run_dir, live)
+    floor = floor_input(blast) if blast else None
+    res = compute(combined, metrics, sampler, manifest, built, chaos_targets_from_manifest(manifest), floor)
+    res["caveats"] = floor_caveats + res["caveats"]
+    doc = {"run": os.path.basename(run_dir), "blast_dir": os.path.relpath(src, run_dir),
+           "floor_blast_dir": floor["dir"] if floor else None, "headline": headline_id(res["kpis"])}
+    doc.update(res)
+    if a.out:
+        with open(a.out, "w") as f:
+            json.dump(doc, f, indent=1)
+            f.write("\n")
+    if a.table:
+        sys.stdout.write(table(doc))
+    else:
+        json.dump(doc, sys.stdout, indent=1)
+        sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

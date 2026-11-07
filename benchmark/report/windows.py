@@ -15,9 +15,28 @@ comes from the combined result (`tn-blast-combined/v2`): `series.per_second` hol
 block-timestamp second, `s` is the offset from `series.per_second_t0_unix`, and seconds
 missing from the series count as zero.
 
+Light blasts. A light-load arm (benchmark-blast.sh, BENCH_LIGHT_LOAD=1) runs light blasts before
+the load on the same fleet. Each one is listed in the live manifest's `blasts[]` ({index,
+senders, window, chaos, started, ended, rc}) and archived under `blast-<index>-<UTC>/` with its
+own `blasters/` and a copy of the manifest; the load's files stay at the top of the results
+dir. light_blasts() finds them, light_windows() gives each one's mixed phase: the merged mixed
+window of its own archived blasters (the same rule as the load's merged window), else the
+`mixed` entry of its manifest copy's `phases`, else `started` + warm-up to `ended` - cool-down
+from `blasts[]`. That last fallback is approximate: `started` and `ended` bracket the whole
+single-blast invocation (VM create, start delay, preamble, collect), so it is only used when
+nothing better was archived. Epoch boundaries are the timestamps of the blocks whose
+`closes_epoch` cell is set in the light blast's own block tables (read by column name). The
+command line drops +/- EXCLUDE_SECS around each one from the light windows by default (a loaded
+boundary waits for execution, which a floor must not average in): --exclude-boundaries SECS
+changes the width, --keep-boundaries keeps the whole window. light_window() and light_windows()
+exclude only when given exclude_secs.
+
 Usage: python3 windows.py <blasters-dir> <combined.json> [--blocks]
+                          [--run-dir RESULTS/<run> [--exclude-boundaries [SECS] | --keep-boundaries]]
 Prints the build() dict as JSON (with a "blocks" list of 5-minute blocks over the merged
-window when --blocks is given). Exits 1 when build() reports problems, 2 on bad input.
+window when --blocks is given, and a "light" list of light-blast windows when --run-dir is
+given; without --run-dir the output is what it always was). Exits 1 when build() reports
+problems, 2 on bad input.
 
 Python 3.9+, standard library only.
 """
@@ -40,6 +59,18 @@ BLOCK_SECS = 300
 SAMPLE_SECS = 10
 SUSTAIN_SECS = 60
 UNDEFINED_ALL_GENERATORS = "all-generators window undefined"
+
+# Light-load arm defaults (benchmark/config.sh BENCH_LIGHT_WARMUP_SECS, _DURATION_SECS,
+# _COOLDOWN_SECS, BENCH_WINDOW), used only by the blasts[] fallback of light_windows().
+LIGHT_WARMUP_SECS = 60
+LIGHT_DURATION_SECS = 360
+LIGHT_COOLDOWN_SECS = 60
+DEFAULT_WINDOW = 16
+# Seconds dropped on each side of an epoch boundary from the light windows (the command line's
+# default; --exclude-boundaries SECS changes it, --keep-boundaries turns it off).
+EXCLUDE_SECS = 30
+# The light blast the floor KPIs read: 8 senders per generator at the default window.
+FLOOR_LIGHT = "light8"
 
 
 def iso(ts_unix) -> str:
@@ -212,6 +243,171 @@ def to_run_json(windows: Optional[dict]) -> Optional[dict]:
             "all_generators": _utc_window(windows.get("all_generators"))}
 
 
+def _unix(ts) -> Optional[int]:
+    """'2026-11-05T09:08:29Z' (or unix seconds) -> unix seconds, or None."""
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+        return int(ts)
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    try:
+        d = datetime.datetime.fromisoformat(ts.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    return int(d.timestamp())
+
+
+def light_name(senders, window) -> str:
+    """'light8' for 8 senders at the default window 16, 'light600x4' for 600 at window 4."""
+    w = DEFAULT_WINDOW if window in (None, "") else int(window)
+    return "light%d" % int(senders) if w == DEFAULT_WINDOW else "light%dx%d" % (int(senders), w)
+
+
+def _archive_dir(run_dir: str, index: int) -> Optional[str]:
+    """The newest blast-<index>-<UTC>/ under run_dir holding blasters/*.json, else the newest
+    blast-<index>-<UTC>/ at all (UTC stamps sort), else None."""
+    dirs = sorted(d for d in glob.glob(os.path.join(run_dir, "blast-%d-*" % index))
+                  if os.path.isdir(d) and not os.path.islink(d))
+    full = [d for d in dirs if glob.glob(os.path.join(d, "blasters", "*.json"))]
+    return (full or dirs or [None])[-1]
+
+
+def light_blasts(run_dir: str, manifest: dict) -> List[dict]:
+    """The light blasts of a light-load arm, in blasts[] order, from the live manifest.
+
+    Light = a blasts[] entry with chaos off whose index is not the blast at the top of the
+    results dir (manifest.blast.run_index, the configured profile's). Each entry is
+    {name, index, senders, window, rc, started, ended, dir}; dir is its blast-<index>-<UTC>/
+    (None when nothing was archived). A run without blasts[] has none."""
+    top = ((manifest or {}).get("blast") or {}).get("run_index")
+    out = []
+    for e in (manifest or {}).get("blasts") or []:
+        if not isinstance(e, dict) or e.get("index") is None or e.get("senders") is None:
+            continue
+        if e.get("chaos") not in (0, False, None) or e.get("index") == top:
+            continue
+        idx = int(e["index"])
+        out.append({"name": light_name(e["senders"], e.get("window")), "index": idx,
+                    "senders": int(e["senders"]),
+                    "window": DEFAULT_WINDOW if e.get("window") in (None, "") else int(e["window"]),
+                    "rc": e.get("rc"), "started": e.get("started"), "ended": e.get("ended"),
+                    "dir": _archive_dir(run_dir, idx)})
+    return out
+
+
+def floor_blast(run_dir: str, manifest: dict) -> Tuple[Optional[dict], List[str]]:
+    """(the first light8 blast that ended rc 0 and has archived blasters, caveats). No light
+    blast in blasts[] at all is (None, []): the run had no light-load arm."""
+    caveats = []
+    for b in light_blasts(run_dir, manifest):
+        if b["name"] != FLOOR_LIGHT:
+            continue
+        if b["rc"] not in (0, None):
+            caveats.append("%s blast (index %d) ended rc=%s; floor KPIs not computed from it"
+                           % (b["name"], b["index"], b["rc"]))
+            continue
+        if b["dir"] is None or not glob.glob(os.path.join(b["dir"], "blasters", "*.json")):
+            caveats.append("%s blast (index %d) has no archived blast-%d-*/blasters/*.json; floor KPIs "
+                           "not computed from it" % (b["name"], b["index"], b["index"]))
+            continue
+        return b, []
+    return None, caveats
+
+
+def boundaries(blasters: List[dict]) -> List[int]:
+    """Epoch boundaries: the timestamps of the blocks whose closes_epoch cell is set, from every
+    blaster's block table (columns read by name), sorted and unique."""
+    out = set()
+    for b in blasters:
+        blk = b.get("blocks") or {}
+        cols = blk.get("columns") or []
+        if "closes_epoch" not in cols or "timestamp" not in cols:
+            continue
+        ci, ti = cols.index("closes_epoch"), cols.index("timestamp")
+        for r in blk.get("rows") or []:
+            if len(r) > max(ci, ti) and r[ci] and r[ti] is not None:
+                out.add(int(r[ti]))
+    return sorted(out)
+
+
+def subtract(start: int, end: int, cuts: List[int], secs: int) -> List[dict]:
+    """[start, end) minus [b - secs, b + secs) for every b in cuts, as half-open intervals."""
+    spans = [(start, end)]
+    for b in sorted(cuts):
+        lo, hi = b - secs, b + secs
+        nxt = []
+        for s, e in spans:
+            if hi <= s or lo >= e:
+                nxt.append((s, e))
+                continue
+            if s < lo:
+                nxt.append((s, lo))
+            if hi < e:
+                nxt.append((hi, e))
+        spans = nxt
+    return [{"start_unix": s, "end_unix": e, "secs": e - s} for s, e in spans if e > s]
+
+
+def _phase_secs(phases, name) -> Optional[int]:
+    p = next((p for p in phases or [] if isinstance(p, dict) and p.get("name") == name), None)
+    lo, hi = _unix((p or {}).get("start")), _unix((p or {}).get("end"))
+    return hi - lo if lo is not None and hi is not None and hi >= lo else None
+
+
+def light_window(blast: dict, exclude_secs: Optional[int] = None) -> dict:
+    """One light blast's mixed window (see the module docstring for the sources, in order)."""
+    out = {k: blast.get(k) for k in ("name", "index", "senders", "window")}
+    d = blast.get("dir")
+    docs = load_blasters(os.path.join(d, "blasters")) if d else []
+    mixed = mixed_windows(docs)
+    manifest = {}
+    if d and os.path.isfile(os.path.join(d, "manifest.json")):
+        try:
+            with open(os.path.join(d, "manifest.json")) as f:
+                manifest = json.load(f)
+        except (OSError, ValueError):
+            manifest = {}
+    phases = manifest.get("phases") if isinstance(manifest, dict) else None
+    span, source = None, None
+    if mixed:
+        m = merged(mixed)
+        span, source = (m["start_unix"], m["end_unix"]), "blasters"
+    else:
+        p = next((p for p in phases or [] if isinstance(p, dict) and p.get("name") == "mixed"), None)
+        lo, hi = _unix((p or {}).get("start")), _unix((p or {}).get("end"))
+        if lo is not None and hi is not None and hi > lo:
+            span, source = (lo, hi), "manifest.phases"
+        else:
+            warm = _phase_secs(phases, "warmup")
+            cool = _phase_secs(phases, "cooldown")
+            warm = LIGHT_WARMUP_SECS if warm is None else warm
+            cool = LIGHT_COOLDOWN_SECS if cool is None else cool
+            lo, hi = _unix(blast.get("started")), _unix(blast.get("ended"))
+            if lo is not None:
+                lo += warm
+                hi = hi - cool if hi is not None else lo + LIGHT_DURATION_SECS
+                if hi > lo:
+                    span, source = (lo, hi), "blasts[] (approximate)"
+    if span is None:
+        out.update(start_unix=None, end_unix=None, secs=None, source=None, boundaries=[])
+        return out
+    out.update(start_unix=span[0], end_unix=span[1], secs=span[1] - span[0], source=source)
+    pad = exclude_secs or 0
+    cuts = [b for b in boundaries(docs) if span[0] - pad <= b < span[1] + pad]
+    out["boundaries"] = cuts
+    if exclude_secs is not None:
+        out["exclude_secs"] = exclude_secs
+        out["intervals"] = subtract(span[0], span[1], cuts, exclude_secs)
+        out["kept_secs"] = sum(i["secs"] for i in out["intervals"])
+    return out
+
+
+def light_windows(run_dir: str, manifest: dict, exclude_secs: Optional[int] = None) -> List[dict]:
+    """light_window() for every light blast of the run, in blasts[] order."""
+    return [light_window(b, exclude_secs) for b in light_blasts(run_dir, manifest)]
+
+
 def load_blasters(directory: str) -> List[dict]:
     """Every `tn-blast/*` result in `directory` (other JSON, e.g. a combined file, is ignored)."""
     docs = []
@@ -229,7 +425,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("combined", help="aggregate.py output (tn-blast-combined/v2)")
     ap.add_argument("--blocks", action="store_true",
                     help="also print %d-second blocks over the merged window" % BLOCK_SECS)
+    ap.add_argument("--run-dir", help="results/<run>: also print the light blasts' windows (manifest blasts[])")
+    eb = ap.add_mutually_exclusive_group()
+    eb.add_argument("--exclude-boundaries", type=int, nargs="?", const=EXCLUDE_SECS, metavar="SECS",
+                    help="drop SECS (default %d, also without this flag) on each side of every epoch boundary "
+                         "from the light windows (needs --run-dir)" % EXCLUDE_SECS)
+    eb.add_argument("--keep-boundaries", action="store_true",
+                    help="keep the blocks near an epoch boundary in the light windows (needs --run-dir)")
     args = ap.parse_args(argv)
+    for flag, given in (("--exclude-boundaries", args.exclude_boundaries is not None),
+                        ("--keep-boundaries", args.keep_boundaries)):
+        if given and not args.run_dir:
+            ap.error("%s needs --run-dir" % flag)
+    if args.exclude_boundaries is not None and args.exclude_boundaries < 0:
+        ap.error("--exclude-boundaries SECS must not be negative")
+    excl = EXCLUDE_SECS if args.exclude_boundaries is None else args.exclude_boundaries
+    excl = None if args.keep_boundaries else excl
     try:
         blasters = load_blasters(args.blasters_dir)
         with open(args.combined) as f:
@@ -244,6 +455,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.blocks and out["merged"] is not None:
         m = out["merged"]
         out["blocks"] = blocks(combined, out["mixed_windows"], m["start_unix"], m["end_unix"])
+    if args.run_dir:
+        try:
+            with open(os.path.join(args.run_dir, "manifest.json")) as f:
+                manifest = json.load(f)
+            out["light"] = light_windows(args.run_dir, manifest, excl)
+        except (OSError, ValueError) as e:
+            print("windows.py: %s" % e, file=sys.stderr)
+            return 2
     json.dump(out, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 1 if out["problems"] else 0

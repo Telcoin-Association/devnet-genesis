@@ -1,0 +1,155 @@
+{
+ "built": {
+  "mixed_windows": [
+   {
+    "label": "bench-blaster-01",
+    "start_unix": 1793869840,
+    "end_unix": 1793872240
+   },
+   {
+    "label": "bench-blaster-02",
+    "start_unix": 1793869846,
+    "end_unix": 1793872246
+   },
+   {
+    "label": "bench-blaster-03",
+    "start_unix": 1793869842,
+    "end_unix": 1793872242
+   },
+   {
+    "label": "bench-blaster-04",
+    "start_unix": 1793869841,
+    "end_unix": 1793872241
+   },
+   {
+    "label": "bench-blaster-05",
+    "start_unix": 1793869843,
+    "end_unix": 1793872243
+   },
+   {
+    "label": "bench-blaster-06",
+    "start_unix": 1793869846,
+    "end_unix": 1793872246
+   },
+   {
+    "label": "bench-blaster-07",
+    "start_unix": 1793869842,
+    "end_unix": 1793872242
+   },
+   {
+    "label": "bench-blaster-08",
+    "start_unix": 1793869841,
+    "end_unix": 1793872241
+   },
+   {
+    "label": "bench-blaster-09",
+    "start_unix": 1793869841,
+    "end_unix": 1793872241
+   },
+   {
+    "label": "bench-blaster-10",
+    "start_unix": 1793869843,
+    "end_unix": 1793872243
+   }
+  ],
+  "merged": {
+   "start_unix": 1793869840,
+   "end_unix": 1793872246,
+   "secs": 2406
+  },
+  "all_generators": {
+   "start_unix": 1793869846,
+   "end_unix": 1793872240,
+   "secs": 2394
+  },
+  "caveats": [],
+  "problems": []
+ },
+ "run_json_windows": {
+  "merged_mixed": {
+   "start_utc": "2026-11-05T09:10:40Z",
+   "end_utc": "2026-11-05T09:50:46Z",
+   "secs": 2406
+  },
+  "all_generators": {
+   "start_utc": "2026-11-05T09:10:46Z",
+   "end_utc": "2026-11-05T09:50:40Z",
+   "secs": 2394
+  }
+ },
+ "tps_5min": {
+  "columns": [
+   "start_utc",
+   "end_utc",
+   "generators_active",
+   "chain_tps"
+  ],
+  "rows": [
+   [
+    "2026-11-05T09:10:40Z",
+    "2026-11-05T09:15:40Z",
+    9.7,
+    4750.8
+   ],
+   [
+    "2026-11-05T09:15:40Z",
+    "2026-11-05T09:20:40Z",
+    10.0,
+    4179.1
+   ],
+   [
+    "2026-11-05T09:20:40Z",
+    "2026-11-05T09:25:40Z",
+    10.0,
+    4605.0
+   ],
+   [
+    "2026-11-05T09:25:40Z",
+    "2026-11-05T09:30:40Z",
+    10.0,
+    4575.1
+   ],
+   [
+    "2026-11-05T09:30:40Z",
+    "2026-11-05T09:35:40Z",
+    10.0,
+    4439.2
+   ],
+   [
+    "2026-11-05T09:35:40Z",
+    "2026-11-05T09:40:40Z",
+    10.0,
+    4829.2
+   ],
+   [
+    "2026-11-05T09:40:40Z",
+    "2026-11-05T09:45:40Z",
+    10.0,
+    4737.2
+   ],
+   [
+    "2026-11-05T09:45:40Z",
+    "2026-11-05T09:50:40Z",
+    10.0,
+    4641.4
+   ],
+   [
+    "2026-11-05T09:50:40Z",
+    "2026-11-05T09:50:46Z",
+    9.0,
+    2456.2
+   ]
+  ]
+ },
+ "series_meta": {
+  "schema": "tn-bench-site-series/v1",
+  "unit": "tx/s",
+  "start_utc": "2026-11-05T09:10:40Z",
+  "step_s": 2,
+  "columns": [
+   "offset_s",
+   "chain_tps"
+  ]
+ },
+ "series_rows_n": 1203
+}

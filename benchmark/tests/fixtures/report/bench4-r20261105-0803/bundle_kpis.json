@@ -1,0 +1,172 @@
+{
+ "kpis": [
+  {
+   "id": "avg_chain_tps_all_generators",
+   "label": "Average chain throughput, all load generators running",
+   "short_label": "Avg chain TPS",
+   "value": 4578.0,
+   "unit": "tx/s",
+   "window": "all_generators",
+   "source": "combined.series.per_second[chain_tx]",
+   "method": "Chain transactions per block-timestamp second, summed over the 2394-s window when every load generator was in its mixed phase and divided by its length.",
+   "provenance": "computed"
+  },
+  {
+   "id": "best_60s_chain_tps_all_generators",
+   "label": "Best 60 seconds, all load generators running",
+   "short_label": "Best 60 s TPS",
+   "value": 5524.8,
+   "unit": "tx/s",
+   "window": "all_generators",
+   "source": "combined.series.per_second[chain_tx]",
+   "method": "Highest mean chain tx/s over any 60 consecutive seconds inside the all-generators window (aggregate.py best_window_mean).",
+   "provenance": "computed"
+  },
+  {
+   "id": "landed_total",
+   "label": "Transactions landed over the whole blast",
+   "short_label": "Landed tx",
+   "value": 12306384,
+   "unit": "tx",
+   "window": "run",
+   "source": "combined.totals.landed_chain",
+   "method": "Sum of tx_count over every block the load generators saw during the blast, own and foreign transactions alike.",
+   "provenance": "computed"
+  },
+  {
+   "id": "blocks_per_sec",
+   "label": "Blocks per second",
+   "short_label": "Blocks/s",
+   "value": 15.84,
+   "unit": "blocks/s",
+   "window": "merged_mixed",
+   "source": "combined.blocks.rows[timestamp]",
+   "method": "Chain blocks whose timestamp falls in the merged mixed window, divided by its length (aggregate.py landed.capacity.blocks_per_sec over the same window).",
+   "provenance": "computed"
+  },
+  {
+   "id": "time_to_land_p50_s",
+   "label": "Time to land, median",
+   "short_label": "Land p50",
+   "value": 3.3,
+   "unit": "s",
+   "window": "run",
+   "source": "combined.latency.ts_ms.p50",
+   "method": "Block timestamp minus submit time over every landed own transaction in the blast, from the load generators' merged latency histograms (aggregate.py merge_latency), in seconds.",
+   "provenance": "computed"
+  },
+  {
+   "id": "time_to_land_p95_s",
+   "label": "Time to land, p95",
+   "short_label": "Land p95",
+   "value": 12.84,
+   "unit": "s",
+   "window": "run",
+   "source": "combined.latency.ts_ms.p95",
+   "method": "Block timestamp minus submit time over every landed own transaction in the blast, from the load generators' merged latency histograms (aggregate.py merge_latency), in seconds.",
+   "provenance": "computed"
+  },
+  {
+   "id": "commit_latency_p95_s",
+   "label": "Commit latency, p95",
+   "short_label": "Commit p95",
+   "range": [
+    8.0,
+    30.0
+   ],
+   "unit": "s",
+   "window": "merged_mixed",
+   "source": "metrics.prometheus.series.tn_primary_commit_latency_seconds.by_node[healthy validators].p95",
+   "method": "For each healthy validator, the nearest-rank p95 over the merged mixed window of its 15-s histogram_quantile(0.95) commit-latency series; reported as the range over validators.",
+   "provenance": "computed"
+  },
+  {
+   "id": "execution_time_per_output_s",
+   "label": "Execution time per consensus output",
+   "short_label": "Exec per output",
+   "range": [
+    2.2,
+    2.53
+   ],
+   "unit": "s",
+   "window": "merged_mixed",
+   "source": "metrics.prometheus.series.tn_engine_execution_duration_seconds.by_node[healthy validators].mean",
+   "method": "For each healthy validator, the nearest-rank median over the merged mixed window of its 15-s mean execution-duration series; reported as the range over validators.",
+   "provenance": "computed"
+  },
+  {
+   "id": "disk_write_p95_mibps_busiest",
+   "label": "Write throughput, p95, busiest validator",
+   "short_label": "Disk write p95",
+   "value": 310.0,
+   "unit": "MiB/s",
+   "window": "merged_mixed",
+   "source": "metrics.gcp[bench-validator-08].disk_write_bytes_per_sec p95",
+   "method": "Nearest-rank p95 of the 60-s mean write-byte rate over the merged mixed window for each healthy validator; the highest (bench-validator-08) is reported.",
+   "provenance": "computed"
+  },
+  {
+   "id": "disk_write_iops_p95_busiest",
+   "label": "Write operations, p95, busiest validator",
+   "short_label": "Write IOPS p95",
+   "value": 9882,
+   "unit": "IOPS",
+   "window": "merged_mixed",
+   "source": "metrics.gcp[bench-validator-10].disk_write_ops_per_sec p95",
+   "method": "Nearest-rank p95 of the 60-s mean write-operation rate over the merged mixed window for each healthy validator; the highest (bench-validator-10) is reported.",
+   "provenance": "computed"
+  },
+  {
+   "id": "cpu_p95_pct_busiest",
+   "label": "CPU, p95, busiest validator",
+   "short_label": "CPU p95",
+   "value": 36.7,
+   "unit": "%",
+   "window": "merged_mixed",
+   "source": "metrics.gcp[bench-validator-09].cpu_utilization p95",
+   "method": "Nearest-rank p95 of the 60-s CPU utilisation over the merged mixed window for each healthy validator; the highest (bench-validator-09) is reported.",
+   "provenance": "computed"
+  },
+  {
+   "id": "rss_p95_gib_busiest",
+   "label": "Node resident memory, p95, busiest validator",
+   "short_label": "RSS p95",
+   "value": 8.64,
+   "unit": "GiB",
+   "window": "merged_mixed",
+   "source": "metrics.gcp[bench-validator-10].telcoin_rss_bytes p95",
+   "method": "Nearest-rank p95 of the 60-s telcoin process resident memory over the merged mixed window for each healthy validator; the highest (bench-validator-10) is reported.",
+   "provenance": "computed"
+  },
+  {
+   "id": "psi_io_max_pct",
+   "label": "IO pressure, highest reading, range over validators",
+   "short_label": "IO pressure max",
+   "range": [
+    10.2,
+    17.4
+   ],
+   "unit": "%",
+   "window": "merged_mixed",
+   "source": "sampler[healthy validators].psi_io_some_avg10 max",
+   "method": "For each healthy validator, the highest 10-s 'some' IO pressure reading the on-node sampler logged inside the merged mixed window; reported as the range over validators.",
+   "provenance": "computed"
+  }
+ ],
+ "headline": "avg_chain_tps_all_generators",
+ "recovery": {
+  "node": "bench-validator-05",
+  "killed_utc": "2026-11-05T09:33:50Z",
+  "restarted_utc": "2026-11-05T09:38:50Z",
+  "rejoined_utc": "2026-11-05T10:15:13Z",
+  "catch_up_secs": 2160,
+  "failed_reports": null
+ },
+ "caveats": [
+  "per-validator rows cover 9 validators; bench-validator-05 excluded as chaos target(s)",
+  "commit_latency_p95_s: no tn_primary_commit_latency_seconds.p95 points for bench-validator-10",
+  "recovery: the 15-s samples show bench-validator-05 promoted 6 time(s) (2026-11-05T10:03:28Z to 2026-11-05T10:12:58Z) and inactive again at a later sample each time; a rejoin counts only once the node stays active to the end of the metrics window",
+  "recovery: demoted / rejoined are the first 15-s Prometheus samples showing the change, so they trail the node's own log times by up to a scrape interval plus one step",
+  "recovery: no tn_batch_builder_seal_failures_total count for bench-validator-05; failed_reports unavailable"
+ ]
+}

@@ -280,6 +280,53 @@ class OutDirGitTests(TmpMixin, unittest.TestCase):
         self.assertEqual(os.path.realpath(got), os.path.realpath(top))
 
 
+# --------------------------------------------------------------------------- setup: MDBX sync mode
+
+
+class SafeNoSyncTests(TmpMixin, unittest.TestCase):
+    """A run whose nodes ran MDBX sync mode safe-no-sync is refused at setup unless --allow-safe-no-sync."""
+    RUN = "r20260101-0000"
+
+    def setUp(self):
+        super(SafeNoSyncTests, self).setUp()
+        self.tools = os.path.join(self.tmp, "tools")
+        for f in ("aggregate.py", "derive-sizing.py", "build-report.py"):
+            write_text(os.path.join(self.tools, f), "raise SystemExit('the refusal comes first')\n")
+        r = os.path.join(self.results_root, self.RUN)
+        write_json(os.path.join(r, "manifest.json"), {"node_startup": {
+            "val-1": {"db_sync_mode": "durable"}, "val-2": {"db_sync_mode": "safe-no-sync"}}})
+        write_json(os.path.join(r, "metrics.json"), {})
+        write_json(os.path.join(r, "blasters", "load-a.json"), {"schema": "tn-blast/v2"})
+        self.out = os.path.join(self.tmp, "out", self.RUN)
+
+    def test_check(self):
+        refusal = ("MDBX sync mode safe-no-sync on val-2 (manifest node_startup[].db_sync_mode): durability relaxed, "
+                   "not comparable with durable runs; pass --allow-safe-no-sync to publish it with a caveat")
+        m = {"node_startup": {"val-1": {"db_sync_mode": "durable"}, "val-2": {"db_sync_mode": "safe-no-sync"}}}
+        with self.assertRaises(mb.BundleError) as cm:
+            mb.sync_mode_check(m, False)
+        self.assertEqual(str(cm.exception), refusal)
+        _, _, err = quiet(mb.sync_mode_check, m, True)
+        self.assertIn("--allow-safe-no-sync: publishing a run with MDBX sync mode safe-no-sync on val-2", err)
+        for durable in ({}, {"node_startup": {"val-1": {"db_sync_mode": "durable"}, "val-2": {}}}):
+            self.assertEqual(quiet(mb.sync_mode_check, durable, False), (None, "", ""))
+        self.assertTrue(mb.parse_args(["--run", self.RUN, "--allow-safe-no-sync"]).allow_safe_no_sync)
+        self.assertFalse(mb.parse_args(["--run", self.RUN]).allow_safe_no_sync)
+
+    def test_main_refuses_before_provenance_and_writes_nothing(self):
+        rc, out, err = self.main("--run", self.RUN, "--out", self.out, "--txgen-bench", self.tools)
+        self.assertEqual(rc, 1, err)
+        self.assertIn("make_bundle: error: MDBX sync mode safe-no-sync on val-2", err)
+        self.assertNotIn("provenance", out)
+        self.assertFalse(os.path.exists(self.out))
+        # With the flag the run goes on to provenance (which this bare run then fails: no logs, no backfill sha).
+        rc, out, err = self.main("--run", self.RUN, "--out", self.out, "--txgen-bench", self.tools, "--force",
+                                 "--allow-safe-no-sync")
+        self.assertNotIn("make_bundle: error: MDBX sync mode", err)
+        self.assertIn("make_bundle: warning: --allow-safe-no-sync: publishing a run with MDBX sync mode safe-no-sync "
+                      "on val-2 (caveat added)", err)
+
+
 # --------------------------------------------------------------------------- step 1: scratch
 
 
@@ -1082,7 +1129,7 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.assertEqual(doc["upstream"]["evidence"], "inferred")
         self.assertEqual(doc["upstream"]["short"], SHA[:9])
         self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
-        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
+        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 14)  # 13 + time_to_land_corrected_p50_s
         self.assertEqual(doc["kpis"][-1]["id"], "x_published")
         self.assertEqual(doc["fleet"]["regions"], ["us-east1 (South Carolina)", "us-west2 (Los Angeles)"])
         self.assertEqual(doc["chain"], {"chain_id": 2017, "network": "bench", "epoch_secs": 86400})
@@ -1106,7 +1153,7 @@ class OfflineAssemblyTests(unittest.TestCase):
                                     all_generators_secs=45)
         ids = [k["id"] for k in doc["kpis"]]
         self.assertNotIn("best_60s_chain_tps_all_generators", ids)
-        self.assertEqual(len(ids), 12)
+        self.assertEqual(len(ids), 13)
         self.assertEqual(doc["headline"], "avg_chain_tps_all_generators")
         self.assertEqual(doc["windows"]["all_generators"]["secs"], 45)
         self.assertIn("The all-generators window is 45 s, shorter than 60 s: best-60-s chain throughput not computed.",
@@ -1277,6 +1324,22 @@ class CertificationBundleTests(unittest.TestCase):
         self.assertIn("val-&lt;b&gt;", page)
         self.assertIn("<th class='num'>arm a&lt;b</th>", page)
         self.assertNotIn("<b>", page)
+
+    def test_safe_no_sync_nodes_get_a_caveat(self):
+        # benchmark-deploy.sh step 7 records node_startup[<inst>].db_sync_mode; any safe-no-sync node is named.
+        m = certification_manifest(failing=False)
+        m["node_startup"] = {"val-3": {"db_sync_mode": "safe-no-sync"}, "val-1": {"db_sync_mode": "durable"},
+                             "val-2": {"db_sync_mode": "safe-no-sync", "params_bak": "written"}}
+        caveat = "MDBX sync mode safe-no-sync on val-2 and val-3: durability relaxed; not comparable with durable runs"
+        self.assertEqual(mb.sync_mode_caveat(m), caveat)
+        doc, out, _ = self.build(m)
+        self.assertIn(caveat + ".", doc["caveats"])
+        self.assertEqual(mb.hscrub.scan_dir(out, m), [])
+        # Durable (or unrecorded, a bench-4 manifest) everywhere: no caveat.
+        m["node_startup"] = {"val-1": {"db_sync_mode": "durable"}, "val-2": {}, "val-3": "not a record"}
+        self.assertIsNone(mb.sync_mode_caveat(m))
+        doc, _, _ = self.build(m)
+        self.assertFalse([c for c in doc["caveats"] if "safe-no-sync" in c])
 
     def test_main_adds_the_table_before_the_digest(self):
         src = MAKE_BUNDLE_PY.read_text()
@@ -1564,7 +1627,7 @@ class Run20260929IntegrationTests(unittest.TestCase):
         doc = load_json(os.path.join(out, "run.json"))
         head = next(k for k in doc["kpis"] if k["id"] == doc["headline"])
         self.assertEqual(head["value"], 4177.2)
-        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 13)
+        self.assertEqual([k["provenance"] for k in doc["kpis"]].count("computed"), 16)  # 13 + corrected + time_to_seen p50/p95
         self.assertEqual([k["provenance"] for k in doc["kpis"]].count("published"), 1)
         self.assertEqual(doc["upstream"]["short"], "e85bd7a3f")
         # The run's node logs may have moved to the archive bucket, leaving only the .pulled markers here.

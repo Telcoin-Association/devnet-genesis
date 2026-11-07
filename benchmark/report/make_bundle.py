@@ -12,13 +12,18 @@ Command line::
     python3 benchmark/report/make_bundle.py --run R [--blast-index N] [--compare R2]
         [--compare-blast-index M] [--backfill F.json] [--out DIR] [--force]
         [--allow-provenance-mismatch] [--analysis-sha SHA] [--archived-report PATH]
-        [--no-results] [--txgen-bench DIR]
+        [--no-results] [--txgen-bench DIR] [--floor-blast-dir DIR]
 
 Paths:
     results    <repo>/benchmark/results/<R>/ (read only)
     scratch    <repo>/benchmark/work/report/<R>/ (gitignored; kept after the run so a
                --compare of a later run can reuse it; --force deletes and rebuilds it). Each
-               scratch dir holds a .source.json marker {run, blast_index, source, built_at}.
+               scratch dir holds a .source.json marker {run, blast_index, source, built_at, inputs,
+               archives, landings, floor}: inputs = every file copied in, {path (from
+               benchmark/results/), bytes, sha256}, the light blast's manifest copy and blasters
+               included; archives = the run's blast-<i>-<UTC>/ dirs; landings = the sampled-landings
+               exports (landings-*.ndjson.gz, for the stage tool; never copied or published), with
+               their size and sha256; floor = the light blast the floor KPIs read, or null.
     tools      ${BENCH_TXGEN_REPO:-<repo>/../tn-transaction-generator}/bench, or --txgen-bench
     out        ${BENCH_SITE_REPO:-<repo>/../tn-benchmarks}/runs/<R>/, or --out. The last path
                component must be <R>. When the out dir lies inside a git checkout, that
@@ -35,10 +40,15 @@ Pipeline, one log line per step, numbered in execution order:
     1 scratch     copy an allowlist (manifest.json, metrics.json, blasters/*.json, sampler/*.csv)
                   into the scratch dir, plus an empty reference-chains.json. With --blast-index N
                   the manifest, metrics and blasters come from blast-N-*/. The node logs are not
-                  copied (tens of GB for a debug-filter run); step 2 reads them in place.
+                  copied (tens of GB for a debug-filter run); step 2 reads them in place. A run with
+                  a light-load arm (manifest blasts[]) also gets its light8 blast's manifest copy
+                  and blasters/*.json under floor/ (found via blasts[], or --floor-blast-dir).
     2 provenance  node logs in results/<run>/logs/, read in place, vs the expected upstream sha
                   (manifest node_git_sha, else the backfill's upstream.sha). A mismatch refuses
-                  here, before the slow steps, unless --allow-provenance-mismatch.
+                  here, before the slow steps, unless --allow-provenance-mismatch. Before it, a
+                  manifest whose node_startup[<inst>].db_sync_mode is "safe-no-sync" on any node
+                  (BENCH_NODE_DB_SYNC_MODE; MDBX commits without fsync) refuses unless
+                  --allow-safe-no-sync, which publishes it with a caveat naming those nodes at step 8.
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
@@ -46,7 +56,9 @@ Pipeline, one log line per step, numbered in execution order:
                   "Certification by node" section from manifest.certification goes into the built
                   report (never an archived one); manifest.cert_failures becomes a caveat at step 8.
     6 windows     merged / all-generators windows, 5-minute blocks and the 1-s series.
-    7 kpis        kpis.compute() plus the backfill's published KPIs; recovery.
+    7 kpis        kpis.compute() plus the backfill's published KPIs; recovery. The floor KPIs
+                  (floor_time_to_land_p50_s, floor_time_to_seen_p50_s) come from floor/; a run
+                  without a light blast has none and no caveat about it.
     8 assemble    run.json, every RUN_SCHEMA key, nothing else.
     9 write       run.json, report.html, series/ into a staging dir next to the out dir
                   (<parent>/.<R>.tmp-<pid>/<R>; inside the site that is runs/.<R>.tmp-<pid>/<R>).
@@ -57,6 +69,10 @@ Pipeline, one log line per step, numbered in execution order:
                   and the site check runs again on <out>; if that fails the previous bundle is
                   restored. Any failure in 9-11 leaves <out> as it was and exits 1; the staging
                   dir is always removed.
+
+--floor-blast-dir DIR names the light blast the floor KPIs read (a blast-<i>-<UTC>/ dir with
+blasters/*.json; relative paths are tried against results/<run>/ too) instead of the manifest's
+blasts[] light8 entry.
 
 --archived-report PATH copies PATH as report.html instead of running build-report.py (the
 rest of the pipeline still runs). --no-results skips steps 1-7 altogether: run.json comes
@@ -190,6 +206,7 @@ REFERENCE_FILE = "reference-chains.json"
 
 # Marker in every scratch dir: {run, blast_index, source, built_at}.
 SOURCE_MARKER = ".source.json"
+FLOOR_SCRATCH = "floor"  # scratch subdir holding the light blast the floor KPIs read
 OLD_SOURCE_MARKERS = (".bundle-source.json",)
 
 _T0 = time.time()
@@ -539,12 +556,86 @@ def prepare_scratch(run_id, blast_index, force, step=None):
         for p in csvs:
             _copy_file(p, os.path.join(scratch, "sampler", os.path.basename(p)))
     write_empty_reference(os.path.join(scratch, REFERENCE_FILE))
-    with open(os.path.join(scratch, SOURCE_MARKER), "w") as fh:
-        json.dump({"run": run_id, "blast_index": blast_index, "source": os.path.relpath(src, RESULTS_ROOT),
-                   "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
+    copied = [os.path.join(src, "manifest.json"), os.path.join(src, "metrics.json")] + blasters + csvs
+    write_marker(scratch, {"run": run_id, "blast_index": blast_index, "source": os.path.relpath(src, RESULTS_ROOT),
+                           "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           "inputs": [file_entry(p) for p in copied], "archives": blast_archives(results),
+                           "landings": [file_entry(p) for p in landings_files(results)], "floor": None})
     log(step, "%s <- %s (%d blasters, %d sampler csv)"
         % (os.path.relpath(scratch, REPO_ROOT), os.path.relpath(src, REPO_ROOT), len(blasters), len(csvs)))
     return scratch
+
+
+def file_entry(path):
+    """{path (relative to benchmark/results/), bytes, sha256} of one source file."""
+    return {"path": os.path.relpath(path, RESULTS_ROOT), "bytes": os.path.getsize(path), "sha256": _sha256(path)}
+
+
+def blast_archives(results):
+    """The run's archived blasts, blast-<i>-<UTC>/ (real dirs only), by name."""
+    return [os.path.relpath(d, RESULTS_ROOT) for d in sorted(glob.glob(os.path.join(results, "blast-*-*")))
+            if os.path.isdir(d) and not os.path.islink(d)]
+
+
+def landings_files(results):
+    """Sampled-landings exports of the load and of every archived blast (blasters/landings-*.ndjson.gz)."""
+    out = glob.glob(os.path.join(results, "blasters", "landings-*.ndjson.gz"))
+    out += glob.glob(os.path.join(results, "blast-*-*", "blasters", "landings-*.ndjson.gz"))
+    return sorted(p for p in out if os.path.isfile(p) and not os.path.islink(p))
+
+
+def write_marker(scratch, doc):
+    with open(os.path.join(scratch, SOURCE_MARKER), "w") as fh:
+        json.dump(doc, fh)
+
+
+def resolve_floor_dir(run_id, floor_dir):
+    """--floor-blast-dir as an absolute dir with blasters/*.json (tried as given, then under
+    results/<run>/), or BundleError."""
+    for cand in (floor_dir, os.path.join(results_path(run_id), floor_dir)):
+        cand = os.path.abspath(cand)
+        if os.path.isdir(cand) and glob.glob(os.path.join(cand, "blasters", "*.json")):
+            return cand
+    raise BundleError("--floor-blast-dir %s: no blasters/*.json there or under %s"
+                      % (floor_dir, results_path(run_id)))
+
+
+def prepare_floor(scratch, run_id, floor_dir=None, step=None):
+    """Copy the light blast the floor KPIs read (its manifest copy and blasters/*.json) into
+    scratch/floor/ and record it in the marker. The blast is --floor-blast-dir, else the light8
+    entry of the live manifest's blasts[] (windows.floor_blast). Returns (blast | None, caveats);
+    a run without a light-load arm is (None, [])."""
+    step = step or S_SCRATCH
+    results = results_path(run_id)
+    top = os.path.join(results, "manifest.json")
+    live = _load_input(top) if os.path.isfile(top) else {}
+    if floor_dir:
+        blast, caveats = kpis_mod.blast_from_dir(live, resolve_floor_dir(run_id, floor_dir)), []
+    else:
+        blast, caveats = win.floor_blast(results, live)
+    if blast is None:
+        return None, caveats
+    dst = os.path.join(scratch, FLOOR_SCRATCH)
+    if os.path.lexists(dst):
+        raise BundleError("%s exists in the scratch dir" % FLOOR_SCRATCH)
+    os.makedirs(os.path.join(dst, "blasters"), mode=0o700)
+    copied = []
+    for p in sorted(glob.glob(os.path.join(blast["dir"], "blasters", "*.json"))):
+        _load_input(p)
+        _copy_file(p, os.path.join(dst, "blasters", os.path.basename(p)))
+        copied.append(p)
+    m = os.path.join(blast["dir"], "manifest.json")
+    if os.path.isfile(m):
+        _load_input(m)
+        _copy_file(m, os.path.join(dst, "manifest.json"))
+        copied.insert(0, m)
+    marker = read_marker(scratch) or {}
+    marker["inputs"] = (marker.get("inputs") or []) + [file_entry(p) for p in copied]
+    marker["floor"] = {"name": blast["name"], "index": blast["index"], "source": os.path.relpath(blast["dir"], RESULTS_ROOT)}
+    write_marker(scratch, marker)
+    log(step, "floor %s (index %s) <- %s (%d blasters)"
+        % (blast["name"], blast["index"], os.path.relpath(blast["dir"], REPO_ROOT), len(copied) - os.path.isfile(m)))
+    return blast, caveats
 
 
 # ------------------------------------------------------------------------- steps 3-5: tools, scrub, report
@@ -723,18 +814,24 @@ def windows_step(scratch, combined):
 
 # ------------------------------------------------------------------------- step 7: kpis
 
-def kpis_step(scrubbed, combined, metrics, manifest, built, backfill):
+def kpis_step(scrubbed, combined, metrics, manifest, built, backfill, floor=None, floor_caveats=()):
+    """floor: kpis.floor_input() of the light blast in scratch/floor/, or None (no floor KPIs);
+    floor_caveats (why a light8 blast was not usable) come first among the KPI caveats."""
     targets = kpis_mod.chaos_targets_from_manifest(manifest)
     sampler_dir = os.path.join(scrubbed, "sampler")
     sampler = kpis_mod.load_sampler(sampler_dir) if os.path.isdir(sampler_dir) else {}
-    res = kpis_mod.compute(combined, metrics, sampler, manifest, built, targets)
+    res = kpis_mod.compute(combined, metrics, sampler, manifest, built, targets, floor)
     computed = res["kpis"]
     published = published_kpis(backfill.get("kpis_published"))
     clash = sorted({k["id"] for k in computed} & {k["id"] for k in published})
     if clash:
         raise BundleError("backfill kpis_published reuses computed KPI id(s): %s" % ", ".join(clash))
     all_kpis = computed + published
-    caveats = list(res["caveats"])
+    caveats = list(floor_caveats) + list(res["caveats"])
+    if floor is not None:
+        log(S_KPIS, "floor %s (index %s): %s" % (floor["name"], floor["index"], ", ".join(
+            "%s %s s" % (r["generator"], r["time_to_seen_p50_s"]) for r in res.get("floor_by_generator") or [])
+            or "no generator"))
     rec = res["recovery"]
     rec = {k: rec.get(k) for k in RECOVERY_KEYS} if rec else None
     rec, rec_caveats = merge_recovery(rec, backfill.get("recovery"))
@@ -1286,6 +1383,37 @@ def add_certification_section(report_path, section):
     return True
 
 
+def safe_no_sync_nodes(manifest):
+    """The instances whose manifest node_startup[<inst>].db_sync_mode is "safe-no-sync" (benchmark-deploy.sh
+    step 7 records it from the PRECFG_OK line; "durable" or absent otherwise), sorted."""
+    ns = (manifest or {}).get("node_startup")
+    if not isinstance(ns, dict):
+        return []
+    return sorted(i for i, v in ns.items() if isinstance(v, dict) and v.get("db_sync_mode") == "safe-no-sync")
+
+
+def sync_mode_caveat(manifest):
+    """The caveat for a run with safe-no-sync nodes, or None when every node ran durable."""
+    nodes = safe_no_sync_nodes(manifest)
+    if not nodes:
+        return None
+    return "MDBX sync mode safe-no-sync on %s: durability relaxed; not comparable with durable runs" % _words(nodes)
+
+
+def sync_mode_check(manifest, allow):
+    """Setup-time refusal of a run with safe-no-sync nodes unless --allow-safe-no-sync (then a warning;
+    assemble() adds the caveat)."""
+    nodes = safe_no_sync_nodes(manifest)
+    if not nodes:
+        return
+    if not allow:
+        raise BundleError("MDBX sync mode safe-no-sync on %s (manifest node_startup[].db_sync_mode): durability "
+                          "relaxed, not comparable with durable runs; pass --allow-safe-no-sync to publish it "
+                          "with a caveat" % _words(nodes))
+    warn("--allow-safe-no-sync: publishing a run with MDBX sync mode safe-no-sync on %s (caveat added)"
+         % _words(nodes))
+
+
 def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built, tps5, kpis_list, headline,
              recovery, computed_caveats, report, compare_to, backfill, tool_dir):
     caveats = []
@@ -1306,6 +1434,9 @@ def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built,
     cert_caveat = certification_caveat(manifest, run_id)
     if cert_caveat:
         caveats.append(cert_caveat)
+    sync_caveat = sync_mode_caveat(manifest)
+    if sync_caveat:
+        caveats.append(sync_caveat)
     return {
         "schema": SCHEMA_ID,
         "id": run_id,
@@ -1562,10 +1693,14 @@ def parse_args(argv):
     ap.add_argument("--force", action="store_true", help="delete and rebuild benchmark/work/report/<run>")
     ap.add_argument("--allow-provenance-mismatch", action="store_true",
                     help="publish even when the node logs do not confirm the upstream sha (adds a caveat)")
+    ap.add_argument("--allow-safe-no-sync", action="store_true",
+                    help="publish a run whose nodes ran MDBX sync mode safe-no-sync (adds a caveat)")
     ap.add_argument("--analysis-sha", help="generator.analysis_sha (default: backfill, else the tools' git HEAD)")
     ap.add_argument("--archived-report", help="copy this report.html byte for byte instead of building one")
     ap.add_argument("--no-results", action="store_true", help="no raw run: run.json from the backfill alone")
     ap.add_argument("--txgen-bench", help="tool dir (default ${BENCH_TXGEN_REPO:-<repo>/../tn-transaction-generator}/bench)")
+    ap.add_argument("--floor-blast-dir", help="the light blast the floor KPIs read (default: the light8 entry of "
+                                              "manifest blasts[] -> its blast-<index>-<UTC>/)")
     a = ap.parse_args(argv)
     if a.analysis_sha and not (7 <= len(a.analysis_sha) <= 40 and HEX_RE.fullmatch(a.analysis_sha)):
         ap.error("--analysis-sha must be 7-40 lowercase hex digits")
@@ -1578,6 +1713,8 @@ def parse_args(argv):
             ap.error("--no-results needs --archived-report and --backfill")
         if a.blast_index is not None:
             ap.error("--no-results and --blast-index exclude each other")
+        if a.floor_blast_dir:
+            ap.error("--no-results and --floor-blast-dir exclude each other")
     for name in ("blast_index", "compare_blast_index"):
         if getattr(a, name) is not None and getattr(a, name) < 0:
             ap.error("--%s must be >= 0" % name.replace("_", "-"))
@@ -1630,7 +1767,9 @@ def _main(a):
         warn("--compare-blast-index is unused: with --archived-report no compare inputs are built")
 
     scratch = prepare_scratch(run_id, a.blast_index, a.force)
+    floor_blast, floor_caveats = prepare_floor(scratch, run_id, a.floor_blast_dir)
     raw_manifest = _load_input(os.path.join(scratch, "manifest.json"))
+    sync_mode_check(raw_manifest, a.allow_safe_no_sync)
     # Provenance first (it only needs the node logs, read in place in results/<run>/logs/, and the
     # raw manifest, where node_git_sha and friends are unscrubbed), so a mismatch refuses before
     # the slow report build.
@@ -1649,7 +1788,9 @@ def _main(a):
     combined = _load_input(os.path.join(scrubbed, "combined.json"))
     built, tps5, series_doc = windows_step(scratch, combined)
     blasters_docs = win.load_blasters(os.path.join(scratch, "blasters"))
-    kpis_list, headline, recovery, kpi_caveats = kpis_step(scrubbed, combined, metrics, manifest, built, backfill)
+    floor = kpis_mod.floor_input(floor_blast, os.path.join(scratch, FLOOR_SCRATCH)) if floor_blast else None
+    kpis_list, headline, recovery, kpi_caveats = kpis_step(scrubbed, combined, metrics, manifest, built, backfill,
+                                                           floor, floor_caveats)
     cert_section = certification_html(manifest)
     if archived:
         if cert_section:
