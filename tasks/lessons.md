@@ -1452,3 +1452,12 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Symptom: the second bundle (after a backfill wording fix) exited rc=1 at once: "scratch dir … exists; pass --force".
 - Rule: any bundle re-run after the first passes `--force`; the launcher script carries it from the second run on, and the
   install step replaces the site run dir atomically, so a forced rebuild is safe while the earlier bundle is still installed.
+
+## 2026-11-09 — a `pgrep -f` wait loop matches its own command line and never exits
+- Symptom: ten background shells from 2026-11-06 were still alive three days later, each `until ! pgrep -f "<pattern>" …; do sleep N; done`
+  (or `until grep -c … = 3`). The pattern was present in the loop's own `bash -c` argument, so `pgrep -f` always found one match; the
+  count-based loops waited for a total the log never reached. Harmless (a sleep every few seconds) but invisible until someone looked.
+- Rule: a wait loop on another process uses a pattern that cannot match itself (`pgrep -f "[c]argo nextest …"` — the bracket breaks the
+  literal match in the loop's own argv) or waits on the PID written by the launcher; every poll loop carries a deadline
+  (`for i in $(seq 1 N)` or a `timeout`) and prints a line when it gives up; prefer a Bash `run_in_background` waiter on a terminal log
+  line that the launcher is guaranteed to write (`== <seg> rc=`), as the Wave 3 segments did.
