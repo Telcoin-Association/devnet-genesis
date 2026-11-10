@@ -1,5 +1,7 @@
 # Engine execution caps chain throughput at about 215 µs per transaction
 
+Opened upstream as #1800 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 On an 11-node benchmark network under sustained load the engine is the throughput limit. It is busy about 98 % of

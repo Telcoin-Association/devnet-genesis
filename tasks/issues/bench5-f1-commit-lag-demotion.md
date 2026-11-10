@@ -1,5 +1,7 @@
 # A validator whose execution is a few per cent slower than the quorum's is demoted under load, because its commit waits on its own execution
 
+Opened upstream as #1799 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 For every committed sub-DAG the consensus task waits until local execution reaches the leader's `latest_execution_block`

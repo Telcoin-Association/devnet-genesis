@@ -1,5 +1,7 @@
 # A promoted validator cannot rebuild its DAG mid-epoch, so it loops between promotion and demotion until the next epoch
 
+Opened upstream as #1801 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 A validator that was demoted to `CvvInactive` mid-epoch never rejoins for good before the next epoch starts. Each time its

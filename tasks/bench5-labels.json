@@ -1,0 +1,261 @@
+{
+  "issues": [
+    {
+      "order": 1,
+      "slug": "f1-commit-lag-demotion",
+      "title": "A validator a few per cent slower at execution is demoted under load, because its commit waits on its own execution",
+      "labels": [
+        "bug",
+        "consensus",
+        "P1"
+      ],
+      "body": "tasks/issue-bodies/bench5-f1-commit-lag-demotion.md"
+    },
+    {
+      "order": 2,
+      "slug": "f2-execution-ceiling",
+      "title": "Engine execution caps chain throughput at about 215 µs per transaction",
+      "labels": [
+        "enhancement",
+        "P2"
+      ],
+      "body": "tasks/issue-bodies/bench5-f2-execution-ceiling.md"
+    },
+    {
+      "order": 3,
+      "slug": "f3-rejoin-loop",
+      "title": "A promoted validator cannot rebuild its DAG mid-epoch, so it loops between promotion and demotion until the next epoch",
+      "labels": [
+        "bug",
+        "consensus",
+        "P1"
+      ],
+      "body": "tasks/issue-bodies/bench5-f3-rejoin-loop.md"
+    },
+    {
+      "order": 4,
+      "slug": "persist-fsync-amplification",
+      "title": "The MDBX commit writes about 4× the device bytes per transaction that bench 4 wrote, below the engine",
+      "labels": [
+        "bug",
+        "spike",
+        "P1"
+      ],
+      "body": "tasks/issue-bodies/bench5-persist-fsync-amplification.md"
+    },
+    {
+      "order": 5,
+      "slug": "far-validator-certificate-inclusion",
+      "title": "At light load the two European validators drift behind the round and most of their certificates are never committed",
+      "labels": [
+        "consensus",
+        "enhancement",
+        "P2"
+      ],
+      "body": "tasks/issue-bodies/bench5-far-validator-certificate-inclusion.md"
+    },
+    {
+      "order": 6,
+      "slug": "execution-behind-vote-starvation",
+      "title": "Under load the fastest executors' headers are refused as execution-behind, so up to f validators lose every certificate",
+      "labels": [
+        "bug",
+        "consensus",
+        "P0"
+      ],
+      "body": "tasks/issue-bodies/bench5-execution-behind-vote-starvation.md"
+    },
+    {
+      "order": 7,
+      "slug": "execution-lag-feedback",
+      "title": "A lagging node's signer-recovery jobs land on top of its own block builds, so the lag feeds itself",
+      "labels": [
+        "enhancement",
+        "P2"
+      ],
+      "body": "tasks/issue-bodies/bench5-execution-lag-feedback.md"
+    },
+    {
+      "order": 8,
+      "slug": "loaded-epoch-boundary-drain",
+      "title": "A loaded epoch close waits for the seventh-fastest validator's execution backlog; slower members miss the epoch record",
+      "labels": [
+        "bug",
+        "consensus",
+        "P1"
+      ],
+      "body": "tasks/issue-bodies/bench5-loaded-epoch-boundary-drain.md"
+    },
+    {
+      "order": 9,
+      "slug": "sealed-tx-invisible-drops-and-duplicates",
+      "title": "A sealed transaction leaves the pool and the RPC, so a skipped one waits 5 minutes for a resend and a resend runs twice",
+      "labels": [
+        "bug",
+        "P1"
+      ],
+      "body": "tasks/issue-bodies/bench5-sealed-tx-invisible-drops-and-duplicates.md"
+    }
+  ],
+  "prs": [
+    {
+      "nn": "00",
+      "slug": "obs",
+      "title": "feat: benchmark observability — vote path, persist, rejoin, leader, batch and epoch-record instrumentation",
+      "head": "feat/bench-observability",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:f1-commit-lag-demotion}}",
+        "{{ISSUE:f3-rejoin-loop}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-00-obs.md"
+    },
+    {
+      "nn": "01",
+      "slug": "log-dumps",
+      "title": "perf(engine): demote the engine debug dumps to trace",
+      "head": "fix/{{ISSUE_NUM:f2-execution-ceiling}}-log-dumps",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:f2-execution-ceiling}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-01-log-dumps.md"
+    },
+    {
+      "nn": "02",
+      "slug": "exec-split",
+      "title": "feat(engine): split execute time per output, time the subscriber-to-engine hop, name consensus ids on executed blocks",
+      "head": "fix/{{ISSUE_NUM:f2-execution-ceiling}}-exec-split",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:f2-execution-ceiling}}",
+        "{{ISSUE:persist-fsync-amplification}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-02-exec-split.md"
+    },
+    {
+      "nn": "03",
+      "slug": "signer-reuse",
+      "title": "perf(engine): recover signers when an output is queued, off the execution thread",
+      "head": "fix/{{ISSUE_NUM:f2-execution-ceiling}}-signer-reuse",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:f2-execution-ceiling}}",
+        "{{ISSUE:execution-lag-feedback}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-03-signer-reuse.md"
+    },
+    {
+      "nn": "04",
+      "slug": "cached-reads",
+      "title": "perf(tn-reth): keep one read cache across the blocks of a consensus output",
+      "head": "fix/{{ISSUE_NUM:f2-execution-ceiling}}-cached-reads",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [
+        "{{ISSUE:f2-execution-ceiling}}"
+      ],
+      "refs": [
+        "{{ISSUE:persist-fsync-amplification}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-04-cached-reads.md"
+    },
+    {
+      "nn": "05",
+      "slug": "f1-commit-lag",
+      "title": "fix(primary): commit without waiting for execution; expose the lag; e2e for a slowed validator",
+      "head": "fix/{{ISSUE_NUM:f1-commit-lag-demotion}}-f1-commit-lag",
+      "labels": [
+        "bug",
+        "consensus"
+      ],
+      "closes": [
+        "{{ISSUE:f1-commit-lag-demotion}}"
+      ],
+      "refs": [
+        "#1781",
+        "#1782",
+        "#1518",
+        "{{ISSUE:execution-behind-vote-starvation}}",
+        "{{ISSUE:loaded-epoch-boundary-drain}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-05-f1-commit-lag.md"
+    },
+    {
+      "nn": "06",
+      "slug": "f3-rejoin",
+      "title": "fix: one rejoin per episode (certificate retention, propose at the head, grace, attempt cap, vote refusals, e2e)",
+      "head": "fix/{{ISSUE_NUM:f3-rejoin-loop}}-f3-rejoin",
+      "labels": [
+        "bug",
+        "consensus"
+      ],
+      "closes": [
+        "{{ISSUE:f3-rejoin-loop}}"
+      ],
+      "refs": [
+        "#1518",
+        "#1513",
+        "#1517",
+        "#1782",
+        "#1531",
+        "{{ISSUE:execution-behind-vote-starvation}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-06-f3-rejoin.md"
+    },
+    {
+      "nn": "07",
+      "slug": "land-path-obs",
+      "title": "feat: time-to-land stage instrumentation (batch, worker, proposer, commit path, fetch and pack persist)",
+      "head": "feat/land-path-obs",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:far-validator-certificate-inclusion}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-07-land-path-obs.md"
+    },
+    {
+      "nn": "08",
+      "slug": "batch-wake",
+      "title": "feat(batch-builder): wake on transaction arrival",
+      "head": "feat/batch-wake",
+      "labels": [
+        "enhancement"
+      ],
+      "closes": [],
+      "refs": [],
+      "body": "tasks/pr-bodies/bench5-08-batch-wake.md"
+    },
+    {
+      "nn": "09",
+      "slug": "cert-requeue",
+      "title": "feat(primary): re-queue digests of cancelled headers",
+      "head": "feat/cert-requeue",
+      "labels": [
+        "enhancement",
+        "consensus"
+      ],
+      "closes": [],
+      "refs": [
+        "{{ISSUE:execution-behind-vote-starvation}}"
+      ],
+      "body": "tasks/pr-bodies/bench5-09-cert-requeue.md"
+    }
+  ]
+}

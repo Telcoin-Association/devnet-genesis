@@ -1,5 +1,7 @@
 # A lagging node's signer-recovery jobs land on top of its own block builds, so the lag feeds itself
 
+Opened upstream as #1805 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 Under saturation, a validator whose execution trails the block leaders' by more than about one commit latency switches

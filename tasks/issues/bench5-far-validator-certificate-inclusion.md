@@ -1,5 +1,7 @@
 # At light load the two European validators drift a little further behind the round every round, so most of their certificates are never committed and their users wait about 20 s per transaction
 
+Opened upstream as #1803 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 At light load London (validator-02) and the Netherlands (validator-06) certify about 99.5 % of their own headers, but only 13-18 %

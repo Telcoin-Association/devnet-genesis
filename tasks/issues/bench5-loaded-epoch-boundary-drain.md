@@ -1,5 +1,7 @@
 # A loaded epoch close waits for the seventh-fastest validator to drain its execution backlog; the slower members miss the epoch record, overflow the closing epoch's task tracker and enter the next epoch one round short of demotion
 
+Opened upstream as #1806 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 With commit decoupled from execution (F1), a validator reaches an epoch close with an execution backlog, and it cannot

@@ -1,5 +1,7 @@
 # A sealed transaction leaves the pool and the RPC, so a skipped one waits five minutes for a resend and a resent one executes twice
 
+Opened upstream as #1807 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 The batch builder removes a transaction from the pool as soon as its batch reaches the worker quorum. From then until the

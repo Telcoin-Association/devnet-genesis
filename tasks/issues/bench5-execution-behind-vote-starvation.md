@@ -1,5 +1,7 @@
 # Under load the fastest executors' headers are refused as "execution behind", so up to f validators lose every certificate
 
+Opened upstream as #1804 (2026-11-10, Telcoin-Association/telcoin-network).
+
 ## Problem
 
 A voter signs a header only after its own execution has reached the block the header names (`latest_execution_block`), and

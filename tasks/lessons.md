@@ -1461,3 +1461,46 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   literal match in the loop's own argv) or waits on the PID written by the launcher; every poll loop carries a deadline
   (`for i in $(seq 1 N)` or a `timeout`) and prints a line when it gives up; prefer a Bash `run_in_background` waiter on a terminal log
   line that the launcher is guaranteed to write (`== <seg> rc=`), as the Wave 3 segments did.
+
+## 2026-11-09 — `rm -rf "$VAR/…"` on a scratch tree is refused by the safety classifier
+- Symptom: deleting the previous session's 5.4 GB scratch directory with a variable-expanded path was denied twice (once by the
+  rm-variable check, once by the auto-mode classifier), leaving /tmp at 54 % with swap full while an I/O probe needed free memory.
+- Rule: never put a variable in an `rm -rf` path; spell the literal absolute path, or use `${VAR:?}` so an unset variable aborts, and
+  prefer `find <literal dir> -mindepth 1 -delete`. Big scratch trees that may need deleting later go under the session scratchpad,
+  which the harness cleans, not under a hand-made /tmp directory.
+
+## 2026-11-09 — the GCE serial console is not in Cloud Logging, but the Ops Agent syslog carries the kernel line
+- Symptom: `gcloud logging read … serialconsole.googleapis.com` returned nothing for the bench fleets (serial logging off), so the
+  kernel per run looked unrecoverable.
+- Rule: query the Ops Agent `syslog` stream for `"Linux version"` instead (`resource.type="gce_instance" AND logName:"syslog" AND
+  textPayload:"Linux version"`, `--project tn-devnet`); the image family version comes from `gcloud compute images list --show-deprecated`
+  against the deploy timestamps. Record kernel, image name, THP, dirty settings and mount options in the run manifest from now on.
+
+## 2026-11-09 — split a measurement agent into a build agent and a run agent
+- Symptom: U-PERSIST-c (libmdbx probe) wrote the crate, debugged it, ran smoke and the full arms in one context and reached 350k tokens,
+  then had to hand back with the re-runs pending.
+- Rule: one agent writes and smoke-tests the tool and hands back a runbook (`run-full.sh` + a README of flags and columns); a fresh
+  agent runs the arms and writes the report; a third folds re-runs in. Each stays under 250k and a rate limit loses at most one stage.
+
+## 2026-11-09 — an I/O probe and a test lane cannot share the machine; find out who else is running first
+- Symptom: the probe's quiet gate retried six times and one arm lost its page cache because a peer Claude session ran `make attest`
+  (workspace nextest + the ignored e2e set) from another checkout; the probe agent waited two 30-minute windows for nothing.
+- Rule: before granting a disk-quiet window or starting an e2e lane, run `pgrep -af '[n]extest|[c]argo (test|nextest|check|clippy|build)'`
+  and `ListAgents`; a foreign `make attest` is the user's attestation run — never kill it, wait for the `test-and-attest.sh` PID to exit,
+  then run the probe, then the stack's lanes. Gate every heavy agent behind a go-file so it can be launched early and started late.
+
+## 2026-11-09 — the staging branch name decides which CI runs; stacks need merge commits
+- `pr.yaml` and `consensus-liveness.yaml` trigger on PRs to `main` and `staging/**` only, so a base named `benchmark-obs-staging` would get
+  no PR CI at all; name staging branches `staging/<owner-or-topic>-<date>`. A stacked PR series collapses only when each PR is merged
+  with "Create a merge commit"; a squash into staging rewrites the base and every PR above must be restacked (`git rebase --update-refs
+  --onto origin/staging/… <merged head>` + `push --force-with-lease` for each remaining head). Say so in every PR body.
+
+## 2026-11-10 — a "dry run" that shares a code path with the live call is not a dry run
+- Symptom: `create_issues.sh` was meant to substitute and lint only (`DRY=1`). A patch to make the dry map work replaced the dry
+  branch's `continue` with an assignment, the flow fell through to `gh issue create`, and all nine upstream issues were opened
+  (#1799-#1807) hours before the plan's W3 step — correct titles, labels, assignee and cross-references, but the persist issue with
+  its pre-probe text.
+- Rule: the live side-effect sits behind an explicit `[ "$DRY" = "0" ] || exit` guard on the line before it, never reachable by
+  falling through; the dry branch ends in `continue`/`return`. Before the first real run of any script that calls `gh … create`,
+  `git push`, `gcloud … create` or `cast send`, run it once with the binary shimmed on PATH (a stub that prints REACHED and exits 9)
+  and assert zero hits. Scripts that create external artifacts are run once by hand per step, not iterated on with live credentials.
