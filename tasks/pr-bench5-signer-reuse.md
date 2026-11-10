@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `signer-reuse` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1814 (2026-11-10): head `fix/1800-signer-reuse` → base `staging/benchmark-obs-2026-11` (PR 4 of 10, stacked). Final body: tasks/pr-bodies/bench5-03-signer-reuse.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/signer-reuse origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: signer-reuse$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 9039198de
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/issues/bench5-f2-execution-ceiling.md.

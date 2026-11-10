@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `exec-split` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1813 (2026-11-10): head `fix/1800-exec-split` → base `staging/benchmark-obs-2026-11` (PR 3 of 10, stacked). Final body: tasks/pr-bodies/bench5-02-exec-split.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/exec-split origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: exec-split$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 3dc26fa59 fac145464 decc4cbc4
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/issues/bench5-f2-execution-ceiling.md.

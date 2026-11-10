@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `land-path-obs` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1819 (2026-11-10): head `feat/land-path-obs` → base `staging/benchmark-obs-2026-11` (PR 8 of 10, stacked). Final body: tasks/pr-bodies/bench5-07-land-path-obs.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/land-path-obs origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: land-path-obs$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): dac760298 d660e8e7f 0bd522ca7 cafca0d95
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/bench5-land-time-baseline.md.

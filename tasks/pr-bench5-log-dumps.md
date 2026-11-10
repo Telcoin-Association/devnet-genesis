@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `log-dumps` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1812 (2026-11-10): head `fix/1800-log-dumps` → base `staging/benchmark-obs-2026-11` (PR 2 of 10, stacked). Final body: tasks/pr-bodies/bench5-01-log-dumps.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/log-dumps origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: log-dumps$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): a962b9876
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: Refs the bench-5 issue text tasks/issues/bench5-f2-execution-ceiling.md.

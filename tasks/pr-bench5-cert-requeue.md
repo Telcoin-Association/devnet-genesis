@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `cert-requeue` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1821 (2026-11-10): head `feat/cert-requeue` → base `staging/benchmark-obs-2026-11` (PR 10 of 10, stacked). Final body: tasks/pr-bodies/bench5-09-cert-requeue.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/cert-requeue origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: cert-requeue$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 3304d94ce
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/bench5-land-time-baseline.md (lever S4/S5 tail).

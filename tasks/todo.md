@@ -1524,3 +1524,24 @@ BENCH_LOG_RATE_CHECK), rewrite manifest.phases from the blasters' real phases (D
 Operator items: back up benchmark/results/r20261107-1504 (2.5 GB, the ONLY copy; the archive bucket is retired per the README); open the nine draft PRs
 (tasks/pr-bench5-*.md) and the observability PR from the texts; open the issue texts upstream; decide the bench-6 arms from report §6.
 Lessons added: `--project tn-devnet` on every ad-hoc gcloud read; never estimate wall-clock in a record; make_bundle re-runs need `--force`.
+
+## Review — bench 5 upstreaming session (2026-11-09T21:30Z → 2026-11-10T03:35Z, xerxes)
+Delivered: nine upstream issues #1799 f1-commit-lag-demotion · #1800 f2-execution-ceiling · #1801 f3-rejoin-loop · #1802 persist (MDBX WRITEMAP
+whole-folio dirtying) · #1803 far-validator inclusion · #1804 execution-behind vote starvation (P0) · #1805 execution-lag feedback · #1806 loaded
+epoch-boundary drain · #1807 sealed-tx drops/duplicates (all assignee grantkee, labels per tasks/bench5-labels.json). Ten stacked PRs into
+`staging/benchmark-obs-2026-11` (pinned at upstream main c65abdf79): #1811 obs → #1812 log-dumps → #1813 exec-split → #1814 signer-reuse → #1816
+cached-reads (Closes #1800) → #1817 f1-commit-lag (Closes #1799) → #1818 f3-rejoin (Closes #1801) → #1819 land-path-obs → #1820 batch-wake → #1821
+cert-requeue; 38 commits, tree at the top == bench head 067639def before the rebase; every commit strict-checked, every head fmt/clippy/nextest
+green, top head public-tests + adiri + liveness mutation loop + 3 named e2e green (tasks/checkpoint-bench5-p3.md). Persist root cause:
+benchmark/private/bench5-r20261107-1504/I-B2/{gcp,series,probe,verdict}.md — mechanism proven on a 7.0 kernel with a libmdbx probe
+(/home/drtnarg/coding/telcoin/mdbx-writeback-probe): order-0 cache 1.00×, read-ahead-built large folios 1.7-14.5×; "prefault off" refuted; fixes
+ranked MADV_RANDOM whole map → no buffered readers + fadvise evict → read_ahead_kb → no WRITEMAP. tn-lmdb (#1759) writes through a shared map too.
+Merge recipe for the user: merge #1811…#1821 IN ORDER with "Create a merge commit" (a squash breaks the stack; restack recipe in tasks/plan.md W3.6);
+then merge origin/main into staging (one conflict, crates/tn-reth/src/error.rs, from #1768) and run `make attest`; `verify-on-chain` fails on every
+PR until the attested hash covers them (by design). Before any bench-6 image from staging: check #1790 (#1644's replay parent check halts a fresh
+adiri node).
+Incidents: the nine issues opened at 00:28Z through a dry-run bug in the creation script (lesson 2026-11-10; content correct, #1802 body replaced at
+01:03Z after the probe). A peer session's `make attest` occupied the machine 22:58-23:55Z; the probe re-runs and P3 were sequenced after it.
+Operator items: delete the previous session's 5.4 GB scratch /tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/8fd11b65-538a-4941-99e8-e68b9023491c
+(the classifier refused the agent's rm); back up benchmark/results/r20261107-1504 (only copy); republish the bench-5 report page (report.md finding 3
+and §6 changed after publication; make_bundle needs --force); decide the bench-6 arms (report §6; persist arms (b1)-(b3) re-shaped).

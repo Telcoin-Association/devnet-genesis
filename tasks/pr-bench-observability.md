@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — not yet opened; the bench-4 run (r20261105-0803) is done and the body below cites its results
 
+Opened as #1811 (2026-11-10): head `feat/bench-observability` → base `staging/benchmark-obs-2026-11` (PR 1 of 10, stacked). Final body: tasks/pr-bodies/bench5-00-obs.md.
+
 Head (original): bench/main-v1lazy-obs-2026-11 @ 496ebefb5 (pushed), stacked on PR 1783. PR 1783 merged on 2026-11-05 (7527b15c0), so
 the PR is no longer stacked: on 2026-11-06 the nine commits were cherry-picked (-x) onto bench/main-fixes-2026-11 (base origin/main
 4bf4604d2) as 77539d77d e938be258 49643180d 4ab917aae 180a2d8c1 c6e8df6dd 2d47fe191 f7936def8 3a721a1b6 (clean; libp2p+primary

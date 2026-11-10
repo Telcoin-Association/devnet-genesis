@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `f3-rejoin` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1818 (2026-11-10): head `fix/1801-f3-rejoin` → base `staging/benchmark-obs-2026-11` (PR 7 of 10, stacked). Final body: tasks/pr-bodies/bench5-06-f3-rejoin.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/f3-rejoin origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: f3-rejoin$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 746ac3272 0c41872ba bf34ec488 cae41a400 f2f9437f7 73d3163db ae68877dc
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: Refs #1518, #1513, #1517, #1782; overlaps PR 1531 (F3-5); tasks/issues/bench5-f3-rejoin-loop.md.

@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `f1-commit-lag` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1817 (2026-11-10): head `fix/1799-f1-commit-lag` → base `staging/benchmark-obs-2026-11` (PR 6 of 10, stacked). Final body: tasks/pr-bodies/bench5-05-f1-commit-lag.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/f1-commit-lag origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: f1-commit-lag$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 557c9b737 a3a00525e d33ecb797
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: Refs #1781, #1782, #1518; tasks/issues/bench5-f1-commit-lag-demotion.md.

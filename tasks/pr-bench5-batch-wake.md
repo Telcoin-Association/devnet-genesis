@@ -1,5 +1,7 @@
 # Draft PR (telcoin-network) — topic `batch-wake` — not yet opened; evidence section filled from the bench-5 analysis (Wave D)
 
+Opened as #1820 (2026-11-10): head `feat/batch-wake` → base `staging/benchmark-obs-2026-11` (PR 9 of 10, stacked). Final body: tasks/pr-bodies/bench5-08-batch-wake.md.
+
 Cherry-pick onto main: `git -C $TN fetch origin main && git switch -c fix/batch-wake origin/main && git cherry-pick -x $(git log --reverse --format=%h --grep='^Topic: batch-wake$' origin/main..bench/main-fixes-2026-11)`
 Commits on bench/main-fixes-2026-11 (integration shas): 716de9019
 Depends on: see tasks/bench5-cherrypick-ledger.md (depends-on column). Related: tasks/bench5-land-time-baseline.md (lever S1).
