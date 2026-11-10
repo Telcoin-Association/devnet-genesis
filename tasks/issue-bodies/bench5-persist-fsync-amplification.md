@@ -8,9 +8,12 @@ In bench 5 (run r20261107-1504, build 067639def) the durable persist became the 
 The logical writes did not change. Every reth table grows by the same bytes per transaction in both runs, and both runs
 touch 0.44 accounts and 0.62 storage slots per transaction. The device bytes did change: about 155 KB per transaction
 against 36 KB, written in 227 KB operations against 32 KB. The persist code is byte-for-byte the same in the two
-images, and so are reth (v1.11.3) and libmdbx (0.13.7). Something under MDBX turns the same page updates into three to
-four times the device writes. Bench 3 (r20261103-1922, different code) wrote like bench 5. Bench 4 is the run that
-escaped, and it escaped in the fifth minute of its blast, when its process started re-reading evicted pages.
+images, and so are reth (v1.11.3) and libmdbx (0.13.7). The extra writes happen below MDBX, in the page cache: when
+`mdbx.dat`'s cache holds large folios, every 4 KB page MDBX writes through the map dirties the whole folio and the commit's
+`msync` writes it. A probe of the same libmdbx on a 7.0 kernel reproduces this at 1.7-14.5× and writes exactly 1.00× when the
+cache holds single-page folios. Bench 3 (r20261103-1922, different code) wrote like bench 5. Bench 4 is the run that
+escaped, in the fifth minute of its blast, when its process started re-reading evicted pages. What gave the bench nodes
+large folios in the first place was not recorded.
 
 Two premises in the bench-5 F2 verdict (report finding 3) needed correcting:
 
@@ -25,8 +28,8 @@ Two premises in the bench-5 F2 verdict (report finding 3) needed correcting:
 Load windows: bench 5 load_pre_kill 17:41:32-17:54:44 UTC (ten validators, 6,006-6,042 tx per output); bench 4 load
 09:11:59-09:33:50 UTC (8-12.5 k tx per output). v01 unless noted; the other validators agree within a few per cent.
 Sources: the private bench-5 analysis (run r20261107-1504): the F2 verdict §0 and §4, bottleneck notes B1 and B8, the
-per-window engine and resource summaries, the image and kernel reads, and the persist series replay (cited as series §n);
-the bench-4 bottleneck notes (r20261105-0803), both runs' `metrics.json` (Prometheus replay) and the per-node sampler
+per-window engine and resource summaries, the image and kernel reads, the persist series replay (cited as series §n), and a
+probe of the same libmdbx on a 7.0 kernel (cited as probe F n); the bench-4 bottleneck notes (r20261105-0803), both runs' `metrics.json` (Prometheus replay) and the per-node sampler
 CSVs in the recovery tarballs. The bench-5 report summarizes the F2 verdict in finding 3:
 https://benchmark.telcoin.network/runs/r20261107-1504/report.html.
 
@@ -156,95 +159,106 @@ The block layer and the device add nothing.
   64 to 128 rounds in the consensus DB (a few MB of live data, not MDBX). 0bd522ca7 times the existing pack persist.
 - `Cargo.lock`, reth-db 1.11.3 and libmdbx 0.13.7 are unchanged. Neither run passed `--db.sync-mode`.
 
-## Mechanism: ranked verdict
+## Mechanism
 
 How MDBX is opened and committed. reth opens the RW environment with WRITEMAP (`crates/storage/db/src/implementation/mdbx/mod.rs:381-386`),
 `no_rdahead` and `coalesce` (`:441-448`), `rp_augment_limit` 256 k (`:477`), the OS page size of 4 KB (`:139`), a 4 GiB
 growth step (`:137`) and `SyncMode::Durable` (`:145`). TN calls it through `init_db(db_path, …database_args())`
 (`crates/tn-reth/src/env/mod.rs:294`). libmdbx on Linux is built with `MDBX_AVOID_MSYNC=0` (`mdbx.c:1737-1742`), so it
 keeps no dirty list and the kernel tracks dirty pages. A durable commit is `msync(MS_SYNC)` over
-`[0, first_unallocated)` (`mdbx.c:20770-20776`, `osal_msync` at `:29325`). Spilling in WRITEMAP mode is
-`msync(MS_ASYNC)`, which does nothing on Linux (`:33209`). The device writes whatever the kernel holds dirty for
-`mdbx.dat` at that moment, in whatever unit the page cache dirties.
+`[0, first_unallocated)` (`mdbx.c:20770-20776`, `osal_msync` at `:29325`). libmdbx advises the whole map `MADV_NOHUGEPAGE`,
+and `MADV_RANDOM` only over the part that was in use when the environment was opened (`dxb_set_readahead`, `:20055-20151`,
+called at open with the used size at `:20618` and again only on a geometry change, `:19943`). The 4 GiB file never resized
+in these runs, so that range never moved.
 
-What the kernel does with it (Linux v7.0 source; ext4 has had large folios for regular files since 6.16):
+What the kernel does with a store through the map (Linux v7.0 source; ext4 has had large folios for regular files since
+6.16):
 
-- An mmap write fault on ext4 marks the whole folio dirty. `ext4_page_mkwrite` sets `len = folio_size(folio)`, clamped to
-  the end of file, and calls `block_commit_write(folio, 0, len)` (`fs/ext4/inode.c`). Writeback writes every dirty block,
-  so the whole folio reaches the device. `write(2)` marks only the blocks it writes.
-- Faults allocate single-page folios. `filemap_fault` creates the folio with `FGP_CREAT|FGP_FOR_MMAP` and no order, mmap
-  read-around starts at `ra->order = 0`, and only async readahead raises the order (`mm/filemap.c`, `mm/readahead.c`).
-  Only `VM_HUGEPAGE` forces 2 MB folios on a fault, and libmdbx never sets it.
-- Buffered writes get folios as large as the write: `write_begin_get_folio` passes `fgf_set_order(len)`
-  (`include/linux/pagemap.h`). The ext4 cap with 4 KB blocks is order 9, 2 MiB (`EXT4_MAX_PAGECACHE_ORDER`).
-- Large page-cache allocations are opportunistic. Above order 0 they use `__GFP_NORETRY | __GFP_NOWARN` and fall back one
-  order at a time when memory is short (`__filemap_get_folio_mpol`, `mm/filemap.c`).
-- No mount option or sysfs knob turns large folios off for ext4. `data=journal` and the per-inode journal-data flag pin the
-  order to the minimum, at the cost of journalling every data block (`fs/ext4/super.c` `ext4_set_max_mapping_order`,
+- The first store into a clean folio takes a write fault, and ext4 marks every block of the folio dirty:
+  `ext4_page_mkwrite` sets `len = folio_size(folio)`, clamped to the end of file, and calls `block_commit_write(folio, 0, len)`
+  (`fs/ext4/inode.c`). `msync` then writes the whole folio. `write(2)` marks only the blocks it writes.
+- The kernel charges the dirtying process the whole folio (`folio_account_dirtied`, `mm/page-writeback.c`), which is why
+  `write_bytes` equals the device bytes when whole folios are dirtied.
+
+Where large folios come from:
+
+- Not from libmdbx's normal operation. Faults inside the `MADV_RANDOM` range get single-page folios, and libmdbx writes each
+  non-resident page it allocates with a 4 KB `pwrite` before touching it (`prefault_write`, on by default for WRITEMAP,
+  `mdbx.c:11425-11428`, `:22356-22395`), which also gives a single-page folio. A cold start that refilled the cache this way
+  wrote 1.00× (probe F1).
+- A buffered read of `mdbx.dat` builds large folios through readahead, up to the readahead window (128 KB on the probe
+  machine, `read_ahead_kb` 128).
+- Faults past the open-time `MADV_RANDOM` edge go through normal mmap readahead, which raises the folio order over a region
+  that is touched in order. Prefault normally gets there first. With prefault off, the probe's small database went from 1.0×
+  to 1.8× in five outputs as it grew past the edge (probe F4). On a node whose database grows from genesis, nearly all of it
+  lies past the edge, so a page that is evicted and then read again also comes back through this path.
+- From the kernel source, not tested: a buffered write of the file, such as a datadir copy or extract, gets folios as large
+  as the write (`write_begin_get_folio` passes `fgf_set_order(len)`, `include/linux/pagemap.h`).
+- No ext4 mount option or sysfs knob disables large folios. `data=journal` and the per-inode journal-data flag pin the order
+  to the minimum, at the cost of journalling every data block (`fs/ext4/super.c` `ext4_set_max_mapping_order`,
   `fs/ext4/inode.c` `ext4_set_inode_mapping_order`).
 
 | # | candidate | verdict | deciding evidence |
 |---|---|---|---|
-| H1 | whole-folio writeback: MDBX's 4 KB WRITEMAP stores dirty large page-cache folios and `msync` writes them whole; memory pressure breaks the large folios up | most likely (probe pending) | bytes 2.9-3.9× the copy bound; `write_bytes` equals the device; bench 3 and 4 identical until bench 4's re-reads; the matched contrasts inside bench 4 and bench 5 |
-| H3 | bench 4's debug log | the pressure that switched H1 off in bench 4; refuted as a direct cause | the collapse follows the re-reads, not the log rate; bench 5 dropped late with no log |
-| H2 | the unpinned image or kernel | refuted for bench 3 vs bench 4 | same image and kernel, opposite modes |
-| H4 | MDBX copies more pages | refuted as the cause | copy bound; equal per-table growth; same code |
+| H1 | whole-folio dirtying: MDBX's 4 KB WRITEMAP stores dirty whole large page-cache folios and `msync` writes them | the cause; reproduced on a 7.0 kernel; what put large folios into the bench nodes' cache is not recorded | probe 1.7-14.5× with large folios, 1.00× without; bytes 2.9-3.9× the copy bound with `write_bytes` equal to the device |
+| H3 | bench 4's debug log | not a direct cause; the memory pressure it created fits bench 4's escape but is untested on a resident large-folio cache | appender arm 1.00×; the collapse follows the re-reads, not the log rate |
+| H2 | the unpinned image or kernel | refuted for bench 3 vs bench 4; the kernel, filesystem and disk settings still decide how large the folios get | same image and kernel, opposite modes |
+| H4 | MDBX copies more pages | refuted | copy bound; equal per-table growth; identical page-op counts across the probe's arms |
 | H5 | another writer in the process | ruled out | below |
-| H6 | THP | not expected (probe pending) | only `VM_HUGEPAGE` changes the fault order |
+| H6 | THP | not involved | `thp_file_alloc` 0 in every probe arm; libmdbx already sets `MADV_NOHUGEPAGE` |
 | H7 | measurement artefact | ruled out | below |
 | H8 | writeback before the commit | secondary, bench 4 only | 9-14 % of bench 4's process bytes left before the commit |
 
-**H1. Whole-folio writeback, switched off by memory pressure.** If `mdbx.dat`'s page cache holds multi-page folios, each
-4 KB page MDBX copies into one costs the folio in device writes.
+**H1. Whole-folio dirtying under WRITEMAP.** The probe opened libmdbx 0.13.7 exactly as reth does, on a byte-identical 6 GB
+database, and ran a bench-5-shaped output (2,640 account and 3,720 slot updates, 6,000 random hash inserts) per durable
+commit (probe "Environment"):
 
-Where the large folios come from. On v7.0 the fault paths cannot make them (above). The buffered writes to `mdbx.dat` are
-libmdbx's prefault writes. `prefault_write` is on by default for WRITEMAP (`mdbx.c:11425-11428`) and stays on because reth
-turns readahead off (`mdbx.c:22486-22500`). When an allocation's pages are not resident, libmdbx writes a pattern through
-the file handle before touching them: `pwrite` for a single page, `pwritev` over the whole run for a multi-page allocation
-(`mdbx.c:22356-22395`). A multi-page run, such as a large value or the commit's GC record, therefore lands in one or more
-large folios. Once the run is freed, its pages return to the free pool and are reused as ordinary 4 KB B-tree pages, still
-inside those folios. Every later copy into such a page writes the whole folio. Read faults outside libmdbx's open-time
-`MADV_RANDOM` range (`dxb_set_readahead`, `:20055-20066`, called at open with the open-time used size at `:20618`) start
-at order 0 on v7.0, so that path only matters for async readahead on sequential runs. The creation path is read from the code; no run recorded folio sizes (probe pending).
+| cache state | device ÷ MDBX-dirtied, per-commit median [p10-p90] | total bytes | commit median (p90) |
+|---|---|---|---|
+| order-0 (libmdbx's own faults and prefaults), any arm | 1.00 [1.00-1.00] | 1.00× | 61.7 ms (76.9) |
+| large folios from a buffered read, 6 GB, run r2 | 1.70 [1.05-6.76] | 3.30× | 117.6 ms (365.0) |
+| the same, run r3 | 3.76 [1.05-17.71] | 8.10× | 202.8 ms (936.9) |
+| the same, 2 GB database | 14.54 [1.04-18.05] | 12.3× | 615.2 ms (739.5) |
 
-What switches it off. Nothing on a quiet node splits a page-cache folio, so without pressure the large-folio share only
-grows. Pressure breaks it two ways:
+In every case the process dirtied exactly what the device received, so the extra bytes are whole folios dirtied by the write
+faults, not something added at writeback (probe F2, F8). The factor depends on how scattered the dirtied pages are: 1.05×
+while MDBX's free-page reuse hands out contiguous runs, 6.4× and 17.4× once it recycles scattered pages (probe F2). It also
+varied between two runs that dirtied byte-identical pages (1.70× against 3.76×), because the folio sizes the read left
+behind differed. Bench 5's 4.3× sits inside this band, and its data carry the same signature: bytes 2.9-3.9× a bound that
+copies every page, with `write_bytes` equal to the device.
 
-- Eviction. A page MDBX reuses after its folio was evicted is non-resident, so libmdbx prefaults it with a one-page
-  `pwrite`: an order-0 folio, no read. A page MDBX reads after eviction comes back through the fault path at order 0;
-  that is the re-read bench 4 shows.
-- Allocation fallback. With free memory at the watermarks, the opportunistic large allocations for new prefault runs fail
-  and fall back to small orders without any read. This is the only route in hand for bench 5's late drop.
+Operation size alone does not show folio size: at order 0 the probe writes 88 KB operations on contiguous runs and 4.4 KB on
+scattered pages for the same bytes (probe F5). Bench 5's 227 KB operations support H1 only together with its bytes. They
+also imply a larger `max_sectors_kb` on the GCE disk than the probe machine's 128 KB, and possibly a larger readahead window,
+so the folios there may be larger than the probe's.
 
-What H1 explains: bytes above the copy bound; fewer, larger device operations; `write_bytes` agreeing with the device;
-fleet uniformity; no code change; bench 3's climb and bench 5's high start (no pressure); bench 4's exit in the minute its
-re-reads began, node by node; the matched contrasts in which the nodes still at large operations wrote 1.3-1.6× the bytes
-(bench 4) or about 1.2× (bench 5) and committed slower. Not shown yet: folio sizes and memory state, which no run recorded,
-and why bench 4's process bytes are 1.4-1.5× its own bound in the low state (some large folios survived, operations 17-74 KB
-rather than 4-8 KB, or the bound misses about 100 MB per output).
+What no run recorded: the folio sizes and MDBX's own dirtied pages on the bench nodes, and what filled their cache with large
+folios. The candidates are a buffered read or write of `mdbx.dat` by something other than the node (a copy, an extract, a
+checksum, a backup or a sampler) and faults past the `MADV_RANDOM` edge on a database that grew from genesis.
 
-**H3. Bench 4's debug log, as the pressure.** The log cannot shrink MDBX's bytes directly. `msync` and `fsync` flush only
-`mdbx.dat`'s own dirty folios; an ext4 `data=ordered` journal commit forced by MDBX's sync could only make bench 4's sync
-slower; and the timing does not fit a direct effect. The log ran at ≈ 36 MB/s in minutes 3-4 at 229-231 KB operations, the
-collapse came in minute 5 with the re-reads, the commit stayed flat while the disk filled, and bench 5 dropped late with no
-log at all. Its route is memory: about 1 GB/min of log through a 16 GB page cache. Re-reads began at 09:11-09:12 on every
-validator. The root volume grew 9-10 GB in 09:08-09:13 while at most 6 GB of log reached the device, which suggests
-several GB sat dirty in the cache then (ext4 counts delayed allocations as used; memory was not recorded, so this is an
-inference). The two nodes with the least log output, v08 (28 MB/s) and the observer (26 MB/s, against 33-37 MB/s),
-collapsed last.
+**H3. Bench 4's debug log.** Not a direct cause. `msync` and `fsync` flush only `mdbx.dat`'s own folios, and a 19 MB/s
+appender on the same filesystem left the probe's commit at 1.00× and 60.3 ms (probe F7). In bench 4 the collapse came in
+minute 5 with the re-reads, after the log had already run at ≈ 36 MB/s for two minutes at 229-231 KB operations; the commit
+stayed flat while the disk filled; and bench 5 dropped late with no log at all. The route that fits is memory: about
+1 GB/min of log through a 16 GB page cache. Re-reads began at 09:11-09:12 on every validator, and the root volume grew 9-10
+GB in 09:08-09:13 while at most 6 GB of log reached the device, which suggests several GB sat dirty in the cache (ext4
+counts delayed allocations as used). The two nodes with the least log output, v08 (28 MB/s) and the observer (26 MB/s,
+against 33-37 MB/s), collapsed last. The probe shows that pressure refills the cache through 4 KB faults and prefaults at
+1.00× (probe F6). It could not show pressure breaking up a cache that already holds large folios: under a 2 GB memory limit
+the read-built cache was gone before the first output (probe arm 6b). So this route is consistent with the data but not
+demonstrated.
 
-**H2. Image or kernel drift.** Refuted for bench 3 against bench 4: same image, same kernel, opposite modes. Bench 5's
-newer kernel (1017) is not needed either: bench 5 matches bench 3 in operation size (222-231 KB) and in KB/tx at 6-12 k
-tx per output (108-164 against 102-144, series §7). A kernel of 6.16 or later is a precondition of H1, and all three
-runs met it. Pin the image anyway, so that the kernel cannot change between runs unrecorded.
+**H2. Image or kernel drift.** Refuted for bench 3 against bench 4: same image, same kernel, opposite modes. Bench 5's newer
+kernel (1017) is not needed either: bench 5 matches bench 3 in operation size and KB/tx (series §7). The kernel, the
+filesystem and the disk's `read_ahead_kb` and `max_sectors_kb` still decide whether the file gets large folios and how large,
+and none of them was recorded. Pin the image and record them.
 
-**H4. MDBX copying more pages.** The upper bound rules it out as the cause. The bound could only be wrong three ways and
-none gives 3×: pages outside the table footprints (GC and meta pages, a few MB); a page written twice in one commit
-because the flusher wrote it mid-transaction (bench 5 wrote 0-4 % of its bytes before the commit, series §3); or a
-stale footprint (it refreshes every ≈ 2 min, so 5-minute buckets are fine). Senders 400000+ (bench 5) and 0-5999
-(bench 4) are random addresses and random hashed keys in both runs. Six thousand against 8-12.5 k transactions per output
-changes how far branch-page copies are amortized by tens of per cent, not three times. The freelist is the same in both
-runs (bench 4 20 k → 55 k pages, bench 5 21 k → 59 k), and the file never grows past its first 4 GiB step in either.
+**H4. MDBX copying more pages.** The upper bound rules it out. The bound could only be wrong three ways and none gives 3×:
+pages outside the table footprints (GC and meta pages, a few MB); a page written twice in one commit because the flusher
+wrote it mid-transaction (bench 5 wrote 0-4 % of its bytes before the commit, series §3); or a stale footprint (it refreshes
+every ≈ 2 min, so 5-minute buckets are fine). The freelist is the same in both runs (bench 4 20 k → 55 k pages, bench 5
+21 k → 59 k), and the file never grows past its first 4 GiB step in either. In the probe, MDBX's own page counts were
+identical in every arm while the device bytes ranged from 1.00× to 14.5× of them.
 
 **H5. Another writer in the process.** No write path changed between the images:
 
@@ -253,100 +267,87 @@ runs (bench 4 20 k → 55 k pages, bench 5 21 k → 59 k), and the file never gr
 - Idle writes are equal in both runs (8.3-8.7 MB/s).
 - The time sits inside MDBX's sync phase: `transaction_commit_sync` equals the whole commit.
 
-**H6. THP.** libmdbx never issues `MADV_HUGEPAGE` (none in `mdbx.c`). On v7.0 the 2 MB path for a file fault needs
-`VM_HUGEPAGE`; THP `enabled=always` does not change file faults (`do_sync_mmap_readahead`, `mm/filemap.c`). Record the
-setting; `MADV_NOHUGEPAGE` should change nothing (probe pending).
+**H6. THP.** Not involved. `thp_file_alloc` stayed 0 in every probe arm, and libmdbx already advises the map
+`MADV_NOHUGEPAGE`. The large folios here are below 2 MB and do not depend on the THP setting.
 
 **H7. Measurement.** Ruled out. GCP device bytes and `/proc/<pid>/io` agree inside each run (bench 5: 524 vs 526 MB/s;
 bench 4: 201 vs 164 MB/s, the gap being the log written outside the telcoin process). The same disk spec and sampler code
 ran in both. The commit duration tracks bytes at the device rate in both runs.
 
 **H8. Writeback before the commit.** Bench 4 wrote 9-14 % of its process bytes before the commit started; bench 5 0-4 %
-(lower bound: device bytes minus commit seconds × 0.88 GB/s, series §3). It is most likely background writeback pushed by
-the log's dirty pages. It hides bytes from the commit rather than removing them, about a tenth of bench 4's commit.
+(lower bound: device bytes minus commit seconds × 0.88 GB/s, series §3). It hides bytes from the commit rather than removing
+them, about a tenth of bench 4's commit.
 
-**Most likely cause: H1.** The kernel writes back whole multi-page folios for MDBX's 4 KB WRITEMAP page copies, and memory
-pressure is what took bench 4 out of it.
+**Cause: H1.** The commit writes whole large page-cache folios for MDBX's 4 KB WRITEMAP page writes. Bench 4 most likely lost
+its large folios to memory pressure. What gave the bench nodes large folios in the first place is the open question.
 
 ## Proposal
 
-1. Done: the desk check. Bench 3 and bench 4 booted the same image and kernel ("Image and kernel"). Pin the image for
-   bench 6 and record it.
-2. The libmdbx probe on a 7.0 kernel (one machine, no chain; probe pending). Open an MDBX environment the way reth does
-   (WRITEMAP, durable, 4 KB pages, `no_rdahead`), run a random-update workload with commits of a few hundred MB, and
-   compare device bytes and write sizes (`/proc/diskstats`) with the pages MDBX copied. Arms and what each outcome means:
+1. Done: the image and kernel per run ("Image and kernel"), and a probe of the same libmdbx on a 7.0 kernel (above).
+2. Fixes, ranked. Ceilings use the 1.0 ms/MB law and the split in the bench-5 report's finding 3 (task 288.6 µs/tx, execute
+   87.4, save_blocks 21.1, commit 178). Without the amplification the commit returns to bench 4's ≈ 25-38 µs/tx (about
+   6.9 k tx/s), or at worst to the copy bound's ≈ 47-70 µs/tx (5.6-6.4 k). Fixes (a)-(c) deliver that only if they close
+   the route the bench nodes actually took, which item 3 measures.
 
-   | arm | H1 predicts | otherwise |
-   |---|---|---|
-   | baseline | device ÷ copied ≈ 3-4×, operations ≥ 150 KB | ≈ 1× with small operations, once the prefault counter shows multi-page runs ran: H1 is dead and the copy bound must be wrong |
-   | cgroup `MemoryMax` well below the map size | ≈ 1×, small operations, re-reads | still 3-4×: pressure is not the switch |
-   | a sequential appender filling the cache | falls to ≈ 1× once the cache is full, not before | a drop before the cache fills: a direct I/O effect of the log (H3) |
-   | no WRITEMAP | device ≈ 1× even with large folios; `write_bytes` may exceed the device | device 3-4×: dropping WRITEMAP is not a fix |
-   | prefault writes off | ≈ 1× from a cold cache | still high: the folios come from readahead; try `MADV_RANDOM` |
-   | `MADV_RANDOM` on the whole map | no change if prefault makes the folios | a drop: readahead makes them |
-   | `MADV_NOHUGEPAGE` | no change | a drop: THP policy matters (H6) |
+   | rank | fix | expected gain | cost | risk | probe evidence |
+   |---|---|---|---|---|---|
+   | (a) | Apply `MADV_RANDOM` over the whole map after `init_db`, and again after any geometry change: TN finds the mapping of `mdbx.dat` in `/proc/self/maps`, or libmdbx's `dxb_set_readahead` is patched to cover the map limit | closes the growth and evicted-page refault routes; 5.6-6.9 k tx/s if that was the trigger | 1-2 days | low | whole-map arm 1.00×, no measurable cost; cannot split folios a buffered read already made |
+   | (b) | Keep buffered readers and writers off `mdbx.dat` of a running or about-to-start node, and evict it with `posix_fadvise(POSIX_FADV_DONTNEED)` before the node starts (harness and operator rule) | closes the read- and copy-built route; same ceiling if that was the trigger | no code; slower puts while a large existing database warms up | low; does not stop a reader that runs later | cold start 1.00× |
+   | (c) | Lower `read_ahead_kb` on the data disk | caps the size of read-built folios, so the factor | a udev rule | low to medium: slower sequential reads of other files on that disk | untested; folios were capped at the 128 KB readahead window on the probe machine |
+   | (d) | Open the RW environment without WRITEMAP (reth hardcodes `write_map()`, `mdbx/mod.rs:385`) | immune at the device whatever the cache holds | a reth change and review, weeks | medium: commit latency +83 % on a normal cache (112.9 against 61.7 ms), a different durable path | 1.00× device with 3.76× dirtied |
+   | (e) | A memory limit on the node container | removes large folios by refilling the cache with single pages | minutes | high: at 2 GB, 1.3-1.4 s of puts per output, beyond the ≈ 1 output/s cadence; a limit just above the working set is untested. Diagnostic only | memory-limit arms 1.00× |
+   | then | Pipelined persist (lever 2 in the bench-5 report, finding 5) | ≈ 5.0 k tx/s at today's commit (×1.42) | weeks | medium | — |
+   | then | More provisioned disk throughput (the commit runs at the 800 MiB/s cap) | in proportion, up to the machine type's limit (not checked) | config | cost; hides the bytes | — |
 
-3. Fixes, ranked. Ceilings use the 1.0 ms/MB law and the split in the bench-5 report's finding 3 (task 288.6 µs/tx, execute 87.4, save_blocks
-   21.1). Bench 4's commit (≈ 25-38 µs/tx) gives about 6.9 k tx/s; bytes at the copy bound (≈ 47-70 µs/tx) about
-   5.6-6.4 k.
-
-   | rank | change | ceiling | time to land | risk |
-   |---|---|---|---|---|
-   | 1 | Turn prefault writes off: after `init_db`, `mdbx_env_set_option(env, MDBX_opt_prefault_write_enable, 0)` through reth-libmdbx `Environment::with_raw_env_ptr` (public, `environment.rs:145`; `DatabaseEnv` derefs to `Environment`, `mdbx/mod.rs:633`). TN only, no reth fork (probe pending) | 5.6-6.9 k tx/s | about a day plus the persist and restart e2e tests | low: a documented runtime option; a reused page that is not resident costs one 4 KB read, about zero without pressure |
-   | 2 | Also apply `MADV_RANDOM` to the whole map. libmdbx covers only the open-time used size and has no API for the map address, so either find the mapping in `/proc/self/maps` or patch `dxb_set_readahead` to cover the map limit | adds only if readahead makes folios (probe pending) | 1-2 days | low to medium |
-   | 3 | Open the RW environment without WRITEMAP. reth hardcodes `write_map()` (`mdbx/mod.rs:385`) | 5.6-6.9 k tx/s whatever the folio size, if the no-WRITEMAP arm escapes (probe pending) | a reth change and review, weeks | medium: a different durable path, shadow pages cost RAM and copies |
-   | 4 | Bound the node container's memory (`docker run --memory` or `memory.high`), as bench 4 did by accident | up to bench 4's level, but only once the cache reaches the bound | minutes | high outside a bench: OOM kill at `memory.max`, throttling at `memory.high`, re-reads; resets with the cache. Diagnostic only |
-   | 5 | Pipelined persist (lever 2 in the bench-5 report, finding 5) | ≈ 5.0 k tx/s at today's commit (×1.42) | weeks | medium |
-   | 6 | More provisioned disk throughput (the commit runs at the 800 MiB/s cap) | in proportion, up to the machine type's limit (not checked) | config | cost; hides the bytes |
-
-   `--db.sync-mode safe-no-sync` is dropped from bench 6: the 1.0 ms/MB law already says what the sync costs. No kernel or
-   mount knob is usable (see Mechanism); a kernel older than 6.16 or `data=journal` would be test arms, not fixes.
-4. Bench-6 observability (small, off the hot path):
-   - In `persist_executed_output`, read `Environment::info()?.page_ops()` before `save_blocks` and after `commit`
-     (reth-libmdbx `environment.rs:410-425`: `newly`, `cow`, `split`, `merge`, `prefault`, `mincore`, `msync`;
-     `MDBX_ENABLE_PGOP_STAT=1` is compiled in, `mdbx.c:1680`). Read `/proc/self/io` `write_bytes` at the same two points,
-     and add `mdbx_newly`, `mdbx_cow`, `mdbx_prefault` and `proc_write_bytes` to the `persisted output` line.
-   - Pre-start probe: `uname -r`; the boot image from instance metadata; `/sys/kernel/mm/transparent_hugepage/{enabled,defrag}`;
-     `vm.dirty_ratio`, `dirty_background_ratio`, `dirty_expire_centisecs` and `dirty_writeback_centisecs`;
-     `findmnt -no FSTYPE,OPTIONS` for the datadir; `/sys/block/<dev>/queue/{max_sectors_kb,read_ahead_kb,scheduler}`.
-   - Sampler, every 30 s: `/proc/diskstats` write ios and sectors (gives `wareq-sz`); `/proc/vmstat` `nr_dirty`,
-     `nr_writeback`, `nr_file_pages`, `workingset_refault_file`, `pgsteal_file`, `nr_file_hugepages`, `thp_file_alloc`;
-     `/proc/meminfo` `MemAvailable`, `Cached`, `Dirty`; the container's cgroup `memory.stat` (`file`, `file_dirty`,
-     `file_writeback`, `anon`) and `memory.events`.
-   - Every 5 minutes, the folio census of `mdbx.dat`: `page-types -f` (the kernel's `tools/mm`) or a small `/proc/kpageflags`
-     reader that counts pages by folio order. The THP counters in `/proc/vmstat` count only 2 MB folios and v7.0 has no
-     per-order counter for page-cache folios, so the census is the only direct measurement.
-5. Bench-6 arms of about 20 minutes each on fresh VMs, after the main load:
-   - (b1) the bench-6 build as is, image pinned: does bytes per output follow the large-folio share of `mdbx.dat`, and does
-     the share fall when `MemAvailable` reaches the floor?
-   - (b2) (b1) plus the fix the probe selects (prefault writes off, and `MADV_RANDOM` on the whole map if that arm moved):
-     does the commit fall to bench 4's 25-38 µs/tx with a small-folio census and no re-reads?
-   - (b3) (b1) with the node container's memory bounded (the value from the probe; record `memory.events`): does pressure
-     alone reproduce bench 4 on today's build?
+   Do not turn libmdbx's prefault writes off (`MDBX_opt_prefault_write_enable`): prefault is what keeps newly allocated
+   pages in single-page folios, and turning it off produced 1.5-1.8×, growing, once the database passed the `MADV_RANDOM`
+   edge (probe F4). `--db.sync-mode safe-no-sync` stays out of the bench: the 1.0 ms/MB law already says what the sync costs.
+3. Bench-6 records, on every node in every arm:
+   - Pre-start: `uname -r`; the boot image; `findmnt -no FSTYPE,OPTIONS` for the datadir;
+     `/sys/block/<dev>/queue/{read_ahead_kb,max_sectors_kb}`; THP `enabled` and `defrag`; `vm.dirty_*`; RAM; `fincore` of
+     `mdbx.dat` just before the node starts (resident pages then mean something read or wrote it with buffered I/O); every
+     harness step that touches the datadir.
+   - The decisive measurement, every 5 minutes during load: `mdbx_stat -e` against the live environment (built from the same
+     libmdbx 0.13.7; it reads the page-op counters from the lock file, since reth exports none) and the device bytes from
+     `/proc/diskstats`. Amplification = Δdevice ÷ (Δ(newly + cow) × 4096): about 1 in bench-4-like and about 4 in
+     bench-5-like conditions.
+   - Also every 5 minutes: `fincore mdbx.dat`; the `MADV_RANDOM` range of the mapping (`/proc/<pid>/smaps` VmFlags `rr`)
+     against the used size; a folio census (`page-types -f` from the kernel's `tools/mm`, or a `/proc/kpageflags` reader;
+     v7.0 has no per-order page-cache counters).
+   - Every 30 s: `/proc/<pid>/io`; `/proc/vmstat` `nr_dirty`, `nr_writeback`, `workingset_refault_file`, `pgmajfault`,
+     `thp_file_alloc`; `/proc/meminfo` `MemAvailable` and `Cached`; the container's `memory.stat` `file` and `file_dirty`.
+   - In `persist_executed_output`, optionally, the same page-op counters from `Environment::info()?.page_ops()` before
+     `save_blocks` and after the commit, with `/proc/self/io` `write_bytes`, on the `persisted output` line.
+4. Bench-6 arms of about 20 minutes each on fresh VMs. The main arm, without any persist change, is the control: with the
+   records above it shows whether the GCE nodes amplify and what filled their cache.
+   - (b1) the main build plus fix (a), with the harness rule (b): does the amplification fall to about 1 and the commit to
+     bench 4's 25-38 µs/tx? Cost: 1-2 days of code and a harness step; low risk.
+   - (b2) the main build with `read_ahead_kb` lowered on the data disk (16 KB, say) and no code change: does capping
+     read-built folios alone bring the factor down? Cost: a sysfs setting; may slow other reads.
+   - (b3) a no-WRITEMAP build, only if (b1) and (b2) leave the factor above about 1.2: does the pwrite path hold 1× on GCE, and
+     at what commit latency? Cost: a reth patch; +83 % commit latency on the probe machine.
 
 ## Test plan
 
-- Item 2 is the test for H1. Record it with the bench-6 analysis, with the machine, the kernel, the mount options, the probe
-  program and its arms, the `/proc/diskstats` deltas and the page-op counts per arm.
-- Item 4 code: a tn-reth unit test that a persisted non-empty output reports non-zero `mdbx_cow` and `proc_write_bytes`
-  and that an empty output reports zero `mdbx_cow`; extend `test_metrics_register_and_update` if the fields become
-  metrics. fmt and clippy.
-- Item 3 code, whichever lever is taken: the existing persist and restart e2e tests, plus a one-VM A/B of the reth bench
-  (`save_blocks` and `commit` of a 6 k-transaction output on a warmed 4 GiB environment) comparing device bytes per commit,
-  commit latency and the folio census.
+- Fix (a): a tn-reth test that, after the environment opens, every part of the `mdbx.dat` mapping carries `rr` in
+  `/proc/self/smaps`, and again after a forced geometry change. The existing persist and restart e2e tests. A one-VM A/B with
+  the probe (or the reth bench: `save_blocks` and `commit` of a 6 k-transaction output on a warmed environment) after a
+  buffered read of the file, comparing device bytes per commit and commit latency with and without the fix.
+- Rule (b): the pre-start probe fails the node start if `fincore` reports resident pages of `mdbx.dat` after the eviction.
+- Records: run the `mdbx_stat -e` sampler against a running node and check that it opens the environment read-only and that
+  Δ(newly + cow) moves with the outputs.
+- If the persist line gets the page-op fields: a tn-reth unit test that a non-empty output reports non-zero `mdbx_cow` and
+  an empty one zero; fmt and clippy.
 
 ## What the next benchmark run reads
 
-- Per output, `amplification = proc_write_bytes / ((Δnewly + Δcow) × 4096)`.
-  - About 1 means MDBX's own copies are the bytes. H4 is back, and the per-table page counts say which table.
-  - About 3-4 (bench 5) means H1. The folio census should show the large-folio share behind it.
-- The probe fields: the same kernel and image on every node and in every arm.
-- Bytes per transaction and its 5-minute trajectory against the folio census, `MemAvailable`, `workingset_refault_file`
-  and `io_read_bytes`. Under H1 it climbs while nothing is evicted and falls when free memory runs out, with or without
-  re-reads.
-- Arm outcomes:
-  - (b1) bytes per output tracking the large-folio share confirms H1 on the fleet.
-  - (b2) a commit near 25-38 µs/tx is the fix; still near 178 means the probe's lever does not carry to the fleet.
-  - (b3) falling bytes once the container reaches its bound confirms the pressure switch.
+- Per node, the amplification from `mdbx_stat -e` against the device:
+  - About 1 in the main arm: the nodes had no large folios this time. Then `fincore` at start and the harness steps say what
+    differed from bench 5.
+  - About 3-4 or more: H1 is active on GCE. `fincore` at start, the `rr` range against the used size and the folio census
+    say which route filled the cache.
+- The kernel, mount options, `read_ahead_kb` and `max_sectors_kb`, the same on every node and in every arm.
+- (b1) against the main arm: the amplification and the commit µs/tx. (b2): whether the readahead cap alone moves it. (b3) only
+  if run.
 - The commit µs/tx (`persisted output` `commit_ms / txs`) against bench 5's 178 and bench 4's 28-45. That number is what
   moves the ceiling.

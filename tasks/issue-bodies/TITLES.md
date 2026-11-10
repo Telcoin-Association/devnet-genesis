@@ -8,7 +8,7 @@ limit; for those the title column is a shortened form and the verbatim H1 is lis
 | 1 | f1-commit-lag-demotion | A validator a few per cent slower at execution is demoted under load, because its commit waits on its own execution | 115 |
 | 2 | f2-execution-ceiling | Engine execution caps chain throughput at about 215 µs per transaction | 70 |
 | 3 | f3-rejoin-loop | A promoted validator cannot rebuild its DAG mid-epoch, so it loops between promotion and demotion until the next epoch | 118 |
-| 4 | persist-fsync-amplification | The MDBX commit writes about 4× the device bytes per transaction that bench 4 wrote, below the engine | 101 |
+| 4 | persist-fsync-amplification | MDBX WRITEMAP commit dirties whole large page-cache folios: about 4× bench 4's device bytes per transaction | 107 |
 | 5 | far-validator-certificate-inclusion | At light load the two European validators drift behind the round and most of their certificates are never committed | 115 |
 | 6 | execution-behind-vote-starvation | Under load the fastest executors' headers are refused as execution-behind, so up to f validators lose every certificate | 119 |
 | 7 | execution-lag-feedback | A lagging node's signer-recovery jobs land on top of its own block builds, so the lag feeds itself | 98 |
