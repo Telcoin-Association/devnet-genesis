@@ -928,3 +928,24 @@ silently, so this was checked). One epochs test starts its nodes directly and do
   is labelled by `pool=dedicated` on the node's own lines. D81: a counter with NO series in the snapshot reads n/a, not 0
   (an arm with the bound on and zero refusals shows n/a; the generator's `pool_full` count is the cross-check). Kept: 0
   would also hide an image that does not export the counter.
+
+## The GCE probe's first live run, and the user's point about disks (2026-11-11 ≈ 22:05Z)
+- Run r20261111-2203 stopped at setup after 2.5 minutes (`SETUP_FAIL no fincore`): the pinned boot image
+  (`ubuntu-2404-noble-amd64-v20261105`) has no `fincore`, which the probe's setup required (a harness comment said the image
+  ships it). The VM and its disk were deleted (`DOWN_OK`). The fleet's own samplers fall back to the census tool and are not
+  affected. A unit is fixing the driver; the probe runs again after it.
+- **D82 — the user's steer: the measure depends on the disk.** Local NVMe handles hundreds of thousands of small writes per
+  second, so bytes are what count; a cloud network disk (Hyperdisk, EBS: 4,500–20,000 writes per second on ours, about 1 ms
+  per sync) is bound by the NUMBER of writes. "The benchmark should probably compare nvme and hyperdisk as well."
+  Consequences taken so far:
+  1. Every storage result (the probe's summary, the arm summary's storage columns, the report) states write-operation
+     count, sync count, write size and commit time beside the byte ratio, and names the constraint that binds on the device.
+  2. The orchestrator's inference, to be tested, not asserted: the planned fix (whole-map `MADV_RANDOM`) trades bytes for
+     operations — a few large whole-folio writes become many 4 KiB writes. On an IOPS-capped Hyperdisk that may not shorten
+     a commit and may lengthen it; on NVMe it should help. The P1 arm's verdict is commit time and throughput, not the ratio.
+  3. The probe gets a two-device mode: one VM with a Hyperdisk and a local NVMe SSD, each selected arm run on both, so only
+     the device differs.
+  4. **For the gate (the user's call): a fleet-level comparison.** Options: (a) none beyond the probe; (b) run 1 gains a
+     short second deployment on local-SSD shapes for the control and the advice arm (cost: one more deploy, about 2-3 h of
+     fleet time; C3 offers local SSD only on its `-lssd` standard shapes, so the machine type differs from the fleet's
+     `c3-highcpu-8` — a confound to state); (c) run 2's headline is taken on both disk classes (two headline deployments).
