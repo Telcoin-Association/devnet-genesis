@@ -551,3 +551,26 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - Doc fix made (b89ad570f): the config doc now says the worker needs the primary's ack of its latest seal AND the cache row.
 - For reading the benchmark (the reviewer's inference): with `sealed_tx_keep` on the worker-side counter should stay near 0;
   judge the proposer counter and the duplicate-digests-executed check.
+
+## From ST-A (first e2e of the vote fix, the drain and a mixed-switch fleet; `tasks/checkpoint-bench6-st-a.md`)
+Four local validators, three of them executing 1.75 s late per output, production header cadence, 90-s windows, three runs.
+- **D1 has evidence now.** Fast node's own headers certified: switches off 0.53 / 0.69 / 0.71 (each slow voter refused 25-42
+  headers as "execution behind"); **adaptive (K = 4) 0.81 / 0.81 / 0.82**; **always (K = 0) 1.00 / 0.99 / 0.99** with 0
+  refusals and the named block on the floor for most headers. The slow nodes certify 1.00 in every arm; all four hold the
+  same blocks in every arm.
+- D61. **The adaptive form as built misses the 98 % target** (finding against D29's reset rule, not a fork): in a regime where
+  a tip header certifies part of the time, one certified tip header resets the window to 4, so the node returns to its tip
+  every 4-16 rounds instead of every 128. Headers built under the quorum rule certified every time. A unit is changing the
+  reset rule (a RUN of certified tip headers, not one) and re-measuring; until then "always" is the form that meets the
+  target locally, at the known cost (D1: the named block ≈ 8 outputs stale).
+- The control reproduces bench 5's refusals but not its near-zero share: with outputs committing every second round about
+  half the fast node's headers name a block the slow voters reach in time. A deeper lag cannot be forced with this hook
+  without also defeating the fix (past 8 ring entries the floor block is unexecuted too) — a limit of the test, stated.
+- **A mixed-switch fleet is one chain: YES** (3 of 3): two validators with nine switches on, two with none, heavy load, epoch
+  boundaries and a restart of a switched-on node; certified epoch records for epochs 0-2 on every node with matching final
+  blocks; no halt, no canary line.
+- **The drain: no regression, but the overflow is NOT SHOWN fixed at this scale.** The control never overflows the tracking
+  channel on four local nodes (bench 5 needed a loaded ten-node fleet), so the test pins that the close completes, the drain
+  line appears, the final-state check stays quiet and no tracking failure is logged. Run 1's fleet is the first real test.
+- One port collision at a node start in a calibration run (the harness's port allocator against a process outside the
+  test); it did not recur.

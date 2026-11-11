@@ -57,3 +57,6 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 57 | orch | mdbx-advice | — (test helper: fixed genesis time, so the re-open tests do not depend on the clock; proof: forced 1.1-s gap passes with the fix, fails 3 of 4 without) | — | dc7855cc6 | #1802 | | |
 | (held) | ST-U12c | pipelined-persist | — (cycle bench, gate 5; ignored test) | c6e207b15 | b6/pipe-stack c6e207b15 | — | | |
 | 58 | orch (review follow-up) | digest-dedupe | — (docs: when the worker suppresses a seal) | — | b89ad570f | #1807 | | |
+| 59 | ST-A | quorum-exec-block | — (e2e: fast executor certification in three arms; mixed-switch fleet is one chain) | 72bf1a3e6 | 8bd68e514 | #1804 | | |
+| 60 | ST-A | tracker-drain | — (e2e: a loaded epoch close with a slow member, drain and control arms) | 35a3e71a4 | 4e9c19782 | #1806 | | |
+| 61 | ST-A | quorum-exec-block | — (e2e: the adaptive arm must beat the control and reach 0.75) | 65a4bbcca | 31ef1149c | #1804 | | |
