@@ -6,11 +6,13 @@
 #   --metadata-from-file=startup-script=blaster-startup.sh,txgen-config=<toml>,txgen-deployments=<json>
 #   --metadata=BENCH_MODE=fund|blast,TXGEN_IMAGE=...,NODE_URLS=...,SENDERS=...,SENDER_START=...,
 #              BLAST_ARGS=...,BENCH_START_AT=<unix>,BENCH_BUCKET=...,RUN_ID=...,RUN_INDEX=...,LABEL=...,
-#              MASTER_SECRET=...,SEED_SECRET=...[,WINDOW=<n>][,LANDINGS_SAMPLE=<n>]
+#              MASTER_SECRET=...,SEED_SECRET=...[,WINDOW=<n>][,LANDINGS_SAMPLE=<n>][,TAIL_SCAN_SECS=<n>]
 # (WINDOW, the generator's closed-loop window per sender, is set only when BENCH_WINDOW is not
 # the default 16; LANDINGS_SAMPLE, one sampled landing row per <n> landed transactions in
-# /out/landings-<label>.ndjson.gz, only when BENCH_LANDINGS_SAMPLE is not 0. A default blast's
-# metadata is unchanged.)
+# /out/landings-<label>.ndjson.gz (the generator writes /out/unlanded-<label>.ndjson.gz beside it),
+# only when BENCH_LANDINGS_SAMPLE is not 0; TAIL_SCAN_SECS, the generator's --tail-scan-secs (its
+# landings scan runs that long past the cooldown), only when BENCH_TAIL_SCAN_SECS is not 0. A
+# default blast's metadata is unchanged.)
 #
 # Flow: done-guard -> SA token from the metadata server -> Secret Manager REST :access for
 # the txgen master key + children seed (into a root-only docker --env-file; they never
@@ -68,6 +70,7 @@ COOLDOWN_SECS="$(attr COOLDOWN_SECS)"; COOLDOWN_SECS="${COOLDOWN_SECS:-180}"
 FUND_TEL="$(attr FUND_TEL)";           FUND_TEL="${FUND_TEL:-2}"
 WINDOW="$(attr WINDOW)";               WINDOW="${WINDOW:-16}"
 LANDINGS_SAMPLE="$(attr LANDINGS_SAMPLE)"; LANDINGS_SAMPLE="${LANDINGS_SAMPLE:-0}"
+TAIL_SCAN_SECS="$(attr TAIL_SCAN_SECS)"; TAIL_SCAN_SECS="${TAIL_SCAN_SECS:-0}"
 
 case "${MODE}" in
     fund)  MARK="BENCH_FUND_DONE";  PREFIX="funder" ;;
@@ -107,6 +110,7 @@ done
 case "${RUN_INDEX}" in *[!0-9]*|0?*) fail 2 "bad-RUN_INDEX:'${RUN_INDEX}'" ;; esac
 case "${WINDOW}" in *[!0-9]*|0*) fail 2 "bad-WINDOW:'${WINDOW}'" ;; esac
 case "${LANDINGS_SAMPLE}" in *[!0-9]*|0?*) fail 2 "bad-LANDINGS_SAMPLE:'${LANDINGS_SAMPLE}'" ;; esac
+case "${TAIL_SCAN_SECS}" in *[!0-9]*|0?*) fail 2 "bad-TAIL_SCAN_SECS:'${TAIL_SCAN_SECS}'" ;; esac
 # Bucket objects of this VM: one prefix per BENCH_RUN_INDEX, so a second blast (or funding) on
 # the fleet never shares an object name with the first. A VM created by a benchmark-blast.sh
 # that set no RUN_INDEX keeps the old flat prefix, where that script looks for its objects.
@@ -185,6 +189,7 @@ else
     # Uploaded with the rest of /out (flat under the blasters prefix), so the copy into
     # results/<run>/blasters/ brings it back.
     [ "${LANDINGS_SAMPLE}" = 0 ] || args+=(--landings-out "/out/landings-${LABEL}.ndjson.gz" --landings-sample "${LANDINGS_SAMPLE}")
+    [ "${TAIL_SCAN_SECS}" = 0 ] || args+=(--tail-scan-secs "${TAIL_SCAN_SECS}")
 fi
 if [ -n "${BLAST_ARGS}" ]; then
     # Operator-supplied extra flags, appended verbatim (word-split on whitespace).
@@ -235,14 +240,21 @@ upload() { # <local-file> <object-name>
         "https://storage.googleapis.com/upload/storage/v1/b/${BENCH_BUCKET}/o?uploadType=media&name=${enc}" >/dev/null
 }
 UP_TOKEN="$( [ "${DRY_RUN}" = "1" ] && echo dry || sa_token )"   # re-fetch: the blast outlives a token
-while IFS= read -r f; do
-    rel="${f#"${OUT_DIR}"/}"
+upload_out() { # <file under OUT_DIR>
+    local f="$1" rel="${1#"${OUT_DIR}"/}"
     # Flat layout under OBJ_PREFIX (copied into results/<run>/blasters/, so manifest
     # .blasters[].result = "blasters/<label>.json"); the generator's own log files get the
     # label as a prefix so blasters never collide.
     case "${rel}" in logs/*) rel="${LABEL}.${rel#logs/}" ;; */*) rel="${LABEL}.${rel//\//.}" ;; esac
     if upload "${f}" "${OBJ_PREFIX}/${rel}"; then log "uploaded ${rel}"; else log "upload FAILED ${rel}"; upload_rc=1; fi
+}
+# The result file goes last: once <label>.json is in the bucket, so is everything else, and the
+# marker follows (benchmark-blast.sh reads completion from a listing of the bucket's *.json).
+RESULT="${OUT_DIR}/${LABEL}.json"
+while IFS= read -r f; do
+    [ "${f}" = "${RESULT}" ] || upload_out "${f}"
 done < <(find "${OUT_DIR}" -type f 2>/dev/null)
+[ ! -f "${RESULT}" ] || upload_out "${RESULT}"
 
 # Marker contract (benchmark-blast.sh): rc=0 reason=ok is the ONLY state in which the VM may
 # be deleted unattended. A failed upload is rc=75 even when the generator succeeded, because

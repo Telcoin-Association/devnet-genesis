@@ -13,6 +13,19 @@
 line="gcloud$(printf ' %q' "$@")"
 printf '%s\n' "${line}" >> "${CALLS:?}"
 now() { cat "${NOW_FILE:?}"; }
+# advance <secs> moves the fake clock. Parallel deletes call it at once, so the read-add-write runs under a
+# mkdir lock and the new value is renamed into place: a reader never sees an empty or half-written clock and
+# no advance is lost.
+advance() {
+    local i=0 n
+    until mkdir "${NOW_FILE:?}.lock" 2>/dev/null; do
+        i=$((i + 1)); [ "${i}" -le 500 ] || break
+        sleep 0.01
+    done
+    n="$(now)"
+    echo "$(( n + $1 ))" > "${NOW_FILE}.new.$$" && mv -f "${NOW_FILE}.new.$$" "${NOW_FILE}"
+    rmdir "${NOW_FILE}.lock" 2>/dev/null || true
+}
 name="${4:-}"; zone=""; mt=""
 for a in "$@"; do
     case "$a" in --zone=*) zone="${a#--zone=}" ;; --machine-type=*) mt="${a#--machine-type=}" ;; esac
@@ -29,7 +42,7 @@ case "$1 $2 ${3:-}" in
                 until [ "$(find "${STUB_META:?}" -name CREATE 2>/dev/null | wc -l)" -ge "${STUB_WAIT_CREATES:-0}" ] || [ "${waited}" -ge 200 ]; do
                     sleep 0.1; waited=$((waited + 1))
                 done
-                echo "$(( $(now) + ${out#*@} ))" > "${NOW_FILE}"
+                advance "${out#*@}"
                 out="${out%@*}" ;;
         esac
         case "${out}" in
@@ -55,7 +68,7 @@ case "$1 $2 ${3:-}" in
         case "$*" in *"value(id)"*) echo 4242 ;; *) cat "${STUB}/vm-${name}" ;; esac ;;
     "compute instances delete")
         [ ! -f "${STUB}/delete-fail" ] || exit 1
-        [ ! -f "${STUB}/delete-secs" ] || echo "$(( $(now) + $(cat "${STUB}/delete-secs") ))" > "${NOW_FILE}"
+        [ ! -f "${STUB}/delete-secs" ] || advance "$(cat "${STUB}/delete-secs")"
         shift 3
         for a in "$@"; do
             case "$a" in --*) ;; *) rm -f "${STUB}/vm-${a}"; echo "${a} $(now)" >> "${STUB}/deleted" ;; esac

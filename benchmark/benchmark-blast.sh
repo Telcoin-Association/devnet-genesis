@@ -53,7 +53,7 @@
 # the per-blast manifest keys. It refuses a BENCH_RUN_INDEX an earlier blast used (same
 # senders): fund and run the second blast under a new one. The exception is a retry of an
 # attempt that exited before its blasters' start time: allowed until 60 s before that time.
-# `fund` under a new index first COPIES funder/ of the previous one into
+# `fund` under a new index first MOVES funder/ of the previous one into
 # results/<run>/funder-<its index>-<UTC>/. Each index has its own bucket prefix
 # (gs://<bucket>/<run>/index-<N>/), so no blast or fund reads another one's objects.
 #
@@ -74,7 +74,22 @@
 # logs/blast-light-<action>-<UTC>.log. BENCH_WINDOW (default 16) is the generator's --window: the
 # load VMs get a WINDOW metadata key only when it differs from 16. BENCH_LANDINGS_SAMPLE > 0 adds a
 # LANDINGS_SAMPLE key: the generator writes /out/landings-<label>.ndjson.gz, one row per N landings,
-# which comes back into results/<run>/blasters/ with the rest of its /out.
+# which comes back into results/<run>/blasters/ with the rest of its /out (with it the generator's
+# unlanded-<label>.ndjson.gz, the transactions still unlanded after the run).
+#
+# Bench 6. A light blast of the sequence (its child gets BENCH_BLAST_KIND=light) starts
+# BENCH_LIGHT_START_DELAY_SECS after the announce, as given; any other blast keeps start_delay_secs's
+# floor. BENCH_TAIL_SCAN_SECS > 0 adds a TAIL_SCAN_SECS key (the generator's --tail-scan-secs), recorded as
+# .blast.tail_scan_secs; every wait for the done markers grows by done_wait_extra_secs. From the planned
+# mixed end, completion is read from the bucket every BUCKET_CHECK_SECS (bucket_done_check); the
+# blasters' deletes run in the background (await_deletes) and their disk relabels in parallel
+# (assert_load_vms). Each blast records the nodes' pools at its start (.blast.pool_at_start), and once
+# every blaster's result is in, .phases holds the blasters' real phases and .phases_planned the plan
+# (record_real_phases). blasts[] entries carry kind, arm, phases (+ phases_planned) and pool_at_start.
+# A `fund` or `run` started by hand (neither the deploy nor the sequence: blast_caller) appends
+# manifest blast_runs[] {action: "fund"|"run", index: its BENCH_RUN_INDEX (the base of a light-load
+# sequence), started, ended, rc, log: its output copy, relative to results/<run>/}; a hand `run` that
+# ends rc 0 sets timestamps.step_14_done.
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -137,6 +152,8 @@ CHAOS_OUTAGE_SECS="${BENCH_CHAOS_DOWNTIME_SECS}"
 [ "${BENCH_CHAOS_TIMING}" != mixed ] || CHAOS_OUTAGE_SECS=$(( BENCH_CHAOS_BACK_AT_SECS - BENCH_CHAOS_KILL_AT_SECS ))
 [ $(( BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS )) -lt "${CHAOS_OUTAGE_SECS}" ] \
     || bench_die "BENCH_CHAOS_STAGE_SECS + BENCH_CHAOS_SAVE_WAIT_SECS (${BENCH_CHAOS_STAGE_SECS}+${BENCH_CHAOS_SAVE_WAIT_SECS}) must be below the ${CHAOS_OUTAGE_SECS}s outage"
+# The sequence's word to its child (light_env): a light blast, or the configured profile (unset).
+case "${BENCH_BLAST_KIND:-load}" in light|load) ;; *) bench_die "BENCH_BLAST_KIND='${BENCH_BLAST_KIND}' must be light or load" ;; esac
 
 blaster_name() { printf 'bench-blaster-%02d' "$(( $1 + 1 ))"; }
 
@@ -157,7 +174,7 @@ preflight() {
     fi
     if [ "${BENCH_APPLY}" = "1" ]; then
         [ -n "$(bench_txgen_image_digest)" ] || bench_die "image ${BENCH_TXGEN_IMAGE} not in the registry (benchmark-deploy.sh --only 1 builds it)"
-        bench_txgen_cli_probe
+        txgen_cli_probe
         gcloud storage buckets describe "gs://${BENCH_BUCKET}" --format='value(name)' >/dev/null 2>&1 \
             || bench_die "bucket gs://${BENCH_BUCKET} missing (benchmark-deploy.sh step 12)"
         local s
@@ -169,6 +186,15 @@ preflight() {
         done
         echo "    ✓ image, bucket and secret access present"
     fi
+}
+
+# txgen_cli_probe — bench-lib's bench_txgen_cli_probe, with --tail-scan-secs among the flags it requires
+# when BENCH_TAIL_SCAN_SECS > 0 (its contract list, widened for this call only): an image from before the
+# tail scan would otherwise fail on every blaster, after start_at.
+txgen_cli_probe() {
+    local BENCH_TXGEN_CONTRACT_FLAGS="${BENCH_TXGEN_CONTRACT_FLAGS}"
+    [ "${BENCH_TAIL_SCAN_SECS:-0}" = 0 ] || BENCH_TXGEN_CONTRACT_FLAGS="${BENCH_TXGEN_CONTRACT_FLAGS} --tail-scan-secs"
+    bench_txgen_cli_probe
 }
 
 # Internal IP per node index, filled once before the blasters' creates (resolve_node_urls).
@@ -265,6 +291,7 @@ create_vm() {
     meta="${meta}##WARMUP_SECS=${BENCH_WARMUP_SECS}##DURATION_SECS=${BENCH_DURATION_SECS}##COOLDOWN_SECS=${BENCH_COOLDOWN_SECS}"
     [ "${mode}" != blast ] || [ "${BENCH_WINDOW:-16}" = 16 ] || meta="${meta}##WINDOW=${BENCH_WINDOW}"
     [ "${mode}" != blast ] || [ "${BENCH_LANDINGS_SAMPLE:-0}" = 0 ] || meta="${meta}##LANDINGS_SAMPLE=${BENCH_LANDINGS_SAMPLE}"
+    [ "${mode}" != blast ] || [ "${BENCH_TAIL_SCAN_SECS:-0}" = 0 ] || meta="${meta}##TAIL_SCAN_SECS=${BENCH_TAIL_SCAN_SECS}"
     local pre=(compute instances create "${name}" --project="${PROJECT_ID}" --zone="${zone}")
     local post=(--image-family=cos-stable --image-project=cos-cloud
         --boot-disk-size="${BENCH_BLASTER_BOOT_DISK_GB}GB" --boot-disk-type=pd-balanced
@@ -380,14 +407,117 @@ assert_load_vm() {
     [ -n "${j}" ] || bench_die "$1 not found after create"
     printf '%s' "${j}" | jq -e '(.tags.items // []) == ["bench-blaster"] and .labels.benchmark == "1"' >/dev/null \
         || bench_die "$1 lacks tag bench-blaster / label benchmark=1 — delete it: benchmark/benchmark-blast.sh delete --yes"
+    [ "${BENCH_APPLY}" = "1" ] || return 0
     bench_run gcloud compute disks add-labels "$1" --zone="$2" --project="${PROJECT_ID}" --labels="${BENCH_LABELS},tn-role=blaster" --format=none
+}
+
+# assert_load_vms — assert_load_vm for every blaster at once (bench 5 ran them one after another, about
+# 1.3 min per blast, D40); each one's output is printed in blaster order once all have ended. At most
+# RELABEL_WAIT_SECS: one still running then is stopped and counts as failed. Stops the run (bench_die,
+# the EXIT trap cleans up) when one failed, as the serial loop did under set -e.
+RELABEL_WAIT_SECS=180
+assert_load_vms() {
+    local k f pids=() outs=() failed="" waited=0 running
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        f="$(mktemp "${TMPDIR:-/tmp}/blast-relabel.XXXXXX")" || bench_die "no temporary file for the relabel of $(blaster_name "$k")"
+        outs[k]="${f}"
+        ( assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}" ) > "${f}" 2>&1 < /dev/null &
+        pids[k]=$!
+    done
+    while :; do
+        running=0
+        for k in "${!pids[@]}"; do ! kill -0 "${pids[k]}" 2>/dev/null || running=1; done
+        [ "${running}" -eq 1 ] && [ "${waited}" -lt "${RELABEL_WAIT_SECS}" ] || break
+        sleep 1; waited=$((waited + 1))
+    done
+    for k in "${!pids[@]}"; do
+        if kill -0 "${pids[k]}" 2>/dev/null; then
+            kill "${pids[k]}" 2>/dev/null || true
+            wait "${pids[k]}" 2>/dev/null || true
+            failed="${failed} $(blaster_name "$k") (still running after ${RELABEL_WAIT_SECS} s)"
+        elif ! wait "${pids[k]}"; then
+            failed="${failed} $(blaster_name "$k")"
+        fi
+        cat "${outs[k]}"; rm -f "${outs[k]}"
+    done
+    [ -z "${failed}" ] || bench_die "blaster check or disk relabel failed:${failed} — the exit cleanup deletes the blasters; if it cannot: benchmark/benchmark-blast.sh delete --yes"
 }
 
 delete_vms() { # <zone> <name...>
     local zone="$1"; shift
     [ $# -gt 0 ] || return 0
     local n; for n in "$@"; do bench_assert_bench_name "instance" "${n}"; done
+    if [ "${BENCH_APPLY}" != "1" ]; then bench_run gcloud compute instances delete "$@" --zone="${zone}" --project="${PROJECT_ID}" --quiet; return 0; fi
+    [ "${BENCH_APPLY}" = "1" ] || return 0
     bench_run gcloud compute instances delete "$@" --zone="${zone}" --project="${PROJECT_ID}" --quiet
+}
+
+# Blaster deletes after a run (D40): each issued in the background (delete_vm_bg), then await_deletes
+# describes every VM still there each DELETE_POLL_SECS until all are gone or DELETE_WAIT_SECS have passed
+# (the teardown's routine). Bench 5 deleted them one after another, about 20 s each.
+DELETE_POLL_SECS=10; DELETE_WAIT_SECS=300
+DELETE_JOBS=()    # "<pid> <zone> <name>" per background delete
+
+# delete_vm_bg <zone> <name> — delete_vms in the background; await_deletes waits for it. A dry run
+# prints the argv, as delete_vms does.
+delete_vm_bg() {
+    if [ "${BENCH_APPLY}" != "1" ]; then delete_vms "$1" "$2"; return 0; fi
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    delete_vms "$1" "$2" < /dev/null &
+    DELETE_JOBS+=("$! $1 $2")
+}
+
+# delete_state <zone> <name> — "gone" once a describe says the instance was not found, else its status
+# ("?" when the describe failed for another reason). The teardown's delete_state, by name.
+delete_state() {
+    local out rc=0
+    out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "$2" --zone="$1" --project="${PROJECT_ID}" \
+        --format='value(status)' </dev/null 2>&1)" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        case "${out}" in *"not found"*) echo gone ;; *) echo "?" ;; esac
+        return 0
+    fi
+    printf '%s\n' "${out:-?}" | tail -1
+}
+
+# await_deletes — the describe loop for DELETE_JOBS: one describe per VM still there every
+# DELETE_POLL_SECS, until none is left or DELETE_WAIT_SECS have passed (also as many passes as fit in
+# it, whatever the clock says). Then the finished delete calls are reaped; one still running is
+# named, never waited for. 1 when a VM is still there at the cap (each named, with the cleanup command).
+await_deletes() {
+    local t0 c pid z n st pass=0 passes failed=0 pending=() still=()
+    [ "${#DELETE_JOBS[@]}" -gt 0 ] || return 0
+    passes=$(( DELETE_WAIT_SECS / (DELETE_POLL_SECS > 0 ? DELETE_POLL_SECS : 1) + 1 ))
+    echo "    waiting for ${#DELETE_JOBS[@]} blaster delete(s): a describe each every ${DELETE_POLL_SECS} s, at most ${DELETE_WAIT_SECS} s"
+    pending=("${DELETE_JOBS[@]}")
+    t0="$(bench_now_unix)"
+    while :; do
+        still=(); pass=$((pass + 1))
+        for c in "${pending[@]}"; do
+            read -r pid z n <<< "${c}"
+            st="$(delete_state "${z}" "${n}")"
+            if [ "${st}" = gone ]; then echo "    ✓ ${n} deleted"; else still+=("${c} ${st}"); fi
+        done
+        [ "${#still[@]}" -gt 0 ] || break
+        if [ $(( $(bench_now_unix) - t0 )) -ge "${DELETE_WAIT_SECS}" ] || [ "${pass}" -ge "${passes}" ]; then
+            for c in "${still[@]}"; do
+                read -r pid z n st <<< "${c}"
+                echo "❌ ${n} (${z}) still there after ${DELETE_WAIT_SECS} s (status ${st}) — benchmark/benchmark-blast.sh delete --yes removes it" >&2
+            done
+            failed=1; break
+        fi
+        pending=()
+        for c in "${still[@]}"; do pending+=("${c% *}"); done
+        sleep "${DELETE_POLL_SECS}"
+    done
+    for c in "${DELETE_JOBS[@]}"; do
+        read -r pid z n <<< "${c}"
+        if kill -0 "${pid}" 2>/dev/null; then echo "    ✗ delete of ${n} still running (pid ${pid}) — not waited for"; continue; fi
+        wait "${pid}" || true    # a VM still there is reported above; a call that failed but deleted it is not a fault
+    done
+    DELETE_JOBS=()
+    return "${failed}"
 }
 
 # Done markers from blaster-startup.sh: "<MARK> rc=N reason=R [...]". Only rc=0 reason=ok
@@ -396,22 +526,23 @@ delete_vms() { # <zone> <name...>
 marker_rc() { tr -d '\r' | sed -n "s/.*$1 rc=\([0-9][0-9]*\).*/\1/p" | tail -1; }
 marker_reason() { tr -d '\r' | sed -n "s/.*$1 rc=[0-9][0-9]* reason=\([^ ]*\).*/\1/p" | tail -1; }
 
-# settle_load_vm <name> <zone> <results-subdir> <done-line> <MARK> — delete the VM only when
-# its results are safe: rc=0 reason=ok (uploaded), or an IAP scp of /var/lib/bench/out
-# succeeded. Otherwise KEEP it and say so (it may hold the only copy). --keep never deletes.
+# settle_load_vm <name> <zone> <results-subdir> <done-line> <MARK> [<delete-fn>] — delete the VM only
+# when its results are safe: rc=0 reason=ok (uploaded), or an IAP scp of /var/lib/bench/out
+# succeeded. Otherwise KEEP it and say so (it may hold the only copy). --keep never deletes. The
+# delete is <delete-fn> <zone> <name>: delete_vms (default), or delete_vm_bg for the blasters.
 settle_load_vm() {
-    local name="$1" zone="$2" sub="$3" line="$4" mark="$5" rc reason dest
+    local name="$1" zone="$2" sub="$3" line="$4" mark="$5" del="${6:-delete_vms}" rc reason dest
     if [ "${BENCH_APPLY}" = "1" ] && [ -z "$(bench_instance_json "${name}" "${zone}")" ]; then return 0; fi
     rc="$(printf '%s\n' "${line}" | marker_rc "${mark}")"
     reason="$(printf '%s\n' "${line}" | marker_reason "${mark}")"
     if [ "${rc}" = "0" ] && [ "${reason}" = "ok" ]; then
-        [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${name}" || true
+        [ "${KEEP}" -eq 1 ] || "${del}" "${zone}" "${name}" || true
         return 0
     fi
     bench_warn "${name}: '${line:-no ${mark} marker}' — fetching /var/lib/bench/out over IAP before any delete"
     # The fetch goes into a directory that holds no file yet, so the check below counts only
-    # what this fetch brought: funder/ keeps an earlier index's scp-bench-funder/ (fund copies
-    # funder/ aside, it does not move it).
+    # what this fetch brought: funder/ keeps its scp-bench-funder/ when the same index is funded
+    # again (a new index moves funder/ aside first).
     dest="${BENCH_RESULTS_DIR}/${sub}/scp-${name}"
     [ -z "$(find "${dest}" -type f 2>/dev/null | head -1)" ] || dest="${dest}-$(date -u +%Y%m%dT%H%M%SZ)"
     if [ "${BENCH_APPLY}" = "1" ]; then mkdir -p "${dest}"; fi
@@ -419,7 +550,7 @@ settle_load_vm() {
             --project="${PROJECT_ID}" --tunnel-through-iap --scp-flag="-o ConnectTimeout=20" \
        && { [ "${BENCH_APPLY}" != "1" ] || [ -n "$(find "${dest}" -type f 2>/dev/null | head -1)" ]; }; then
         bench_manifest_note "${name}: '${line:-no marker}' — results fetched over IAP into ${dest#"${BENCH_RESULTS_DIR}"/}/" || true
-        [ "${KEEP}" -eq 1 ] || delete_vms "${zone}" "${name}" || true
+        [ "${KEEP}" -eq 1 ] || "${del}" "${zone}" "${name}" || true
     else
         echo "❌ ${name} KEPT: its results could not be fetched (${line:-no marker}). Recover by hand, then benchmark-blast.sh delete --yes" >&2
         bench_manifest_note "${name} kept: results not fetched (${line:-no marker})" || true
@@ -563,7 +694,7 @@ archive_blast_outputs() {
     # the manifest records may have left no file (it failed before creating its blasters).
     if [ "${#items[@]}" -eq 0 ]; then echo "    (no per-blast file to move)"
     else for it in "${items[@]}"; do echo "    mv ${it}"; done; fi
-    echo "    manifest: .blasters=[] .chaos=[] .abort=null .phases=[], drop .blast and timestamps blast_start_at/blast_end/collect_start/step_14_done/step_15_done"
+    echo "    manifest: .blasters=[] .chaos=[] .abort=null .phases=[], drop .blast, .phases_planned and timestamps blast_start_at/blast_end/collect_start/step_14_done/step_15_done"
     if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing moved)"; return 0; fi
     if [ "${#items[@]}" -eq 0 ] && [ ! -f "$(bench_manifest)" ]; then
         echo "    nothing to archive: no per-blast file and no manifest.json"; return 0
@@ -582,22 +713,25 @@ archive_blast_outputs() {
             bench_die "could not move ${it} into ${dest}/ — nothing was deleted and the blast has not started; what moved is in ${dest}/, the rest is still in place"
         fi
     done
-    bench_manifest_jq '.blasters = [] | .chaos = [] | .abort = null | .phases = [] | del(.blast)
+    bench_manifest_jq '.blasters = [] | .chaos = [] | .abort = null | .phases = [] | del(.blast) | del(.phases_planned)
         | .timestamps |= del(.blast_start_at, .blast_end, .collect_start, .step_14_done, .step_15_done)' \
         || bench_die "outputs moved into ${dest}/ but manifest.json was not reset — the blast has not started"
     bench_manifest_note "blast index ${prev} archived into $(basename "${dest}")/ at $(bench_now_iso); earlier notes belong to it or to the fleet" || true
     echo "    ✓ previous blast archived: ${dest}/"
 }
 
-# record_blast <start_at-unix> — manifest.blast: the settings that tell one blast from another.
+# record_blast <start_at-unix> — manifest.blast: the settings that tell one blast from another, with
+# tail_scan_secs, the blasters' --tail-scan-secs (0: off).
 record_blast() {
-    echo "    blast: BENCH_RUN_INDEX=${BENCH_RUN_INDEX} chaos=${BENCH_CHAOS} lag_inject=${BENCH_LAG_INJECT} (node idx ${BENCH_LAG_IDX}, mixed+${BENCH_LAG_AT_SECS}s for ${BENCH_LAG_PAUSE_SECS}s)"
+    echo "    blast: BENCH_RUN_INDEX=${BENCH_RUN_INDEX} chaos=${BENCH_CHAOS} lag_inject=${BENCH_LAG_INJECT} (node idx ${BENCH_LAG_IDX}, mixed+${BENCH_LAG_AT_SECS}s for ${BENCH_LAG_PAUSE_SECS}s)$([ "${BENCH_TAIL_SCAN_SECS:-0}" = 0 ] || echo " tail_scan=${BENCH_TAIL_SCAN_SECS}s")"
     echo "    bucket prefix: $(bucket_prefix blasters)/"
     [ "${BENCH_APPLY}" = "1" ] || return 0
     bench_manifest_jq --arg i "${BENCH_RUN_INDEX}" --arg c "${BENCH_CHAOS}" --arg li "${BENCH_LAG_INJECT}" --arg lx "${BENCH_LAG_IDX}" \
         --arg la "${BENCH_LAG_AT_SECS}" --arg lp "${BENCH_LAG_PAUSE_SECS}" --arg s "$(bench_iso_from_unix "$1")" --arg bp "$(bucket_prefix blasters)" \
+        --arg ts "${BENCH_TAIL_SCAN_SECS:-0}" \
         '.blast = {run_index: ($i|tonumber), chaos: ($c|tonumber), lag_inject: ($li|tonumber), lag_idx: ($lx|tonumber),
-                   lag_at_secs: ($la|tonumber), lag_pause_secs: ($lp|tonumber), start_at: $s, bucket_prefix: $bp}'
+                   lag_at_secs: ($la|tonumber), lag_pause_secs: ($lp|tonumber), start_at: $s, bucket_prefix: $bp,
+                   tail_scan_secs: ($ts|tonumber)}'
 }
 
 # ================================ fund ===============================================
@@ -607,10 +741,12 @@ prev_funder_index() {
     jq -r '.fund.run_index // "unknown" | tostring' "$(bench_manifest)" 2>/dev/null || echo unknown
 }
 
-# set_aside_prev_funder — before `fund` writes anything, COPY the funder output of another index
-# (funder/, meta/bench-funder/, manifest.json with its fund timestamps) into
-# results/<run>/funder-<its index>-<UTC>/, a directory mkdir just created. A copy, not a move:
-# the live files change only when the new fund overwrites them. Dry run: prints the plan.
+# set_aside_prev_funder — before `fund` writes anything, MOVE the funder output of another index
+# (funder/, meta/bench-funder/) into results/<run>/funder-<its index>-<UTC>/, a directory mkdir just
+# created, beside a COPY of manifest.json with its fund timestamps. Bench 5 copied funder/ and left it,
+# so each funder-<i>-<UTC>/ also held the txgen logs of every index before it (D47). No later step reads
+# an older index's funder/: .fund names the moved index until the new fund's copy succeeds, and collect
+# copies that prefix back if it never does. Dry run: prints the plan.
 set_aside_prev_funder() {
     local r="${BENCH_RESULTS_DIR}" prev dest it n=0 items=()
     [ -n "$(find "${r}/funder" -type f 2>/dev/null | head -1)" ] || return 0
@@ -619,22 +755,24 @@ set_aside_prev_funder() {
         echo "    funder/ holds the output of BENCH_RUN_INDEX ${prev}: funding it again overwrites it"; return 0
     fi
     for it in funder meta/bench-funder manifest.json; do [ -e "${r}/${it}" ] && items+=("${it}"); done
-    echo ">>> copy the funder output of BENCH_RUN_INDEX ${prev} ($(find "${r}/funder" -type f | wc -l | tr -d ' ') files in funder/) into ${r}/funder-${prev}-<UTC>/"
-    for it in "${items[@]}"; do echo "    cp ${it}"; done
-    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing copied)"; return 0; fi
+    echo ">>> move the funder output of BENCH_RUN_INDEX ${prev} ($(find "${r}/funder" -type f | wc -l | tr -d ' ') files in funder/) into ${r}/funder-${prev}-<UTC>/"
+    for it in "${items[@]}"; do if [ "${it}" = manifest.json ]; then echo "    cp ${it}"; else echo "    mv ${it}"; fi; done
+    if [ "${BENCH_APPLY}" != "1" ]; then echo "      (dry run — nothing moved)"; return 0; fi
     until dest="${r}/funder-${prev}-$(date -u +%Y%m%dT%H%M%SZ)"; [ ! -e "${dest}" ] && mkdir "${dest}"; do
-        [ -e "${dest}" ] || bench_die "cannot create ${dest} — nothing was copied; the fund has not started"
-        n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free funder-${prev}-<UTC> name in ${r} — nothing was copied; the fund has not started"
+        [ -e "${dest}" ] || bench_die "cannot create ${dest} — nothing was moved; the fund has not started"
+        n=$((n + 1)); [ "${n}" -lt 5 ] || bench_die "no free funder-${prev}-<UTC> name in ${r} — nothing was moved; the fund has not started"
         echo "    $(basename "${dest}") exists — trying a new timestamp"
         sleep 1
     done
     for it in "${items[@]}"; do
-        if ! mkdir -p "${dest}/$(dirname "${it}")" || ! cp -Rp "${r}/${it}" "${dest}/${it}"; then
-            bench_die "could not copy ${it} into ${dest}/ — the fund has not started and funder/ is unchanged"
+        if [ "${it}" = manifest.json ]; then
+            cp -p "${r}/${it}" "${dest}/${it}" || bench_die "could not copy manifest.json into ${dest}/ — the fund has not started"
+        elif ! mkdir -p "${dest}/$(dirname "${it}")" || ! mv "${r}/${it}" "${dest}/${it}"; then
+            bench_die "could not move ${it} into ${dest}/ — the fund has not started; what moved is in ${dest}/, the rest is still in place"
         fi
     done
-    bench_manifest_note "funder output of index ${prev} copied into $(basename "${dest}")/ at $(bench_now_iso); funder/ now receives index ${BENCH_RUN_INDEX}" || true
-    echo "    ✓ funder output copied: ${dest}/"
+    bench_manifest_note "funder output of index ${prev} moved into $(basename "${dest}")/ at $(bench_now_iso); funder/ now receives index ${BENCH_RUN_INDEX}" || true
+    echo "    ✓ funder output moved: ${dest}/"
 }
 
 do_fund() {
@@ -1296,13 +1434,64 @@ poll_blasters() {
     return "${all}"
 }
 
-# settle_blasters — copy this index's bucket prefix, then delete each blaster whose results are safe.
+# Completion through the bucket (D40): from the planned mixed end, every BUCKET_CHECK_SECS one listing of
+# this index's result files, where bench 5 waited up to BENCH_POLL_SECS (240 s) for the next serial poll.
+BUCKET_CHECK_SECS=20; BUCKET_LS_ALARM_SECS=60
+
+# bucket_done_check — one `gcloud storage ls <prefix>/*.json` (no IAP, no serial read); then, for each
+# created blaster without a marker yet whose <name>.json is listed, its serial marker (blaster-startup.sh
+# uploads the result file last and prints the marker right after). 0 when every created blaster has
+# reported (poll_blasters' test). A listing that fails or matches nothing lists nothing.
+bucket_done_check() {
+    local prefix listing k name all=0
+    prefix="$(bucket_prefix blasters)"
+    listing="$(perl -e 'alarm shift; exec @ARGV' "${BUCKET_LS_ALARM_SECS}" gcloud storage ls "${prefix}/*.json" \
+        --project="${PROJECT_ID}" </dev/null 2>/dev/null)" || listing=""
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        blaster_created "$k" || continue
+        name="$(blaster_name "$k")"
+        if [ -z "${DONE_LINE[k]:-}" ] && grep -qxF -- "${prefix}/${name}.json" <<< "${listing}"; then
+            DONE_LINE[k]="$(bench_serial_last "${name}" "${ZONES[$k]}" "BENCH_BLAST_DONE rc=" || true)"
+            [ -z "${DONE_LINE[k]}" ] || echo "    ${name}: $(printf '%s' "${DONE_LINE[k]}" | sed 's/.*BENCH_BLAST_DONE/BENCH_BLAST_DONE/') (result in the bucket)"
+        fi
+        [ -n "${DONE_LINE[k]:-}" ] || all=1
+    done
+    return "${all}"
+}
+
+# UNLANDED_LOOKUP_SECS — the generator's unlanded export: up to this long of lookups after the run,
+# before it writes its results, whenever the landings export is on (contract H9b).
+UNLANDED_LOOKUP_SECS=30
+
+# done_wait_extra_secs — what every wait for the blasters' done markers adds for the generator's work
+# after its cooldown: the tail scan (BENCH_TAIL_SCAN_SECS) and, with the landings export on
+# (BENCH_LANDINGS_SAMPLE > 0), UNLANDED_LOOKUP_SECS. 0 with both off: bench 5's deadlines.
+done_wait_extra_secs() {
+    local x="${BENCH_TAIL_SCAN_SECS:-0}"
+    [ "${BENCH_LANDINGS_SAMPLE:-0}" = 0 ] || x=$(( x + UNLANDED_LOOKUP_SECS ))
+    printf '%s' "${x}"
+}
+
+# bucket_check_deferred <now> — 0, with next_check moved to that action's due time, when a chaos action
+# is due within BENCH_CHAOS_GUARD_SECS (poll_deferred's test): the listing and its serial reads must not
+# run into the action's staged session. The check then runs right after the action.
+bucket_check_deferred() {
+    local due=""
+    read -r due _ <<< "$(next_action_due)" || true
+    [ -n "${due}" ] && [ "${due}" -gt "$1" ] && [ $(( due - $1 )) -le "${BENCH_CHAOS_GUARD_SECS}" ] || return 1
+    next_check="${due}"
+}
+
+# settle_blasters — copy this index's bucket prefix, then delete each blaster whose results are safe:
+# the deletes in the background, then the describe loop until they are gone (await_deletes). A VM
+# still there is named with the command that removes it, and does not fail the run (as before).
 settle_blasters() {
     local k
     copy_prefix "$(bucket_prefix blasters)" blasters || true
     for k in $(seq 0 $((VAL_COUNT - 1))); do
-        settle_load_vm "$(blaster_name "$k")" "${ZONES[$k]}" blasters "${DONE_LINE[k]:-}" BENCH_BLAST_DONE
+        settle_load_vm "$(blaster_name "$k")" "${ZONES[$k]}" blasters "${DONE_LINE[k]:-}" BENCH_BLAST_DONE delete_vm_bg
     done
+    await_deletes || true
 }
 
 # exit_relay — the output path of on_run_exit. Its stdout is the stderr the cleanup started with
@@ -1381,7 +1570,7 @@ wait_blasters_done() { # <secs> — poll every 30 s until each blaster reported;
 # (ABORT_REASON create_failed or late_create, set by create_blasters) with abort.unsent, true when
 # every blaster was deleted before start_at so none can have sent; else interrupted/operator (D37).
 on_run_exit() {
-    local rc=$? started=1 wait_note="" why="interrupted" unsent=""
+    local rc=$? started=1 wait_note="" why="interrupted" unsent="" wait_secs
     trap - EXIT
     # Nothing may cut the cleanup short. INT TERM HUP PIPE stay ignored until the exit, and each
     # ssh and gcloud it starts inherits that, except gcloud compute ssh, which installs its own INT
@@ -1397,9 +1586,10 @@ on_run_exit() {
     exec < /dev/null > >(exit_relay) 2>&1
     printf '%s' ''
     [ "$(bench_now_unix)" -lt "${RUN_START_AT}" ] && started=0   # unknown time: started, so nothing is deleted
+    wait_secs=$(( BENCH_TRAP_WAIT_SECS + $(done_wait_extra_secs) ))
     if [ "${RUN_FINISHED}" -eq 0 ]; then
         [ "${RUN_CREATED}" -eq 0 ] || [ "${KEEP}" -eq 1 ] || [ "${started}" -eq 0 ] \
-            || wait_note=" up to ${BENCH_TRAP_WAIT_SECS}s of waiting for the blasters' results plus"
+            || wait_note=" up to ${wait_secs}s of waiting for the blasters' results plus"
         [ -z "${ABORT_REASON}" ] || why="stopped (${ABORT_REASON} ${ABORT_NODE})"
         echo "❌ run ${why} (exit ${rc}) — restoring the fleet and securing results. This takes${wait_note} a few minutes of ssh and gcloud calls; INT, TERM and HUP are ignored until it ends (kill -9 $$ stops it and leaves the fleet as it is)" >&2
     fi
@@ -1407,7 +1597,7 @@ on_run_exit() {
     if [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ]; then
         exit_step "(a) unpause ${INSTANCE_NAMES[$BENCH_LAG_IDX]}" try_up_to 3 lag_unpause "owed unpause, performed by the EXIT trap"
     fi
-    [ "${RUN_FINISHED}" -eq 1 ] && exit "${rc}"
+    [ "${RUN_FINISHED}" -eq 1 ] && { blast_run_end "${rc}"; exit "${rc}"; }
     # (b) the validator the chaos step killed
     if [ "${RUN_DID_KILL}" -eq 1 ] && [ "${RUN_DID_BACK}" -eq 0 ]; then
         exit_step "(b) restart ${INSTANCE_NAMES[$CHAOS_KILL_IDX]}" try_up_to 3 exit_restart_v05
@@ -1433,10 +1623,11 @@ on_run_exit() {
     record_abort "${ABORT_REASON:-interrupted}" "${ABORT_NODE:-operator}" \
         "${ABORT_DETAIL:-benchmark-blast.sh run exited rc=${rc} before completing}" "${unsent}"
     if [ "${RUN_CREATED}" -eq 1 ] && [ "${KEEP}" -eq 0 ] && [ "${started}" -eq 1 ]; then
-        exit_step "(d) wait up to ${BENCH_TRAP_WAIT_SECS}s for every blaster's done marker" wait_blasters_done "${BENCH_TRAP_WAIT_SECS}"
+        exit_step "(d) wait up to ${wait_secs}s for every blaster's done marker" wait_blasters_done "${wait_secs}"
         exit_step "(d) copy the results, delete each blaster whose results are safe" settle_blasters
     fi
     echo "    exit cleanup finished — exit ${rc}" >&2
+    blast_run_end "${rc}"
     exit "${rc}"
 }
 
@@ -1506,8 +1697,18 @@ log_rate_check() {
 # --- blaster creates: bounded, retried once, and never late (D36, D37, D39, D48) -------------------
 # start_delay_secs — seconds from now to start_at: BENCH_START_DELAY_SECS, at least CREATE_WORST_SECS
 # (two create calls and the describe between them), so a create that needs its one retry still fits.
+# A light blast of the sequence (BENCH_BLAST_KIND=light) takes BENCH_LIGHT_START_DELAY_SECS as given,
+# without that floor (D40: bench 5 idled about 2.5 min of every light blast's 300-s lead). The late-start
+# guard, not the lead, keeps a short lead safe: every create call is cut at start_at -
+# CREATE_LATE_LEAD_SECS, and a create not done by then stops the blast unsent (late_create), so the
+# index is retried and no blaster ever starts late. At 150 s that limit falls 120 s after start_at is
+# fixed. The work before the creates (the bench-obs check, ten existence describes, the token; bench 5's
+# creates were all done about 60 s after the announce) plus one create call run to its
+# CREATE_ALARM_SECS alarm (90 s) fits when that work stays under 30 s. A create that needs its retry,
+# or slower work before the creates, costs one unsent attempt, never a late blaster.
 start_delay_secs() {
-    if [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ]; then printf '%s' "${BENCH_START_DELAY_SECS}"
+    if [ "${BENCH_BLAST_KIND:-load}" = light ]; then printf '%s' "${BENCH_LIGHT_START_DELAY_SECS}"
+    elif [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ]; then printf '%s' "${BENCH_START_DELAY_SECS}"
     else printf '%s' "${CREATE_WORST_SECS}"; fi
 }
 
@@ -1609,19 +1810,94 @@ record_late_secs() {
     done
 }
 
+# record_real_phases — D42: once every created blaster's result file (blasters/<name>.json) holds its
+# run.phases, manifest .phases becomes the real schedule: per phase, the earliest start (rounded down)
+# and the latest end (rounded up) over the blasters, in the blasters' phase order. The plan is kept as
+# .phases_planned (a second rewrite keeps the first plan). Bench 5's planned phases put the idle chain
+# after the load inside the planned cooldown, where the stall scan read it as a commit stall. Without
+# every result the plan stays, and the line says why. The tail scan is not a phase: run.phases ends at
+# the cooldown.
+record_real_phases() {
+    local k name f files=() missing="" real
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        blaster_created "$k" || continue
+        name="$(blaster_name "$k")"; f="${BENCH_RESULTS_DIR}/blasters/${name}.json"
+        if jq -e '[(.run.phases // [])[] | select((.start_unix | type) == "number" and (.end_unix | type) == "number")] | length > 0' \
+                "${f}" >/dev/null 2>&1; then files+=("${f}")
+        else missing="${missing} ${name}"; fi
+    done
+    if [ -n "${missing}" ] || [ "${#files[@]}" -eq 0 ]; then
+        echo "    phases: kept as planned (no run.phases from:${missing:- any blaster})"; return 0
+    fi
+    real="$(jq -s -c '[.[] | (.run.phases // [])[] | select((.start_unix | type) == "number" and (.end_unix | type) == "number")] as $all
+        | reduce ($all[] | .name) as $n ([]; if index([$n]) then . else . + [$n] end)
+        | map(. as $n | [$all[] | select(.name == $n)]
+              | {name: $n, start: (map(.start_unix) | min | floor | todate), end: (map(.end_unix) | max | ceil | todate)})' \
+        "${files[@]}" 2>/dev/null)" || real=""
+    [ -n "${real}" ] && [ "${real}" != "[]" ] || { echo "    phases: kept as planned (the blasters' run.phases could not be read)"; return 0; }
+    bench_manifest_jq --argjson r "${real}" --arg n "phases rewritten at $(bench_now_iso) from the blasters' run.phases (earliest start, latest end per phase); the plan is phases_planned" \
+        '(if has("phases_planned") then . else .phases_planned = (.phases // []) end) | .phases = $r | .notes += [$n]' \
+        || { bench_warn "real phases not recorded in $(bench_manifest); .phases stays the plan"; return 0; }
+    echo "    phases (real, the blasters' run.phases; the plan is kept as phases_planned): $(printf '%s' "${real}" \
+        | jq -r 'map("\(.name) \(.start) - \(.end)") | join(", ")')"
+}
+
+# pool_at_start <start_at> — each node's transaction pool when the blast starts: reth's pending and queued
+# sub-pool sizes (reth_transaction_pool_{pending,queued}_pool_transactions) from bench-obs's Prometheus,
+# one bounded query for the fleet (bench_prom_query: 20 s), evaluated at start_at - 1 (with an offset
+# when it runs later). A node's txpool_status RPC cannot stand in: TN serves no txpool_* method.
+# Recorded as .blast.pool_at_start = {inst: {pending, queued}} (null for a node without a sample, every
+# node null when the query failed); light_record copies it into blasts[]. Prints
+#   POOL_AT_START blast=<index> at=<time> read=<n>/<nodes> queued_max=<q> (<inst>) pending_max=<p> (<inst>)
+# and a ⚠ line naming every node above POOL_QUEUED_WARN queued: bench 5's load began with stale queued
+# transactions from earlier blasts on three nodes, and those three evicted accepted ones. Record only:
+# it waits for start_at (nothing in do_run is due before then) and never stops the run.
+POOL_QUEUED_WARN=1000
+pool_at_start() {
+    local at=$(( $1 - 1 )) off o="" l="${BENCH_PROM_NETWORK_LABEL}" raw rec names b="${BENCH_RUN_INDEX:-0}" summary hot
+    sleep_until "$1" 0
+    off=$(( $(bench_now_unix) - at )); [ "${off}" -le 0 ] || o=" offset ${off}s"
+    names="$(printf '%s\n' "${INSTANCE_NAMES[@]}" | jq -R -s -c 'split("\n") | map(select(. != ""))')"
+    raw="$(bench_prom_query "{__name__=~\"reth_transaction_pool_(pending|queued)_pool_transactions\",network=\"${l}\"}${o}" 2>/dev/null)" || raw=""
+    rec="$(printf '%s' "${raw}" | jq -c --argjson names "${names}" 'select(.status == "success")
+        | [.data.result[] | {node: .metric.node, k: (.metric.__name__ | capture("_(?<k>pending|queued)_pool_").k),
+                             v: (.value[1] | tonumber | floor)}] as $r
+        | [$names[] as $n | {key: $n, value: ([$r[] | select(.node == $n)]
+              | if length == 0 then null
+                else {pending: ([.[] | select(.k == "pending") | .v] | max), queued: ([.[] | select(.k == "queued") | .v] | max)} end)}]
+        | from_entries' 2>/dev/null)" || rec=""
+    [ -n "${rec}" ] || rec="$(printf '%s' "${names}" | jq -c 'map({key: ., value: null}) | from_entries')"
+    summary="$(printf '%s' "${rec}" | jq -r 'def top(k): ([to_entries[] | select(.value[k] != null)] | max_by(.value[k]) // null
+            | if . == null then "?" else "\(.value[k]) (\(.key))" end);
+        "read=\([.[] | select(. != null)] | length)/\(length) queued_max=\(top("queued")) pending_max=\(top("pending"))"')"
+    echo "POOL_AT_START blast=${b} at=$(bench_iso_from_unix "${at}") ${summary}"
+    hot="$(printf '%s' "${rec}" | jq -r --argjson w "${POOL_QUEUED_WARN}" \
+        '[to_entries[] | select((.value.queued // 0) > $w) | "\(.key) (\(.value.queued))"] | join(", ")')"
+    [ -z "${hot}" ] || bench_warn "POOL_AT_START blast=${b}: more than ${POOL_QUEUED_WARN} queued on ${hot}; stale transactions from earlier blasts take queued-pool room this blast needs (blast.pool_at_start)"
+    bench_manifest_jq --argjson p "${rec}" '.blast.pool_at_start = $p' || bench_warn "pool_at_start not recorded in $(bench_manifest)"
+    return 0
+}
+
 do_run() {
     preflight
-    local k name now start_at mixed_start deadline
+    local k name now start_at mixed_start deadline extra
     [ -n "${OBSERVER_IDX}" ] || bench_die "no observer in NODE_ROLES"
     now="$(bench_now_unix)"
-    [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ] \
-        || echo "    start_at lead: ${CREATE_WORST_SECS}s, not BENCH_START_DELAY_SECS=${BENCH_START_DELAY_SECS}: two create calls and the describe between them must fit before it"
+    if [ "${BENCH_BLAST_KIND:-load}" = light ]; then
+        [ "${BENCH_LIGHT_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ] \
+            || echo "    start_at lead: ${BENCH_LIGHT_START_DELAY_SECS}s (BENCH_LIGHT_START_DELAY_SECS, a light blast), not raised to ${CREATE_WORST_SECS}s: a create that needs its retry stops the blast unsent at start_at - ${CREATE_LATE_LEAD_SECS} s"
+    else
+        [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ] \
+            || echo "    start_at lead: ${CREATE_WORST_SECS}s, not BENCH_START_DELAY_SECS=${BENCH_START_DELAY_SECS}: two create calls and the describe between them must fit before it"
+    fi
     start_at=$(( now + $(start_delay_secs) ))
     RUN_START_AT="${start_at}"
     mixed_start=$(( start_at + BENCH_PREAMBLE_SECS + BENCH_WARMUP_SECS ))
-    deadline=$(( mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS + 600 ))
+    # Every wait for the done markers also covers the generator's tail scan and unlanded lookups.
+    extra="$(done_wait_extra_secs)"
+    deadline=$(( mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS + 600 + extra ))
     echo ">>> run ${BENCH_RUN_ID} index ${BENCH_RUN_INDEX}: ${VAL_COUNT} blasters x ${BENCH_SENDERS} senders, start_at $(bench_iso_from_unix "${start_at}")"
-    echo "    phases (planned): preamble ${BENCH_PREAMBLE_SECS}s, warmup ${BENCH_WARMUP_SECS}s, mixed ${BENCH_DURATION_SECS}s, cooldown ${BENCH_COOLDOWN_SECS}s; wait deadline $(bench_iso_from_unix "${deadline}")"
+    echo "    phases (planned): preamble ${BENCH_PREAMBLE_SECS}s, warmup ${BENCH_WARMUP_SECS}s, mixed ${BENCH_DURATION_SECS}s, cooldown ${BENCH_COOLDOWN_SECS}s$([ "${BENCH_TAIL_SCAN_SECS:-0}" = 0 ] || echo ", tail scan ${BENCH_TAIL_SCAN_SECS}s (not a phase)"); wait deadline $(bench_iso_from_unix "${deadline}")$([ "${extra}" = 0 ] || echo " (cooldown end + 600 s + ${extra} s for the tail scan and the unlanded lookups)")"
     local chaos_on="${BENCH_CHAOS:-1}"
     local t_kill=$(( mixed_start + BENCH_CHAOS_KILL_AT_SECS )) t_back=$(( mixed_start + BENCH_CHAOS_BACK_AT_SECS )) t_obs=$(( mixed_start + BENCH_CHAOS_OBS_AT_SECS ))
     local recovery_schedule=""
@@ -1698,7 +1974,7 @@ do_run() {
     fi
     create_blasters "${start_at}"
     [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN — re-run with --yes."; return 0; }
-    for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
+    assert_load_vms
 
     # --- manifest: planned phases + blasters ---
     local p0="${start_at}" p1=$(( start_at + BENCH_PREAMBLE_SECS )) p2="${mixed_start}" p3=$(( mixed_start + BENCH_DURATION_SECS )) p4=$(( mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS ))
@@ -1708,11 +1984,15 @@ do_run() {
         '.phases = [{name:"preamble",start:$a,end:$b},{name:"warmup",start:$b,end:$c},{name:"mixed",start:$c,end:$d},{name:"cooldown",start:$d,end:$e}]
          | .notes += ["phases are PLANNED from BENCH_START_AT + configured durations; the per-blaster tn-blast/v2 run.phases are authoritative"]'
     bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
+    # The nodes' pools as the blast starts (Prometheus; record only).
+    pool_at_start "${start_at}"
     # LOG_RATE: set by the light-load arm for each of its blasts (log_rate_check).
     [ "${BENCH_LOG_RATE_CHECK:-0}" != 1 ] || log_rate_check 0 "$(( start_at + BENCH_PREAMBLE_SECS ))"
 
     # --- watch loop: chaos + abort watchers + done markers ---
-    local next_poll=$(( start_at + 60 )) all_done=0 target due back_due n
+    # From the planned mixed end (the real one comes earlier when the preamble is shorter than planned)
+    # completion is also read from the bucket every BUCKET_CHECK_SECS (bucket_done_check).
+    local next_poll=$(( start_at + 60 )) all_done=0 target due back_due n next_check="${p3}"
     local kill_blaster; kill_blaster="$(blaster_name "${CHAOS_KILL_IDX}")"
     # Chaos actions open their session this early (chaos_staged); epoch timing plans the kill.
     local stage="${BENCH_CHAOS_STAGE_SECS}" kill_extra=""
@@ -1798,12 +2078,18 @@ do_run() {
             chaos_boundary_check
             next_poll=$(( now + BENCH_POLL_SECS ))
         fi
+        # The bucket check: one listing, no IAP; it gives way to a chaos action due within the guard.
+        if [ "${all_done}" -eq 0 ] && [ "${now}" -ge "${next_check}" ] && ! bucket_check_deferred "${now}"; then
+            if bucket_done_check; then all_done=1; fi
+            next_check=$(( now + BUCKET_CHECK_SECS ))
+        fi
 
         if [ -n "${ABORTED}" ] && [ "${RUN_STOPPED}" -eq 0 ]; then
             bench_log "stopping blasters (docker stop txgen) after abort: ${ABORTED}"
             stop_blasters 1 || true
-            deadline=$(( now + 600 ))
+            deadline=$(( now + 600 + extra ))
             next_poll=$(( now + BENCH_POLL_SECS ))
+            next_check=$(( now + BUCKET_CHECK_SECS ))             # stopped blasters upload what they have
             t_unpause=$(( t_unpause < now ? t_unpause : now ))    # an owed unpause runs on the next pass
             t_back=$(( t_back < now ? t_back : now ))             # and so does an owed restart
         fi
@@ -1811,6 +2097,7 @@ do_run() {
         [ "${now}" -lt "${deadline}" ] || { bench_warn "deadline reached before every blaster finished"; break; }
 
         target="${next_poll}"
+        [ "${next_check}" -ge "${target}" ] || target="${next_check}"
         read -r due _ <<< "$(next_action_due)" || true
         [ -z "${due}" ] || [ $(( due - stage )) -ge "${target}" ] || target=$(( due - stage ))
         [ "${lag_on}" = "1" ] && [ -z "${ABORTED}" ] && [ "${RUN_DID_PAUSE}" -eq 0 ] && [ "${t_pause}" -lt "${target}" ] && target="${t_pause}"
@@ -1838,10 +2125,12 @@ do_run() {
     done
     settle_blasters
     record_late_secs "${start_at}"     # reads the result files settle_blasters copied in
+    record_real_phases                 # so do they
     [ "${RUN_DID_PAUSE}" -eq 0 ] || [ "${RUN_DID_UNPAUSE}" -eq 1 ] || lag_unpause "last try before the run exits" || true
     [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || chaos_restart_v05 "last try before the run exits" || true
     RUN_FINISHED=1
     trap - EXIT INT TERM HUP PIPE
+    [ -z "${BLAST_RUN_STARTED}" ] || trap blast_run_exit EXIT     # a hand run's blast_runs[] entry
     if [ -n "${ABORTED}" ] || [ "${bad}" -ne 0 ]; then
         echo "❌ run finished with abort='${ABORTED}' / a blaster not at rc=0 reason=ok — see ${BENCH_RESULTS_DIR}" >&2
         exit 1
@@ -1858,8 +2147,9 @@ collect_missing() {
 }
 
 # stall_scan — .commit_stalls_sampled from the sampler CSVs (stall-scan.py: the fleet's highest
-# block per 30 s, flat for >= BENCH_STALL_NOTE_SECS inside the mixed phase and cooldown). A note
-# beside the watch's .commit_stalls, never fatal.
+# block per 30 s, flat for >= BENCH_STALL_NOTE_SECS inside the mixed phase and cooldown of
+# manifest .phases: the blasters' real phases once record_real_phases rewrote them, else the plan).
+# A note beside the watch's .commit_stalls, never fatal.
 stall_scan() {
     local out
     echo "    commit stalls from sampler/*.csv: stall-scan.py --min-secs ${BENCH_STALL_NOTE_SECS}"
@@ -1993,24 +2283,26 @@ light_plan() {
     fi
 }
 
-# light_env <p> — the environment of plan entry <p>'s single-blast invocation, as NAME=<integer> words:
-# a light blast has its senders and window, the BENCH_LIGHT_*_SECS phases, no chaos and no lag
-# injection; the configured profile keeps every setting but the index.
+# light_env <p> — the environment of plan entry <p>'s single-blast invocation, as NAME=<value> words
+# (integers, and the word light): a light blast has its senders and window, the BENCH_LIGHT_*_SECS
+# phases, no chaos and no lag injection, and BENCH_BLAST_KIND=light (its start delay, start_delay_secs);
+# the configured profile keeps every setting but the index.
 light_env() {
     printf 'BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=%s' "${LIGHT_IDX[$1]}"
     [ "${LIGHT_KIND[$1]}" = light ] || return 0
-    printf ' BENCH_SENDERS=%s BENCH_WINDOW=%s BENCH_WARMUP_SECS=%s BENCH_DURATION_SECS=%s BENCH_COOLDOWN_SECS=%s BENCH_CHAOS=0 BENCH_LAG_INJECT=0' \
+    printf ' BENCH_SENDERS=%s BENCH_WINDOW=%s BENCH_WARMUP_SECS=%s BENCH_DURATION_SECS=%s BENCH_COOLDOWN_SECS=%s BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_BLAST_KIND=light' \
         "${LIGHT_SND[$1]}" "${LIGHT_WIN[$1]}" "${BENCH_LIGHT_WARMUP_SECS}" "${BENCH_LIGHT_DURATION_SECS}" "${BENCH_LIGHT_COOLDOWN_SECS}"
 }
 
 # light_child <action> <p> [NAME=value...] — this script's <action> for plan entry <p> (light_env, then
-# the extra words), --yes when this invocation has it. Its status.
+# BENCH_BLAST_SEQUENCE=1 so the child records no blast_runs[] entry, then the extra words), --yes when
+# this invocation has it. Its status.
 light_child() {
     local action="$1" p="$2" yes=()
     shift 2
     [ "${CONFIRM}" -ne 1 ] || yes=(--yes)
-    # shellcheck disable=SC2046  # light_env prints NAME=<integer> words, split on purpose
-    env $(light_env "${p}") "$@" bash "${DIR}/benchmark-blast.sh" "${action}" ${yes[@]+"${yes[@]}"} --run "${BENCH_RUN_ID}"
+    # shellcheck disable=SC2046  # light_env prints NAME=<value> words without spaces, split on purpose
+    env $(light_env "${p}") BENCH_BLAST_SEQUENCE=1 "$@" bash "${DIR}/benchmark-blast.sh" "${action}" ${yes[@]+"${yes[@]}"} --run "${BENCH_RUN_ID}"
 }
 
 # light_show_plan <action> — the sequence, one line per blast.
@@ -2038,39 +2330,62 @@ light_check_indices() {
     done
 }
 
-# light_record <p> <started> <ended> <rc> — with --yes, manifest blasts[] += plan entry <p>'s blast.
+# arm_in_force <time> — the name of the param_arms[] entry in force at <time>: the latest whose begin
+# is at or before it (MANIFEST-FIELDS blasts[].arm). A new arm closes the open one, so that is the open
+# arm when there is one; nothing when the manifest has no arm.
+arm_in_force() {
+    jq -r --arg t "$1" '[(.param_arms // [])[] | select(type == "object" and (.begin | type) == "string" and .begin <= $t)]
+        | last | .name // empty' "$(bench_manifest)" 2>/dev/null || true
+}
+
+# light_record <p> <started> <ended> <rc> [<arm>] — with --yes, manifest blasts[] += plan entry <p>'s
+# blast: {index, senders, window, chaos, started, ended, rc, kind (light|load), arm (null: none)}, and
+# from the child's own record when the live manifest holds it (.blast.run_index is this index):
+# phases (+ phases_planned once they are real, record_real_phases) and pool_at_start.
 light_record() {
     [ "${BENCH_APPLY}" = "1" ] || return 0
     local chaos=0
     [ "${LIGHT_KIND[$1]}" = light ] || chaos="${BENCH_CHAOS}"
     bench_manifest_jq --argjson i "${LIGHT_IDX[$1]}" --argjson s "${LIGHT_SND[$1]}" --argjson w "${LIGHT_WIN[$1]}" \
-        --argjson c "${chaos}" --arg a "$2" --arg e "$3" --argjson rc "$4" \
-        '.blasts = (.blasts // []) + [{index: $i, senders: $s, window: $w, chaos: $c, started: $a, ended: $e, rc: $rc}]' \
+        --argjson c "${chaos}" --arg a "$2" --arg e "$3" --argjson rc "$4" --arg k "${LIGHT_KIND[$1]}" --arg arm "${5:-}" \
+        '(if (.blast.run_index // null) == $i then
+              (if (.phases // []) != [] then {phases: .phases} else {} end)
+              + (if has("phases_planned") then {phases_planned: .phases_planned} else {} end)
+              + (if (.blast | has("pool_at_start")) then {pool_at_start: .blast.pool_at_start} else {} end)
+          else {} end) as $own
+         | .blasts = (.blasts // []) + [{index: $i, senders: $s, window: $w, chaos: $c, started: $a, ended: $e, rc: $rc,
+                                         kind: $k, arm: (if $arm == "" then null else $arm end)} + $own]' \
         || bench_warn "blasts[] not updated in $(bench_manifest) (index ${LIGHT_IDX[$1]} rc=$4)"
 }
 
-# light_stop <action> <rc> <p> [<p>...] — plan entry <p> ended rc != 0: print the commands that finish
-# the sequence by hand (the entries given, in order), exit <rc>. A blast that ran may have sent from
-# its senders, so a failed `run` entry is funded and run again under a fresh index, one past every
-# index used or planned; the entries after it keep their funded, unused indices. A failed fund has
-# spent nothing: the remaining funds keep their indices, then the sequence's `run` follows.
+# light_stop <action> <rc> <p> [<p>...] — plan entry <p> ended rc != 0: print the whole command
+# sequence that finishes the arm by hand (the entries given, in order, then the collect step the deploy
+# would have run next: step 15), exit <rc>. A blast that ran may have sent from its senders, so a
+# failed `run` entry is funded and run again under a fresh index, one past every index used or
+# planned; the entries after it keep their funded, unused indices. Each `run` line carries
+# BENCH_LOG_RATE_CHECK=1, as the sequence gives every child (bench 5's hand-run load had no LOG_RATE,
+# D38). A failed fund has spent nothing: the remaining funds keep their indices, then the sequence's
+# `run` follows.
 light_stop() {
     local action="$1" rc="$2" p="$3" q f fresh cmd="benchmark/benchmark-blast.sh"
+    local collect="benchmark/benchmark-deploy.sh --yes --from 15 --to 15 --run ${BENCH_RUN_ID}"
     shift 2
     echo "❌ light-load arm: ${action} of index ${LIGHT_IDX[$p]} (${LIGHT_KIND[$p]}, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}) ended rc=${rc}; the sequence stopped there" >&2
-    echo "   Resume by hand, one command at a time, each once the one before it succeeded:" >&2
+    echo "   Resume by hand, one command at a time, each once the one before it succeeded (the last is the collect, deploy step 15):" >&2
     if [ "${action}" = fund ]; then
         for q in "$@"; do echo "     $(light_env "${q}") ${cmd} fund --yes --run ${BENCH_RUN_ID}" >&2; done
         echo "     BENCH_LIGHT_LOAD=1 BENCH_RUN_INDEX=${LIGHT_IDX[0]} ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2
+        echo "     ${collect}" >&2
         exit "${rc}"
     fi
     fresh="$( { blast_indices_used; printf '%s\n' "${LIGHT_IDX[@]}"; } | grep -x '[0-9][0-9]*' | sort -n | tail -1)"
     LIGHT_IDX[p]=$(( fresh + 1 ))
     echo "     $(light_env "${p}") ${cmd} fund --yes --run ${BENCH_RUN_ID}" >&2
-    for q in "$@"; do echo "     $(light_env "${q}") ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2; done
-    echo "   blasts[] records this sequence's blasts only; a blast run by hand is recorded in its own manifest .blast." >&2
+    for q in "$@"; do echo "     $(light_env "${q}") BENCH_LOG_RATE_CHECK=1 ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2; done
+    echo "     ${collect}" >&2
+    echo "   blasts[] records this sequence's blasts only; a blast run by hand is recorded in its own manifest .blast and in blast_runs[]." >&2
     [ "${LIGHT_KIND[$q]}" = load ] \
-        || echo "   A light blast run by hand after the load stays current: the configured profile's outputs are then in its blast-<index>-<UTC>/." >&2
+        || echo "   A light blast run by hand after the load stays current: the configured profile's outputs are then in its blast-<index>-<UTC>/, and step 15 collects the light blast." >&2
     for f in "$@"; do
         [ "${LIGHT_KIND[$f]}" = light ] || continue
         echo "   A light blast run by hand is not in blasts[], so the floor KPIs miss it: pass its blast-<index>-<UTC>/ as --floor-blast-dir to report/make_bundle.py and report/kpis.py." >&2
@@ -2117,7 +2432,7 @@ light_swap_back() {
 
 # light_fund — `fund`: one single-blast fund per blast of the sequence, the configured profile's last,
 # so funder/ and manifest .fund end with its output as after a plain fund (the light indices' are
-# copied aside into funder-<index>-<UTC>/ by the next fund).
+# moved aside into funder-<index>-<UTC>/ by the next fund).
 light_fund() {
     local p order=() rc k
     light_plan
@@ -2140,7 +2455,7 @@ light_fund() {
 # one, the stop at the first rc != 0; every blast also measures LOG_RATE, the configured profile's
 # under load too (each child gets BENCH_LOG_RATE_CHECK set to 1, whatever the caller's environment holds).
 light_run() {
-    local p rc started ended
+    local p rc started ended arm
     light_plan
     light_check_indices
     light_show_plan run
@@ -2149,9 +2464,10 @@ light_run() {
         elif [ "${BENCH_APPLY}" = "1" ]; then echo "LIGHT_LOAD_START i=${LIGHT_IDX[$p]} senders=${LIGHT_SND[$p]} window=${LIGHT_WIN[$p]}"
         else echo ">>> light-load arm (plan): light blast, index ${LIGHT_IDX[$p]}, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}"; fi
         started="$(bench_now_iso)"; rc=0
+        arm="$(arm_in_force "${started}")"
         light_child run "${p}" BENCH_LOG_RATE_CHECK=1 || rc=$?
         ended="$(bench_now_iso)"
-        light_record "${p}" "${started}" "${ended}" "${rc}"
+        light_record "${p}" "${started}" "${ended}" "${rc}" "${arm}"
         [ "${LIGHT_KIND[$p]}" != light ] || [ "${BENCH_APPLY}" != "1" ] || echo "LIGHT_LOAD_DONE i=${LIGHT_IDX[$p]} rc=${rc}"
         [ "${rc}" -eq 0 ] || light_stop run "${rc}" $(seq "${p}" $(( ${#LIGHT_IDX[@]} - 1 )))
     done
@@ -2160,6 +2476,53 @@ light_run() {
     echo "    ✓ light-load arm complete: indices ${LIGHT_IDX[*]}; the configured profile's outputs are in ${BENCH_RESULTS_DIR}/blasters/"
 }
 
+# ================================ hand runs (D46) ====================================
+# blast_caller — who started this invocation: "sequence" (a child of the light-load arm: light_child
+# sets BENCH_BLAST_SEQUENCE=1), "deploy" (benchmark-deploy.sh steps 13 and 14: this process's parent runs
+# that script) or "hand".
+blast_caller() {
+    [ "${BENCH_BLAST_SEQUENCE:-0}" != 1 ] || { echo sequence; return 0; }
+    case "$(ps -o args= -p "${PPID}" 2>/dev/null)" in *benchmark-deploy.sh*) echo deploy ;; *) echo hand ;; esac
+}
+
+BLAST_RUN_STARTED=""; BLAST_RUN_RECORDED=0
+
+# blast_run_begin — with --yes, a `fund` or `run` started by hand records its blast_runs[] entry on
+# its way out (blast_run_exit as the EXIT trap; do_run's own trap calls blast_run_end). The deploy
+# records its steps in deploy_runs[] and the sequence its blasts in blasts[]; bench 5's hand-run fund
+# and run after an abort were in neither (D46).
+blast_run_begin() {
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    case "${ACTION}" in fund|run) ;; *) return 0 ;; esac
+    [ "$(blast_caller)" = hand ] || return 0
+    BLAST_RUN_STARTED="$(bench_now_iso)"
+    trap blast_run_exit EXIT
+}
+
+# blast_run_end <rc> — once per hand run: manifest blast_runs[] += {action, index, started, ended, rc,
+# log} (log: this invocation's output copy, relative to results/<run>/; null without one), and
+# timestamps.step_14_done when a `run` ended rc 0, as deploy step 14 sets it. Never fails.
+blast_run_end() {
+    [ -n "${BLAST_RUN_STARTED}" ] && [ "${BLAST_RUN_RECORDED}" -eq 0 ] || return 0
+    BLAST_RUN_RECORDED=1
+    bench_manifest_jq --arg a "${ACTION}" --arg i "${BENCH_RUN_INDEX:-}" --arg s "${BLAST_RUN_STARTED}" --arg e "$(bench_now_iso)" \
+        --argjson rc "$1" --arg l "${BLAST_LOG#"${BENCH_RESULTS_DIR}"/}" \
+        '.blast_runs = ((.blast_runs // []) + [{action: $a, index: ($i | tonumber? // $i), started: $s, ended: $e, rc: $rc,
+                                               log: (if $l == "" then null else $l end)}])' \
+        || bench_warn "blast_runs[] not updated in $(bench_manifest) (${ACTION} rc=$1)"
+    if [ "${ACTION}" = run ] && [ "$1" -eq 0 ]; then bench_manifest_ts step_14_done || true; fi
+    return 0
+}
+
+# blast_run_exit — the EXIT trap of a hand run outside do_run's own: its entry, then the same exit status.
+blast_run_exit() {
+    local rc=$?
+    set +eu
+    blast_run_end "${rc}"
+    exit "${rc}"
+}
+
+blast_run_begin
 case "${BENCH_LIGHT_LOAD:-0}:${ACTION}" in
     1:fund|1:run)
         [ -n "${BENCH_RUN_ID}" ] || bench_die "no run id"

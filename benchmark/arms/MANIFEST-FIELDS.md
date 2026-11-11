@@ -151,6 +151,7 @@ Existing fields keep their names: `index`, `senders`, `window`, `chaos`, `starte
 | `arm` | string or null | new | the `param_arms[].name` in force when the blast started (the latest arm whose `begin` is at or before `started`); null when the manifest has no arm |
 | `phases` | [{`name`, `start`, `end`}] | new | the blast's phases, real when `phases_planned` is present (below) |
 | `phases_planned` | [{`name`, `start`, `end`}] | new | the plan, kept when `phases` was rewritten from the blasters |
+| `pool_at_start` | {inst: {`pending`, `queued`}} | new | each node's transaction pool one second before the blast's `start_at`: reth's pending and queued sub-pool sizes (`reth_transaction_pool_pending_pool_transactions`, `reth_transaction_pool_queued_pool_transactions`) from bench-obs Prometheus, since the node serves no `txpool_status`; a node without a sample is null, and every node is null when the query failed. The blast tool records it as `blast.pool_at_start` for every blast, and the light-load sequence copies it into the entry |
 
 `windows.light_blasts` selects `kind == "light"` with `rc` 0 when `kind` is present, and falls back to the bench-5 rule (chaos off, not the top blast) for entries without it.
 An idle window has no blasters and is not a blast: it is a `param_arms[].marks` entry.

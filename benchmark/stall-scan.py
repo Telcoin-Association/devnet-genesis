@@ -2,11 +2,14 @@
 """Find commit stalls in a run's sampler CSVs: stretches where the fleet's highest block stood still.
 
 Reads results/<run>/sampler/*.csv (node-sampler.sh: ts_unix and block columns, one row per node
-every 30 s) and the planned phases in results/<run>/manifest.json, and prints a JSON array for
-manifest.commit_stalls_sampled. The fleet maximum is taken per 30 s bucket. A stretch counts when
-it starts inside the mixed phase, lasts at least --min-secs and ends (or the window does) by the
-end of cooldown; one that starts in cooldown is the generator's drain, not a stall. A note only:
-benchmark-blast.sh never aborts on it.
+every 30 s) and manifest.phases in results/<run>/manifest.json, and prints a JSON array for
+manifest.commit_stalls_sampled. The phases are the blasters' real ones once benchmark-blast.sh has
+rewritten them (manifest.phases_planned then holds the plan), else the plan. Bench 5's plan put the
+idle chain after the load inside the planned cooldown, which read as a 90-s stall at the load's
+end. The fleet maximum is taken per 30 s bucket. A stretch counts when it starts inside the mixed
+phase, lasts at least --min-secs and ends (or the window does) by the end of cooldown; one that
+starts in cooldown is the generator's drain, not a stall. A note only: benchmark-blast.sh never
+aborts on it.
 
 Blocks only: node-sampler.sh records no consensus round, so an idle chain (generators done, rounds
 still advancing, no blocks because empty outputs are not executed) looks the same as a stall here.
@@ -33,7 +36,7 @@ def unix(text):
 
 
 def phase_window(manifest):
-    """(mixed start, mixed end, cooldown end) from the planned manifest.phases."""
+    """(mixed start, mixed end, cooldown end) from manifest.phases (real or planned)."""
     phases = {p.get("name"): p for p in manifest.get("phases") or [] if isinstance(p, dict)}
     try:
         return unix(phases["mixed"]["start"]), unix(phases["mixed"]["end"]), unix(phases["cooldown"]["end"])
