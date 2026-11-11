@@ -519,3 +519,16 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   build is reached by timing here — the wiring unit's own test forces it deterministically.
 - Gate 5 (the cycle bench) was not written by this unit: a separate small unit writes it; the orchestrator runs it on a quiet
   host.
+
+## From H13 (driver gaps closed; `tasks/checkpoint-bench6-H13.md`)
+- A blast started by hand now leaves the same `blasts[]` entry as a scripted one (failed ones included, with their rc), the
+  blast's type is in its own record, no log path dangles, and the sequencer's log is written under `results/<run>/logs/` as
+  it runs. A deploy-driven blast (run 2's path) writes exactly what it wrote before.
+- D58. **Found, not yet fixed: a TERM to the arms segment kills the sequencer but not the blast it started.** The segment
+  reports `rc=143` at once while a blast is still loading the fleet, and the orphaned driver finishes and deletes its VMs on
+  its own. Nothing is lost, but "ended" is not true. The next harness unit makes a stop signal finish the running blast,
+  start nothing new, and write the rc line only when nothing of the segment is left running. Until then: after stopping a
+  walk, wait for `benchmark-blast.sh` to exit before any other fleet action.
+- Readers still to fix (next unit): `stage-latency.py` without `--windows` names failed blasts as measured ones; the floor-blast
+  helper takes the first entry of an index even when a retry under the same index succeeded; three tools take phase windows
+  from the live manifest only (the last blast).
