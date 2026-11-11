@@ -888,3 +888,12 @@ four validators to the transactions that are in no pool.
 After the test hook was made part of the standard e2e build: the SIGKILL test 3 of 3, the mixed fleet 1 of 1, the epoch close
 1 of 1; clippy clean and 532 storage tests pass. The one failure in between (recorded in the checkpoint) was the hook's log
 line missing from a run killed before its first persist — a test-assertion effect of where the hook was read, fixed.
+
+### The repo's own e2e sets on the integration head (d91d65d3e), through the lane, by the orchestrator
+| switches | restarts | epochs | sigkill |
+|---|---|---|---|
+| all off (the switch-off gate) | 11 of 11 | 11 of 11 | 12 of 12 |
+| eleven on — `quorum_exec_block` (K = 4), `vote_queue_fix`, `mdbx_random_advice`, `sealed_tx_keep`, `digest_dedupe`, `recovery_threads: 3`, `epoch_close_task_drain`, `epoch_record_state_check`, `parent_grace: 150ms`, `rpc_admission_backlog_outputs: 2`; pipelined off | 11 of 11 | 11 of 11 | 12 of 12 |
+
+A node log of the second pass shows the `node switches` line with all eleven on (the override accepts a mistyped key
+silently, so this was checked). One epochs test starts its nodes directly and does not get the override.
