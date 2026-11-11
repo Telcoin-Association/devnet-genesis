@@ -30,3 +30,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 20 | U0b | bench6-e2e-scaffold | — | 56f50b1a4 | 4c7e5f032 | | | |
 | 21 | U0b | bench6-e2e-scaffold | — | 9208e4d30 | d1b6b0ac3 | | | |
 | 22 | U0b | bench6-e2e-scaffold | — | a045aaebc | b09d65945 | | | |
+| 23 | U2 | voter-lock | vote_queue_fix | c56b33c0a | 2b9a69925 | #1804 | | |
+| 24 | U2 | tracker-drain | — (gauge) | 12bb5bb45 | 16695b20a | #1806 | | |

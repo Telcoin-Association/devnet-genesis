@@ -13,6 +13,10 @@ Tick list: `tasks/plan.md`. Ledger: `tasks/bench6-cherrypick-ledger.md`. Names c
 - Never delete anything outside your own scratch directory. Never `git stash`, `git reset --hard`, `git rebase`, `git checkout -- <file>`,
   force operations or branch deletion. Never `rm -rf` with a variable in the path.
 - Absolute paths and `git -C <dir>` everywhere; parallel tool calls share the shell cwd.
+- **Nothing but the node itself ever opens a live node's MDBX database**: no `mdbx_stat` or other MDBX tool, no second environment
+  handle, no `telcoin db …` against a running node's datadir, in code, in harness scripts, in probes or by hand. Any open without
+  `NORDAHEAD` flips a bit in the shared lock file that switches the node's prefault writes off for every allocation, which
+  produces the write amplification this round is measuring (local probe: 1.00× → 8.7×).
 
 ## Repos and worktrees
 - devnet-genesis (harness `benchmark/`, `tasks/`): `/home/drtnarg/coding/telcoin/devnet-genesis`.

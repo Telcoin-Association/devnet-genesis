@@ -215,7 +215,8 @@ Read off the run log by the orchestrator; the analysis unit I-1r verifies and ex
 | 7-ovf-mrand / 7-ovf-pfoff-mrand | 1.008 / 1.000 |
 | 7-noreopen-pfoff (negative control) | 1.000 |
 | 8-readused-nopressure: used range read through the page cache | 5.37 (wide band) |
-| 8-readused: the same, 40 MiB of reclaim before every output from output 20 | 5.10 before, 1.34 from output 20 |
+| 8-readused: the same in the unadvised state, 40 MiB of reclaim before every output from output 20 | 11.44 before, 4.33 from output 20 (held 10.8-11.1 for 15 reclaims, then settled at 4.25-4.3) |
+| 8-readused-random: the same under libmdbx's own `MADV_RANDOM` | 5.10 before, 1.34 from output 20, 1.00 by outputs 50-59 |
 | 8-cold-normal: cold cache, `MADV_NORMAL`, same pressure | 1.14 before, 1.15 after |
 
 ### What it establishes
@@ -223,8 +224,10 @@ Read off the run log by the orchestrator; the analysis unit I-1r verifies and ex
 - **I-1's falsifier fired**: under the node's defaults (prefault on) the re-open condition alone stays at 1.000 on this kernel. The
   ranked trigger #1 is therefore NOT sufficient as stated. What gives a real node its large folios is open again.
 - The multi-page prefault route (R2) was barely exercised (two-page allocations only).
-- Reclaim pressure does break up a resident large-folio cache (5.1 → 1.34 within the run): supports "memory pressure took bench 4
-  out" and bench 5's late drop.
+- Reclaim pressure breaks up a resident large-folio cache fully only where the range is advised (5.1 → 1.00); in the unadvised
+  state it falls 11.4 → 4.3 and stays there. Consistent with "pressure took bench 4 out" and with bench 5's late partial drop.
+  (Correction: the orchestrator's first reading had these two rows swapped.) Identical arm-8 set-ups gave 5.25 and 11.66 before
+  pressure, so compare within a row only.
 - Caveats: swap was 8 GB in use at the start; arm 8 has a wide band; one summary line carries an arithmetic overflow in `grown`.
 
 ### Decisions
@@ -254,3 +257,53 @@ Read off the run log by the orchestrator; the analysis unit I-1r verifies and ex
 - For the analysis: under the rule a leader's named block is older than its tip, so the subscriber's wait floor
   (`subscriber.rs:1385`) is up to 8 outputs lower and up to 8 more outputs can be assembled ahead of execution;
   `base_execution_block` (`state.rs:786`) is the named block, not the leader's tip.
+
+## From I-1r (analysis of the local probe; `benchmark/private/bench6-prep/I-1r/{verdict.md,gce-arms.md,probe-changes.md}`)
+### What still separates a node from the probe's node-default arm (ranked; confidence that it explains bench 5)
+1. **The GCE kernel or ext4/hyperdisk builds large folios even with prefault on — 35 %.** Bench 5's 222-228 KB write ops from
+   minute 1 cannot be produced on xerxes. The GCE arm `g5-7default` decides it.
+2. **A foreign opener switches prefault off — 10 % for bench 5, certain for bench 6 if anyone does it.** Any open of the live
+   environment without `MDBX_NORDAHEAD` sets a read-ahead bit in the shared lock file, and the prefault check is evaluated with
+   pgno == 0 (`mdbx.c:22445`, `:22494-22500`), so prefault goes off for EVERY allocation (not "below the edge" as the design report
+   said) until the next 4 GiB growth. No such opener was found in bench 5 (the node and `telcoin db` use NORDAHEAD; the image ships
+   only `telcoin`; the harness, finalize and tn-node-deployment open nothing). A stock `mdbx_stat` would turn a node into the 8.7× arm
+   (smoke-confirmed: prefault per grown page 1.000 → 0.000, 37 pages past used).
+3. A multi-page prefault that leaves its tail unwritten, seeding read-around — 10 %.
+4. Multi-page allocations at real sizes — 5 %: GC records are ONE page each under BIGFOOT (1,018 page numbers max), so bench 5's
+   58 k freelist is about 58 one-page records, not one large record (the orchestrator's freelist idea is thereby mostly ruled out).
+5. Refault read-around under pressure: a contributor once reclaim runs, not the trigger. 6. Output and database size: < 5 %.
+The figures sum to well under 100 %: the cause on a node is NOT identified. The VM run and run 1's control arm decide.
+
+### Actions taken
+- Probe crate extended (peer open with and without NORDAHEAD, a long reader, an in-binary `pwritev` counter, GC/freelist columns);
+  smoke only. GCE arm list revised to nineteen arms, ≈ 55 min (`I-1r/gce-arms.md`); the probe driver unit is folding it in.
+- U3's brief: `persisted output` also carries `prefault_wchar_bytes`, `freelist_pages`, `gc_entries`, `gc_large_pages` (and, if
+  cheap, the read-ahead bit), so that run 1's control arm can tell prefault-on from prefault-off on a real node:
+  Δ`page_prefault` ≈ 0 while the database grows means prefault is off.
+- Rule added for every unit and every run: **no MDBX tool or reader other than the node itself ever opens a live node's database.**
+
+### Decisions
+- D31. Approve the ≈ 55-minute one-VM run with the revised arms (covered by the earlier answer on the GCE probe; restated because
+  the list grew from 14 to 19 arms and ≈ 45 to ≈ 55 minutes). The never-cut set is eight arms if it must be shorter.
+- D32. The planned "no node start in the stage-only step" change has no local evidence behind it unless `g5-7default` amplifies on GCE:
+  hold it until the VM run.
+- D33. Report the pgno == 0 prefault quirk to libmdbx upstream (after G4)?
+- D28 stands: the first persist arm of run 1 may not show the planned recovery.
+
+## From U2 (voter fix; `tasks/checkpoint-bench6-u2.md`) and H1b (blast driver)
+- U2 as built: the per-author mark is checked before the wait, after it, and a third time right after the lock is taken (the
+  domain review's one finding: a request that went stale while queued on the lock was still served in full). Under the lock the
+  execution check has no wait; a database miss is "behind", never a fork. `SupersededRequest` is recoverable and carries no penalty;
+  the requester retries it (250 ms, six times, then back-off until a newer own header cancels it).
+- D34. **Request time against the libp2p timeout**: with `vote_queue_fix` on, the pre-lock wait (up to 1 s) runs outside
+  `vote_timeout`, and the config check only keeps `vote_timeout` under the 10-s libp2p request timeout. Upstream the check should
+  require `vote_timeout + 1 s < 10 s` when the switch is on (latency only, not safety). Not built for the bench image; goes into the
+  upstream PR (W8) unless the user wants it now.
+- D35. **Spam cost** (I-4 item 6): the pre-lock wait runs before header validation and the parent-count bound, so a committee
+  member's requests can each be held up to 1 s; only an enforcing per-peer serve budget caps that and the default is unbounded.
+  The reviewer judged it small. Upstream question for #1804's PR.
+- Deviation kept (reviewer agrees): the mark refuses only a same-epoch lower round, so a header from an earlier epoch keeps today's
+  fatal `InvalidEpoch` instead of an endless recoverable retry.
+- H1b: `pool_at_start` is read from Prometheus one second before each blast's start (the node's RPC does not expose txpool),
+  recorded per blast, with a warning above 1,000 queued; record-only as proposed in D12 (no blocking). A 150-s light-blast lead is
+  safe because the late-start guard cuts every create at start − 30 s: a slow create costs one unsent attempt, never a late blaster.
