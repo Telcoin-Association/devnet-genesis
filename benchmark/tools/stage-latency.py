@@ -69,7 +69,10 @@ marks[] as <arm>/<label>. Without it: under --run-dir, each archived light blast
 when manifest blasts[] exists, else its preamble, warmup, mixed and cooldown phases. A bench-6
 blasts[] entry (one with `kind` or `arm`) is named [<arm>/]<kind><senders>x<window>, so the 600 x 16
 load of arm v is "v/load600x16", and its window is the entry's real mixed phase (its `phases` when
-`phases_planned` is present), else the blasters' own. --only GLOB keeps the matching windows.
+`phases_planned` is present), else the blasters' own. A blast whose entry has an `rc` other than 0
+(a failed blast; an entry without `rc` counts as 0) gets no window: it is listed under
+"not_measured" (JSON) and on a "Not measured" line (markdown). An index recorded twice (a retry
+under the same index) is measured on its last rc-0 entry. --only GLOB keeps the matching windows.
 "all" (no filter) is always added.
 Blocks within --boundary-secs of an epoch boundary (blocks with closes_epoch set) are dropped from the
 light* windows by default (a loaded boundary waits for execution, which a floor must not average in);
@@ -452,12 +455,31 @@ def real_mixed(entry):
     return None
 
 
-def derived_windows(groups, manifest):
-    """Windows from the blast groups [(index or None, docs)] and manifest blasts[]."""
-    blasts = {}
+def failed(entry):
+    """A blasts[] entry of a blast that failed: its rc is present and not 0 (bench 5 wrote no rc on some)."""
+    return bool(entry) and entry.get("rc") not in (None, 0)
+
+
+def blast_entries(manifest):
+    """index -> the blasts[] entry that stands for it: the last one with rc 0 (a retry under the same
+    index is the later entry), else the last one (a failed blast); and the failed entries in order."""
+    last, ok, bad = {}, {}, []
     for b in (manifest or {}).get("blasts") or []:
         if isinstance(b, dict) and b.get("index") is not None:
-            blasts[int(b["index"])] = b
+            last[int(b["index"])] = b
+            if failed(b):
+                bad.append(b)
+            else:
+                ok[int(b["index"])] = b
+    return dict((i, ok.get(i, b)) for i, b in last.items()), bad
+
+
+def derived_windows(groups, manifest, not_measured=None):
+    """Windows from the blast groups [(index or None, docs)] and manifest blasts[]. A failed blast gets
+    no window; each failed entry is appended to `not_measured` (a list) as one line of text."""
+    blasts, bad = blast_entries(manifest)
+    if not_measured is not None:
+        not_measured.extend("blast index %s (%s): rc %s" % (b["index"], blast_name(b), b["rc"]) for b in bad)
     archived = {i for i, _ in groups if i is not None}
     out = []
     for index, docs in sorted(groups, key=lambda g: (g[0] is None, g[0] or 0)):
@@ -474,6 +496,8 @@ def derived_windows(groups, manifest):
         else:
             entry = blasts.get(index)
             name = blast_name(entry) if entry else "blast%d" % index
+        if failed(entry):
+            continue
         span = real_mixed(entry) or merged_phase(docs, "mixed")
         if not span:
             continue
@@ -867,6 +891,8 @@ def to_markdown(doc):
             name, (s["authority"] or "unknown")[:12], s["own_blocks"], s["lines_read"],
             " (stopped at --max-lines)" if s["truncated_at_max_lines"] else "", ", ".join(s["logs"]) or "-",
             ", ".join(os.path.basename(b) for b in s["blasters"]) or "-", "yes" if s["f1_build"] else "no"))
+    if doc.get("not_measured"):
+        out.append("- Not measured (failed, no window): %s." % "; ".join(doc["not_measured"]))
     out += ["", "## Headline (seconds; chain = summed stages, gen = from the generator's own_submit_p50_ms)", "",
             "| window | ts p50 | ts p95 | commit p50 | commit p95 | seen p50 | seen p95 | gen ts p50 | gen ts p95 "
             "| gen commit p50 | gen commit p95 | gen seen p50 | gen seen p95 | coverage |",
@@ -1019,7 +1045,8 @@ def main(argv=None):
                 node = blaster_node(doc)
                 if node and (not a.node or node in a.node):
                     per_node.setdefault(node, Blocks()).add(doc, path)
-        windows = windows_from_file(a.windows) if a.windows else derived_windows(groups, manifest)
+        not_measured = []
+        windows = windows_from_file(a.windows) if a.windows else derived_windows(groups, manifest, not_measured)
         if a.only:
             windows = [w for w in windows if any(fnmatch.fnmatch(w[0], g) for g in a.only)]
             if not windows:
@@ -1044,6 +1071,8 @@ def main(argv=None):
                 logs_dir, " (--node %s)" % ",".join(a.node) if a.node else ""), file=sys.stderr)
             return 2
         doc = build_report(run or "?", nodes, windows, sorted(boundaries), a)
+        if not_measured:
+            doc["not_measured"] = not_measured
     except (OSError, ValueError, EOFError, KeyError) as e:
         print("stage-latency: %s" % e, file=sys.stderr)
         return 1

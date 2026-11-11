@@ -765,19 +765,42 @@ def _windows():
     return windows
 
 
-def blast_from_dir(manifest: dict, path: str) -> dict:
-    """A light-blast record for an explicit --floor-blast-dir: the index from its
-    blast-<index>-<UTC> name, the rest from the manifest's blasts[] entry of that index (8 senders
-    at window 16 when there is none)."""
-    win = _windows()
+def _dir_entries(manifest: dict, path: str) -> Tuple[Optional[int], List[dict]]:
+    """(the index of a blast-<index>-<UTC> dir, every blasts[] entry of that index in order)."""
     m = _BLAST_DIR_RE.match(os.path.basename(os.path.normpath(path)))
     idx = int(m.group(1)) if m else None
-    e = next((e for e in (manifest or {}).get("blasts") or []
-              if isinstance(e, dict) and idx is not None and e.get("index") == idx), {})
+    return idx, [e for e in (manifest or {}).get("blasts") or []
+                 if isinstance(e, dict) and idx is not None and e.get("index") == idx]
+
+
+def blast_from_dir(manifest: dict, path: str) -> Optional[dict]:
+    """A light-blast record for an explicit --floor-blast-dir: the index from its
+    blast-<index>-<UTC> name, the rest from the LAST blasts[] entry of that index that ended rc 0
+    (a retry under the same index is the later entry; an entry without rc counts as 0). No entry
+    of that index at all: 8 senders at window 16, rc None (a manifest older than the hand-run
+    entries). Entries that all failed: None, so no floor is measured from a failed blast
+    (floor_from_dir() says why)."""
+    win = _windows()
+    idx, entries = _dir_entries(manifest, path)
+    ok = [e for e in entries if e.get("rc") in (0, None)]
+    if entries and not ok:
+        return None
+    e = ok[-1] if ok else {}
     senders = int(e.get("senders") or 8)
     window = int(e.get("window") or win.DEFAULT_WINDOW)
     return {"name": win.light_name(senders, window), "index": idx, "senders": senders, "window": window,
             "rc": e.get("rc"), "started": e.get("started"), "ended": e.get("ended"), "dir": path}
+
+
+def floor_from_dir(manifest: dict, path: str) -> Tuple[Optional[dict], List[str]]:
+    """(blast_from_dir(), caveats) in windows.floor_blast()'s shape: a dir whose every blasts[]
+    entry failed is (None, [why])."""
+    blast = blast_from_dir(manifest, path)
+    if blast is not None:
+        return blast, []
+    idx, entries = _dir_entries(manifest, path)
+    return None, ["floor blast dir %s (index %d) ended rc=%s; floor KPIs not computed from it"
+                  % (os.path.basename(os.path.normpath(path)), idx, ",".join(str(e.get("rc")) for e in entries))]
 
 
 def floor_input(blast: dict, directory: Optional[str] = None) -> dict:
@@ -864,7 +887,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sampler = load_sampler(sampler_dir) if os.path.isdir(sampler_dir) else {}
     floor_caveats = []
     if a.floor_blast_dir:
-        blast = blast_from_dir(live, os.path.abspath(a.floor_blast_dir))
+        blast, floor_caveats = floor_from_dir(live, os.path.abspath(a.floor_blast_dir))
     else:
         blast, floor_caveats = win.floor_blast(run_dir, live)
     floor = floor_input(blast) if blast else None

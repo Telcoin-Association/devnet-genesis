@@ -87,6 +87,31 @@ class BlockRateTests(unittest.TestCase):
         doc = self.doc("--run", str(RUN), "--from", "2026-10-06T06:00:00Z", "--to", "2026-10-06T06:20:00Z")
         self.assertEqual(rows(doc, "window")["chain (blasters/*.json)"]["blocks"], 19)
 
+    def test_bench6_blast_phases_from_rc0_entries_only(self):
+        # Each rc-0 blasts[] entry's phases are windows ("blast <i> <phase>"), a failed one is a note, and the
+        # top-level phases (a copy of the latest entry's) are not read twice.
+        warm = {"name": "warmup", "start": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:10:00Z"}
+        mixed = {"name": "mixed", "start": "2026-10-06T06:10:00Z", "end": "2026-10-06T06:20:00Z"}
+        failed = {"index": 0, "kind": "light", "rc": 1, "phases": [dict(mixed, start="2026-10-06T06:05:00Z")]}
+        m = {"param_arms": [{"name": "a0", "begin": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:20:00Z",
+                             "marks": [{"label": "idle-1", "begin": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:05:00Z"}]}],
+             "blasts": [failed, {"index": 1, "kind": "load", "rc": 0, "phases": [warm, mixed]}], "phases": [warm, mixed]}
+        with tempfile.TemporaryDirectory(prefix="block-rate-") as d:
+            manifest = os.path.join(d, "m.json")
+            with open(manifest, "w") as fh:
+                json.dump(m, fh)
+            doc = self.doc("--run", str(RUN), "--windows", manifest)
+            self.assertEqual([w["name"] for w in doc["windows"]],
+                             ["arm a0", "mark a0/idle-1", "blast 1 warmup", "blast 1 mixed", "run"])
+            self.assertIn("blast 0: rc 1, not measured", doc["notes"])
+            plain = self.doc("--run", str(RUN))
+            for ours, theirs in (("blast 1 warmup", "phase warmup"), ("blast 1 mixed", "phase mixed")):
+                self.assertEqual(rows(doc, ours), rows(plain, theirs), ours)
+            m["phases"] = failed["phases"]                     # the latest blast failed: its copy is not a window
+            with open(manifest, "w") as fh:
+                json.dump(m, fh)
+            self.assertNotIn("phase mixed", [w["name"] for w in self.doc("--run", str(RUN), "--windows", manifest)["windows"]])
+
     def test_markdown_has_one_table_per_window(self):
         p = run_tool("--run", str(RUN))
         self.assertEqual(p.returncode, 0, p.stderr)

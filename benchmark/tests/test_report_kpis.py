@@ -792,6 +792,24 @@ class KpisCliTests(LightRunMixin, unittest.TestCase):
         self.assertEqual(doc["floor_blast_dir"], "blast-1-20260101T001640Z")
         self.assertTrue(any(c.startswith("light16 blast: latency.ts_ms.p50 missing") for c in doc["caveats"]))
 
+    def test_floor_blast_dir_takes_the_last_rc0_entry_of_its_index(self):
+        b1 = os.path.join(self.run_dir, "blast-1-20260101T001640Z")
+        m = copy.deepcopy(self.light_manifest)
+        m["blasts"].insert(1, dict(m["blasts"][1], senders=8, rc=1))     # index 1 failed first, then its retry
+        got = kpis.blast_from_dir(m, b1)
+        self.assertEqual((got["name"], got["index"], got["senders"], got["rc"]), ("light16", 1, 16, 0))
+        bare = kpis.blast_from_dir({"blasts": []}, b1)                   # no entry of the index: the defaults
+        self.assertEqual((bare["name"], bare["index"], bare["senders"], bare["rc"]), ("light8", 1, 8, None))
+        self.assertEqual(kpis.floor_from_dir(m, b1), (got, []))
+        m["blasts"][2]["rc"] = 2                                          # every entry of the index failed
+        self.assertIsNone(kpis.blast_from_dir(m, b1))
+        _write(os.path.join(self.run_dir, "manifest.json"), m)
+        doc = self.run_main("--floor-blast-dir", b1)
+        self.assertIsNone(doc["floor_blast_dir"])
+        self.assertIn("floor blast dir blast-1-20260101T001640Z (index 1) ended rc=1,2; floor KPIs not computed from it",
+                      doc["caveats"])
+        self.assertFalse({"floor_time_to_land_p50_s", "floor_time_to_seen_p50_s"} & {k["id"] for k in doc["kpis"]})
+
     def test_table(self):
         combined = os.path.join(self.tmp, "c.json")
         _write(combined, {"latency": {"ts_ms": {"p50": 1000.0}}})

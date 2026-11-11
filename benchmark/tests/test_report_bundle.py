@@ -1742,6 +1742,15 @@ class SwitchProvenanceStepTests(unittest.TestCase):
         self.assertTrue(p["caveats"][1].startswith("The node switch lines did not match"))
 
 
+def accepted(test, fn, *args, **kw):
+    """fn(*args, **kw); a BundleError (the prestart arm refused, e.g. read as a params-apply arm) fails the
+    test at an assertion instead of erroring it."""
+    try:
+        return fn(*args, **kw)
+    except mb.BundleError as e:
+        test.fail("the prestart arm was refused: %s" % e)
+
+
 class PrestartArmTests(unittest.TestCase):
     """An arm deploy step 7 applied before the first start (via "prestart") is published as a
     consensus.param_arms row of its switches (the headline's switch configuration)."""
@@ -1758,7 +1767,7 @@ class PrestartArmTests(unittest.TestCase):
         return block, caveats
 
     def test_row_states_the_switches_away_from_their_default(self):
-        block, caveats = self.consensus(self.manifest(final_arm()))
+        block, caveats = accepted(self, self.consensus, self.manifest(final_arm()))
         self.assertEqual(block["param_arms"], [
             {"arm": "final", "begin_utc": "2026-01-01T00:00:30Z", "end_utc": None,
              "values": "all 11 nodes: mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, "
@@ -1774,7 +1783,8 @@ class PrestartArmTests(unittest.TestCase):
         self.assertEqual([r["values"] for r in block["param_arms"]][1], "bench-validator-01: mdbx_random_advice=false")
 
     def test_all_defaults_has_no_row_and_bad_values_refuse(self):
-        block, _ = self.consensus(self.manifest(final_arm(switches=dict(SWITCHES_OFF, parent_grace="0s"))))
+        all_off = self.manifest(final_arm(switches=dict(SWITCHES_OFF, parent_grace="0s")))
+        block, _ = accepted(self, self.consensus, all_off)
         self.assertNotIn("param_arms", block)
         self.assertIsNone(mb.headline_switches(self.manifest(final_arm(switches=dict(SWITCHES_OFF)))))
         for bad in ({"parent_grace": "/" + "tmp/x"}, {"recovery_threads": 3}, {"vote_queue_fix": "yes please"}):
@@ -1783,7 +1793,7 @@ class PrestartArmTests(unittest.TestCase):
         with self.assertRaisesRegex(mb.BundleError, "lists no node"):
             self.consensus({"param_arms": [final_arm()]})
         # Its nodes are not read: deploy step 7 records what it likes there.
-        block, _ = self.consensus(self.manifest(final_arm(nodes=["not", "a", "map"])))
+        block, _ = accepted(self, self.consensus, self.manifest(final_arm(nodes=["not", "a", "map"])))
         self.assertEqual(len(block["param_arms"]), 1)
 
 
@@ -1798,7 +1808,7 @@ class PrestartArmAssemblyTests(unittest.TestCase):
                               "confirmed_by": "harness manifest"}}
 
     def test_run_json_carries_the_switches_in_consensus(self):
-        _, doc, out, _ = self.build(self.BACKFILL, manifest_update={"param_arms": [final_arm()]})
+        _, doc, out, _ = accepted(self, self.build, self.BACKFILL, manifest_update={"param_arms": [final_arm()]})
         self.assertEqual(doc["consensus"]["param_arms"], [
             {"arm": "final", "begin_utc": "2026-01-01T00:00:30Z", "end_utc": None,
              "values": "all 4 nodes: mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, "
@@ -1811,7 +1821,7 @@ class PrestartArmAssemblyTests(unittest.TestCase):
 
     def test_without_a_consensus_block_a_caveat_states_them(self):
         bf = {k: v for k, v in self.BACKFILL.items() if k != "consensus"}
-        _, doc, _, _ = self.build(bf, manifest_update={"param_arms": [final_arm()]})
+        _, doc, _, _ = accepted(self, self.build, bf, manifest_update={"param_arms": [final_arm()]})
         self.assertIsNone(doc["consensus"])
         self.assertIn("The nodes ran the switches of arm final from their first start (all 4 nodes: "
                       "mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, vote_queue_fix=true); the "

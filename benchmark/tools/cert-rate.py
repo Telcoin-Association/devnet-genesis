@@ -35,12 +35,15 @@ orphans (certificates no later header lists as a parent) need the parents of eve
 the default filter does not log: run the node with RUST_LOG including primary=debug and the
 header's parents appear in the proposer's debug lines; "not committed" is the default-filter proxy.
 
-Windows: --windows MANIFEST takes manifest.param_arms[] ({name, ready|begin|start, end}) and
+Windows: --windows MANIFEST takes manifest.param_arms[] ({name, ready|begin|start, end}; each of
+its marks[] {label, begin, end}, e.g. an idle mark, as "mark <arm>/<label>" after it) and
 manifest.phases[] ({name, start, end}) plus one "run" window from the first start to the last end;
 a manifest with neither falls back to buckets. An arm's window starts at its "ready" time when the
 manifest records one (the last node's progress after its restart, plus 120 s), else at its begin; an
-arm whose ready time is not before its end has no window (a note says so). --from/--to is one
-window. Default (or --bucket-min N): the whole log in N-minute buckets (N = 10).
+arm whose ready time is not before its end has no window (a note says so). Bench-6 blasts[] entries
+that carry `phases` add each rc-0 blast's phases as "blast <index> <phase>"; a failed blast (rc not
+0) gets a note instead, and the top-level phases, a copy of the latest entry's, are not read twice.
+--from/--to is one window. Default (or --bucket-min N): the whole log in N-minute buckets (N = 10).
 
 --from-json REPORT renders a report this tool wrote with --format json (the teardown's
 analysis/certification.json) as md, json or csv, reading no log: the same bytes as the run that
@@ -240,26 +243,55 @@ def fleet_row(rows):
     return out
 
 
+def blast_phase_windows(m):
+    """(windows, notes, top_copied) from the bench-6 blasts[] entries that carry `phases`: each rc-0
+    entry's phases as "blast <index> <phase>"; an entry with another rc is a note, never a window.
+    top_copied: the top-level phases are a copy of one of these entries (the latest blast's), so they
+    are read there and not twice. A manifest whose entries carry no `phases` (bench 5) gives nothing."""
+    out, notes, top_copied = [], [], False
+    for b in m.get("blasts") or []:
+        if not isinstance(b, dict) or not isinstance(b.get("phases"), list):
+            continue
+        top_copied = top_copied or b["phases"] == m.get("phases")
+        if b.get("rc") not in (None, 0):
+            notes.append("blast %s: rc %s, not measured" % (b.get("index"), b.get("rc")))
+            continue
+        for p in b["phases"]:
+            if isinstance(p, dict) and p.get("start") and p.get("end"):
+                out.append(("blast %s %s" % (b.get("index"), p.get("name") or "?"), parse_iso(p["start"]),
+                            parse_iso(p["end"])))
+    return out, notes, top_copied
+
+
 def manifest_windows(path):
-    """(windows, note) from manifest.param_arms[] and .phases[] plus a "run" window."""
+    """(windows, note) from manifest.param_arms[] (each arm's marks[] after it), .phases[] and the
+    bench-6 blasts[] phases (blast_phase_windows) plus a "run" window."""
     with open(path) as fh:
         m = json.load(fh)
     out, notes = [], []
+    blasts, bnotes, top_copied = blast_phase_windows(m)
     for key, label in (("param_arms", "arm"), ("phases", "phase")):
-        for w in m.get(key) or []:
+        for w in (m.get(key) or []) if not (key == "phases" and top_copied) else []:
             if not isinstance(w, dict):
                 continue
             begin, end = w.get("begin") or w.get("start"), w.get("end")
             ready = w.get("ready") if key == "param_arms" else None
             name = "%s %s" % (label, w.get("name") or "?")
+            marks = [("mark %s/%s" % (w.get("name") or "?", mk.get("label") or "?"), parse_iso(mk["begin"]),
+                      parse_iso(mk["end"])) for mk in ((w.get("marks") or []) if key == "param_arms" else [])
+                     if isinstance(mk, dict) and mk.get("begin") and mk.get("end")]
             if ready and end:
                 # An arm is measured from ready (its last node back in step) to its end.
                 if parse_iso(ready) >= parse_iso(end):
                     notes.append("%s: ready %s is not before its end %s: no window" % (name, ready, end))
+                    out.extend(marks)
                     continue
                 begin = ready
             if begin and end:
                 out.append((name, parse_iso(begin), parse_iso(end)))
+            out.extend(marks)
+    out.extend(blasts)
+    notes.extend(bnotes)
     if not out:
         return None, notes + ["%s has no param_arms or phases: 10-minute buckets instead" % os.path.basename(path)]
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))

@@ -165,6 +165,25 @@ class ProposeLatencyTests(unittest.TestCase):
         self.assertIn("- bench-validator-02: no event in this window (its files span 2026-10-06T12:00:00Z → "
                       "2026-10-06T12:00:02Z)", out)
 
+    def test_bench6_blast_phases_from_rc0_entries_only(self):
+        # Each rc-0 blasts[] entry's phases are windows ("blast <i> <phase>"), a failed one is a note, and the
+        # top-level phases (a copy of the latest entry's) are not read twice.
+        t0 = at("2026-10-06T12:00:00Z")
+        self.write("bench-validator-01-unit-stdout.log.gz", text(rounds(t0, 1, 40)))     # 12:00:00 .. 12:00:13.65
+        mixed = {"name": "mixed", "start": "2026-10-06T12:00:07Z", "end": "2026-10-06T12:00:14Z"}
+        failed = {"index": 3, "kind": "load", "rc": 1, "phases": [dict(mixed, start="2026-10-06T12:00:00Z")]}
+        manifest = self.logs / "manifest.json"
+        m = {"param_arms": [{"name": "a1", "begin": "2026-10-06T12:00:00Z", "end": "2026-10-06T12:00:14Z", "nodes": {}}],
+             "blasts": [failed, {"index": 4, "kind": "load", "rc": 0, "phases": [mixed]}], "phases": [mixed]}
+        manifest.write_text(json.dumps(m))
+        tables, out = self.tables("--windows", str(manifest))
+        self.assertEqual(list(tables), ["arm a1", "blast 4 mixed", "run"])
+        self.assertIn("- blast 3: rc 1, not measured", out)
+        self.assertEqual(tables["blast 4 mixed"]["bench-validator-01"][:3], ["20", "15", "75.0"])
+        m["phases"] = failed["phases"]                         # the latest blast failed: its copy is not a window
+        manifest.write_text(json.dumps(m))
+        self.assertEqual(list(self.tables("--windows", str(manifest))[0]), ["arm a1", "blast 4 mixed", "run"])
+
     def test_no_matching_file_exits_2(self):
         self.write("bench-observer-11-telcoin.log.gz", "")
         p = self.run_tool()

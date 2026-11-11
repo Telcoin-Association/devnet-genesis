@@ -98,6 +98,12 @@ class DryRunTests(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
+    def assert_before(self, text, first, then):
+        """Both occur in text and `first` occurs first: a missing one fails here, at an assertion, not in str.index."""
+        self.assertIn(first, text)
+        self.assertIn(then, text)
+        self.assertLess(text.index(first), text.index(then))
+
     def test_plan_matches_the_golden_file(self):
         p = self.plan
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -169,19 +175,19 @@ class DryRunTests(unittest.TestCase):
             s, f = b["arm-%s-start" % n], b["arm-%s-finish" % n]
             want = 16 if TABLE[n][0] == "ra16" else 128
             self.assertEqual(step.findall(s), [str(want)], n)
-            self.assertLess(s.index('[ "$HOST_STEP_RC" = 0 ] || '), s.index("--unit=bench-probe-sampler-" + n))
+            self.assert_before(s, '[ "$HOST_STEP_RC" = 0 ] || ', "--unit=bench-probe-sampler-" + n)
             self.assertEqual(step.findall(f), ["128"] if TABLE[n][0] == "ra16" else [], n)
             # The finish removes this arm's DB files by name (never a tree, never another arm's) before the tar.
             rm = 'rm -f -- "$D/mdbx.dat" "$D/mdbx.lck" "$D/probe-meta.txt" "$B/data/%s.appender.log"' % n
             self.assertIn("D=/var/lib/bench-probe/data/%s\n" % n, f)
-            self.assertLess(f.index("systemctl stop bench-probe-arm-" + n), f.index(rm))
-            self.assertLess(f.index(rm), f.index("tar -C"))
+            self.assert_before(f, "systemctl stop bench-probe-arm-" + n, rm)
+            self.assert_before(f, rm, "tar -C")
             self.assertNotIn("rm -rf", s + f)
         # The sampler points at the arm's DB and pid file; g7 polls every 5 s and runs the census check.
         for n in ALL_ARMS:
             s = b["arm-%s-start" % n]
             self.assertIn("PERSIST_PID_FILE=$A/probe.pid PERSIST_MDBX_FILE=/var/lib/bench-probe/data/%s/mdbx.dat" % n, s)
-            self.assertLess(s.index("--unit=bench-probe-sampler-" + n), s.index("--unit=bench-probe-arm-" + n))
+            self.assert_before(s, "--unit=bench-probe-sampler-" + n, "--unit=bench-probe-arm-" + n)
         g7 = b["arm-%s-start" % SAFETY[0]]
         self.assertIn("PERSIST_INTERVAL_SECS=5 PERSIST_MDBX_EVERY_SECS=5", g7)
         self.assertIn("PERSIST_CENSUS_EVERY_SECS=5", g7)
@@ -190,7 +196,7 @@ class DryRunTests(unittest.TestCase):
         self.assertIn("for i in 1 2 3 4 5; do", g7)
         self.assertIn('python3 "$C" --file "$F" --pid "$p" --header', g7)
         # The census's own start-up reads (python3, its modules, fincore) happen before read_bytes is counted.
-        self.assertLess(g7.index('python3 "$C" --file "$C" --header'), g7.index('io0="$(rb)"'))
+        self.assert_before(g7, 'python3 "$C" --file "$C" --header', 'io0="$(rb)"')
         self.assertNotIn("safety.sh", b["arm-g5-7default-start"])
 
     def test_arm_selection(self):

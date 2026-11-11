@@ -310,9 +310,6 @@ TYPE_RECORD = {"L": ("light", 8, 16, 60, 360, 60), "M16": ("load", 600, 16, 120,
                "M16s": ("load", 600, 16, 120, 300, 180)}
 WALK_ARMS = {0: "a0-control", 1: "a0-control", 2: "a0-control", 3: "v-vote", 4: "v-vote", 5: "v-vote-r2", 6: "a0-prime"}
 TYPE_KEYS = ("kind", "senders", "window", "warmup_secs", "duration_secs", "cooldown_secs")
-# A reader that mishandles what the drivers now record (H13's hand-back): pinned as it behaves, so the fix shows
-# up here. The unit that fixes the reader flips the assertion.
-FINDING = "reader finding %s is fixed: flip this assertion to the right behaviour"
 
 
 class Run1RehearsalTests(unittest.TestCase):
@@ -528,22 +525,25 @@ class Run1RehearsalTests(unittest.TestCase):
                          dict([(n, (f, t)) for n, f, t in self.arm_rows(self.arms)]
                               + [("a0-control/idle-1", (mk["begin"], mk["end"]))]))
 
-    def test_stage_latency_without_windows_still_names_failed_blasts(self):
-        """FINDING R1 for the reader unit: without --windows, stage-latency.py (derived_windows) makes a window of
-        every blast it finds, rc never read. Now that the hand runs are in blasts[], the failed light blast (index 0)
-        takes the plain name and the measured one (index 1) gets the -2 suffix; v-vote's two windows are both
-        failed blasts."""
+    def test_stage_latency_without_windows_measures_only_rc0_blasts(self):
+        """R1 fixed: without --windows, stage-latency.py (derived_windows) makes a window of each rc-0 blast only.
+        The measured light blast (index 1) takes the plain name; the failed ones (0, 3, 4) have no window and are
+        listed as not measured, so v-vote has no window at all."""
         p = self.walk.tool(BENCH / "tools" / "stage-latency.py", "--run-dir", self.R, "--format", "json")
         self.assertEqual(p.returncode, 0, p.stderr)
-        ws = dict((k, (v["start"], v["end"])) for k, v in json.loads(p.stdout)["windows"].items())
+        doc = json.loads(p.stdout)
+        ws = dict((k, (v["start"], v["end"])) for k, v in doc["windows"].items())
 
         def mixed(i):
             b = [b for b in self.m["blasts"] if b["index"] == i][0]
             return [(ph["start"], ph["end"]) for ph in b["phases"] if ph["name"] == "mixed"][0]
 
-        self.assertEqual(ws.get("a0-control/light8x16"), mixed(0), FINDING % "R1")
-        self.assertEqual(ws.get("a0-control/light8x16-2"), mixed(1), FINDING % "R1")
-        self.assertEqual((ws.get("v-vote/load600x16"), ws.get("v-vote/load600x16-2")), (mixed(3), mixed(4)), FINDING % "R1")
+        self.assertEqual(ws.get("a0-control/light8x16"), mixed(1))
+        self.assertNotIn("a0-control/light8x16-2", ws)
+        self.assertEqual([k for k in ws if k.startswith("v-vote/")], [])
+        self.assertEqual(doc["not_measured"], ["blast index 0 (a0-control/light8x16): rc 1",
+                                               "blast index 3 (v-vote/load600x16): rc 1",
+                                               "blast index 4 (v-vote/load600x16): rc 1"])
 
     def test_block_rate_and_propose_latency_windows(self):
         mk = self.arms["a0-control"]["marks"][0]

@@ -55,6 +55,26 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
                  that type gets its commit cost raw and corrected to the first control's position.
                  When the commit us/tx moved more than 15 % between the two controls, only adjacent
                  arms are compared (the flag is in the header and in the drift block).
+  bench-6 inputs (a second table; names from tasks/bench6-contract.md, fields read by name in any order; None
+  where the arm's switch is off):
+    storage      prefault_ratio_by_node / _min / prefault_on_all: sum(page_prefault) over the window's persists after
+                 the first / growth of mdbx_last_pgno (on >= 0.9); advice arms: advice_on_by_node by what the node
+                 measured (mdbx_advised_bytes > 0 on its lines, else the gauge tn_reth_mdbx_random_advice_bytes in
+                 metrics.json, and no 'advice not applied' warning since the arm's begin), mdbx_advised_min_bytes,
+                 mdbx_advised_all_nodes, storage_note naming a node where it is not in force; refault_per_min,
+                 majfault_per_min, memcg_refault_per_min per node (persist CSV counters, per minute between the first
+                 and last sample in the window) and their medians. A field left off a 'persisted output' line makes
+                 the sum it feeds (amplification, proc_written_bytes, page_*) n/a, never 0.
+    sealed keep  sealed_keep: "acting" when every validator's 'batch builder started' since the arm's begin says
+                 keeps_sealed=true, else "switch not acting (...)"; sealed_marked_peak (metrics.json gauge)
+    bound        admission_refused (the node counter's increase, metrics.json), gen_pool_full (nodes[].errors, whole
+                 blast), gen_dropped (totals.resends.dropped); the admitted transactions' latency is land p50 / p95
+    grace        grace_share_pct, grace_wait_p50_ms / _p90_ms (grace_ms > 0 on the validators' 'header proposed'),
+                 grace_outcomes ('parent grace ended'), grace_nodes_certified_min_pct beside the committed share
+    vote fix     exec_policy_pct, exec_lag_p50 (exec_tip - exec_block), votes_refused_behind per voter
+    cycle        commit_interval_ms (median gap between 'persisted output' lines, validators' median) on every row:
+                 a pipelined arm (pipelined) is compared on it, not on task us/tx (D55); its proc_written_bytes
+                 carries proc_written_bytes_upper_bound (D56)
   verdict        the CHECKS rows that apply to the arm's role (from the topic of the switches it
                  turned on, switches.tsv) and the row's type: "<threshold>: <value> met|not met", or
                  n/a with the missing input. No other judgement.
@@ -104,9 +124,25 @@ F = {
     "f_newly": "page_newly", "f_cow": "page_cow", "f_spill": "page_spill", "f_unspill": "page_unspill",
     "f_prefault": "page_prefault", "f_wops": "page_wops", "f_msync": "page_msync", "f_proc_write": "proc_write_bytes",
     "f_author": "author", "f_round": "round", "f_outcome": "outcome", "f_lock_ms": "lock_ms", "v_behind": "behind",
+    # bench-6 node lines (tasks/bench6-contract.md "Node log lines and metrics"); read by name, any field order
+    "f_last_pgno": "mdbx_last_pgno", "f_advised": "mdbx_advised_bytes",
+    "msg_proposed": "header proposed", "f_grace_ms": "grace_ms", "f_exec_policy": "exec_policy",
+    "f_exec_tip": "exec_tip", "f_exec_block": "exec_block",
+    "msg_grace_ended": "parent grace ended", "f_waited_ms": "waited_ms",
+    "msg_builder": "batch builder started", "f_keeps_sealed": "keeps_sealed", "v_true": "true",
+    "msg_advice_refused": "mdbx random-access advice not applied; the database works without it",
+    # metrics.json (deploy step 15) prometheus.series and the generator's error classes (tn-blast nodes[].errors)
+    "m_prom": "prometheus", "m_series": "series", "m_by_node": "by_node",
+    "p_sealed_marked": "tn_reth_sealed_txs_marked", "p_refused": "tn_reth_rpc_admission_refused_total",
+    "p_advice_bytes": "tn_reth_mdbx_random_advice_bytes",
+    "b_nodes": "nodes", "b_errors": "errors", "b_pool_full": "pool_full", "b_r_dropped": "dropped",
+    # switches.tsv keys whose arms read the columns below
+    "sw_advice": "mdbx_random_advice", "sw_sealed": "sealed_tx_keep", "sw_bound": "rpc_admission_backlog_outputs",
+    "sw_grace": "parent_grace", "sw_vote": "quorum_exec_block", "sw_pipelined": "pipelined_persist",
     # persist CSV (benchmark/tools/persist-csv-header.txt)
     "c_ts": "ts_unix", "c_disk_wr": "disk_wr_bytes_total", "c_vma": "mdbx_dat_vma_bytes", "c_rr": "mdbx_dat_rr_bytes",
-    "c_size": "mdbx_dat_size_bytes",
+    "c_size": "mdbx_dat_size_bytes", "c_refault": "vm_workingset_refault_file_pages_total",
+    "c_majfault": "vm_pgmajfault_total", "c_memcg_refault": "memcg_workingset_refault_file_pages_total",
     # switches.tsv columns
     "s_key": "key", "s_default": "default", "s_topic": "topic",
     # manifest (benchmark/arms/MANIFEST-FIELDS.md)
@@ -178,13 +214,16 @@ CHECKS = (
 )
 LANDING_CLIFF_MS = 300000
 DRIFT_LIMIT = 0.15
+PREFAULT_ON_MIN = 0.9      # prefault on: sum(page_prefault) / growth of mdbx_last_pgno at least this (contract: "~")
 PAGE = 4096
 RECUT = (("M4", "2026-11-07T16:57:31Z", "2026-11-07T17:02:55Z", 3868.5),
          ("M16", "2026-11-07T17:41:01Z", "2026-11-07T17:54:44Z", 3466.2))
 SELF_CHECK_RUN = "r20261107-1504"
 # Columns that only a bench-6 run can fill; the self-check expects each of them n/a on bench 5.
 BENCH6_ONLY = ("amp_fleet_median", "rr_vma_min", "evict_resident_after_max", "resends_total", "late_secs_max",
-               "gen_silent_max_s", "tail_landed_late", "switch_set")
+               "gen_silent_max_s", "tail_landed_late", "switch_set", "prefault_ratio_min", "prefault_on_all",
+               "refault_per_min_median", "sealed_marked_peak", "admission_refused", "gen_dropped", "grace_share_pct",
+               "exec_policy_pct", "exec_lag_p50")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
@@ -532,7 +571,8 @@ def node_names(manifest, logs_dir):
 
 def literals(sl, cr):
     """Every substring a line must hold for this tool, stage-latency.py or cert-rate.py to read it."""
-    lits = [F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["lit_tracker"]]
+    lits = [F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["lit_tracker"], F["msg_proposed"],
+            F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"]]
     lits += list(sl.MSGS)
     for part in cr.EVENT_RE.pattern.split("|"):
         if re.search(r"[\\.^$*+?{}\[\]()]", part):
@@ -607,6 +647,10 @@ class NodeData(object):
         self.spans = merged
         self.starts = [w[0] for w in merged]
         self.executed, self.persisted, self.votes, self.tracker = [], [], [], []
+        # bench 6: (t, grace_ms, exec_policy, exec_tip, exec_block) per own header; (t, outcome, waited_ms) per ended
+        # parent grace; (t, keeps_sealed) per batch builder start, kept at any time (a builder starts before `ready`)
+        self.proposed, self.grace_ended, self.builders = [], [], []
+        self.advice_refused = []        # times of the 'advice not applied' warning, kept at any time (it is at open)
         self.task = {}
         self.page_fields = False
         self.files = []
@@ -617,7 +661,9 @@ class NodeData(object):
         return i >= 0 and t < self.spans[i][1]
 
     def read(self, path, dedupe):
-        want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"])
+        want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["msg_proposed"],
+                F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"])
+        anytime = (F["msg_builder"], F["msg_advice_refused"])
         with open_bin(path) as fh:
             for raw in fh:
                 line = raw.decode("utf-8", "replace")
@@ -627,7 +673,7 @@ class NodeData(object):
                 if msg not in want and not tracker:
                     continue
                 t = line_ts(line)
-                if t is None or not self.inside(t):
+                if t is None or not (msg in anytime or self.inside(t)):
                     continue
                 if dedupe:
                     h = hash(line)
@@ -645,7 +691,8 @@ class NodeData(object):
                                           num(f.get(F["f_persist_ms"])), num(f.get(F["f_cn"]))))
                 elif msg == F["msg_persisted"]:
                     pages = dict((k, num(f.get(F[k]))) for k in ("f_newly", "f_cow", "f_spill", "f_unspill",
-                                                                 "f_prefault", "f_wops", "f_msync", "f_proc_write"))
+                                                                 "f_prefault", "f_wops", "f_msync", "f_proc_write",
+                                                                 "f_last_pgno", "f_advised"))
                     if pages["f_newly"] is not None and pages["f_cow"] is not None:
                         self.page_fields = True
                     self.persisted.append((t, num(f.get(F["f_txs"])), num(f.get(F["f_commit_ms"])), pages))
@@ -654,10 +701,20 @@ class NodeData(object):
                 elif msg == F["msg_vote"]:
                     self.votes.append((t, f.get(F["f_author"]), num(f.get(F["f_epoch"])), num(f.get(F["f_round"])),
                                        f.get(F["f_outcome"]), num(f.get(F["f_lock_ms"]))))
+                elif msg == F["msg_proposed"]:
+                    self.proposed.append((t, num(f.get(F["f_grace_ms"])), f.get(F["f_exec_policy"]),
+                                          num(f.get(F["f_exec_tip"])), num(f.get(F["f_exec_block"]))))
+                elif msg == F["msg_grace_ended"]:
+                    self.grace_ended.append((t, f.get(F["f_outcome"]), num(f.get(F["f_waited_ms"]))))
+                elif msg == F["msg_builder"]:
+                    self.builders.append((t, f.get(F["f_keeps_sealed"])))
+                elif msg == F["msg_advice_refused"]:
+                    self.advice_refused.append(t)
         self.files.append(os.path.basename(path))
 
     def finish(self):
-        for xs in (self.executed, self.persisted, self.votes, self.tracker):
+        for xs in (self.executed, self.persisted, self.votes, self.tracker, self.proposed, self.grace_ended,
+                   self.builders, self.advice_refused):
             xs.sort(key=lambda x: x[0] if isinstance(x, tuple) else x)
         self._seen = set()
 
@@ -673,7 +730,7 @@ def persist_rows(path):
     with open(path) as fh:
         for r in csv.DictReader(fh):
             row = {}
-            for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size"):
+            for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size", "c_refault", "c_majfault", "c_memcg_refault"):
                 v = (r.get(F[k]) or "").strip()
                 row[k] = float(v) if v else None
             if row["c_ts"] is not None:
@@ -791,11 +848,19 @@ def engine_row(nd, a, b):
     return out
 
 
+def summed(ps, k):
+    """The sum of a 'persisted output' field over the lines, or n/a when a line left it off (never 0 for it)."""
+    vals = [p[3][k] for p in ps]
+    return int(sum(vals)) if None not in vals else na("%s on %d of %d '%s' lines between the samples" % (
+        F[k], len(vals) - vals.count(None), len(vals), F["msg_persisted"]))
+
+
 def amp_row(nd, csv_rows, a, b):
     """(amplification dict, rr dict) of one node in [a, b)."""
     if csv_rows is None:
         miss = na("persist/%s.csv" % nd.name)
-        return {"amp": miss}, {"rr_vma": miss}
+        return {"amp": miss, "refault_per_min": miss, "majfault_per_min": miss, "memcg_refault_per_min": miss}, \
+            {"rr_vma": miss}
     inside = [r for r in csv_rows if a <= r["c_ts"] <= b and r["c_disk_wr"] is not None]
     amp = {}
     if len(inside) < 2:
@@ -807,7 +872,11 @@ def amp_row(nd, csv_rows, a, b):
         dev = inside[-1]["c_disk_wr"] - inside[0]["c_disk_wr"]
         ps = [p for p in nd.persisted if t1 < p[0] <= t2]
         pages = sum((p[3]["f_newly"] or 0) + (p[3]["f_cow"] or 0) for p in ps)
-        if dev < 0:
+        left_off = [p for p in ps if p[3]["f_newly"] is None or p[3]["f_cow"] is None]
+        if left_off:      # a field left off a line is unknown, never 0 (bench6-contract: unreadable source -> no field)
+            amp["amp"] = na("%s / %s on %d of %d '%s' lines between the samples" % (
+                F["f_newly"], F["f_cow"], len(left_off), len(ps), F["msg_persisted"]))
+        elif dev < 0:
             amp["amp"] = na("a monotonic %s (it went back)" % F["c_disk_wr"])
         elif not pages:
             amp["amp"] = na("page operations in '%s' between the samples" % F["msg_persisted"])
@@ -815,10 +884,19 @@ def amp_row(nd, csv_rows, a, b):
             amp["amp"] = round(dev / (pages * float(PAGE)), 3)
             amp["device_bytes"] = int(dev)
             amp["page_bytes"] = int(pages * PAGE)
-            amp["proc_written_bytes"] = int(sum(p[3]["f_proc_write"] or 0 for p in ps))
+            amp["proc_written_bytes"] = summed(ps, "f_proc_write")
             amp["samples"] = [iso(t1), iso(t2)]
             for k in ("f_spill", "f_unspill", "f_prefault", "f_wops", "f_msync"):
-                amp[F[k]] = int(sum(p[3][k] or 0 for p in ps))
+                amp[F[k]] = summed(ps, k)
+    # page-cache refaults beside the amplification (with the advice on, reclaim stops counting recent access on the
+    # advised range): per node, the counter's increase per minute between the first and last sample in the window
+    for k, key in (("c_refault", "refault_per_min"), ("c_majfault", "majfault_per_min"),
+                   ("c_memcg_refault", "memcg_refault_per_min")):
+        have = [r for r in csv_rows if a <= r["c_ts"] <= b and r[k] is not None]
+        if len(have) < 2 or have[-1]["c_ts"] <= have[0]["c_ts"]:
+            amp[key] = na("two persist samples with %s in the window" % F[k])
+        else:
+            amp[key] = r1((have[-1][k] - have[0][k]) * 60.0 / (have[-1]["c_ts"] - have[0]["c_ts"]))
     rr = [r for r in csv_rows if a <= r["c_ts"] <= b and r["c_rr"] is not None and r["c_vma"]]
     if not rr:
         rrd = {"rr_vma": na("a 300-s persist sample with %s in the window" % F["c_rr"])}
@@ -869,6 +947,164 @@ def vote_rows(nds, validators, a, b):
     return out
 
 
+def switch_on(arm_rec, key):
+    """An arm's switch as a bool (a YAML scalar: false, 0, 0s and 0ms are off); None without param_arms switches."""
+    sw = arm_rec["switch_set"]
+    if not isinstance(sw, dict):
+        return None
+    return str(sw.get(key, arm_rec["defaults"].get(key, ""))).strip().lower() not in ("", "false", "0", "0s", "0ms")
+
+
+def read_series(run_dir, names):
+    """{name: {node: [(t, v)]}} from <run>/metrics.json prometheus.series, for the names it holds (each node's first
+    query, sorted by name); {} without the file."""
+    path = os.path.join(run_dir, "metrics.json")
+    try:
+        doc = read_json(path) if os.path.isfile(path) else {}
+    except (OSError, ValueError):
+        doc = {}
+    series = ((doc.get(F["m_prom"]) or {}) if isinstance(doc, dict) else {}).get(F["m_series"]) or {}
+    out = {}
+    for name in names:
+        for node, queries in ((series.get(name) or {}).get(F["m_by_node"]) or {}).items():
+            if isinstance(queries, dict) and queries:
+                pts = [(float(t), float(v)) for t, v in queries[sorted(queries)[0]] or [] if v is not None]
+                out.setdefault(name, {})[node] = sorted(p for p in pts if p[1] == p[1])      # NaN dropped
+    return out
+
+
+def series_in(prom, name, a, b):
+    """[(node, [(t, v)])] of the series' points in [a, b]; None when metrics.json does not hold the series."""
+    if name not in prom:
+        return None
+    return [(n, [p for p in pts if a <= p[0] <= b]) for n, pts in sorted(prom[name].items())]
+
+
+def bench6_cols(nds, validators, a, b, r, prom):
+    """One row's bench-6 arm inputs (each n/a with what is missing, None where the arm's switch is off): storage,
+    sealed keep, the admission bound, parent grace, the vote fix and the cycle time (commit interval)."""
+    arm, m = r["arm_rec"], collections.OrderedDict()
+    hdr = [p for n in validators if n in nds for p in between(nds[n].proposed, a, b)]
+    # storage: prefault on <=> sum(page_prefault) ~ growth of mdbx_last_pgno; the advice applied on every node
+    ratios, advised = collections.OrderedDict(), collections.OrderedDict()
+    for n in sorted(nds):
+        ps = between(nds[n].persisted, a, b)
+        pts = [(p[3]["f_prefault"], p[3]["f_last_pgno"]) for p in ps]
+        if len(pts) < 2 or any(x is None or y is None for x, y in pts):
+            ratios[n] = na("%s and %s on every '%s' line in the window (two at least)" % (
+                F["f_prefault"], F["f_last_pgno"], F["msg_persisted"]))
+        elif pts[-1][1] <= pts[0][1]:
+            ratios[n] = na("growth of %s in the window" % F["f_last_pgno"])
+        else:
+            ratios[n] = round(sum(x for x, _ in pts[1:]) / float(pts[-1][1] - pts[0][1]), 3)
+        adv = [p[3]["f_advised"] for p in ps]
+        advised[n] = max(adv) if adv and None not in adv else na("%s on every '%s' line in the window" % (
+            F["f_advised"], F["msg_persisted"]))
+    m["prefault_ratio_by_node"] = ratios
+    vals = [v for v in ratios.values() if not is_na(v)]
+    miss = [n for n, v in ratios.items() if is_na(v)]
+    m["prefault_ratio_min"] = min(vals) if vals else next(iter(ratios.values()), na("node logs"))
+    m["prefault_on_all"] = (na("the prefault ratio of %s" % ", ".join(miss)) if miss else
+                            all(v >= PREFAULT_ON_MIN for v in vals) if vals else na("node logs"))
+    if switch_on(arm, F["sw_advice"]):
+        # what the node measured, not the switch line: advised bytes > 0 on its lines (else the gauge) and no
+        # 'advice not applied' warning since the arm's begin; `node switches` shows the value even when refused
+        gauge = dict(series_in(prom, F["p_advice_bytes"], a, b) or [])
+        state, why = collections.OrderedDict(), []
+        for n in sorted(nds):
+            v = advised[n]
+            if is_na(v) and gauge.get(n):
+                v = advised[n] = max(x for _, x in gauge[n])
+            refused = [t for t in nds[n].advice_refused if arm["arm_t0"] <= t < b]
+            if refused:
+                state[n] = False
+                why.append("%s ('%s' at %s)" % (n, F["msg_advice_refused"], iso(refused[0])))
+            elif is_na(v):
+                state[n] = v
+            else:
+                state[n] = v > 0
+                if not state[n]:
+                    why.append("%s (%s 0)" % (n, F["f_advised"]))
+        miss = [n for n, v in state.items() if is_na(v)]
+        vals = [v for v in advised.values() if not is_na(v)]
+        m["mdbx_advised_min_bytes"] = min(vals) if vals else na("%s or metrics.json %s" % (F["f_advised"],
+                                                                                          F["p_advice_bytes"]))
+        m["advice_on_by_node"] = state
+        m["mdbx_advised_all_nodes"] = (False if why else na("%s or metrics.json %s on %s" % (
+            F["f_advised"], F["p_advice_bytes"], ", ".join(miss))) if miss else bool(state))
+        m["storage_note"] = ("advice not in force on %s: the storage columns of this arm are not an advice "
+                             "measurement for that node" % "; ".join(why)) if why else None
+    else:
+        m["mdbx_advised_min_bytes"] = m["advice_on_by_node"] = m["mdbx_advised_all_nodes"] = m["storage_note"] = None
+    # sealed keep: keeps_sealed=true on every validator's builder start since the arm's begin, else not acting
+    if switch_on(arm, F["sw_sealed"]):
+        seen = dict((n, [x[1] for x in (nds[n].builders if n in nds else []) if arm["arm_t0"] <= x[0] < b])
+                    for n in validators)
+        miss = [n for n in validators if not seen[n]]
+        off = [n for n in validators if seen[n] and any(v != F["v_true"] for v in seen[n])]
+        m["sealed_keep"] = (na("'%s' since the arm's begin on %s" % (F["msg_builder"], ", ".join(miss))) if miss else
+                            "switch not acting (%s not true on %s)" % (F["f_keeps_sealed"], ", ".join(off)) if off
+                            else "acting")
+    else:
+        m["sealed_keep"] = None
+    pts = series_in(prom, F["p_sealed_marked"], a, b)
+    peak = [v for _, xs in pts or [] for _, v in xs]
+    m["sealed_marked_peak"] = max(peak) if peak else na("metrics.json %s samples in the window" % F["p_sealed_marked"])
+    # admission bound: refused requests (node counter, else the generator's pool_full class), what the generator
+    # dropped after refusals; the confirmation latency of what was admitted is land_p50_s / land_p95_s
+    pts = series_in(prom, F["p_refused"], a, b)
+    inc = [max(0.0, y[1] - x[1]) for _, xs in pts or [] for x, y in zip(xs, xs[1:])]
+    m["admission_refused"] = (int(sum(inc)) if pts and any(len(xs) > 1 for _, xs in pts) else
+                              na("metrics.json %s samples in the window" % F["p_refused"]))
+    pool_full = dropped = None
+    for d in r["docs"]:
+        for x in d.get(F["b_nodes"]) or []:
+            errs = x.get(F["b_errors"]) if isinstance(x, dict) else None
+            if isinstance(errs, dict) and isinstance(errs.get(F["b_pool_full"]), (int, float)):
+                pool_full = (pool_full or 0) + errs[F["b_pool_full"]]
+        res = (d.get(F["b_totals"]) or {}).get(F["b_resends"])
+        if isinstance(res, dict) and isinstance(res.get(F["b_r_dropped"]), (int, float)):
+            dropped = (dropped or 0) + res[F["b_r_dropped"]]
+    m["gen_pool_full"] = pool_full if pool_full is not None else na("%s[].%s.%s (tn-blast)" % (
+        F["b_nodes"], F["b_errors"], F["b_pool_full"]))
+    m["gen_dropped"] = dropped if dropped is not None else na("%s.%s.%s (tn-blast H9a)" % (
+        F["b_totals"], F["b_resends"], F["b_r_dropped"]))
+    # parent grace: the cost (headers that waited, how long) beside the outcomes; the benefit is the far
+    # validators' certified / committed share (measure())
+    graces = [p[1] for p in hdr if p[1] is not None]
+    if not graces:
+        m["grace_share_pct"] = m["grace_wait_p50_ms"] = m["grace_wait_p90_ms"] = m["grace_outcomes"] = na(
+            "%s on '%s'" % (F["f_grace_ms"], F["msg_proposed"]))
+    else:
+        waits = [x for x in graces if x > 0]
+        m["grace_share_pct"] = r1(100.0 * len(waits) / len(graces))
+        m["grace_wait_p50_ms"], m["grace_wait_p90_ms"] = pctl(waits, 0.5), pctl(waits, 0.9)
+        ended = collections.Counter(e[1] for n in validators if n in nds for e in between(nds[n].grace_ended, a, b))
+        m["grace_outcomes"] = collections.OrderedDict(sorted(ended.items()))
+    # vote fix: the execution-block policy of the own headers, the lag it allowed, the votes refused as behind
+    pol = [p[2] for p in hdr if p[2] is not None]
+    m["exec_policy_pct"] = (collections.OrderedDict((k, r1(100.0 * v / len(pol)))
+                                                    for k, v in sorted(collections.Counter(pol).items()))
+                            if pol else na("%s on '%s'" % (F["f_exec_policy"], F["msg_proposed"])))
+    lag = [p[3] - p[4] for p in hdr if p[3] is not None and p[4] is not None]
+    m["exec_lag_p50"] = median(lag) if lag else na("%s / %s on '%s'" % (F["f_exec_tip"], F["f_exec_block"],
+                                                                         F["msg_proposed"]))
+    refused = collections.OrderedDict()
+    for n in validators:
+        vs = between(nds[n].votes, a, b) if n in nds else []
+        refused[n] = sum(1 for v in vs if v[4] == F["v_behind"]) if vs else na("'%s' lines in the window" % F["msg_vote"])
+    m["votes_refused_behind"] = refused
+    # cycle time: the commit interval compares a pipelined arm with a sequential one; task_ms does not (D55)
+    iv = []
+    for n in validators:
+        ts = [p[0] for p in between(nds[n].persisted, a, b)] if n in nds else []
+        if len(ts) > 1:
+            iv.append(median([y - x for x, y in zip(ts, ts[1:])]) * 1000.0)
+    m["commit_interval_ms"] = r1(median(iv)) if iv else na("two '%s' lines in the window" % F["msg_persisted"])
+    m["pipelined"] = switch_on(arm, F["sw_pipelined"])
+    return m
+
+
 # ---------------------------------------------------------------- the report
 
 def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis):
@@ -879,6 +1115,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         acc += x
         cum.append(acc)
     btimes = [t for t, _ in blocks]
+    prom = read_series(run_dir, (F["p_sealed_marked"], F["p_refused"], F["p_advice_bytes"]))
     csv_cache = {}
     for name in nds:
         p = os.path.join(persist_dir, "%s.csv" % name)
@@ -918,6 +1155,8 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             amp, rr = amp_row(nds[n], csv_cache.get(n), a, b)
             e.update(amp)
             e.update(rr)
+            if "proc_written_bytes" in e and switch_on(r["arm_rec"], F["sw_pipelined"]):
+                e["proc_written_bytes_upper_bound"] = True     # D56: pipelined persists overlap the next build
             per_node[n] = e
         m["engine_by_node"] = per_node
         for k in ("exec_txps", "execute_us_tx", "persist_us_tx", "commit_us_tx", "commit_ms_output", "task_us_tx",
@@ -928,6 +1167,9 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         amps = [v["amp"] for v in per_node.values() if not is_na(v["amp"])]
         m["amp_fleet_median"] = round(median(amps), 3) if amps else next((v["amp"] for v in per_node.values()),
                                                                          na("node logs"))
+        for k in ("refault_per_min", "majfault_per_min", "memcg_refault_per_min"):
+            vals = [v[k] for v in per_node.values() if not is_na(v[k])]
+            m[k + "_median"] = r1(median(vals)) if vals else next((v[k] for v in per_node.values()), na("node logs"))
         rrs = [v["rr_vma"] for v in per_node.values() if not is_na(v["rr_vma"])]
         m["rr_vma_min"] = min(rrs) if rrs else next((v["rr_vma"] for v in per_node.values()), na("node logs"))
         m["rr_vma_median"] = round(median(rrs), 4) if rrs else m["rr_vma_min"]
@@ -952,9 +1194,12 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["cert_min_node"] = min(rates)[1] if rates else None
             gn = [certs[n]["committed_pct"] for n in GRACE_NODES if n in certs and certs[n]["committed_pct"] is not None]
             m["grace_nodes_committed_min_pct"] = min(gn) if gn else na("%s committed share" % "/".join(GRACE_NODES))
+            gc = [certs[n]["certified_pct"] for n in GRACE_NODES if n in certs and certs[n]["certified_pct"] is not None]
+            m["grace_nodes_certified_min_pct"] = min(gc) if gc else na("%s certified share" % "/".join(GRACE_NODES))
         else:
             m["cert_by_validator"] = {}
             m["cert_min_pct"] = m["grace_nodes_committed_min_pct"] = na("validator logs for cert-rate.py")
+            m["grace_nodes_certified_min_pct"] = m["cert_min_pct"]
         m.update(vote_rows(nds, validators, a, b))
         trk = [t for n in nds for t in between(nds[n].tracker, a, b, key=lambda x: x)]
         m["tracker_errors"] = len(trk) if nds else na("node logs")
@@ -1011,6 +1256,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["stage_seen_p95_s"] = sw_["h"].get(F["t_seen95"])
             m["stages"] = collections.OrderedDict((s, {"median_ms": v.get(F["t_p50ms"]), "n": v.get(F["t_count"])})
                                                   for s, v in sw_["p"].items())
+        m.update(bench6_cols(nds, validators, a, b, r, prom))
         # drift axis position
         mid = (a + b) / 2.0
         if axis == "wall-min":
@@ -1112,6 +1358,12 @@ def cell(v):
     return str(v)
 
 
+def dict_cell(d):
+    if not isinstance(d, dict):
+        return cell(d)
+    return ", ".join("%s %s" % (k, cell(v)) for k, v in d.items()) or "none"
+
+
 def verdict_text(vs):
     if not vs:
         return "– (no threshold for this arm and type)"
@@ -1149,7 +1401,27 @@ def to_markdown(doc, rows, drift, axis):
                        cell(m["cert_min_pct"]) + (" (%s)" % m["cert_min_node"] if m.get("cert_min_node") else ""),
                        cell(m["landings_ge300"]), cell(m["resends_total"]), cell(m["late_secs_max"]),
                        cell(m["gen_silent_max_s"]), cell(m["tracker_errors"]), verdict_text(m["verdict"])))
-    out.append("")
+    out += ["", "| row | prefault on (min ratio) | advice on every node (min bytes) | refault / majfault / memcg "
+            "refault per min (median) | sealed keep (marked peak) | refused (node) / pool_full / dropped (gen) | grace "
+            "share % (wait p50 / p90 ms) | grace outcomes | far certified / committed min % | exec policy % | exec "
+            "lag p50 | commit interval ms |", "|---|" + "---|" * 11]
+    storage_notes = []
+    for r in rows:
+        m = r["m"]
+        out.append("| %s | %s (%s) | %s (%s) | %s / %s / %s | %s (%s) | %s / %s / %s | %s (%s / %s) | %s | %s / %s | %s | "
+                   "%s | %s%s |" % (
+                       r["row_id"], cell(m["prefault_on_all"]), cell(m["prefault_ratio_min"]),
+                       cell(m["mdbx_advised_all_nodes"]), cell(m["mdbx_advised_min_bytes"]),
+                       cell(m["refault_per_min_median"]), cell(m["majfault_per_min_median"]),
+                       cell(m["memcg_refault_per_min_median"]), cell(m["sealed_keep"]), cell(m["sealed_marked_peak"]),
+                       cell(m["admission_refused"]), cell(m["gen_pool_full"]), cell(m["gen_dropped"]),
+                       cell(m["grace_share_pct"]), cell(m["grace_wait_p50_ms"]), cell(m["grace_wait_p90_ms"]),
+                       dict_cell(m["grace_outcomes"]), cell(m["grace_nodes_certified_min_pct"]),
+                       cell(m["grace_nodes_committed_min_pct"]), dict_cell(m["exec_policy_pct"]),
+                       cell(m["exec_lag_p50"]), cell(m["commit_interval_ms"]), " (pipelined)" if m["pipelined"] else ""))
+        if m.get("storage_note"):
+            storage_notes.append("- %s: %s." % (r["row_id"], m["storage_note"]))
+    out += ([""] + storage_notes if storage_notes else []) + [""]
     for r in rows:
         m = r["m"]
         out += ["## %s: %s → %s (%d s; %s; blast index %s)" % (r["row_id"], iso(r["from"]), iso(r["to"]),
@@ -1163,6 +1435,10 @@ def to_markdown(doc, rows, drift, axis):
                 cell(e["task_us_tx"]), cell(e["txs_per_output"]), cell(e["commit_ms_output"]), cell(e["amp"]),
                 cell(e["rr_vma"]), cell(c.get("certified_pct")), cell(c.get("committed_pct"))))
         st = m["stages"]
+        out += ["", "Per node: prefault ratio %s; refault/min %s; votes refused as behind %s." % (
+            dict_cell(m["prefault_ratio_by_node"]), dict_cell(dict((n, e["refault_per_min"]) for n, e in
+                                                                   m["engine_by_node"].items())),
+            dict_cell(m["votes_refused_behind"]))]
         out += ["", "Stages (p50 ms): %s." % (st if is_na(st) else ", ".join(
             "%s %s" % (k, cell(v["median_ms"])) for k, v in st.items())),
             "Votes: lock_ms p95 %s; behind refusals per header, max %s. Commit fit: %s." % (
@@ -1283,6 +1559,17 @@ def summarize(a):
             a.drift_axis)
     drift = apply_drift(rows)
     apply_checks(rows)
+    for x in arms:
+        if switch_on(x, F["sw_sealed"]):
+            notes.append("arm %s: %s on: pending_before and tn_batch_builder_pending_pool_transactions include the "
+                         "in-flight sealed transactions; read them beside sealed_marked_peak" % (x["arm_name"], F["sw_sealed"]))
+        if switch_on(x, F["sw_bound"]):
+            notes.append("arm %s: %s on: judge landed tx/s together with admission_refused (else gen_pool_full), "
+                         "gen_dropped and land p50 / p95 of what was admitted (D47)" % (x["arm_name"], F["sw_bound"]))
+        if switch_on(x, F["sw_pipelined"]):
+            notes.append("arm %s: %s on: task_ms runs from build start to commit, so compare commit_interval_ms with "
+                         "commit_interval_ms, not task us/tx (D55); proc_written_bytes is an upper bound (D56)"
+                         % (x["arm_name"], F["sw_pipelined"]))
     doc = collections.OrderedDict([
         ("tool", "arms-summary/v1"), ("run_name", run), ("generated_utc", iso(datetime.datetime.now(datetime.timezone.utc).timestamp())),
         ("drift_axis", a.drift_axis), ("notes", notes), ("drift", drift),

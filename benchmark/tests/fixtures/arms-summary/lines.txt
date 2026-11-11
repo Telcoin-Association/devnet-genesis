@@ -6,3 +6,8 @@ proposed	ts={ts} level=info target=primary::proposer message="header proposed" r
 quorum	ts={ts} level=info target=primary::certifier message="quorum reached" round={round} epoch=3 voting_power=3 quorum_threshold=3 num_votes=3
 vote	ts={ts} level=debug target=primary::network message="vote path timing" author={author} round={round} epoch=3 outcome={outcome} lock_ms={lock_ms} validate_ms=0 exec_wait_ms=0 parents_ms=0 lead_ms=0 batches_ms=0 store_ms=0 persist_ms=0 total_ms={lock_ms}
 tracker	ts={ts} level=error target=types::task_manager message="Failed to track spawned task" task=execute-output
+persisted6	ts={ts} level=debug target=engine span=execute-consensus message="persisted output" first={cn} last={cn} blocks=1 txs={txs} receipts={txs} commit_ms={commit_ms}{pages} epoch=3 consensus_number={cn} batches=1 executed_blocks=1
+proposed6	ts={ts} level=info target=primary::proposer message="header proposed" round={round} epoch=3 num_batches=1 num_parents=4 exec_block={eb} exec_tip={et} exec_basis=tip exec_policy={pol} grace_ms={grace} oldest_digest_wait_ms=0 oldest_requeue_wait_ms=0
+grace_ended	ts={ts} level=debug target=primary::proposer message="parent grace ended" author={author} parent_round={round} outcome={outcome} waited_ms={grace}
+builder	ts={ts} level=info target=worker::batch_builder message="batch builder started" worker_id=0 epoch=3 sealed_tx_keep={keep} seals_via_quorum=true keeps_sealed={keep}
+advice_refused	ts={ts} level=warn target=tn::reth message="mdbx random-access advice not applied; the database works without it" error="EINVAL"

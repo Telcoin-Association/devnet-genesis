@@ -73,11 +73,11 @@ def arm(name, b, e, sw=None, **extra):
     return d
 
 
-def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, hand=False):
+def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, hand=False, bench6=False):
     """The synthetic run under <root>/r20261112-0000; returns its path. hand=True: every blast run by hand,
     as run-arms runs them in bench 6 run 1 (benchmark-blast.sh fund/run): no blasts[], a blast_runs[] `run`
     entry per index (and one more, index 6, rc 1, that left no blasters/ directory), and each archived
-    manifest copy holding its own .blast."""
+    manifest copy holding its own .blast. bench6=True: the node units' fields and lines (BENCH6 below)."""
     S = shapes()
     run = Path(root) / "r20261112-0000"
     (run / "logs").mkdir(parents=True)
@@ -87,7 +87,7 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                      "nodes": {"bench-validator-01": {"resident_pages_before": 9, "resident_pages_after": 0},
                                "bench-validator-02": {"resident_pages_before": 9, "resident_pages_after": 5}}}]),
           arm("v", 3600, 5400, {"mdbx_random_advice": "true", "quorum_exec_block": "true", "vote_queue_fix": "true"}),
-          arm("a0b", 5400, 7200, None if a0b_control else {"recovery_threads": "3"})]
+          arm("a0b", 5400, 7200, A0B_BENCH6 if bench6 else None if a0b_control else {"recovery_threads": "3"})]
     manifest = {"run_id": "r20261112-0000",
                 "instances": [{"name": n, "role": "validator"} for n in VALIDATORS],
                 "blast": {"run_index": 5, "chaos": 0}, "chaos": [],
@@ -129,6 +129,10 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                                   "send_per_second": [[k, 0 if 100 <= k < 135 else 5, 5, 0, 0] for k in range(t - f)]})
         if a == "a0b":
             doc["run"]["tail_scan"] = {"secs": 180, "landed_late": 3, "unlanded_after": 1}
+            if bench6:
+                doc["nodes"] = [{"label": "bench-validator-01", "errors": {"pool_full": 12, "conn": 1}}]
+                doc["totals"]["resends"] = {"transient": 0, "other": 0, "gap_episodes": 0, "gap_txs": 0,
+                                            "resign_nonce": 0, "resign_fee": 0, "dropped": 3}
         (d / "bench-blaster-01.json").write_text(json.dumps(doc))
         if a in ("a0", "v"):
             land = [{"phase": "mixed", "submit_ms": (T0 + f) * 1000, "seen_ms": (T0 + f) * 1000 + (
@@ -164,13 +168,25 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                 ts = k + 5
                 lines.append(S["executed"].format(ts=stamp(ts), cn=cn, round=cn * 2, execute_ms=50, persist_ms=cm + 20,
                                                   txs=1000))
-                lines.append(S["persisted" if page_fields else "persisted_bench5"].format(
-                    ts=stamp(ts + 0.001), cn=cn, txs=1000, commit_ms=cm, newly=200, cow=100, pw=2000000))
+                if bench6:
+                    lines.append(S["persisted6"].format(ts=stamp(ts + 0.001), cn=cn, txs=1000, commit_ms=cm,
+                                                        pages=bench6_pages(node, ts, cn)))
+                else:
+                    lines.append(S["persisted" if page_fields else "persisted_bench5"].format(
+                        ts=stamp(ts + 0.001), cn=cn, txs=1000, commit_ms=cm, newly=200, cow=100, pw=2000000))
                 lines.append(S["task"].format(ts=stamp(ts + 0.002), cn=cn, task_ms=70 + cm))
                 cn += 1
         for w0, w1 in [(200, 500)] + sorted(commit):
             for r in range(int(w0), int(w1), 2):
-                lines.append(S["proposed"].format(ts=stamp(r + 0.1), round=r))
+                if bench6:
+                    grace = 40 if r % 10 == 0 else 100 if r % 10 == 2 else 0
+                    if grace:
+                        lines.append(S["grace_ended"].format(ts=stamp(r + 0.05), author="A%d" % vi, round=r - 1,
+                                                             outcome="complete" if grace == 40 else "expired", grace=grace))
+                    lines.append(S["proposed6"].format(ts=stamp(r + 0.1), round=r, eb=r - 3, et=r, grace=grace,
+                                                       pol="starved" if r % 4 == 0 else "tip"))
+                else:
+                    lines.append(S["proposed"].format(ts=stamp(r + 0.1), round=r))
                 starved = node == "bench-validator-03" and w0 == 600 and r % 4 == 0   # a0's M16: v03 at 50 %
                 if not starved:
                     lines.append(S["quorum"].format(ts=stamp(r + 0.4), round=r))
@@ -181,6 +197,11 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
             lines.append(S["vote"].format(ts=stamp(r + 0.3), author="A1", round=r, outcome=outcome, lock_ms=(r - 4400) // 2))
         if node == "bench-validator-01":
             lines.append(S["tracker"].format(ts=stamp(700.5)))
+        if bench6:
+            lines.append(S["builder"].format(ts=stamp(60), keep="false"))                   # arm a0: switch off
+            lines.append(S["builder"].format(ts=stamp(5460), keep="false" if vi == 3 else "true"))   # a0b: v04 not
+            if vi == 3:
+                lines.append(S["advice_refused"].format(ts=stamp(1850)))                  # p1: v04's advice refused
         lines.sort()
         (run / "logs" / (node + "-unit-stdout.log.gz")).write_bytes(gzip.compress(("\n".join(lines) + "\n").encode()))
     if persist:
@@ -194,12 +215,40 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                 for k in range(0, 7201, 30):
                     row = dict.fromkeys(header, "")
                     row.update(ts_unix=T0 + k, pid=4242, disk_wr_bytes_total=disk)
+                    if bench6:      # 10 refaults and 3 major faults per 30 s; the memcg column stays blank
+                        row.update(vm_workingset_refault_file_pages_total=10 * k // 30, vm_pgmajfault_total=3 * k // 30)
                     if k % 300 == 0:
                         row.update(mdbx_dat_vma_bytes=10 ** 9, mdbx_dat_rr_bytes=10 ** 9 if k >= 1800 else 0,
                                    mdbx_dat_size_bytes=5 * 10 ** 8)
                     w.writerow([row[c] for c in header])
                     disk += 30 * (122880 if 1800 <= k < 3600 else 245760)
+    if bench6:
+        (run / "metrics.json").write_text(json.dumps({"prometheus": {"series": {
+            "tn_reth_sealed_txs_marked": {"by_node": {"bench-validator-01": {
+                "max": [[T0 + 6000, 5], [T0 + 6200, 77], [T0 + 6400, 12]]}}},
+            "tn_reth_rpc_admission_refused_total": {"by_node": {
+                "bench-validator-01": {"max": [[T0 + 6000, 100], [T0 + 6200, 110], [T0 + 6480, 125]]},
+                "bench-validator-02": {"max": [[T0 + 6100, 0], [T0 + 6300, 4]]}}}}}}))
     return run
+
+
+# bench6=True: arm a0b turns on sealed keep, parent grace, the admission bound and pipelined persist.
+A0B_BENCH6 = {"sealed_tx_keep": "true", "parent_grace": "150ms", "rpc_admission_backlog_outputs": "2",
+              "pipelined_persist": "true"}
+
+
+def bench6_pages(node, ts, cn):
+    """The storage fields of one 'persisted output' line: the map grows 50 pages an output, prefaulted on every
+    node but v03; the advice applied (1 MiB) except on v04 in arm p1; and three fields left off, each on one node in
+    one window (v03's page_cow at 2405 in p1, v02's proc_write_bytes at 605 in a0, v04's mdbx_last_pgno in a0b)."""
+    f = [("page_newly", 200), ("page_cow", 100), ("page_prefault", 0 if node == "bench-validator-03" else 50),
+         ("page_wops", 7), ("proc_write_bytes", 2000000), ("mdbx_used_bytes", (1001 + 50 * cn) * 4096),
+         ("mdbx_advised_bytes", 0 if (node == "bench-validator-04" and 1800 <= ts < 3600) else 1048576),
+         ("mdbx_last_pgno", 1000 + 50 * cn)]
+    drop = {("bench-validator-03", 2405): "page_cow", ("bench-validator-02", 605): "proc_write_bytes"}.get((node, ts))
+    if node == "bench-validator-04" and 5900 <= ts < 6600:
+        drop = "mdbx_last_pgno"
+    return "".join(" %s=%s" % kv for kv in f if kv[0] != drop)
 
 
 class ArmsSummaryTests(unittest.TestCase):
@@ -421,6 +470,69 @@ class ArmsSummaryTests(unittest.TestCase):
         self.summary(run, "--no-stages")
         self.assertEqual(cache.stat().st_mtime_ns, before)
         self.assertTrue(gzip.decompress(cache.read_bytes()).decode().count('message="persisted output"') > 0)
+
+    def test_bench6_arm_inputs(self):
+        """H14b: the node units' fields (storage, sealed keep, admission bound, parent grace, vote fix, cycle time),
+        each n/a with what is missing, never 0, and None in an arm whose switch is off."""
+        doc, md = self.summary(make_run(self.tmp, bench6=True), "--no-stages")
+        rows = self.rows(doc)
+        a0, p1, v, a0b = rows["a0/M16"], rows["p1/M16"], rows["v/M16"], rows["a0b/M16"]
+        # storage: prefault ratio = sum(page_prefault) / growth of mdbx_last_pgno; a field left off is n/a
+        self.assertEqual(a0["prefault_ratio_by_node"], {"bench-validator-01": 1.0, "bench-validator-02": 1.0,
+                                                        "bench-validator-03": 0.0, "bench-validator-04": 1.0})
+        self.assertEqual((a0["prefault_on_all"], a0["prefault_ratio_min"]), (False, 0.0))
+        self.assertEqual(a0b["prefault_on_all"], "n/a (missing: the prefault ratio of bench-validator-04)")
+        self.assertTrue(str(p1["engine_by_node"]["bench-validator-03"]["amp"]).startswith(
+            "n/a (missing: page_newly / page_cow on 1 of 48 'persisted output' lines"))
+        self.assertEqual(p1["amp_fleet_median"], 1.0)
+        self.assertTrue(str(a0["engine_by_node"]["bench-validator-02"]["proc_written_bytes"]).startswith(
+            "n/a (missing: proc_write_bytes on 47 of 48"))
+        # the advice by what the node measured: v04 logged the refusal in p1 (and advised 0); v is clean
+        self.assertEqual(p1["advice_on_by_node"]["bench-validator-04"], False)
+        self.assertEqual((p1["mdbx_advised_all_nodes"], p1["mdbx_advised_min_bytes"]), (False, 0))
+        self.assertIn("advice not in force on bench-validator-04 ('mdbx random-access advice not applied; the database "
+                      "works without it' at %s)" % iso(1850), p1["storage_note"])
+        self.assertEqual((v["mdbx_advised_all_nodes"], v["mdbx_advised_min_bytes"], v["storage_note"]), (True, 1048576, None))
+        self.assertEqual((a0["mdbx_advised_all_nodes"], a0["storage_note"]), (None, None))       # switch off
+        # refaults per minute beside the amplification (10 / 30 s and 3 / 30 s; the memcg column blank; v04 no CSV)
+        e = a0["engine_by_node"]
+        self.assertEqual((e["bench-validator-01"]["refault_per_min"], e["bench-validator-01"]["majfault_per_min"]), (20.0, 6.0))
+        self.assertTrue(str(e["bench-validator-01"]["memcg_refault_per_min"]).startswith(
+            "n/a (missing: two persist samples with memcg_workingset_refault_file_pages_total"))
+        self.assertTrue(str(e["bench-validator-04"]["refault_per_min"]).startswith("n/a (missing: persist/bench-validator-04.csv"))
+        self.assertEqual((a0["refault_per_min_median"], a0["majfault_per_min_median"]), (20.0, 6.0))
+        # sealed keep: v04's builder says keeps_sealed=false; the marked gauge's peak from metrics.json
+        self.assertEqual(a0b["sealed_keep"], "switch not acting (keeps_sealed not true on bench-validator-04)")
+        self.assertEqual((a0b["sealed_marked_peak"], a0["sealed_keep"]), (77, None))
+        self.assertTrue(str(a0["sealed_marked_peak"]).startswith("n/a (missing: metrics.json tn_reth_sealed_txs_marked"))
+        # admission bound: the node counter's increase (25 + 4), the generator's pool_full class and its drops
+        self.assertEqual((a0b["admission_refused"], a0b["gen_pool_full"], a0b["gen_dropped"]), (29, 12, 3))
+        self.assertTrue(str(a0["admission_refused"]).startswith("n/a (missing: metrics.json tn_reth_rpc_admission_refused_total"))
+        self.assertTrue(str(a0["gen_pool_full"]).startswith("n/a (missing: nodes[].errors.pool_full"))
+        # parent grace: 96 of 240 headers per validator waited (40 or 100 ms), and how each grace ended
+        self.assertEqual((a0b["grace_share_pct"], a0b["grace_wait_p50_ms"], a0b["grace_wait_p90_ms"]), (40.0, 40, 100))
+        self.assertEqual(a0b["grace_outcomes"], {"complete": 192, "expired": 192})
+        self.assertEqual(a0b["grace_nodes_certified_min_pct"], 100.0)
+        # vote fix: policy shares, the lag the policy allowed, votes refused as behind per voter
+        self.assertEqual((a0b["exec_policy_pct"], a0b["exec_lag_p50"]), ({"starved": 50.0, "tip": 50.0}, 3))
+        self.assertEqual(v["votes_refused_behind"], {"bench-validator-01": 2, "bench-validator-02": 1,
+                                                     "bench-validator-03": 0, "bench-validator-04": 0})
+        # cycle time: the commit interval on every row; pipelined marks proc_write_bytes an upper bound
+        self.assertEqual((a0["commit_interval_ms"], a0b["commit_interval_ms"]), (10000.0, 10000.0))
+        self.assertEqual((a0["pipelined"], a0b["pipelined"]), (False, True))
+        self.assertIs(a0b["engine_by_node"]["bench-validator-01"].get("proc_written_bytes_upper_bound"), True)
+        self.assertNotIn("proc_written_bytes_upper_bound", a0["engine_by_node"]["bench-validator-01"])
+        for k in ("D47", "D55", "in-flight sealed transactions"):
+            self.assertTrue(any(k in n and n.startswith("arm a0b: ") for n in doc["notes"]), k)
+        for want in ("| a0b/M16 | n/a (missing: the prefault ratio of bench-validator-04) (0.000) | – (–) | 20.0 / 6.000 / ",
+                     "| 29 / 12 / 3 | 40.0 (40 / 100) | complete 192, expired 192 | 100.0 / ",
+                     "\n- p1/M16: advice not in force on bench-validator-04 ("):
+            self.assertTrue(want in md, want)
+        # without the node units' fields every new column is n/a (bench 5's shape), never 0
+        plain, _ = self.summary(make_run(self.tmp / "plain"), "--no-stages")
+        for k in ("prefault_on_all", "grace_share_pct", "exec_policy_pct", "exec_lag_p50", "sealed_marked_peak",
+                  "admission_refused", "refault_per_min_median"):
+            self.assertTrue(str(self.rows(plain)["a0/M16"][k]).startswith("n/a (missing: "), k)
 
     def test_field_names_live_only_in_the_table(self):
         src = TOOL.read_text()

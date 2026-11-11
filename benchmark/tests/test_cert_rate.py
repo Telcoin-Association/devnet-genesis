@@ -235,6 +235,39 @@ class CertRateTests(unittest.TestCase):
         want = [("arm " + w["name"], self.iso(w["start_unix"]), self.iso(w["end_unix"])) for w in windows.arm_windows({"param_arms": arms})]
         self.assertEqual(got, want)
 
+    def test_bench6_blast_phases_from_rc0_entries_and_the_idle_mark(self):
+        # Bench 6: each rc-0 blasts[] entry's phases are windows ("blast <i> <phase>"), a failed one is a note;
+        # the top-level phases (a copy of the latest entry's) are not read twice; an arm's marks[] are windows.
+        warm = {"name": "warmup", "start": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:10:00Z"}
+        mixed = {"name": "mixed", "start": "2026-10-06T06:10:00Z", "end": "2026-10-06T06:20:00Z"}
+        failed = {"index": 0, "kind": "light", "rc": 1, "phases": [dict(mixed, start="2026-10-06T06:05:00Z")]}
+        m = {"param_arms": [{"name": "a0", "begin": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:20:00Z",
+                             "marks": [{"label": "idle-1", "begin": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:05:00Z"}]}],
+             "blasts": [failed, {"index": 1, "kind": "load", "rc": 0, "phases": [warm, mixed]}], "phases": [warm, mixed]}
+        manifest = Path(self._tmp.name) / "m.json"
+        manifest.write_text(json.dumps(m))
+        doc = self.doc("--windows", str(manifest))
+        self.assertEqual([(w["name"], w["start"], w["end"]) for w in doc["windows"]],
+                         [("arm a0", "2026-10-06T06:00:00Z", "2026-10-06T06:20:00Z"),
+                          ("mark a0/idle-1", "2026-10-06T06:00:00Z", "2026-10-06T06:05:00Z"),
+                          ("blast 1 warmup", "2026-10-06T06:00:00Z", "2026-10-06T06:10:00Z"),
+                          ("blast 1 mixed", "2026-10-06T06:10:00Z", "2026-10-06T06:20:00Z"),
+                          ("run", "2026-10-06T06:00:00Z", "2026-10-06T06:20:00Z")])
+        self.assertEqual(doc["notes"], ["blast 0: rc 1, not measured"])
+        plain = self.doc("--windows", str(FIX / "manifest.json"))
+        self.assertEqual(self.window(doc, "blast 1 warmup")["nodes"], self.window(plain, "phase warmup")["nodes"])
+        self.assertEqual(self.window(doc, "mark a0/idle-1")["nodes"]["bench-validator-01"]["proposed"], 2)
+        # The latest blast failed: the top-level phases are its copy, so no window measures it.
+        m["phases"] = failed["phases"]
+        manifest.write_text(json.dumps(m))
+        self.assertEqual([w["name"] for w in self.doc("--windows", str(manifest))["windows"]],
+                         ["arm a0", "mark a0/idle-1", "blast 1 warmup", "blast 1 mixed", "run"])
+        # Entries without phases (bench 5) add nothing and hide nothing.
+        m["blasts"] = [{"index": 0, "rc": 1}, {"index": 1, "rc": 0}]
+        manifest.write_text(json.dumps(m))
+        self.assertEqual([w["name"] for w in self.doc("--windows", str(manifest))["windows"]],
+                         ["arm a0", "mark a0/idle-1", "phase mixed", "run"])
+
     @staticmethod
     def iso(t):
         import time as _time

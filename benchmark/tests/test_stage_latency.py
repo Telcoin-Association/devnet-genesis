@@ -394,6 +394,29 @@ class StageLatencyTests(unittest.TestCase):
         p = self.run_tool(self.bench6_run(), "--only", "nothing*")
         self.assertEqual(p.returncode, 1)
         self.assertIn("no window matches --only", p.stderr)
+        self.assertNotIn("not_measured", doc)
+
+    def test_a_failed_blast_gets_no_window_and_is_listed_not_measured(self):
+        """rc != 0 means no window, even when the failed blast's blasters were archived (index 0 here); an index
+        retried under itself (index 1: rc 2 first, then rc 0) is measured on its rc-0 entry."""
+        run = self.bench6_run()
+        d = run / "blast-0-20261106T095500Z" / "blasters"
+        d.mkdir(parents=True)
+        shutil.copy(str(run / "blasters" / "bench-blaster-01.json"), str(d / "bench-blaster-01.json"))
+        m = json.loads((run / "manifest.json").read_text())
+        e1 = m["blasts"][0]
+        late = [{"name": "mixed", "start": "2026-11-06T10:01:00Z", "end": "2026-11-06T10:02:00Z"}]
+        first_try = dict(e1, rc=2, phases=late)
+        m["blasts"] = [dict(e1, index=0, rc=1, phases=late), first_try] + m["blasts"]
+        (run / "manifest.json").write_text(json.dumps(m))
+        doc = self.doc(run, windows=False)
+        self.assertEqual(list(doc["windows"]), ["v/load600x16", "a0b/light8x16", "all"])
+        self.assertEqual((doc["windows"]["v/load600x16"]["start"], doc["windows"]["v/load600x16"]["end"]),
+                         ("2026-11-06T10:00:20Z", "2026-11-06T10:00:50Z"))
+        self.assertEqual(doc.get("not_measured"), ["blast index 0 (v/load600x16): rc 1", "blast index 1 (v/load600x16): rc 2"])
+        md = self.run_tool(run).stdout
+        self.assertIn("- Not measured (failed, no window): blast index 0 (v/load600x16): rc 1; "
+                      "blast index 1 (v/load600x16): rc 2.", md)
 
     def test_a_manifest_as_windows_reads_its_arms_from_ready(self):
         run = self.bench6_run()

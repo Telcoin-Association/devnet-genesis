@@ -17,7 +17,10 @@ the UDP RTT to the 6th-nearest voter).
 Windows: --windows MANIFEST takes manifest.param_arms[] ({name, begin|start, end}; from `ready`
 instead of begin when the arm records it, and each marks[] {label, begin, end} as
 "mark <arm>/<label>") and manifest.phases[] ({name, start, end}) plus one "run" window from the
-first start to the last end, one table each; an arm or phase without an end is left out. --from/--to is one window (either end
+first start to the last end, one table each; an arm or phase without an end is left out. Bench-6
+blasts[] entries that carry `phases` add each rc-0 blast's phases as "blast <index> <phase>"; a
+failed blast (rc not 0) gets a note instead, and the top-level phases, a copy of the latest entry's,
+are not read twice. --from/--to is one window (either end
 may be left out); a full UTC time (2026-10-06T23:50:00Z), or HH:MM:SS when every event of the logs
 falls on one UTC day. Default: the whole log. A window holds start <= t < end.
 
@@ -166,16 +169,38 @@ def fmt(x):
     return "—" if x is None else str(x)
 
 
+def blast_phase_windows(m):
+    """(windows, notes, top_copied) from the bench-6 blasts[] entries that carry `phases`: each rc-0
+    entry's phases as "blast <index> <phase>"; an entry with another rc is a note, never a window.
+    top_copied: the top-level phases are a copy of one of these entries (the latest blast's), so they
+    are read there and not twice. A manifest whose entries carry no `phases` (bench 5) gives nothing."""
+    out, notes, top_copied = [], [], False
+    for b in m.get("blasts") or []:
+        if not isinstance(b, dict) or not isinstance(b.get("phases"), list):
+            continue
+        top_copied = top_copied or b["phases"] == m.get("phases")
+        if b.get("rc") not in (None, 0):
+            notes.append("blast %s: rc %s, not measured" % (b.get("index"), b.get("rc")))
+            continue
+        for p in b["phases"]:
+            if isinstance(p, dict) and p.get("start") and p.get("end"):
+                out.append(("blast %s %s" % (b.get("index"), p.get("name") or "?"), parse_iso(p["start"]),
+                            parse_iso(p["end"])))
+    return out, notes, top_copied
+
+
 def manifest_windows(path):
-    """(windows, notes) from manifest.param_arms[] and .phases[] plus a "run" window.
+    """(windows, notes) from manifest.param_arms[], .phases[] and the bench-6 blasts[] phases
+    (blast_phase_windows) plus a "run" window.
 
     An arm's window starts at its `ready` (bench 6) when recorded, else at `begin`; each of its
     `marks[]` with a begin and an end is a sub-window "mark <arm>/<label>" after it."""
     with open(path) as fh:
         m = json.load(fh)
     out, notes = [], []
+    blasts, bnotes, top_copied = blast_phase_windows(m)
     for key, label in (("param_arms", "arm"), ("phases", "phase")):
-        for w in m.get(key) or []:
+        for w in (m.get(key) or []) if not (key == "phases" and top_copied) else []:
             if not isinstance(w, dict):
                 continue
             name = "%s %s" % (label, w.get("name") or "?")
@@ -190,6 +215,8 @@ def manifest_windows(path):
                 if isinstance(mk, dict) and mk.get("begin") and mk.get("end"):
                     out.append(("mark %s/%s" % (w.get("name") or "?", mk.get("label") or "?"),
                                 parse_iso(mk["begin"]), parse_iso(mk["end"])))
+    out.extend(blasts)
+    notes.extend(bnotes)
     if not out:
         raise ValueError("%s has no param_arms or phases with a begin and an end" % path)
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))

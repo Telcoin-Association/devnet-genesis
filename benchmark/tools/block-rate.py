@@ -28,7 +28,9 @@ Windows: --windows MANIFEST (default DIR/manifest.json with --run) takes manifes
 ({name, begin|start, end}; from `ready` instead of begin when the arm records it, and each
 marks[] {label, begin, end} as "mark <arm>/<label>") and .phases[] ({name, start, end}) plus one
 "run" window from the first start to the last end; without them, or with --bucket-min N,
-N-minute buckets (N = 10) over the data. --from/--to is one window.
+N-minute buckets (N = 10) over the data. Bench-6 blasts[] entries that carry `phases` add each
+rc-0 blast's phases as "blast <index> <phase>"; a failed blast (rc not 0) gets a note instead, and
+the top-level phases, a copy of the latest entry's, are not read twice. --from/--to is one window.
 
 Exit status: 0 = report written; 1 = bad arguments or unreadable input; 2 = no data at all.
 Stdlib only.
@@ -68,16 +70,38 @@ def parse_iso(text):
     return calendar.timegm((int(y), int(mo), int(d), int(h), int(mi), int(s))) + (float(frac) if frac else 0.0)
 
 
+def blast_phase_windows(m):
+    """(windows, notes, top_copied) from the bench-6 blasts[] entries that carry `phases`: each rc-0
+    entry's phases as "blast <index> <phase>"; an entry with another rc is a note, never a window.
+    top_copied: the top-level phases are a copy of one of these entries (the latest blast's), so they
+    are read there and not twice. A manifest whose entries carry no `phases` (bench 5) gives nothing."""
+    out, notes, top_copied = [], [], False
+    for b in m.get("blasts") or []:
+        if not isinstance(b, dict) or not isinstance(b.get("phases"), list):
+            continue
+        top_copied = top_copied or b["phases"] == m.get("phases")
+        if b.get("rc") not in (None, 0):
+            notes.append("blast %s: rc %s, not measured" % (b.get("index"), b.get("rc")))
+            continue
+        for p in b["phases"]:
+            if isinstance(p, dict) and p.get("start") and p.get("end"):
+                out.append(("blast %s %s" % (b.get("index"), p.get("name") or "?"), parse_iso(p["start"]),
+                            parse_iso(p["end"])))
+    return out, notes, top_copied
+
+
 def manifest_windows(path):
-    """(windows, note) from manifest.param_arms[] and .phases[] plus a "run" window.
+    """(windows, notes) from manifest.param_arms[], .phases[] and the bench-6 blasts[] phases
+    (blast_phase_windows) plus a "run" window.
 
     An arm's window starts at its `ready` (bench 6) when recorded, else at `begin`; each of its
     `marks[]` with a begin and an end is a sub-window "mark <arm>/<label>" after it."""
     with open(path) as fh:
         m = json.load(fh)
     out = []
+    blasts, notes, top_copied = blast_phase_windows(m)
     for key, label in (("param_arms", "arm"), ("phases", "phase")):
-        for w in m.get(key) or []:
+        for w in (m.get(key) or []) if not (key == "phases" and top_copied) else []:
             if not isinstance(w, dict):
                 continue
             begin, end = w.get("begin") or w.get("start"), w.get("end")
@@ -89,10 +113,11 @@ def manifest_windows(path):
                 if isinstance(mk, dict) and mk.get("begin") and mk.get("end"):
                     out.append(("mark %s/%s" % (w.get("name") or "?", mk.get("label") or "?"),
                                 parse_iso(mk["begin"]), parse_iso(mk["end"])))
+    out.extend(blasts)
     if not out:
-        return None, "%s has no param_arms or phases: buckets instead" % os.path.basename(path)
+        return None, notes + ["%s has no param_arms or phases: buckets instead" % os.path.basename(path)]
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))
-    return out, None
+    return out, notes
 
 
 def buckets(span, minutes):
@@ -337,9 +362,8 @@ def main(argv=None):
         elif a.bucket_min is None:
             mf = a.windows or (os.path.join(a.run, "manifest.json") if a.run else None)
             if mf and os.path.isfile(mf):
-                windows, note = manifest_windows(mf)
-                if note:
-                    notes.append(note)
+                windows, wnotes = manifest_windows(mf)
+                notes.extend(wnotes)
             elif a.windows:
                 raise ValueError("no such manifest: %s" % a.windows)
         if windows is None:
