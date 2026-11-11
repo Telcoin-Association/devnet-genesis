@@ -3,7 +3,7 @@
 # and the review were done (2026-11-11). Every cargo call goes through the bench-6 slot wrapper
 # (which also waits for a quiet window to end). Logs: <worktree>/target/tmp/orch-<gate>.log, each
 # ending in EXIT=<rc>; the last line printed is "ORCH-GATES <unit> <gate>=<rc> ...".
-#   tasks/bench6/orch-gates.sh u7 | u0b | h9c
+#   tasks/bench6/orch-gates.sh u7 | u0b | h9c | integ <worktree> <commit>
 set -uo pipefail
 SLOT=/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/cargo-slot.sh
 LANE=/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane.sh
@@ -48,6 +48,23 @@ h9c)
     run clippy "${SLOT}" cargo clippy --locked --all-targets -- -D warnings
     run py python3 -m unittest discover -s bench/tests
     sum="${sum} golden=$(sha256sum src/blast/testdata/send-path-golden.json | cut -c1-16)"
+    ;;
+integ)
+    # Interim cross-unit check of the integration head (NOT the W3 gates): the units were gated on their own
+    # packages only, so this compiles every target of the workspace and runs every package's tests but the
+    # e2e package (fixed ports: that one goes through the lane). Runs in a free unit worktree, detached at the
+    # commit given, so a cherry-pick onto the integration branch cannot change files under the compiler.
+    wt="${2:?worktree}"; rev="${3:?commit}"
+    cd "${wt}" || exit 2
+    [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "worktree ${wt} is dirty" >&2; exit 2; }
+    git switch -q --detach "${rev}" || exit 2
+    node_env
+    # No TN_*_FORK_EPOCH here: the repo's own `public-tests` runs the workspace's unit tests without them.
+    tag="integ-$(git rev-parse --short=9 HEAD)"
+    run "${tag}-fmt" "${SLOT}" cargo "+${NIGHTLY}" fmt --all -- --check
+    run "${tag}-check" "${SLOT}" cargo check --locked --all-targets --workspace
+    run "${tag}-nextest" "${SLOT}" cargo nextest run --locked --no-fail-fast --workspace --exclude e2e-tests
+    unit="integ ${rev}"
     ;;
 *) echo "unknown unit ${unit}" >&2; exit 64 ;;
 esac
