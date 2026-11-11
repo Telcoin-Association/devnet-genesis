@@ -856,3 +856,14 @@ four validators to the transactions that are in no pool.
 - `TN_E2E_PARAMETERS` accepts a mistyped key too (an "all switches on" e2e run could quietly run at defaults): every such
   run is checked by reading a node's `node switches` line from its test log. One epochs test starts its nodes directly and
   never gets the variable.
+
+### recovery-pool (#1805) — APPROVE WITH FOLLOW-UPS (code review only); nothing Critical, High or Medium (report `tasks/bench6/review/recovery-pool-report.md`)
+- Switch at 0: recovery runs on the calling thread's pool exactly as before (the pool lookup returns before touching any
+  state). Mixed fleet: recovered signers never leave the node and the order-preserving collects make them identical on
+  either pool. The bench binary times what it says.
+- For the run (harness, being added): if the dedicated pool fails to build the node warns once and uses the global pool
+  while the switch gauge still reads 3 — the summary must label the pool arm by `pool=dedicated` on the `signers recovered`
+  lines and the absence of that warning, as it does for the MDBX advice.
+- For the PR: an unused `proptest` dev-dependency in the engine crate (used only once the pipelined stack's tests land); two
+  doc comments that still say recovery runs on the global pool (fixed on the pipelined stack, not on the integration
+  branch).

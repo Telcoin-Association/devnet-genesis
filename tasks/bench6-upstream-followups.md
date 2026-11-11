@@ -44,8 +44,14 @@ image unless it says so. Each line: the item, where it is described, and its sta
 - Review DONE (approve with follow-ups; nothing C/H/M). D75 (clamp the named block to the epoch's opening block; ≈ 10 lines), D76 (carry the adaptive window across epochs, optional), a counter for superseded refusals, `quorum_exec_block_starved_rounds` not validated, five Info: OPEN.
 - D61 the adaptive reset rule: DONE (U1b, 20858d28d). D70 (a vote-withholding minority can hold a node in long windows: staleness only) and D71 (latency cancels restart the streak) for the PR text. Review running.
 
-## tracker-drain (#1806), recovery-pool (#1805), plumbing
-- Review-only passes not started yet.
+## recovery-pool (#1805)
+- Review DONE (approve with follow-ups). The `proptest` dev-dependency of `crates/engine` is unused without the pipelined stack's tests; two stale doc comments (`payload_builder.rs:70-72`, `tn-reth execution.rs:216-218`) are fixed only on the pipelined stack: if the stack is cut, fix them on this topic's branch. The full contention bench run is still owed. OPEN.
+
+## plumbing (switches, obs, e2e scaffold)
+- Review DONE (approve with follow-ups). Unknown keys in `parameters.yaml` are ignored without a warning (pre-existing); `TN_E2E_PARAMETERS` accepts a mistyped key and does not reach one epochs test; `tn_primary_digest_wait_seconds` changed meaning without a rename. OPEN.
+
+## tracker-drain (#1806)
+- Review-only pass running.
 
 ## pipelined-persist (#1800)
 - Held stack `b6/pipe-stack-2` (19 commits on d91d65d3e). Review DONE (approve with follow-ups; nothing C/H/M). For the PR: F1 (a durable output rolled out of memory when the commit task dies and the head read fails; node halts), F2 (no test reaches the I/O-side fail-closed guards), the doc claim at `output_overlay.rs:156-158` (seeded and unseeded builds emit differently shaped trie updates; root and rows identical), D45 restated (the pinned read transaction lives for a commit plus a build), ten Info. Gates 5 and 6 open.
