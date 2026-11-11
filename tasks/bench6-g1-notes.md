@@ -574,3 +574,27 @@ Four local validators, three of them executing 1.75 s late per output, productio
   line appears, the final-state check stays quiet and no tracking failure is logged. Run 1's fleet is the first real test.
 - One port collision at a node start in a calibration run (the harness's port allocator against a process outside the
   test); it did not recur.
+
+### parent-grace (#1803) — CHANGES REQUIRED; no Critical or High; safe for a mixed fleet (report `tasks/bench6/review/parent-grace-report.md`)
+- Switch off: unchanged (metric registrations, one counter on the late-parent arm, `grace_ms=0`, one always-pending select
+  branch that changes no decision). Mixed fleet: no fork, no rejection, no stall — only the node's own headers change (later,
+  more parents, more digests), and all of it passes the voters' checks.
+- **M1 (being fixed before the image): the grace forgets a far validator after ONE miss.** The basis is the authors the last
+  own header carried; a certificate that arrives after the header went out is only counted. After one expiry, skipped round,
+  restart or epoch start the node is ready before that author's certificate arrives in every later round and never waits
+  for it again — the bench-5 drift returns. Fix: a late certificate of the previous round puts its author back in the basis.
+- **M2 (being fixed with it) — D62, decided by the orchestrator, reversible:** a round jump during a grace strands the held
+  header; if the node leads that round, the leader certificate is missing, every proposer waits out `max_header_delay` (1 s
+  on the fleet) and that leader is never committed. Fix chosen: a node that leads the round it is about to propose in does
+  not arm a grace (the proposer already gives leaders a zero minimum delay; the far certificates still ride the non-leaders'
+  headers). The issue text says the grace "applies to leaders too": that sentence changes with this.
+- **M3 — D63, for the gate: the grace is NOT free under load.** With the header ready on the quorum message, every basis
+  author outside that message is missing, so the grace arms on almost every round and costs up to G per round. The issue's
+  "about 0 under load" and the pass criterion "loaded rounds and throughput unchanged within noise" are wrong. The grace arm
+  (GR150) must be judged on certification of the far validators AGAINST the round-time cost, read from
+  `tn_primary_parent_grace_wait_seconds`, `tn_primary_parent_grace_total{outcome}` and `grace_ms` on `header proposed`. Whether
+  150 ms per round is worth it at ten regions is the question run 1 answers; G = 100 ms is the fallback arm.
+- Low (five): a leader-table swap can stretch a hold past G (bounded by the maximum delay); `parent_grace` is capped silently;
+  D38 understated what one author can do (an author that lands just inside G costs about G every round, outcome `complete`);
+  the log lines cannot name the author waited for; two far validators can wait on each other. The fix unit handles the
+  cheap ones and documents the rest.
