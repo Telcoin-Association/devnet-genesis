@@ -15,7 +15,8 @@
 #   compute ssh <inst> ... --command=<tn_nodeMode read> (bench_node_mode) -> {"result":"$STUB_NODE_MODE"}
 #       (default CvvActive)
 #   compute disks add-labels / disks describe / machine-types describe -> success, a 100 GB
-#       hyperdisk-balanced boot disk, "8<TAB>16384" (c3-highcpu-8)
+#       hyperdisk-balanced boot disk from the image $STUB_SOURCE_IMAGE (default bench 5's, the pinned
+#       default; STUB_SOURCE_IMAGE_ODD=<disk>=<image>: that disk's), "8<TAB>16384" (c3-highcpu-8)
 #   anything about the bench-obs VM -> stub-gcloud.sh (installed next to this file), which logs it
 #   anything else -> fails loudly.
 case " $3 $4 " in
@@ -55,7 +56,10 @@ case "$*" in
         printf '{"name":"%s","id":"%d","zone":"https://x/zones/%s","tags":{"items":["bench-node"]},"labels":{"benchmark":"1"},"machineType":"https://x/zones/%s/machineTypes/c3-highcpu-8","networkInterfaces":[{"networkIP":"198.51.100.%d","accessConfigs":[{"natIP":"203.0.113.%d"}]}],"disks":[{"boot":true,"source":"https://x/zones/%s/disks/%s"}]}\n' \
             "${inst}" "$((4200 + n))" "${zone}" "${zone}" "${n}" "${n}" "${zone}" "${inst}" ;;
     "compute disks add-labels "*) ;;
-    "compute disks describe "*) printf '{"name":"%s","sizeGb":"100","type":"https://x/diskTypes/hyperdisk-balanced"}\n' "$4" ;;
+    "compute disks describe "*)
+        img="${STUB_SOURCE_IMAGE:-projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105}"
+        [ "${STUB_SOURCE_IMAGE_ODD%%=*}" != "$4" ] || img="${STUB_SOURCE_IMAGE_ODD#*=}"
+        printf '{"name":"%s","sizeGb":"100","type":"https://x/diskTypes/hyperdisk-balanced","sourceImage":"https://www.googleapis.com/compute/v1/%s"}\n' "$4" "${img}" ;;
     "compute machine-types describe "*) printf '8\t16384\n' ;;
     *) echo "stub gcloud: unexpected: $*" >&2; exit 1 ;;
 esac

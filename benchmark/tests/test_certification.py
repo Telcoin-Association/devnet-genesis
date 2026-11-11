@@ -312,7 +312,7 @@ class CertificationTests(FakeFleet):
             f.unlink()
         p = self.run_lib(script)
         self.assertEqual((p.returncode, "AFTER" in p.stdout), (0, True))
-        self.assertIn("no validator log in %s yet" % self.logs, p.stderr)
+        self.assertIn("    certification: deferred to the teardown (node logs are pulled there)\n", p.stdout)
         self.assertEqual(self.manifest.read_bytes(), before)
         self.assertEqual(self.ssh_calls(), [])
 

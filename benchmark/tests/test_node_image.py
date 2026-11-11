@@ -49,7 +49,11 @@ ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # Scripts the bash under test sources or runs, relative to the repo root.
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/obs-lib.sh", "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
-        "benchmark/node-image-contract.txt")
+        "benchmark/node-image-contract.txt",
+        # bench 6 (H3): what deploy steps 7 and 9 read: the switch list, the arm tool (--print-state), two arm
+        # files, the persist sampler and its folio census.
+        "benchmark/arms/switches.tsv", "benchmark/arms/v-vote.arm", "benchmark/arms/final.arm",
+        "benchmark/tools/params-apply.sh", "benchmark/node-persist-sampler.sh", "benchmark/tools/folio-census.py")
 # What the bench-obs functions (obs-lib.sh) read from the tree: the bundle. The VM's startup script and
 # the Grafana dashboards live in the `common` submodule, which a CI checkout lacks: every test points
 # BENCH_OBS_STARTUP_SCRIPT and BENCH_OBS_DASHBOARDS_DIR at fixtures instead (BashCase.env).
@@ -470,7 +474,7 @@ class HelperTests(BashCase):
 V2 = Path(__file__).resolve().parent / "fixtures" / "v2-node"
 RELOCATED = ("/etc/telcoin/", "/etc/systemd/system/", "/etc/logrotate.d/", "/usr/local/libexec/telcoin/",
              "/usr/local/bin/bench-node-sampler.sh", "/opt/telcoin-node-scripts", "/var/lib/telcoin-alloy/",
-             "/tmp/bench-obs")
+             "/tmp/bench-obs", "/usr/local/bin/bench-persist-sampler.sh", "/usr/local/bin/bench-folio-census.py")
 NODE_STUBS = (("systemctl", "stub-v2-node-systemctl.sh"), ("docker", "stub-v2-node-docker.sh"),
               ("date", "stub-v2-node-date.sh"), ("git", "stub-v2-node-git.sh"), ("stat", "stub-v2-node-stat.sh"),
               ("curl", "stub-node-curl.sh"), ("sleep", "stub-node-sleep.sh"), ("logrotate", "stub-v2-node-logrotate.sh"),
@@ -2242,15 +2246,18 @@ class Step7Tests(FleetCase):
 
     def test_each_session_is_the_probe_then_the_pre_start_script(self):
         # The real probe (python3 on each sandbox datadir): integer percentiles for every node, and each node's
-        # session stdin is bench_fsync_probe_script followed by exactly what --print-prestart prints.
+        # session stdin is bench_fsync_probe_script, then bench_host_probe_script (bench 6), then exactly what
+        # --print-prestart prints.
         p = self.deploy7()
         self.assertEqual(p.returncode, 0, p.stdout)
         for inst in NODES:
             probe = self.bash(LIB_CALL, self.bench, "bench_fsync_probe_script", inst)
+            host = self.bash(LIB_CALL, self.bench, "bench_host_probe_script", inst)
             pre = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", inst],
                                  env=self.env(), stdout=subprocess.PIPE, universal_newlines=True, timeout=60)
-            self.assertEqual((probe.returncode, pre.returncode), (0, 0), probe.stdout)
-            self.assertEqual((self.spool / (inst + ".sh")).read_text(), probe.stdout + pre.stdout, inst)
+            self.assertEqual((probe.returncode, host.returncode, pre.returncode), (0, 0, 0), probe.stdout + host.stdout)
+            self.assertTrue(host.stdout.startswith("# host probe (bench_host_probe_script)"), host.stdout[:200])
+            self.assertEqual((self.spool / (inst + ".sh")).read_text(), probe.stdout + host.stdout + pre.stdout, inst)
             rec = self.m()["node_startup"][inst]["fsync_probe"]
             self.assertEqual(sorted(rec), ["p50_us", "p95_us"], inst)
             self.assertTrue(all(isinstance(v, int) and v >= 0 for v in rec.values()), rec)
@@ -2682,6 +2689,12 @@ case "$*" in
         case " ${STUB_CREATE_FAIL:-} " in *" ${mt} "*) cat "${STUB_DIR}/quota-exceeded.txt" >&2; exit 1 ;; esac
         echo "Created [https://www.googleapis.com/compute/v1/projects/tn-fake/zones/${zone}/instances/$4]." ;;
     "compute instances describe "*) echo 4242 ;;
+    "compute images describe "*)
+        # $STUB_DIR/image-<name>.json is the image (deploy step 0's boot image gate); none: not found.
+        if [ -f "${STUB_DIR}/image-$4.json" ]; then cat "${STUB_DIR}/image-$4.json"; else
+            printf "ERROR: (gcloud.compute.images.describe) Could not fetch resource:\n - The resource 'projects/x/global/images/%s' was not found\n" "$4" >&2
+            exit 1
+        fi ;;
     *) echo "fake gcloud: unexpected: $*" >&2; exit 1 ;;
 esac
 """
@@ -3272,6 +3285,956 @@ class Bench6KnobTests(BashCase):
                 self.assertEqual(len(cols), len(set(cols)), "duplicate column")
                 for c in cols:
                     self.assertRegex(c, COLUMN_UNIT_RE)
+
+
+# ---- bench6 H3 deploy wiring ----
+# Deploy step 0's boot image gate, step 2's source image check, step 7's host probe and first-start arm
+# (BENCH_ARM_FILE, read through tools/params-apply.sh --print-state), step 9's switch readback and persist
+# sampler, the knob-unset plan and post-config script byte for byte, and the bench-lib pieces under them.
+BOOT_IMAGE_NAME = BOOT_IMAGE.rsplit("/", 1)[1]
+IMAGE_URL = "https://www.googleapis.com/compute/v1/"
+# node_startup[inst].host: the frozen keys, in order (bench-lib _bench_host_fields; arms/MANIFEST-FIELDS.md).
+HOST_FIELDS = ("kernel cmdline os_release image_serial mem_total_kb nproc datadir datadir_mount_source datadir_fstype "
+               "datadir_mount_options disk read_ahead_kb max_sectors_kb max_hw_sectors_kb scheduler nr_requests "
+               "thp_enabled thp_defrag thp_shmem_enabled khugepaged_defrag vm_dirty_ratio vm_dirty_background_ratio "
+               "vm_dirty_bytes vm_dirty_background_bytes vm_dirty_expire_centisecs vm_dirty_writeback_centisecs "
+               "vm_swappiness vm_vfs_cache_pressure container_memory_limit_bytes mdbx_dat_size_bytes "
+               "mdbx_dat_resident_pages mdbx_dat_folios lru_gen_enabled").split()
+# arms/v-vote.arm: every switch's state (as manifest.param_arms[].switches holds it) and the ones away from
+# their default, which step 7 writes into every node's parameters.yaml (switches.tsv order).
+V_VOTE_SWITCHES = {"quorum_exec_block": "true", "quorum_exec_block_starved_rounds": "4", "vote_queue_fix": "true",
+                   "mdbx_random_advice": "true", "sealed_tx_keep": "false", "digest_dedupe": "false",
+                   "recovery_threads": "0", "epoch_close_task_drain": "false", "epoch_record_state_check": "true",
+                   "parent_grace": "0ms", "rpc_admission_backlog_outputs": "0", "pipelined_persist": "false"}
+V_VOTE_WRITES = {"quorum_exec_block": "true", "quorum_exec_block_starved_rounds": "4", "vote_queue_fix": "true",
+                 "mdbx_random_advice": "true", "epoch_record_state_check": "true"}
+EVICTED = {"resident_pages_before": 0, "resident_pages_after": 0}   # evict-mdbx on a datadir with no mdbx.dat yet
+ARM_DUE_ISO = "2026-01-01T00:01:00Z"                                 # Step7Tests.START's due=1767225660
+needs_yaml = unittest.skipUnless(subprocess.run(["python3", "-c", "import yaml"], stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL).returncode == 0,
+                                 "python3 has no PyYAML: deploy step 7's gate refuses to run")
+
+
+def switch_defaults():
+    return {r["key"]: r["default"] for r in switch_rows()[1]}
+
+
+def switch_line(values=None, drop=()):
+    """A node's `node switches` log line (target node::switches): every switch of switches.tsv in its order, at
+    <values> (else its default), minus the keys in <drop>."""
+    vals = switch_defaults()
+    vals.update(values or {})
+    return ("2026-01-01T00:00:01.000000Z  INFO node::switches: node switches "
+            + " ".join("%s=%s" % (r["key"], vals[r["key"]]) for r in switch_rows()[1] if r["key"] not in drop))
+
+
+def host_record(datadir, ra_kb=128):
+    """A probed host as its HOST_PROBE line carries it: every frozen key, plausible values."""
+    h = dict.fromkeys(HOST_FIELDS)
+    h.update(kernel="6.8.0-1017-gcp", cmdline="BOOT_IMAGE=/vmlinuz-6.8.0-1017-gcp ro console=ttyS0",
+             os_release="Ubuntu 24.04.3 LTS", image_serial="20261105", mem_total_kb=16374448, nproc=8, datadir=datadir,
+             datadir_mount_source="/dev/nvme0n2", datadir_fstype="ext4", datadir_mount_options="rw,relatime",
+             disk="nvme0n2", read_ahead_kb=ra_kb, max_sectors_kb=1280, max_hw_sectors_kb=2048, scheduler="none",
+             nr_requests=1023, thp_enabled="madvise", thp_defrag="madvise", thp_shmem_enabled="never",
+             khugepaged_defrag="1", vm_dirty_ratio=20, vm_dirty_background_ratio=10, vm_dirty_bytes=0,
+             vm_dirty_background_bytes=0, vm_dirty_expire_centisecs=3000, vm_dirty_writeback_centisecs=500,
+             vm_swappiness=60, vm_vfs_cache_pressure=100, container_memory_limit_bytes=0, lru_gen_enabled="0x0007")
+    return h
+
+
+def file_sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+# A stand-in for `tools/params-apply.sh --arm-file <f> --print-state`: prints $FAKE_STATE with @SHA@ replaced by
+# the arm file's sha256; with $FAKE_ERR set, that on stderr and exit 1. Never run on a host step.
+FAKE_PRINT_STATE = r'''#!/usr/bin/env bash
+f=""
+while [ "$#" -gt 0 ]; do [ "$1" != --arm-file ] || f="$2"; shift; done
+if [ -n "${FAKE_ERR:-}" ]; then echo "${FAKE_ERR}" >&2; exit 1; fi
+sha="$({ sha256sum "$f" 2>/dev/null || shasum -a 256 "$f"; } | awk '{ print $1 }')"
+sed "s/@SHA@/${sha}/" "${FAKE_STATE:?}"
+'''
+
+
+class BootImageGateTests(FakeGcloudCase):
+    """Deploy step 0's boot image gate (boot_image_check): the pinned IMAGE must exist and be READY before anything
+    is created; BOOT_IMAGE_JSON is then manifest.node_boot_image."""
+
+    DESCRIBE = "gcloud compute images describe %s --project=ubuntu-os-cloud --format=json" % BOOT_IMAGE_NAME
+    BODY = 'BOOT_IMAGE_JSON=""; boot_image_check; echo "BOOT_IMAGE_JSON ${BOOT_IMAGE_JSON}"'
+
+    def img(self, status="READY", state=None, name=BOOT_IMAGE_NAME):
+        j = {"kind": "compute#image", "name": name, "status": status, "family": "ubuntu-2404-lts-amd64",
+             "selfLink": IMAGE_URL + BOOT_IMAGE}
+        if state is not None:
+            j["deprecated"] = {"state": state, "replacement": IMAGE_URL + BOOT_IMAGE + "-next"}
+        return j
+
+    def gate(self, image, name=BOOT_IMAGE_NAME, **env):
+        """boot_image_check with <image> (a dict, raw text, or None: not found) as `images describe <name>` answers."""
+        f = self.stub / ("image-%s.json" % name)
+        if image is None:
+            if f.exists():
+                f.unlink()
+        else:
+            f.write_text(image if isinstance(image, str) else json.dumps(image))
+        self.log.write_text("")
+        fns = shell_functions(self.bench / "benchmark-deploy.sh", "boot_image_check")
+        return self.bash(PREFLIGHT, self.bench, fns, self.BODY, **env)
+
+    def record(self, p):
+        rec = [l[len("BOOT_IMAGE_JSON "):] for l in p.stdout.splitlines() if l.startswith("BOOT_IMAGE_JSON ")]
+        self.assertEqual(len(rec), 1, p.stdout)
+        return json.loads(rec[0])
+
+    def test_a_ready_image_passes_with_one_describe_call(self):
+        p = self.gate(self.img())
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    boot image %s must exist and be READY (OBSOLETE or DELETED refused, DEPRECATED warned)\n"
+                      % BOOT_IMAGE, p.stdout)
+        self.assertIn("    ✓ boot image %s (ubuntu-os-cloud): READY\n" % BOOT_IMAGE_NAME, p.stdout)
+        self.assertNotIn("⚠", p.stdout)
+        self.assertEqual(self.record(p), {"ref": BOOT_IMAGE, "name": BOOT_IMAGE_NAME, "status": "READY",
+                                          "deprecation_state": None})
+        self.assertEqual(self.calls(), [self.DESCRIBE])
+        # The project and the name come from IMAGE (BENCH_NODE_BOOT_IMAGE), whatever they are.
+        other = "projects/img-proj-1/global/images/custom-node-7"
+        p = self.gate(self.img(name="custom-node-7"), name="custom-node-7", BENCH_NODE_BOOT_IMAGE=other)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    ✓ boot image custom-node-7 (img-proj-1): READY\n", p.stdout)
+        self.assertEqual(self.record(p)["ref"], other)
+        self.assertEqual(self.calls(), ["gcloud compute images describe custom-node-7 --project=img-proj-1 --format=json"])
+
+    def test_a_deprecated_image_is_a_warning(self):
+        p = self.gate(self.img(state="DEPRECATED"))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("⚠ boot image %s is DEPRECATED: it still boots, but its replacement is out "
+                      "(manifest.node_boot_image.deprecation_state)\n" % BOOT_IMAGE, p.stdout)
+        self.assertIn("    ✓ boot image %s (ubuntu-os-cloud): READY, deprecation state DEPRECATED\n" % BOOT_IMAGE_NAME,
+                      p.stdout)
+        self.assertEqual(self.record(p), {"ref": BOOT_IMAGE, "name": BOOT_IMAGE_NAME, "status": "READY",
+                                          "deprecation_state": "DEPRECATED"})
+        self.assertEqual(self.calls(), [self.DESCRIBE])
+
+    def test_refusals_name_the_reason_and_create_nothing(self):
+        cases = (
+            (None, "❌ boot image %s cannot be described (rc 1): ERROR: (gcloud.compute.images.describe) Could not "
+                   "fetch resource: - The resource 'projects/x/global/images/%s' was not found" % (BOOT_IMAGE, BOOT_IMAGE_NAME)),
+            (self.img(status="PENDING"), "❌ boot image %s has status 'PENDING', not READY — nothing was created" % BOOT_IMAGE),
+            (self.img(status="FAILED"), "❌ boot image %s has status 'FAILED', not READY" % BOOT_IMAGE),
+            # READY images whose deprecation state forbids them: the state alone refuses them.
+            (self.img(state="OBSOLETE"), "❌ boot image %s is OBSOLETE — a fleet cannot boot it; nothing was created "
+                                           "(pin another: BENCH_NODE_BOOT_IMAGE)" % BOOT_IMAGE),
+            (self.img(state="DELETED"), "❌ boot image %s is DELETED — a fleet cannot boot it" % BOOT_IMAGE),
+            (self.img(name="ubuntu-2404-noble-amd64-v20261201"),
+             "❌ boot image %s: images describe answered for 'ubuntu-2404-noble-amd64-v20261201', not %s — nothing was "
+             "created" % (BOOT_IMAGE, BOOT_IMAGE_NAME)),
+            ("[]\n", "❌ boot image %s: images describe gave no JSON object — nothing was created" % BOOT_IMAGE),
+        )
+        for image, phrase in cases:
+            with self.subTest(phrase=phrase):
+                p = self.gate(image)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(phrase, p.stdout)
+                self.assertNotIn("✓ boot image", p.stdout)
+                self.assertNotIn("BOOT_IMAGE_JSON ", p.stdout)
+                self.assertEqual(self.calls(), [self.DESCRIBE])
+        p = self.gate(None)
+        self.assertIn("— nothing was created; pin an image that exists (BENCH_NODE_BOOT_IMAGE)", p.stdout)
+
+    def test_dry_run_prints_the_call_and_makes_none(self):
+        p = self.gate(self.img(), TEST_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    boot image %s must exist and be READY (OBSOLETE or DELETED refused, DEPRECATED warned)\n"
+                      "    + %s\n      (dry run — not executed)\n" % (BOOT_IMAGE, self.DESCRIBE), p.stdout)
+        self.assertNotIn("✓ boot image", p.stdout)
+        self.assertIn("BOOT_IMAGE_JSON \n", p.stdout)
+        self.assertEqual(self.calls(), [])
+
+
+class Step2SourceImageTests(FleetCase):
+    """Deploy step 2: every boot disk must come from the pinned image; manifest.instances[].source_image records
+    the disks describe's sourceImage (the stub's STUB_SOURCE_IMAGE, STUB_SOURCE_IMAGE_ODD=<disk>=<image>)."""
+
+    ODD = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20260901"
+
+    def setUp(self):
+        super().setUp()
+        install(self.root / "tree" / "common", "create-instances.sh", "stub-create-instances.sh")
+        shutil.copyfile(FIX / "stub-create-stockout.txt", self.root / "tree" / "common" / "stub-create-stockout.txt")
+
+    def test_every_disk_from_the_pinned_image_is_recorded(self):
+        p = self.deploy(2)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        m = self.m()
+        self.assertEqual([(i["name"], i["source_image"]) for i in m["instances"]],
+                         [(n, IMAGE_URL + BOOT_IMAGE) for n in NODES])
+        self.assertIn("    ✓ every boot disk is %s\n" % BOOT_IMAGE, p.stdout)
+        self.assertLess(p.stdout.index("✓ manifest.instances[] recorded (11)"), p.stdout.index("✓ every boot disk is "))
+        self.assertIn("step_2_done", m["timestamps"])
+
+    def test_a_disk_from_another_image_refuses_the_fleet(self):
+        p = self.deploy(2, STUB_SOURCE_IMAGE_ODD="bench-validator-04=" + self.ODD)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        die = [l for l in p.stdout.splitlines() if l.startswith("❌ ")]
+        self.assertEqual(len(die), 1, p.stdout)
+        self.assertIn("❌ the fleet does not all boot the pinned image %s (BENCH_NODE_BOOT_IMAGE): bench-validator-04 "
+                      "boots %s%s — the fleet is refused (manifest.instances[].source_image): tear it down "
+                      "(benchmark-teardown.sh) and deploy again" % (BOOT_IMAGE, IMAGE_URL, self.ODD), die[0])
+        self.assertEqual(die[0].count(" boots "), 1, die[0])
+        m = self.m()   # recorded before the check: the teardown and the report see what booted
+        self.assertEqual({i["name"]: i["source_image"] for i in m["instances"]},
+                         {n: IMAGE_URL + (self.ODD if n == "bench-validator-04" else BOOT_IMAGE) for n in NODES})
+        self.assertNotIn("✓ every boot disk", p.stdout)
+        self.assertNotIn("OBS_CREATE", p.stdout)   # stopped before the run's bench-obs
+        self.assertNotIn("step_2_done", m["timestamps"])
+        # Every disk on another image: each is named, in fleet order.
+        self.tearDown()
+        self.setUp()
+        p = self.deploy(2, STUB_SOURCE_IMAGE=self.ODD)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn(": " + "; ".join("%s boots %s%s" % (n, IMAGE_URL, self.ODD) for n in NODES) + " — the fleet is refused",
+                      p.stdout)
+
+
+class Step7Mixin:
+    """Step7Tests' sandbox (staged, stopped nodes; the repo-root scripts stubbed) for the bench-6 classes."""
+
+    NODE_UNIT = "inactive"
+    START = Step7Tests.START
+    deploy7 = Step7Tests.deploy7
+    sequence = Step7Tests.sequence
+
+    def setUp(self):
+        super().setUp()
+        for name in ("devnet-finalize.sh", "devnet-network-config.sh"):
+            install(self.root / "tree", name, "stub-%s" % name)
+
+    def node_args(self, inst):
+        return {}
+
+    def fresh(self):
+        """The manifest before any step 7 (the fleet as step 6 left it)."""
+        m = self.m()
+        for key in ("node_startup", "coordinated_start", "coordinated_start_reruns", "param_arms"):
+            m.pop(key, None)
+        self.manifest.write_text(json.dumps(m, indent=2) + "\n")
+        self.log.write_text("")
+
+    def lines_index(self, out, pred):
+        return [i for i, l in enumerate(out) if pred(l)]
+
+
+@needs_yaml
+class Step7HostProbeTests(Step7Mixin, FleetCase):
+    """Step 7's host probe: every node's pre-start session runs it after the fsync probe; node_startup[inst].host
+    and .host_steps, and one HOST_PROBE_SUMMARY line after the fsync one, before start-all."""
+
+    def summary_order(self, out):
+        fs = self.lines_index(out, lambda l: "FSYNC_PROBE_SUMMARY" in l)
+        hs = self.lines_index(out, lambda l: "HOST_PROBE_SUMMARY" in l)
+        start_all = self.lines_index(out, lambda l: l.startswith("    start-all: "))
+        last_ok = max(self.lines_index(out, lambda l: l.startswith("      PRECFG_OK ")))
+        self.assertEqual((len(fs), len(hs), len(start_all)), (1, 1, 1), "\n".join(out))
+        self.assertTrue(last_ok < fs[0] < hs[0] < start_all[0], (last_ok, fs, hs, start_all))
+        return out[fs[0]], out[hs[0]]
+
+    def test_the_real_probe_records_a_host_object_and_no_host_steps(self):
+        p = self.deploy7()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        out = p.stdout.splitlines()
+        startup = self.m()["node_startup"]
+        for inst, node in self.nodes.items():
+            host = startup[inst]["host"]
+            self.assertIsInstance(host, dict, inst)
+            if host.get("probe_failed"):
+                self.assertEqual(sorted(host), ["probe_failed", "reason"], host)
+            else:
+                self.assertEqual(list(host), HOST_FIELDS, inst)
+                self.assertEqual(host["datadir"], str(node.datadir), inst)
+            self.assertEqual(startup[inst]["host_steps"], [], inst)
+            self.assertEqual(len([l for l in out if l.startswith("      HOST_PROBE %s " % inst)]), 1, inst)
+        _fs, hs = self.summary_order(out)
+        self.assertRegex(hs, r"^(⚠ )?HOST_PROBE_SUMMARY kernel=\S+ image=\S+ ra_kb=\S+ uniform=(yes|no) "
+                             r"differ=\[[^\]]*\] probe_failed=\[[^\]]*\]$")
+        self.assertNotIn("HOST_STEP", p.stdout)
+        self.assertNotIn("param_arms", self.m())
+
+    def test_canned_probes_are_recorded_as_given_and_one_differing_node_is_named(self):
+        # The node's python3 stub answers every python3 of the session with the canned text: the fsync probe's
+        # FSYNC_PROBE line and the host probe's HOST_PROBE line. bench-validator-05 boots another read-ahead.
+        want = {}
+        for inst, node in self.nodes.items():
+            want[inst] = host_record(str(node.datadir), ra_kb=4096 if inst == "bench-validator-05" else 128)
+        cases = ((None, "⚠ HOST_PROBE_SUMMARY kernel=6.8.0-1017-gcp image=20261105 ra_kb=128 uniform=no "
+                        "differ=[bench-validator-05] probe_failed=[]"),
+                 ("bench-validator-07", "⚠ HOST_PROBE_SUMMARY kernel=6.8.0-1017-gcp image=20261105 ra_kb=128 uniform=no "
+                                        "differ=[bench-validator-05] probe_failed=[bench-validator-07]"))
+        for failed, line in cases:
+            with self.subTest(failed=failed):
+                self.fresh()
+                for inst, node in self.nodes.items():
+                    hp = ("probe_failed no python3 on the node" if inst == failed
+                          else json.dumps(want[inst], separators=(",", ":")))
+                    node.put("fsync-probe", "FSYNC_PROBE %s p50_us=1000 p95_us=3000\nHOST_PROBE %s %s" % (inst, inst, hp))
+                    (node.root / "calls").write_text("")
+                p = self.deploy7()
+                self.assertEqual(p.returncode, 0, p.stdout)   # never fatal
+                startup = self.m()["node_startup"]
+                for inst, node in self.nodes.items():
+                    got = startup[inst]["host"]
+                    if inst == failed:
+                        self.assertEqual(got, {"probe_failed": True, "reason": "no python3 on the node"})
+                    else:
+                        self.assertEqual(got, want[inst], inst)
+                        self.assertEqual(list(got), HOST_FIELDS, inst)
+                    self.assertEqual(startup[inst]["host_steps"], [], inst)
+                    self.assertIn("python3 - probe %s %s %s/usr/local/libexec/telcoin/tn-start-docker"
+                                  % (inst, node.datadir, node.root), node.calls())
+                fs, hs = self.summary_order(p.stdout.splitlines())
+                self.assertEqual(fs, "FSYNC_PROBE_SUMMARY median_us=1000 slow=[] probe_failed=[]")
+                self.assertEqual(hs, line)
+                self.assertEqual(self.m()["coordinated_start"]["started"], 11)
+
+
+@needs_yaml
+class Step7ArmTests(Step7Mixin, FleetCase):
+    """Step 7 with BENCH_ARM_FILE (the first-start arm, read by the real tools/params-apply.sh --print-state): its
+    switches in every node's parameters.yaml, its host steps last before the start, manifest.param_arms once."""
+
+    def arm(self, name):
+        return self.bench / "arms" / (name + ".arm")
+
+    def precfg_ok(self, out, inst):
+        ok = [l for l in out.splitlines() if l.startswith("      PRECFG_OK %s " % inst)]
+        self.assertEqual(len(ok), 1, out)
+        return ok[0]
+
+    def test_v_vote_writes_its_switches_runs_its_host_step_and_is_recorded(self):
+        arm = self.arm("v-vote")
+        sha = file_sha256(arm)
+        p = self.deploy7(BENCH_ARM_FILE=str(arm))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    first-start arm v-vote (%s, sha256 %s): writes quorum_exec_block=true "
+                      "quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true "
+                      "epoch_record_state_check=true; host steps: evict-mdbx\n" % (arm, sha), p.stdout)
+        marked = ["%s: %s  # bench-override" % kv for kv in V_VOTE_WRITES.items()]
+        m = self.m()
+        out = p.stdout.splitlines()
+        for inst, node in self.nodes.items():
+            text = node.yaml.read_text().splitlines()
+            self.assertEqual(text[-5:], marked, inst)
+            self.assertEqual(text[:-5], STEP9_PARAMS.splitlines(), inst)
+            self.assertIn(" params=5 ", self.precfg_ok(p.stdout, inst))
+            self.assertIn("      HOST_STEP %s evict-mdbx - resident_pages_before=0 resident_pages_after=0" % inst, out)
+            self.assertEqual(m["node_startup"][inst]["host_steps"], [{"step": "evict-mdbx", "value": None, "result": EVICTED}])
+            script = (self.spool / (inst + ".sh")).read_text()
+            self.assertIn("# 7c. the switches of arm v-vote (BENCH_ARM_FILE, sha256 %s) away from their default, marked "
+                          "as the overrides are\n" % sha + "".join("setp %s %s\n" % kv for kv in V_VOTE_WRITES.items()),
+                          script)
+            self.assertIn("\n# 12. host step evict-mdbx (arm v-vote): mdbx.dat out of the page cache", script)
+            self.assertNotIn("# 11. host step", script)
+            self.assertIn("REF='%s'; NOV=5\n" % scripts_ref(), script)
+        self.assertEqual(m["param_arms"], [{
+            "name": "v-vote", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/v-vote.arm",
+            "sha256": sha, "switches": V_VOTE_SWITCHES, "nodes": {inst: V_VOTE_WRITES for inst in NODES},
+            "host": [{"step": "evict-mdbx", "value": None, "nodes": {inst: EVICTED for inst in NODES}}],
+            "ready": ARM_DUE_ISO}])
+        self.assertNotIn("end", m["param_arms"][0])
+        self.assertEqual(list(m["param_arms"][0]["switches"]), [r["key"] for r in switch_rows()[1]])
+        rec = self.lines_index(out, lambda l: l.startswith("    ✓ manifest.param_arms: v-vote via prestart "))
+        self.assertEqual([out[i] for i in rec], [
+            "    ✓ manifest.param_arms: v-vote via prestart (benchmark/arms/v-vote.arm, sha256 %s), begin = ready = %s; "
+            "writes quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true "
+            "mdbx_random_advice=true epoch_record_state_check=true" % (sha, ARM_DUE_ISO)])
+        self.assertLess(self.lines_index(out, lambda l: l.startswith("    start-all: "))[0], rec[0])
+
+    def test_the_control_arm_writes_nothing_and_is_recorded_at_the_defaults(self):
+        arm = self.arm("final")
+        sha = file_sha256(arm)
+        p = self.deploy7(BENCH_ARM_FILE=str(arm))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    first-start arm final (%s, sha256 %s): writes no switch; host steps: none\n" % (arm, sha), p.stdout)
+        m = self.m()
+        for inst, node in self.nodes.items():
+            self.assertEqual(node.yaml.read_text(), STEP9_PARAMS, inst)
+            self.assertIn(" params=0 ", self.precfg_ok(p.stdout, inst))
+            self.assertEqual(m["node_startup"][inst]["host_steps"], [], inst)
+            script = (self.spool / (inst + ".sh")).read_text()
+            self.assertEqual([l for l in script.splitlines() if l.startswith(("setp ", "# 7c.", "# 11.", "# 12."))], [], inst)
+        self.assertNotIn("HOST_STEP", p.stdout)
+        self.assertEqual(m["param_arms"], [{
+            "name": "final", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/final.arm", "sha256": sha,
+            "switches": switch_defaults(), "nodes": {inst: {} for inst in NODES}, "host": [], "ready": ARM_DUE_ISO}])
+        self.assertIn("    ✓ manifest.param_arms: final via prestart (benchmark/arms/final.arm, sha256 %s), begin = ready = "
+                      "%s; writes none (every switch at its default)\n" % (sha, ARM_DUE_ISO), p.stdout)
+
+    def test_a_rerun_keeps_the_recorded_arm_and_refuses_any_other(self):
+        arm = self.arm("v-vote")
+        p = self.deploy7(BENCH_ARM_FILE=str(arm))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        first = self.m()["param_arms"]
+        self.assertEqual(len(first), 1)
+        # --from 7 again with the same file: the record is kept, not duplicated.
+        self.log.write_text("")
+        p = self.deploy7(BENCH_ARM_FILE=str(arm))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.m()["param_arms"], first)
+        self.assertIn("    · manifest.param_arms keeps the first start's arm v-vote (via prestart)\n", p.stdout)
+        self.assertNotIn("✓ manifest.param_arms", p.stdout)
+        # The file changed since the start: refused before anything runs, both sha256 named.
+        arm.write_text(arm.read_text() + "# edited after the start\n")
+        new = file_sha256(arm)
+        self.assertNotEqual(new, first[0]["sha256"])
+        cases = (({"BENCH_ARM_FILE": str(arm)},
+                  "❌ BENCH_ARM_FILE %s (sha256 %s) is not the arm the fleet started in (sha256 %s, manifest.param_arms "
+                  "via prestart)" % (arm, new, first[0]["sha256"])),
+                 ({}, "❌ the fleet started in the arm v-vote (benchmark/arms/v-vote.arm, manifest.param_arms via "
+                      "prestart): set BENCH_ARM_FILE to that file to re-run step 7"))
+        for env, phrase in cases:
+            with self.subTest(phrase=phrase):
+                self.log.write_text("")
+                p = self.deploy7(**env)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(phrase, p.stdout)
+                self.assertEqual(self.ssh_targets(), [])
+                self.assertNotIn("devnet-network-config.sh --yes", self.sequence())
+                self.assertEqual(self.m()["param_arms"], first)
+
+    def test_an_arm_after_a_start_without_one_is_refused(self):
+        self.edit_manifest(coordinated_start=Step7Tests.FIRST)
+        p = self.deploy7(BENCH_ARM_FILE=str(self.arm("v-vote")))
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("❌ the fleet already started without a first-start arm (manifest.coordinated_start, no param_arms "
+                      "via prestart): BENCH_ARM_FILE cannot apply now — use tools/params-apply.sh, or unset it", p.stdout)
+        self.assertEqual(self.ssh_targets(), [])
+        self.assertEqual(self.sequence(), [])
+        self.assertNotIn("param_arms", self.m())
+
+    def test_a_per_node_switch_beside_the_arm_is_refused_before_any_node(self):
+        p = self.deploy7(BENCH_ARM_FILE=str(self.arm("v-vote")), BENCH_NODE_PARAM_OVERRIDES="2:vote_queue_fix=true")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("BENCH_NODE_PARAM_OVERRIDES sets the node switch vote_queue_fix on bench-validator-03 beside "
+                      "BENCH_ARM_FILE (the arm states every switch on every node; set it in the arm file)", p.stdout)
+        self.assertEqual(self.ssh_targets(), [])
+        self.assertEqual(self.sequence(), [])
+        self.assertNotIn("param_arms", self.m())
+
+
+class ArmStateTests(BashCase):
+    """The first-start arm through a stand-in `--print-state` (FAKE_PRINT_STATE): the pre-start script it gives
+    (--print-prestart; never run here: its read-ahead step writes sysfs), and every output the deploy refuses."""
+
+    plan = PlanTests.plan
+
+    def setUp(self):
+        super().setUp()
+        tool = self.bench / "tools" / "params-apply.sh"
+        tool.write_text(FAKE_PRINT_STATE)
+        tool.chmod(0o755)
+        self.arm = self.bench / "arms" / "fake-arm.arm"
+        self.arm.write_text("name fake-arm\nparam recovery_threads 3\nparam parent_grace 150ms\n"
+                            "host read-ahead-kb 16\nhost evict-mdbx\n")
+        self.state = self.root / "print-state.txt"
+        self.write_state()
+
+    def write_state(self, values=None, host=("read-ahead-kb 16", "evict-mdbx -"), drop=(), sha="@SHA@", extra=()):
+        vals = switch_defaults()
+        vals.update({"parent_grace": "150ms", "recovery_threads": "3"} if values is None else values)
+        lines = ["ARM_NAME fake-arm", "ARM_SHA256 " + sha]
+        lines += ["ARM_SWITCH %s %s %s" % (r["key"], r["type"], vals[r["key"]]) for r in switch_rows()[1]
+                  if r["key"] not in drop]
+        lines += ["ARM_HOST " + h for h in host] + list(extra)
+        self.state.write_text("\n".join(lines) + "\n")
+
+    def arm_env(self, **env):
+        return dict({"BENCH_ARM_FILE": str(self.arm), "FAKE_STATE": str(self.state)}, **env)
+
+    def prestart(self, inst="bench-validator-01", **env):
+        return subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-prestart", inst],
+                              env=self.env(**self.arm_env(**env)), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=60, universal_newlines=True)
+
+    def test_the_pre_start_script_writes_the_switches_and_runs_the_host_steps_last(self):
+        p = self.prestart()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.calls(), [])
+        s = p.stdout
+        sha = file_sha256(self.arm)
+        self.assertIn("\n# 7c. the switches of arm fake-arm (BENCH_ARM_FILE, sha256 %s) away from their default, marked as "
+                      "the overrides are\nsetp recovery_threads 3\nsetp parent_grace 150ms\n" % sha, s)
+        self.assertEqual(len([l for l in s.splitlines() if l.startswith("setp ")]), 2, s)
+        self.assertIn("REF='%s'; NOV=2\n" % scripts_ref(), s)
+        ra = s.index("\n# 11. host step read-ahead-kb 16 (arm fake-arm): the data disk's queue/read_ahead_kb, written and "
+                     "read back\n")
+        ev = s.index("\n# 12. host step evict-mdbx (arm fake-arm): mdbx.dat out of the page cache, the last thing before "
+                     "the start\n")
+        self.assertLess(s.index("\n# 7c. "), ra)
+        self.assertLess(ra, ev)
+        self.assertTrue(s.rstrip("\n").splitlines()[-1].endswith(' ra=${RA_OLD}->${RA_NEW} evict=${EV_BEFORE}/${EV_AFTER}"'),
+                        s[-300:])
+        # The arm's host steps, not the knobs' (the arm sets them; config.sh refuses the knobs beside it).
+        self.assertNotIn("BENCH_NODE_EVICT_MDBX=1", s)
+        self.assertNotIn("(BENCH_NODE_READ_AHEAD_KB)", s)
+
+    def test_print_state_output_the_deploy_refuses(self):
+        arm = str(self.arm)
+        sha = file_sha256(self.arm)
+        cases = (
+            ("tool refused", {}, {"FAKE_ERR": "arm fake-arm: line 2: unknown switch 'recovery_thread'"},
+             "❌ %s: tools/params-apply.sh --print-state refused the arm (rc 1): arm fake-arm: line 2: unknown switch "
+             "'recovery_thread'" % arm),
+            ("a row missing", {"drop": ("parent_grace",)}, {},
+             "❌ %s: --print-state's ARM_SWITCH lines are not every arms/switches.tsv row once, in order, with its type" % arm),
+            ("another sha", {"sha": "0" * 64}, {},
+             "❌ %s: ARM_SHA256 %s is not the file's sha256 (%s)" % (arm, "0" * 64, sha)),
+            ("an unknown line", {"extra": ("ARM_NOTE hello",)}, {},
+             "❌ %s: --print-state printed 'ARM_NOTE hello' (want ARM_NAME, ARM_SHA256, ARM_SWITCH, ARM_HOST lines of "
+             "the fixed format)" % arm),
+            ("a value not of its type", {"values": {"recovery_threads": "x"}}, {},
+             "❌ %s: --print-state gave recovery_threads=x, not a int" % arm),
+            ("a bad host step", {"host": ("read-ahead-kb 016",)}, {},
+             "❌ %s: --print-state gave the host step 'read-ahead-kb 016' (evict-mdbx -, read-ahead-kb <KiB>)" % arm),
+        )
+        for what, state, env, phrase in cases:
+            with self.subTest(what=what):
+                self.write_state(**state)
+                p = self.prestart(**env)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(phrase, p.stderr)
+                self.assertEqual(p.stdout, "")
+                # The plan shows it as step 7's ✗ line, and the arm line under step 7 as refused.
+                p, steps = self.plan(**self.arm_env(**env))
+                self.assertIn("✗ " + phrase[2:], p.stdout)
+                self.assertIn("first-start arm %s: refused (see the step 7 check above)" % arm, "\n".join(steps[7]))
+                self.assertEqual(self.calls(), [])
+        self.write_state()
+        self.assertEqual(self.prestart().returncode, 0)
+
+    def test_a_per_node_switch_beside_the_arm_is_refused(self):
+        why = ("BENCH_NODE_PARAM_OVERRIDES sets the node switch vote_queue_fix on bench-validator-03 beside BENCH_ARM_FILE "
+               "(the arm states every switch on every node; set it in the arm file)")
+        p = self.prestart(BENCH_NODE_PARAM_OVERRIDES="2:vote_queue_fix=true")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("❌ bench_prestart_script: " + why, p.stderr)
+        self.assertEqual(p.stdout, "")
+        p, _steps = self.plan(**self.arm_env(BENCH_NODE_PARAM_OVERRIDES="2:vote_queue_fix=true"))
+        self.assertIn("    ✗ " + why + "\n", p.stdout)
+        # A timing override beside it is fine: it joins the node's setp lines and the count.
+        p = self.prestart(inst="bench-validator-03", BENCH_NODE_PARAM_OVERRIDES="2:max_header_delay=250ms")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("NOV=3\n", p.stdout)
+        self.assertIn("setp max_header_delay 250ms\n# 7c. ", p.stdout)
+
+
+class Step9ArmTests(FleetCase):
+    """Step 9 when the fleet started in a first-start arm (manifest.param_arms via prestart): every node's `node
+    switches` line must show it, by value; and BENCH_PERSIST_SAMPLER=1's persist sampler on every node."""
+
+    deploy9 = Step9Tests.deploy9
+    ARM = {"name": "v-vote", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/v-vote.arm",
+           "sha256": "ab" * 32, "switches": V_VOTE_SWITCHES, "nodes": {}, "host": [], "ready": ARM_DUE_ISO}
+    # What a v-vote node logs: parent_grace in another spelling of 0, pipelined_persist (optional) not printed.
+    LINE = switch_line(dict(V_VOTE_SWITCHES, parent_grace="0s"), drop=("pipelined_persist",))
+    UNIT = ("[Unit]\nDescription=benchmark persist sampler (persist CSV every 30 s, folio census every 900 s -> "
+            "/var/lib/bench-sampler)\nAfter=docker.service telcoin.service\n[Service]\nType=simple\n"
+            "ExecStart=%s/usr/local/bin/bench-persist-sampler.sh\nRestart=always\nRestartSec=10\nNice=10\n[Install]\n"
+            "WantedBy=multi-user.target\n")
+
+    def with_arm(self, switches=V_VOTE_SWITCHES, lines=None):
+        """The manifest's first-start arm with <switches>; every node logs LINE, or lines[inst] when given."""
+        self.edit_manifest(param_arms=[{"name": "p1", "via": "restart", "begin": ARM_DUE_ISO}, dict(self.ARM, switches=switches)])
+        for inst, node in self.nodes.items():
+            line = (lines or {}).get(inst, self.LINE)
+            node.put("boot.log", boot_log() + (line + "\n" if line else ""))
+        self.log.write_text("")
+
+    def ok_line(self, inst, line):
+        return "      ✓ %s: node switches = arm v-vote (%s)" % (inst, line.split(" node switches ", 1)[1])
+
+    def test_every_node_shows_the_arm(self):
+        self.with_arm()
+        p = self.deploy9()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    every node's `node switches` line must show the first-start arm v-vote (manifest.param_arms "
+                      "via prestart), by value\n", p.stdout)
+        out = p.stdout.splitlines()
+        for inst in NODES:
+            self.assertIn(self.ok_line(inst, self.LINE), out)
+            self.assertIn("\n# 4b. the `node switches` line of this start (the fleet started in arm v-vote; step 9 "
+                          "compares it)\n", (self.spool / (inst + ".sh")).read_text())
+        self.assertEqual(self.ssh_targets(), NODES)
+        self.assertIn("step_9_done", self.m()["timestamps"])
+        # A duration is compared by its value: 150ms on the node is the arm's 0.15s.
+        line = switch_line(dict(V_VOTE_SWITCHES, parent_grace="150ms"))
+        self.with_arm(switches=dict(V_VOTE_SWITCHES, parent_grace="0.15s"), lines={i: line for i in NODES})
+        p = self.deploy9()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn(self.ok_line("bench-validator-01", line), p.stdout.splitlines())
+
+    def test_the_switch_line_of_a_rotated_docker_log_comes_from_the_unit_file(self):
+        self.with_arm()
+        node = self.nodes["bench-validator-01"]
+        node.put("boot.log", Step9Tests.CONSENSUS_ONLY)
+        node.unit_log.write_text(boot_log(sha=BAD_SHA) + switch_line() + "\n" + boot_log() + self.LINE + "\n")
+        p = self.deploy9()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn(self.ok_line("bench-validator-01", self.LINE), p.stdout.splitlines())
+
+    def test_a_node_off_the_arm_stops_step_9_there(self):
+        why = {"absent": "sealed_tx_keep is not on the line (expected false)",
+               "differs": "vote_queue_fix=false (expected true)",
+               "no line": "no 'node switches' line in the node's log since its start (an image that does not log it?)"}
+        lines = {"absent": switch_line(V_VOTE_SWITCHES, drop=("sealed_tx_keep",)),
+                 "differs": self.LINE.replace("vote_queue_fix=true", "vote_queue_fix=false"),
+                 "no line": ""}
+        for case, line in lines.items():
+            with self.subTest(case=case):
+                self.with_arm(lines={"bench-validator-03": line})
+                p = self.deploy9()
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn("❌ bench-validator-03: its node switches are not arm v-vote's (manifest.param_arms via "
+                              "prestart): %s — stopping step 9; the node keeps running in that state (no restart): tear "
+                              "down, or apply the arm with tools/params-apply.sh" % why[case], p.stdout)
+                self.assertEqual(self.ssh_targets(), NODES[:3])
+                self.assertIn(self.ok_line("bench-validator-02", self.LINE), p.stdout.splitlines())
+                self.assertNotIn("bench-validator-03: node switches =", p.stdout)
+                self.assertNotIn("step_9_done", self.m()["timestamps"])
+
+    def test_an_arm_file_without_a_recorded_arm_stops_before_any_node(self):
+        for arms in (None, [{"name": "p1", "via": "restart", "begin": ARM_DUE_ISO}]):
+            with self.subTest(param_arms=arms):
+                if arms is not None:
+                    self.edit_manifest(param_arms=arms)
+                self.log.write_text("")
+                p = self.deploy9(BENCH_ARM_FILE=str(self.bench / "arms" / "v-vote.arm"))
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn("❌ BENCH_ARM_FILE is set but %s has no first-start arm (param_arms via prestart): step 7 "
+                              "did not start the fleet in it — nothing to compare the nodes with" % self.manifest, p.stdout)
+                self.assertEqual(self.ssh_targets(), [])
+
+    def test_no_recorded_arm_reads_no_switch_line(self):
+        p = self.deploy9()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertNotIn("node switches", p.stdout)
+        self.assertNotIn("POSTCFG_SWITCHES", (self.spool / "bench-validator-01.sh").read_text())
+
+    def test_the_persist_sampler_is_installed_and_must_be_active(self):
+        p = self.deploy9(BENCH_PERSIST_SAMPLER="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    and bench-persist-sampler.service installed and active on every node (BENCH_PERSIST_SAMPLER=1)\n",
+                      p.stdout)
+        for inst, node in self.nodes.items():
+            for name, src in (("bench-persist-sampler.sh", BENCH / "node-persist-sampler.sh"),
+                              ("bench-folio-census.py", BENCH / "tools" / "folio-census.py")):
+                f = node.root / "usr/local/bin" / name
+                self.assertEqual(f.read_bytes(), src.read_bytes(), (inst, name))
+                self.assertEqual(f.stat().st_mode & 0o777, 0o755, (inst, name))
+            self.assertEqual((node.root / "etc/systemd/system/bench-persist-sampler.service").read_text(),
+                             self.UNIT % node.root, inst)
+            calls = node.calls()
+            enable = calls.index("systemctl enable --now bench-persist-sampler.service")
+            self.assertEqual(calls[enable + 1:enable + 2], ["systemctl is-active --quiet bench-persist-sampler.service"], inst)
+            self.assertLess(calls.index("systemctl enable --now bench-node-sampler.service"), enable)
+        self.assertEqual(relocation_problems((self.spool / "bench-validator-01.sh").read_text()), [])
+        # A unit that does not stay up stops step 9 on that node.
+        self.nodes["bench-validator-02"].put("inactive-units", "bench-persist-sampler.service")
+        self.log.write_text("")
+        p = self.deploy9(BENCH_PERSIST_SAMPLER="1")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("      POSTCFG_FAIL persist sampler not active\n", p.stdout)
+        self.assertIn("post-config verification failed on bench-validator-02", p.stdout)
+        self.assertEqual(self.ssh_targets(), NODES[:2])
+
+
+class PostconfigKnobsUnsetTests(BashCase):
+    """With BENCH_PERSIST_SAMPLER=0 and no first-start arm, step 9's script is the one the unmodified deploy script
+    printed (fixtures rendered before bench 6 H3, this env); the knob only inserts its block."""
+
+    def postconfig(self, inst, **env):
+        p = subprocess.run(["bash", str(self.bench / "benchmark-deploy.sh"), "--print-postconfig", inst],
+                           env=self.env(BENCH_RUN_ID="rtest-plan", **env), stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=60, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        return p.stdout.replace(str(self.root), "@ROOT@")
+
+    def test_knobs_unset_is_byte_identical(self):
+        for inst, fixture in (("bench-validator-01", "postconfig-knobs-unset-validator-01.txt"),
+                              ("bench-observer-11", "postconfig-knobs-unset-observer-11.txt")):
+            for value in (None, "0"):
+                with self.subTest(inst=inst, BENCH_PERSIST_SAMPLER=value):
+                    self.assertEqual(self.postconfig(inst, BENCH_PERSIST_SAMPLER=value), (FIX / fixture).read_text())
+
+    def test_the_persist_sampler_only_adds_its_block(self):
+        want = (FIX / "postconfig-knobs-unset-validator-01.txt").read_text().splitlines()
+        got = self.postconfig("bench-validator-01", BENCH_PERSIST_SAMPLER="1").splitlines()
+        i = got.index("# 6b. persist sampler (BENCH_PERSIST_SAMPLER=1; systemd, root: the folio census reads /proc/kpageflags)")
+        j = got.index('systemctl is-active --quiet bench-persist-sampler.service || fail "persist sampler not active"')
+        self.assertEqual(got[i - 1], 'systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"')
+        self.assertEqual(got[:i] + got[j + 1:], want)
+        self.assertEqual(j - i, 20, got[i:j + 1])
+
+
+class PlanH3Tests(BashCase):
+    """The dry run's plan: knobs unset, bench 5's plan plus the boot image gate and the host probe lines, nothing
+    else; the first-start arm, the host-step knobs and the persist sampler each add their lines."""
+
+    plan = PlanTests.plan
+    INDENT = " " * 39
+    GATE = [" " * 21 + "boot image %s must exist and be READY (OBSOLETE or DELETED refused, DEPRECATED warned)" % BOOT_IMAGE,
+            " " * 21 + "+ gcloud compute images describe %s --project=ubuntu-os-cloud --format=json" % BOOT_IMAGE_NAME,
+            " " * 23 + "(dry run — not executed)"]
+    HOST = [INDENT + "the host probe (kernel, boot image serial, datadir mount, block queue, THP, vm.dirty_*, memory limit, "
+                     "mdbx.dat; HOST_PROBE <instance> -> node_startup.host, never fatal), then",
+            INDENT + "and HOST_PROBE_SUMMARY kernel= image= ra_kb= uniform=yes|no differ=[] probe_failed=[] (⚠ when not "
+                     "uniform or a probe failed; never fatal)"]
+    STEP9 = [" " * 21 + "every node's `node switches` line == the first-start arm (manifest.param_arms via prestart; by "
+                        "value, an optional switch may be absent at its default), else stop",
+             " " * 21 + "bench-persist-sampler.service (node-persist-sampler.sh + tools/folio-census.py -> /usr/local/bin, "
+                        "root; BENCH_PERSIST_SAMPLER=1), must be active"]
+
+    def normalized(self, p):
+        """The plan as the fixture holds it: the fixtures dir, the sandbox root, the project and gs URLs as tokens."""
+        return (p.stdout.replace(str(FIX), "@FIX@").replace(str(self.root), "@ROOT@")
+                .replace("tn-" + "devnet", "@PROJECT@").replace("gs:" + "//", "@GS@"))
+
+    def host_step(self, src, steps):
+        return (self.INDENT + "host steps last, before the start (%s): %s; HOST_STEP -> node_startup.host_steps, a failed "
+                "one is PRECFG_FAIL" % (src, steps))
+
+    def test_knobs_unset_is_bench5_plus_the_gate_and_the_host_probe_lines(self):
+        p, _steps = self.plan()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        lines = self.normalized(p).split("\n")
+        i = lines.index(self.GATE[0])
+        self.assertEqual(lines[i:i + 3], self.GATE)
+        del lines[i:i + 3]
+        for line in self.HOST:
+            self.assertEqual(lines.count(line), 1, line)
+            lines.remove(line)
+        self.assertEqual("\n".join(lines), (FIX / "plan-knobs-unset.txt").read_text())
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.bench / "results").exists())
+
+    def test_the_arm_and_the_persist_sampler_add_their_lines(self):
+        arm = self.bench / "arms" / "v-vote.arm"
+        p, steps = self.plan(BENCH_ARM_FILE=str(arm), BENCH_PERSIST_SAMPLER="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.calls(), [])
+        seven, nine = steps[7], steps[9]
+        self.assertIn(self.INDENT + "%-20s parameters.yaml %s (first-start arm v-vote, %s; every switch away from its "
+                      "default)" % ("every node:", ",".join("%s=%s" % kv for kv in V_VOTE_WRITES.items()), arm), seven)
+        self.assertIn(self.INDENT + "-> manifest.param_arms {name: v-vote, via: prestart, begin = ready = the coordinated "
+                      "start}; step 9 reads every node's switch line back", seven)
+        hs = self.host_step("arm v-vote", "evict-mdbx (fincore must then read 0)")
+        self.assertTrue(seven[seven.index(hs) - 1].endswith("parameters.yaml overrides; PRECFG_OK <instance>"), seven)
+        i = nine.index(self.STEP9[0])
+        self.assertEqual(nine[i:i + 2], self.STEP9)
+        self.assertTrue(nine[i - 1].endswith("bench-node-sampler.service; POSTCFG_OK ... back=-"), nine)
+        # Each alone.
+        p, steps = self.plan(BENCH_PERSIST_SAMPLER="1")
+        self.assertEqual([l for l in steps[9] if l in self.STEP9], self.STEP9[1:])
+        self.assertNotIn("first-start arm", p.stdout)
+        self.assertNotIn("host steps last", p.stdout)
+
+    def test_the_host_step_knobs_name_themselves(self):
+        src = "BENCH_NODE_READ_AHEAD_KB / BENCH_NODE_EVICT_MDBX"
+        for env, steps in (({"BENCH_NODE_EVICT_MDBX": "1"}, "evict-mdbx (fincore must then read 0)"),
+                           ({"BENCH_NODE_READ_AHEAD_KB": "16"}, "read-ahead-kb 16"),
+                           ({"BENCH_NODE_READ_AHEAD_KB": "16", "BENCH_NODE_EVICT_MDBX": "1"},
+                            "read-ahead-kb 16, evict-mdbx (fincore must then read 0)")):
+            with self.subTest(env=env):
+                p, got = self.plan(**env)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertEqual([l for l in got[7] if "host steps last" in l], [self.host_step(src, steps)])
+                self.assertEqual([l for l in got[9] if l in self.STEP9], [])
+        self.assertEqual(self.calls(), [])
+
+
+class ArmLibTests(BashCase):
+    """bench-lib.sh: the switch readback step 9 uses, the switches an arm writes, the persist rows of INDEX.md and
+    its copy wording, and the certification record's deferral before the teardown pull."""
+
+    def readback(self, expected, line):
+        p = self.bash(LIB_CALL, self.bench, "bench_switch_readback", json.dumps(expected), line)
+        return p.returncode, p.stdout.strip()
+
+    def test_switch_readback_compares_by_value(self):
+        no_line = "no 'node switches' line in the node's log since its start (an image that does not log it?)"
+        bare = "2026-01-01T00:00:01Z  INFO node::switches: node switches"
+        cases = (
+            ("bool by case", {"vote_queue_fix": "true"}, switch_line({"vote_queue_fix": "TRUE"}), 0, ""),
+            ("int leading zeros", {"recovery_threads": "4"}, switch_line({"recovery_threads": "004"}), 0, ""),
+            ("int 0 spelled 000", {}, switch_line({"recovery_threads": "000"}), 0, ""),
+            ("dur ms vs s", {"parent_grace": "0.15s"}, switch_line({"parent_grace": "150ms"}), 0, ""),
+            ("dur s vs ms", {"parent_grace": "150ms"}, switch_line({"parent_grace": "0.15s"}), 0, ""),
+            ("dur 0s vs 0ms", {}, switch_line({"parent_grace": "0s"}), 0, ""),
+            ("dur quoted", {"parent_grace": "150ms"}, switch_line({"parent_grace": '"150ms"'}), 0, ""),
+            ("dur differs", {"parent_grace": "150ms"}, switch_line({"parent_grace": "100ms"}), 1,
+             "parent_grace=100ms (expected 150ms)"),
+            ("bool not a bool", {"vote_queue_fix": "true"}, switch_line({"vote_queue_fix": "yes"}), 1,
+             "vote_queue_fix=yes (expected true)"),
+            ("optional absent at its default", {}, switch_line(drop=("pipelined_persist",)), 0, ""),
+            ("optional absent, expected on", {"pipelined_persist": "true"}, switch_line(drop=("pipelined_persist",)), 1,
+             "pipelined_persist is not on the line (expected true)"),
+            ("non-optional absent at its default", {}, switch_line(drop=("sealed_tx_keep",)), 1,
+             "sealed_tx_keep is not on the line (expected false)"),
+            ("several, in switches.tsv order", {"vote_queue_fix": "true", "recovery_threads": "3"},
+             switch_line(drop=("digest_dedupe",)), 1,
+             "vote_queue_fix=false (expected true), digest_dedupe is not on the line (expected false), "
+             "recovery_threads=0 (expected 3)"),
+            ("empty line", {}, "", 1, no_line),
+            ("dash", {}, "-", 1, no_line),
+            ("no key=value", {}, bare, 1, "the line holds no key=value after 'node switches': " + bare),
+            ("another message", {}, "INFO node: node started quorum_exec_block=true", 1,
+             "the line holds no key=value after 'node switches': INFO node: node started quorum_exec_block=true"),
+        )
+        for what, expected, line, rc, out in cases:
+            with self.subTest(what=what):
+                self.assertEqual(self.readback(expected, line), (rc, out))
+
+    def test_the_real_print_state_feeds_the_reader(self):
+        # tools/params-apply.sh --arm-file <f> --print-state (the arm tool's own parser) on v-vote.arm, then its
+        # output through bench_arm_state_load: what step 7 writes and records comes from these.
+        arm = self.bench / "arms" / "v-vote.arm"
+        sha = file_sha256(arm)
+        rows = switch_rows()[1]
+        p = subprocess.run(["bash", str(self.bench / "tools" / "params-apply.sh"), "--arm-file", str(arm), "--print-state"],
+                           env=self.env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                           universal_newlines=True)
+        self.assertEqual((p.returncode, p.stderr), (0, ""))
+        got = p.stdout.splitlines()
+        self.assertEqual(got, ["ARM_NAME v-vote", "ARM_SHA256 " + sha]
+                         + ["ARM_SWITCH %s %s %s" % (r["key"], r["type"], V_VOTE_SWITCHES[r["key"]]) for r in rows]
+                         + ["ARM_HOST evict-mdbx -"])
+        for line in ("ARM_SWITCH quorum_exec_block bool true", "ARM_SWITCH quorum_exec_block_starved_rounds int 4",
+                     "ARM_SWITCH parent_grace dur 0ms", "ARM_SWITCH pipelined_persist bool false"):
+            self.assertIn(line, got)
+        reader = ('set -euo pipefail\nlib="$1"; f="$2"\nsource "$lib/bench-lib.sh"\nbench_arm_state_load "$f"\n'
+                  'printf "FOR %s\\nNAME %s\\nSHA %s\\nHOST [%s]\\n" "${BENCH_ARM_STATE_FOR}" "${BENCH_ARM_NAME}" '
+                  '"${BENCH_ARM_SHA256}" "${BENCH_ARM_HOST}"\n'
+                  'echo "WRITES $(bench_arm_writes | paste -sd " " -)"\necho "JSON $(bench_arm_switches_json)"\n')
+        r = self.bash(reader, self.bench, arm)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("FOR %s\nNAME v-vote\nSHA %s\nHOST [evict-mdbx -\n]\n" % (arm, sha), r.stdout)
+        self.assertIn("\nWRITES quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true "
+                      "mdbx_random_advice=true epoch_record_state_check=true\n", r.stdout)
+        js = [l[len("JSON "):] for l in r.stdout.splitlines() if l.startswith("JSON ")]
+        self.assertEqual(len(js), 1, r.stdout)
+        self.assertEqual(json.loads(js[0]), V_VOTE_SWITCHES)
+        self.assertEqual(list(json.loads(js[0])), [r_["key"] for r_ in rows])
+        # A refusal: rc 1, the reason on stderr, nothing on stdout; the reader passes the reason on.
+        bad = self.root / "bad.arm"
+        bad.write_text("name bad\nparam quorum_exec_blok true\n")
+        p = subprocess.run(["bash", str(self.bench / "tools" / "params-apply.sh"), "--arm-file", str(bad), "--print-state"],
+                           env=self.env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+                           universal_newlines=True)
+        self.assertEqual((p.returncode, p.stdout), (1, ""))
+        self.assertIn("%s:2: unknown switch 'quorum_exec_blok'" % bad, p.stderr)
+        r = self.bash(reader, self.bench, bad)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("❌ %s: tools/params-apply.sh --print-state refused the arm (rc 1): params-apply: %s:2: unknown "
+                      "switch 'quorum_exec_blok'" % (bad, bad), r.stdout)
+        self.assertNotIn("NAME ", r.stdout)
+
+    def writes(self, state):
+        p = self.bash('set -euo pipefail\nlib="$1"; st="$2"\nsource "$lib/bench-lib.sh"\nBENCH_ARM_SWITCHES="$st"\n'
+                      'bench_arm_writes\necho END', self.bench, state)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return p.stdout
+
+    def test_arm_writes_only_the_switches_away_from_their_default(self):
+        rows = switch_rows()[1]
+        spelled = {"quorum_exec_block_starved_rounds": "0", "recovery_threads": "000", "parent_grace": "0s",
+                   "digest_dedupe": "FALSE", "vote_queue_fix": "true", "rpc_admission_backlog_outputs": "2"}
+        state = "".join("%s %s %s\n" % (r["key"], r["type"], spelled.get(r["key"], r["default"])) for r in rows)
+        self.assertEqual(self.writes(state), "vote_queue_fix=true\nrpc_admission_backlog_outputs=2\nEND\n")
+        state = "".join("%s %s %s\n" % (r["key"], r["type"], r["default"]) for r in rows)
+        self.assertEqual(self.writes(state), "END\n")
+        state = state.replace("parent_grace dur 0ms", "parent_grace dur 0.15s")
+        self.assertEqual(self.writes(state), "parent_grace=0.15s\nEND\n")
+
+    def test_index_rows_and_wording(self):
+        for path, row in (("persist/bench-validator-01.csv", "21|persist/<node>.csv|node-persist-sampler.sh rows every 30 s"),
+                          ("persist/bench-observer-11.folios.txt", "21|persist/<node>.folios.txt|folio-order census")):
+            with self.subTest(path=path):
+                p = self.bash(LIB_CALL, self.bench, "_bench_index_kind", path)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                self.assertTrue(p.stdout.startswith(row), p.stdout)
+                self.assertTrue(p.stdout.endswith("BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect\n"), p.stdout)
+        d = self.root / "copy" / "r20260101-0000"
+        (d / "persist").mkdir(parents=True)
+        for name in ("bench-validator-01.csv", "bench-validator-02.csv", "bench-validator-01.folios.txt"):
+            (d / "persist" / name).write_text("ts_unix\n")
+        (d / "manifest.json").write_text("{}\n")
+        p = self.bash(LIB_CALL, self.bench, "_bench_write_index", d)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        text = (d / "INDEX.md").read_text()
+        self.assertNotIn("only copy", text)
+        self.assertIn("This directory is a working copy of the run: the canonical copy is", text)
+        self.assertNotIn("benchmark-archive", text)
+        self.assertIn("\n| 2 | `persist/<node>.csv` | node-persist-sampler.sh rows every 30 s", text)
+        self.assertIn("\n| 1 | `persist/<node>.folios.txt` | folio-order census", text)
+
+    def test_certification_waits_for_the_teardown_pull(self):
+        mf = self.root / "cert-run" / "manifest.json"
+        mf.parent.mkdir()
+        mf.write_text(json.dumps({"run_id": "rtest-cert", "phases": [{"name": "steady"}]}) + "\n")
+        deferred = "    certification: deferred to the teardown (node logs are pulled there)\n"
+        for files, warned in (((), False), (("deploy-20260101T000000Z.log", "notes.txt"), False),
+                              (("bench-validator-01.pulled",), True), (("bench-validator-01.pulled-20260101T000000Z",), True),
+                              (("bench-observer-11-telcoin.log.gz",), True)):
+            with self.subTest(files=files):
+                logs = self.root / ("logs-%d" % len(list(self.root.glob("logs-*"))))
+                logs.mkdir()
+                for f in files:
+                    (logs / f).write_text("x\n")
+                p = subprocess.run(["bash", "-c", LIB_CALL, "benchmark-deploy.sh", str(self.bench),
+                                    "bench_certification_record", str(logs), str(mf)],
+                                   env=self.env(BENCH_APPLY="1"), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   timeout=60, universal_newlines=True)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertNotIn("dry run", p.stdout)
+                if warned:
+                    self.assertNotIn("deferred", p.stdout)
+                    self.assertIn("⚠ certification: no validator log in %s yet (the teardown pulls them; glob "
+                                  "bench-validator-*-unit-stdout*.log.gz) — not recorded" % logs, p.stderr)
+                else:
+                    self.assertIn(deferred, p.stdout)
+                    self.assertNotIn("⚠", p.stdout + p.stderr)
+                self.assertFalse((mf.parent / "analysis").exists())
+                self.assertEqual(json.loads(mf.read_text())["run_id"], "rtest-cert")
+
+
+class NodeSwitchContractTests(BashCase):
+    """The node image contract requires the `node switches` line (bench 6); provenance then treats it as required."""
+
+    probe = ProbeTests.probe
+    assertAccepted = ProbeTests.assertAccepted
+    assertRefused = ProbeTests.assertRefused
+
+    def test_an_image_without_the_switch_line_is_refused(self):
+        self.make_image(drop=("node switches",))
+        r = self.probe()
+        self.assertRefused(r, "lacks these contract strings:")
+        listed = r.out.split("lacks these contract strings:", 1)[1].split()
+        self.assertEqual(listed[:2], ["node", "switches"], r.out)
+
+    def test_a_good_image_records_it_and_provenance_requires_it(self):
+        import importlib.util
+        self.assertIn(("require", "node switches"), contract_entries(BENCH / "node-image-contract.txt"))
+        r = self.probe()
+        self.assertAccepted(r)
+        strings = json.loads(r.globals["BENCH_NODE_STRINGS_JSON"])
+        self.assertGreaterEqual(strings["node switches"], 1)
+        spec = importlib.util.spec_from_file_location("provenance_h3", str(BENCH / "report" / "provenance.py"))
+        prov = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prov)
+        self.assertTrue(prov.switch_line_required({"node_probe": {"strings": strings}}))
+        self.assertFalse(prov.switch_line_required(
+            {"node_probe": {"strings": {k: v for k, v in strings.items() if k != "node switches"}}}))
 
 
 if __name__ == "__main__":

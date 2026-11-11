@@ -108,7 +108,7 @@ Records merge into the instance's object (`node_startup_merge`), so adding a key
 | `container_memory_limit_bytes` | int | the node container's `--memory` limit (`HostConfig.Memory`); 0 means none |
 | `mdbx_dat_size_bytes` | int or null | size of `<datadir>/db/mdbx.dat`; null when the file does not exist yet |
 | `mdbx_dat_resident_pages` | int or null | fincore resident pages of `mdbx.dat` |
-| `mdbx_dat_folios` | {order: int} or null | the folio census of `mdbx.dat`: folios per folio order, keys are the order as a string |
+| `mdbx_dat_folios` | {order: int} or null | the folio census of `mdbx.dat`: folios per folio order, keys are the order as a string; null before the node's first start, which is when deploy step 7 probes (the census resolves pages through the node process's page table, and no process maps the file yet) |
 | `lru_gen_enabled` | string | `/sys/kernel/mm/lru_gen/enabled` (for example `0x0007`); null when the kernel has no multi-generational LRU. With it on, the `active` page flag is mostly unset, which changes how the folio census's `active_folios` reads |
 
 A probe that failed as a whole records `{"probe_failed": true, "reason": "<text>"}` instead, as `fsync_probe` does.

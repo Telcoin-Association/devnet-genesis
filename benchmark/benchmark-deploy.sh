@@ -365,6 +365,39 @@ machine_type_check() {
     echo "    ✓ ${t} offered in all ${n} zones"
 }
 
+# boot_image_check — step 0's boot image gate, before anything is created: `gcloud compute images
+# describe` of the pinned IMAGE (benchmark/config.sh BENCH_NODE_BOOT_IMAGE, projects/<p>/global/images/<name>,
+# never a family). A missing image, a status other than READY or a deprecation state OBSOLETE or DELETED
+# is refused; DEPRECATED is a warning (the image still boots the same bits). BOOT_IMAGE_JSON is then the
+# manifest.node_boot_image record {ref, name, status, deprecation_state} (null when not deprecated),
+# written by step 0 once the manifest exists. The dry run prints the call and makes none.
+BOOT_IMAGE_JSON=""
+boot_image_check() {
+    local p n out rc=0 st dep nm
+    p="${IMAGE#projects/}"; p="${p%%/*}"; n="${IMAGE##*/}"
+    echo "    boot image ${IMAGE} must exist and be READY (OBSOLETE or DELETED refused, DEPRECATED warned)"
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "    + gcloud compute images describe ${n} --project=${p} --format=json"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    out="$(gcloud compute images describe "${n}" --project="${p}" --format=json </dev/null 2>&1)" || rc=$?
+    [ "${rc}" -eq 0 ] || bench_die "boot image ${IMAGE} cannot be described (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200) — nothing was created; pin an image that exists (BENCH_NODE_BOOT_IMAGE)"
+    BOOT_IMAGE_JSON="$(printf '%s' "${out}" | jq -c --arg ref "${IMAGE}" 'select(type == "object")
+        | {ref: $ref, name: (.name // null), status: (.status // null), deprecation_state: (.deprecated.state // null)}' 2>/dev/null)" || BOOT_IMAGE_JSON=""
+    [ -n "${BOOT_IMAGE_JSON}" ] || bench_die "boot image ${IMAGE}: images describe gave no JSON object — nothing was created"
+    nm="$(printf '%s' "${BOOT_IMAGE_JSON}" | jq -r '.name // ""')"
+    st="$(printf '%s' "${BOOT_IMAGE_JSON}" | jq -r '.status // ""')"
+    dep="$(printf '%s' "${BOOT_IMAGE_JSON}" | jq -r '.deprecation_state // ""')"
+    [ "${nm}" = "${n}" ] || bench_die "boot image ${IMAGE}: images describe answered for '${nm}', not ${n} — nothing was created"
+    case "${dep}" in
+        OBSOLETE|DELETED) bench_die "boot image ${IMAGE} is ${dep} — a fleet cannot boot it; nothing was created (pin another: BENCH_NODE_BOOT_IMAGE)" ;;
+        DEPRECATED) bench_warn "boot image ${IMAGE} is DEPRECATED: it still boots, but its replacement is out (manifest.node_boot_image.deprecation_state)" ;;
+    esac
+    [ "${st}" = READY ] || bench_die "boot image ${IMAGE} has status '${st:-none}', not READY — nothing was created"
+    echo "    ✓ boot image ${n} (${p}): READY${dep:+, deprecation state ${dep}}"
+}
+
 # zone_fallback_zones — the distinct BENCH_ZONE_FALLBACKS zones, space-separated, sorted.
 zone_fallback_zones() {
     local item z
@@ -560,6 +593,8 @@ EOF
 # devnet-finalize.sh's readiness gate parses it), and a TN_NODE_SCRIPTS_REF that is not a full
 # lowercase 40-hex sha (as devnet-deploy.sh refuses it: the ref goes into every node's instance
 # metadata and a root git command there, and the pre-start config compares the node's checkout with it).
+# With BENCH_ARM_FILE: the arm must parse (bench_arm_state_load) and no BENCH_NODE_PARAM_OVERRIDES item
+# may set a node switch beside it (bench_arm_override_conflicts).
 step7_local_problems() {
     python3 -c 'import yaml' >/dev/null 2>&1 \
         || echo "python3 has no PyYAML (devnet-network-config.sh and devnet-finalize.sh parse YAML with it): sudo apt-get install python3-yaml, or python3 -m pip install --user pyyaml"
@@ -567,6 +602,14 @@ step7_local_problems() {
         *[!0-9a-f]*|'') echo "TN_NODE_SCRIPTS_REF must be a full lowercase 40-hex commit sha (got '${TN_NODE_SCRIPTS_REF:-}')" ;;
         *) [ "${#TN_NODE_SCRIPTS_REF}" -eq 40 ] || echo "TN_NODE_SCRIPTS_REF must be exactly 40 hex characters (got ${#TN_NODE_SCRIPTS_REF})" ;;
     esac
+    if [ -n "${BENCH_ARM_FILE:-}" ]; then
+        local e
+        if e="$(bench_arm_state_load 2>&1)"; then
+            bench_arm_override_conflicts
+        else
+            printf '%s\n' "${e}" | sed 's/^❌ //' | head -n 1
+        fi
+    fi
 }
 
 # obs_or_die <resume hint> <fn> [args] — an obs-lib.sh function (bench-obs create / ensure / require) in a
@@ -632,6 +675,7 @@ step_0() {
     zone_fallback_check
     disk_type_check
     quota_check
+    boot_image_check
     mkdir -p "${BENCH_RESULTS_DIR}"
     [ -f "${BENCH_RESULTS_DIR}/pre-instances.json" ] \
         || gcloud compute instances list --project="${PROJECT_ID}" --format=json > "${BENCH_RESULTS_DIR}/pre-instances.json"
@@ -639,6 +683,9 @@ step_0() {
         || gcloud compute firewall-rules list --project="${PROJECT_ID}" --format=json > "${BENCH_RESULTS_DIR}/pre-firewall.json"
     echo "    ✓ pre-snapshots in ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json"
     bench_manifest_init
+    bench_manifest_jq --argjson b "${BOOT_IMAGE_JSON}" '.node_boot_image = $b' \
+        || bench_die "could not record node_boot_image in $(bench_manifest)"
+    echo "    ✓ manifest.node_boot_image: ${BOOT_IMAGE_JSON}"
 }
 
 step_1() {
@@ -806,10 +853,19 @@ step_2() {
                   machine_type: ($j.machineType | split("/") | last), vcpus: ($v|tonumber), memory_mb: ($m|tonumber),
                   internal_ip: $j.networkInterfaces[0].networkIP,
                   external_ip: ($j.networkInterfaces[0].accessConfigs[0].natIP // null),
-                  boot_disk: {name: $d.name, size_gb: ($d.sizeGb|tonumber), type: ($d.type | split("/") | last)}}]')"
+                  boot_disk: {name: $d.name, size_gb: ($d.sizeGb|tonumber), type: ($d.type | split("/") | last)},
+                  source_image: ($d.sourceImage // null)}]')"
     done
     bench_manifest_jq --argjson a "${insts}" '.instances = $a'
     echo "    ✓ manifest.instances[] recorded (${#INSTANCE_NAMES[@]})"
+    # Every boot disk must come from the pinned image (IMAGE; a family would float): the disks describe
+    # above reports it as a URL ending in projects/<p>/global/images/<name>.
+    local offimg
+    offimg="$(printf '%s' "${insts}" | jq -r --arg img "${IMAGE}" '.[] | (.source_image // "") as $s
+        | select(($s == $img or ($s | endswith("/" + $img))) | not) | "\(.name) boots \(if $s == "" then "an unknown image" else $s end)"')" \
+        || bench_die "could not read the instances' source images"
+    [ -z "${offimg}" ] || bench_die "the fleet does not all boot the pinned image ${IMAGE} (BENCH_NODE_BOOT_IMAGE): $(printf '%s' "${offimg}" | paste -sd ';' - | sed 's/;/; /g') — the fleet is refused (manifest.instances[].source_image): tear it down (benchmark-teardown.sh) and deploy again"
+    echo "    ✓ every boot disk is ${IMAGE}"
     # The run's own obs VM (metrics only; obs-lib.sh): created, or kept when this run already has it
     # (a re-run with --from 2); one that belongs to another run is refused. Step 8 brings it up.
     obs_or_die "bench-obs could not be created or kept (above) — re-run with --from 2 (nodes are kept, this run's VM is adopted)" \
@@ -979,13 +1035,15 @@ bench_node_jobs_run() {
 # field ("durable" when absent: BENCH_NODE_DB_SYNC_MODE unset passes no flag, and durable is the node's
 # default; make_bundle.py refuses a run with any "safe-no-sync" node unless told otherwise), and
 # .fsync_probe from its FSYNC_PROBE line (bench_fsync_probe_record: {p50_us, p95_us}, or
-# {probe_failed: true, reason}).
+# {probe_failed: true, reason}). The host probe (bench_host_probe_script) runs between the two, before
+# any host step: .host from its HOST_PROBE line (bench_host_probe_record), .host_steps from the HOST_STEP
+# lines of the pre-start script's host steps (bench_host_step_record; [] when it ran none).
 STEP7_RUNNING=""
 prestart_node() {
-    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o
+    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o hp hs
     case " ${STEP7_RUNNING}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; return 0 ;; esac
-    out="$({ bench_fsync_probe_script "${inst}"; bench_prestart_script "${inst}"; } | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
-    printf '%s\n' "${out}" | grep -E '^FSYNC_PROBE |PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
+    out="$({ bench_fsync_probe_script "${inst}"; bench_host_probe_script "${inst}"; bench_prestart_script "${inst}"; } | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "${out}" | grep -E '^FSYNC_PROBE |^HOST_PROBE |^HOST_STEP |PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
     line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
     [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
     lr="$(postcfg_field "${line}" logrotate)"; pb="$(postcfg_field "${line}" paramsbak)"
@@ -993,10 +1051,75 @@ prestart_node() {
     ds="$(postcfg_field "${line}" dbsync)"; ds="${ds:-durable}"
     fp="$(printf '%s\n' "${out}" | bench_fsync_probe_record "${inst}")" || fp=""
     [ -n "${fp}" ] || fp='{"probe_failed":true,"reason":"no record from bench_fsync_probe_record"}'
-    o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" --arg ds "${ds}" --argjson fp "${fp}" '
+    hp="$(printf '%s\n' "${out}" | bench_host_probe_record "${inst}")" || hp=""
+    [ -n "${hp}" ] || hp='{"probe_failed":true,"reason":"no record from bench_host_probe_record"}'
+    hs="$(printf '%s\n' "${out}" | bench_host_step_record "${inst}")" || hs=""
+    [ -n "${hs}" ] || hs='[]'
+    o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" --arg ds "${ds}" --argjson fp "${fp}" --argjson hp "${hp}" --argjson hs "${hs}" '
         def str: if . == "" or . == "-" then null else . end;
-        {logrotate_size: ($lr|str), params_bak: ($pb|str), db_sync_mode: $ds, fsync_probe: $fp}')" || bench_die "${inst}: cannot build its node_startup record"
+        {logrotate_size: ($lr|str), params_bak: ($pb|str), db_sync_mode: $ds, fsync_probe: $fp, host: $hp, host_steps: $hs}')" || bench_die "${inst}: cannot build its node_startup record"
     node_startup_merge "${inst}" "${o}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+}
+
+# prestart_arm_json — the manifest's last param_arms[] entry with via "prestart" (the first-start arm
+# step 7 applied), compact; "" when there is none.
+prestart_arm_json() {
+    jq -c '[(.param_arms // [])[]? | objects | select(.via == "prestart")] | last // empty' "$(bench_manifest)" 2>/dev/null || true
+}
+
+# step7_arm_check — with BENCH_ARM_FILE (bench_arm_state_load already ran), or with a first-start arm in
+# the manifest: the arm a re-run would configure must be the one the fleet started in. Dies on an arm
+# file whose sha256 is not the recorded one, on a recorded arm the run no longer names, and on an arm
+# file named after the fleet started without one.
+step7_arm_check() {
+    local rec rsha
+    rec="$(prestart_arm_json)"
+    if [ -n "${rec}" ]; then
+        rsha="$(printf '%s' "${rec}" | jq -r '.sha256 // ""')"
+        [ -n "${BENCH_ARM_FILE:-}" ] || bench_die "the fleet started in the arm $(printf '%s' "${rec}" | jq -r '.name') ($(printf '%s' "${rec}" | jq -r '.file // "?"'), manifest.param_arms via prestart): set BENCH_ARM_FILE to that file to re-run step 7"
+        [ "${rsha}" = "${BENCH_ARM_SHA256}" ] || bench_die "BENCH_ARM_FILE ${BENCH_ARM_FILE} (sha256 ${BENCH_ARM_SHA256}) is not the arm the fleet started in (sha256 ${rsha}, manifest.param_arms via prestart)"
+    elif [ -n "${BENCH_ARM_FILE:-}" ] && [ -n "$(jq -c '.coordinated_start // empty' "$(bench_manifest)" 2>/dev/null || true)" ]; then
+        bench_die "the fleet already started without a first-start arm (manifest.coordinated_start, no param_arms via prestart): BENCH_ARM_FILE cannot apply now — use tools/params-apply.sh, or unset it"
+    fi
+    return 0
+}
+
+# prestart_arm_record — manifest.param_arms += the first-start arm (BENCH_ARM_FILE), once, right after
+# the first coordinated start: {name, begin, via: "prestart", file (repo-relative), sha256, switches (all
+# of arms/switches.tsv, as strings), nodes ({inst: the switches step 7 wrote into its parameters.yaml}),
+# host ([{step, value, nodes: {inst: node_startup[inst].host_steps' result}}], run order), ready}, with
+# begin = ready = the coordinated start's due time and no end (the arm stays in force). A re-run keeps
+# the first record (step7_arm_check has matched its sha256).
+prestart_arm_record() {
+    local m due begin root abs rel w insts steps
+    m="$(bench_manifest)"
+    if [ -n "$(prestart_arm_json)" ]; then
+        echo "    · manifest.param_arms keeps the first start's arm ${BENCH_ARM_NAME} (via prestart)"
+        return 0
+    fi
+    due="$(jq -r '.coordinated_start.due // empty' "${m}" 2>/dev/null || true)"
+    case "${due}" in ''|*[!0-9]*) bench_die "cannot record the first-start arm ${BENCH_ARM_NAME}: manifest.coordinated_start.due is '${due}'" ;; esac
+    begin="$(bench_iso_from_unix "${due}")" || bench_die "cannot turn the coordinated start ${due} into a UTC time"
+    root="$(cd "${REPO_ROOT}" && pwd -P)"
+    abs="$(cd "$(dirname "${BENCH_ARM_FILE}")" && pwd -P)/$(basename "${BENCH_ARM_FILE}")"
+    case "${abs}" in "${root}"/*) rel="${abs#"${root}"/}" ;; *) rel="${abs}" ;; esac
+    w="$(bench_arm_writes | jq -R -s -c 'split("\n") | map(select(length > 0) | capture("^(?<k>[^=]+)=(?<v>.*)$") | {(.k): .v}) | add // {}')" \
+        || bench_die "cannot list the switches arm ${BENCH_ARM_NAME} writes"
+    insts="$(printf '%s\n' "${INSTANCE_NAMES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" || bench_die "cannot list the fleet"
+    steps="$(printf '%s\n' "${BENCH_ARM_HOST}" | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {step: .[0], value: (if .[1] == "-" then null else .[1] end)})')" \
+        || bench_die "cannot list the host steps of arm ${BENCH_ARM_NAME}"
+    bench_manifest_jq --arg n "${BENCH_ARM_NAME}" --arg b "${begin}" --arg f "${rel}" --arg s "${BENCH_ARM_SHA256}" \
+        --argjson sw "$(bench_arm_switches_json)" --argjson w "${w}" --argjson insts "${insts}" --argjson steps "${steps}" '
+        . as $m
+        | .param_arms = ((.param_arms // []) + [{
+            name: $n, begin: $b, via: "prestart", file: $f, sha256: $s, switches: $sw,
+            nodes: (reduce $insts[] as $i ({}; .[$i] = $w)),
+            host: [$steps[] as $st | {step: $st.step, value: $st.value,
+                    nodes: (reduce $insts[] as $i ({}; .[$i] = ([($m.node_startup[$i].host_steps // [])[]? | objects
+                        | select(.step == $st.step) | .result] | last // {failed: "no host step record from step 7"})))}],
+            ready: $b}])' \
+        || bench_die "could not record the first-start arm in $(bench_manifest)"
+    echo "    ✓ manifest.param_arms: ${BENCH_ARM_NAME} via prestart (${rel}, sha256 ${BENCH_ARM_SHA256}), begin = ready = ${begin}; writes $(printf '%s' "${w}" | jq -r 'to_entries | map("\(.key)=\(.value)") | join(" ") | if . == "" then "none (every switch at its default)" else . end')"
 }
 
 # step_7 — the fleet's one coordinated start (D1: no validator runs while the committee is
@@ -1015,9 +1138,16 @@ prestart_node() {
 # value, and start-all skips RUNNING nodes. A unit RUNNING before any coordinated start ran alone: the
 # step stops and asks for it to be stopped first.
 step_7() {
-    local logs="${BENCH_RESULTS_DIR}/logs" log rc running="" marker spread jobs
+    local logs="${BENCH_RESULTS_DIR}/logs" log rc running="" marker spread jobs w
     echo ">>> Step 7: finalize — network-config, stage-only, pre-start config, start-all (one coordinated start)"
     mkdir -p "${logs}"
+    if [ -n "${BENCH_ARM_FILE:-}" ]; then
+        # The first-start arm, read once here (the pre-start scripts below use it): its file must parse.
+        bench_arm_state_load || bench_die "BENCH_ARM_FILE ${BENCH_ARM_FILE} is refused (above) — no node has been configured"
+        w="$(bench_arm_writes | paste -sd ' ' -)"
+        echo "    first-start arm ${BENCH_ARM_NAME} (${BENCH_ARM_FILE}, sha256 ${BENCH_ARM_SHA256}): writes ${w:-no switch}; host steps: $(printf '%s\n' "${BENCH_ARM_HOST}" | awk 'NF { printf "%s%s%s", (n++ ? ", " : ""), $1, ($2 == "-" ? "" : " " $2) } END { if (!n) printf "none" }')"
+    fi
+    step7_arm_check
 
     echo "    network-config: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-network-config.sh --yes   (renders ${GENESIS_WORKSPACE}/genesis/network-config/)"
     "${REPO_ROOT}/devnet-network-config.sh" --yes \
@@ -1044,6 +1174,7 @@ step_7() {
     bench_node_jobs_run "${jobs}" "pre-start config (no node has been started; re-run with --from 7)" prestart_node "${!INSTANCE_NAMES[@]}"
     # Every node's probe is in the manifest now (side-by-side jobs' records were merged): one line, never fatal.
     bench_fsync_probe_summary "$(bench_manifest)" "${INSTANCE_NAMES[@]}"
+    bench_host_probe_summary "$(bench_manifest)" "${INSTANCE_NAMES[@]}"
 
     log="${logs}/finalize-start-$(date -u +%Y%m%dT%H%M%SZ).log"
     echo "    start-all: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --start-all   (copy: ${log})"
@@ -1051,6 +1182,7 @@ step_7() {
     "${REPO_ROOT}/devnet-finalize.sh" --start-all 2>&1 | tee -a "${log}" || rc=$?
     marker="$(tr -d '\r' < "${log}" | grep -E '^COORDINATED_START ' | tail -1 || true)"
     [ -z "${marker}" ] || coordinated_start_record "${marker}"
+    [ -z "${marker}" ] || [ -z "${BENCH_ARM_FILE:-}" ] || prestart_arm_record
     [ "${rc}" -eq 0 ] || bench_die "devnet-finalize.sh --start-all exited ${rc} (${log}). Never restart a started node inside the epoch: read its START_AT and phase B lines, then re-run with --from 7 (running nodes are skipped) or tear down"
     [ -n "${marker}" ] || bench_die "devnet-finalize.sh --start-all printed no COORDINATED_START line (${log})"
     spread="$(printf '%s\n' "${marker}" | sed -nE 's/.* spread_secs=([0-9]+)( .*)?$/\1/p')"
@@ -1254,9 +1386,45 @@ EOS
 # from the running container's command line (- = not set), and back is "-" (no restart, so no
 # downtime to report). step_9 compares them with the run's manifest and this node's overrides.
 postconfig_script() {
-    local inst="$1" b64 t0 lf=""
+    local inst="$1" b64 t0 lf="" sws="" pss="" arm
     bench_index_of "${inst}" >/dev/null || bench_die "postconfig_script: ${inst} is not a bench instance"
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
+    # The first-start arm (manifest.param_arms via prestart): the `node switches` line of this start,
+    # printed for step 9 to compare with the arm. From the container's log, else from the unit file's
+    # block after its last 'starting' line (the rotation fallback of prov). Without such an arm: nothing.
+    arm="$(prestart_arm_json | jq -r '.name // empty' 2>/dev/null || true)"
+    if [ -n "${arm}" ]; then
+        sws="
+# 4b. the \`node switches\` line of this start (the fleet started in arm ${arm}; step 9 compares it)
+swl=\"\$({ docker logs telcoin --since \"\$STARTED\" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -F 'node switches' | tail -n 1 || true)\"
+[ -n \"\$swl\" ] || swl=\"\$({ ufgen | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | awk 'tolower(\$0) ~ /telcoin-network[ \\t]+[^ \\t]+[ \\t]+\\([^() \\t]+\\)[ \\t]+starting/ { n = 0 } { b[++n] = \$0 } END { for (i = 1; i <= n; i++) print b[i] }' | grep -F 'node switches' | tail -n 1; } || true)\"
+echo \"POSTCFG_SWITCHES ${inst} \${swl:--}\""
+    fi
+    # BENCH_PERSIST_SAMPLER=1: the persist sampler and its folio census, a root unit beside the node sampler.
+    if [ "${BENCH_PERSIST_SAMPLER:-0}" = 1 ]; then
+        pss="
+# 6b. persist sampler (BENCH_PERSIST_SAMPLER=1; systemd, root: the folio census reads /proc/kpageflags)
+echo '$(base64 < "${DIR}/node-persist-sampler.sh" | tr -d '\n')' | base64 -d > /usr/local/bin/bench-persist-sampler.sh
+chmod 0755 /usr/local/bin/bench-persist-sampler.sh
+echo '$(base64 < "${DIR}/tools/folio-census.py" | tr -d '\n')' | base64 -d > /usr/local/bin/bench-folio-census.py
+chmod 0755 /usr/local/bin/bench-folio-census.py
+cat > /etc/systemd/system/bench-persist-sampler.service <<'UNIT'
+[Unit]
+Description=benchmark persist sampler (persist CSV every 30 s, folio census every 900 s -> /var/lib/bench-sampler)
+After=docker.service telcoin.service
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bench-persist-sampler.sh
+Restart=always
+RestartSec=10
+Nice=10
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now bench-persist-sampler.service
+systemctl is-active --quiet bench-persist-sampler.service || fail \"persist sampler not active\""
+    fi
     # Progress counts from the coordinated start (step 7's due time), else from the container's start.
     t0="$(jq -r '.coordinated_start.due // empty' "$(bench_manifest)" 2>/dev/null || true)"
     case "${t0}" in *[!0-9]*) t0="" ;; esac
@@ -1383,7 +1551,7 @@ done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the coordinated start"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
-[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF (nor its .1 / .2.gz generation)"
+[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF (nor its .1 / .2.gz generation)"${sws}
 # 5. still the same container and no restart while this ran
 [ "\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)" = "\$STARTED" ] || fail "the telcoin container restarted while step 9 ran"
 # 6. node sampler (systemd, root)
@@ -1403,7 +1571,7 @@ WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable --now bench-node-sampler.service
-systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
+systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"${pss}
 echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--} back=-"
 EOS
 }
@@ -1471,15 +1639,21 @@ step9_node_check() {
 
 # step9_node <index> — step 9 on one node: its verify session (postconfig_script, one IAP session),
 # then step9_node_check against STEP9_W_SHA / STEP9_W_FORKS; dies on the first problem.
-STEP9_W_SHA=""; STEP9_W_FORKS=""
+STEP9_W_SHA=""; STEP9_W_FORKS=""; STEP9_ARM=""
 step9_node() {
-    local i="$1" inst="${INSTANCE_NAMES[$1]}" out line
+    local i="$1" inst="${INSTANCE_NAMES[$1]}" out line sl why
     echo "    ${inst}: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ), alloy labels, chain-id ${CHAIN_ID_HEX} on internal IP, progress since the coordinated start, boot lines + readback, sampler"
     out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
     printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
     line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
     [ -n "${line}" ] || bench_die "post-config verification failed on ${inst} (POSTCFG_FAIL above; the whole script: --print-postconfig ${inst}) — stopping step 9; nothing was restarted"
     step9_node_check "${i}" "${line}" "${STEP9_W_SHA}" "${STEP9_W_FORKS}"
+    [ -n "${STEP9_ARM}" ] || return 0
+    # The fleet started in a first-start arm: this start's `node switches` line must show it, by value.
+    sl="$(printf '%s\n' "${out}" | sed -n "s/^POSTCFG_SWITCHES ${inst} //p" | tail -n 1)"
+    why="$(bench_switch_readback "$(printf '%s' "${STEP9_ARM}" | jq -c '.switches // {}')" "${sl}")" \
+        || bench_die "${inst}: its node switches are not arm $(printf '%s' "${STEP9_ARM}" | jq -r '.name')'s (manifest.param_arms via prestart): ${why} — stopping step 9; the node keeps running in that state (no restart): tear down, or apply the arm with tools/params-apply.sh"
+    echo "      ✓ ${inst}: node switches = arm $(printf '%s' "${STEP9_ARM}" | jq -r '.name') ($(bench_switch_line_values "${sl}" | paste -sd ' ' -))"
 }
 
 step_9() {
@@ -1495,6 +1669,13 @@ step_9() {
     [ -z "${BENCH_NODE_PARAM_OVERRIDES}" ] || echo "    except where BENCH_NODE_PARAM_OVERRIDES='${BENCH_NODE_PARAM_OVERRIDES}' sets that node's own values"
     echo "    node log filter: ${BENCH_NODE_LOG_FILTER:-untouched (BENCH_NODE_LOG_FILTER is empty)}${BENCH_NODE_LOG_FILTER:+, --log.file.max-files ${BENCH_NODE_LOG_MAX_FILES}}"
     STEP9_W_SHA="${w_sha}"; STEP9_W_FORKS="${w_forks}"
+    STEP9_ARM="$(prestart_arm_json)"
+    if [ -n "${STEP9_ARM}" ]; then
+        echo "    every node's \`node switches\` line must show the first-start arm $(printf '%s' "${STEP9_ARM}" | jq -r '.name') (manifest.param_arms via prestart), by value"
+    elif [ -n "${BENCH_ARM_FILE:-}" ]; then
+        bench_die "BENCH_ARM_FILE is set but $(bench_manifest) has no first-start arm (param_arms via prestart): step 7 did not start the fleet in it — nothing to compare the nodes with"
+    fi
+    [ "${BENCH_PERSIST_SAMPLER:-0}" != 1 ] || echo "    and bench-persist-sampler.service installed and active on every node (BENCH_PERSIST_SAMPLER=1)"
     bench_node_jobs_run "${jobs}" "post-config verification (nothing was restarted)" step9_node "${!INSTANCE_NAMES[@]}"
 }
 
@@ -1809,6 +1990,42 @@ plan_prestart_lines() {
         n=$((n + 1))
     done
     [ "${n}" -gt 0 ] || echo "                                       no per-node parameters (BENCH_NODE_PARAM_OVERRIDES is empty)"
+    [ -n "${BENCH_ARM_FILE:-}" ] || return 0
+    if bench_arm_state_load 2>/dev/null; then
+        l="$(bench_arm_writes | paste -sd, -)"
+        printf '                                       %-20s parameters.yaml %s (first-start arm %s, %s; every switch away from its default)\n' \
+            "every node:" "${l:-unchanged}" "${BENCH_ARM_NAME}" "${BENCH_ARM_FILE}"
+        echo "                                       -> manifest.param_arms {name: ${BENCH_ARM_NAME}, via: prestart, begin = ready = the coordinated start}; step 9 reads every node's switch line back"
+    else
+        echo "                                       first-start arm ${BENCH_ARM_FILE}: refused (see the step 7 check above)"
+    fi
+}
+
+# plan_host_step_line — the pre-start host steps (BENCH_NODE_READ_AHEAD_KB, BENCH_NODE_EVICT_MDBX, or the
+# first-start arm's) on a line of their own, led by a newline; nothing when there are none.
+plan_host_step_line() {
+    local ra="${BENCH_NODE_READ_AHEAD_KB:-}" ev="${BENCH_NODE_EVICT_MDBX:-0}" src="BENCH_NODE_READ_AHEAD_KB / BENCH_NODE_EVICT_MDBX" steps=""
+    if [ -n "${BENCH_ARM_FILE:-}" ] && bench_arm_state_load 2>/dev/null; then
+        ra="$(bench_arm_host_value read-ahead-kb)"; ev=0
+        [ -z "$(bench_arm_host_value evict-mdbx)" ] || ev=1
+        src="arm ${BENCH_ARM_NAME}"
+    fi
+    [ -z "${ra}" ] || steps="read-ahead-kb ${ra}"
+    [ "${ev}" != 1 ] || steps="${steps:+${steps}, }evict-mdbx (fincore must then read 0)"
+    [ -n "${steps}" ] || return 0
+    printf '\n                                       host steps last, before the start (%s): %s; HOST_STEP -> node_startup.host_steps, a failed one is PRECFG_FAIL' "${src}" "${steps}"
+}
+
+# plan_step9_lines — step 9's checks that only some runs have (the first-start arm's switch line, the
+# persist sampler), each on a line of its own led by a newline; nothing when neither applies.
+plan_step9_lines() {
+    if [ -n "${BENCH_ARM_FILE:-}" ]; then
+        printf '\n                     every node'"'"'s `node switches` line == the first-start arm (manifest.param_arms via prestart; by value, an optional switch may be absent at its default), else stop'
+    fi
+    if [ "${BENCH_PERSIST_SAMPLER:-0}" = 1 ]; then
+        printf '\n                     bench-persist-sampler.service (node-persist-sampler.sh + tools/folio-census.py -> /usr/local/bin, root; BENCH_PERSIST_SAMPLER=1), must be active'
+    fi
+    return 0
 }
 
 # plan_light_lines <13|14> — with BENCH_LIGHT_LOAD=1, the light-load arm's line under step 13 (fund) or
@@ -1892,6 +2109,7 @@ EOP
         zone_fallback_check
         disk_type_check
         quota_check
+        boot_image_check
     } | sed 's/^    /                     /'
     cat <<EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
@@ -1915,8 +2133,10 @@ $(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
                      pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
                                        first the datadir fsync probe (200 x write 4 KB + fsync; FSYNC_PROBE <instance> p50_us= p95_us= -> node_startup.fsync_probe, never fatal), then
-                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }${BENCH_NODE_DB_SYNC_MODE:+--db.sync-mode ${BENCH_NODE_DB_SYNC_MODE}, }parameters.yaml overrides; PRECFG_OK <instance>
+                                       the host probe (kernel, boot image serial, datadir mount, block queue, THP, vm.dirty_*, memory limit, mdbx.dat; HOST_PROBE <instance> -> node_startup.host, never fatal), then
+                                       --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }${BENCH_NODE_DB_SYNC_MODE:+--db.sync-mode ${BENCH_NODE_DB_SYNC_MODE}, }parameters.yaml overrides; PRECFG_OK <instance>$(plan_host_step_line)
                                        after every node: FSYNC_PROBE_SUMMARY median_us= slow=[p50 > 20 % over the median] probe_failed=[] (⚠ when either lists a node; never fatal)
+                                       and HOST_PROBE_SUMMARY kernel= image= ra_kb= uniform=yes|no differ=[] probe_failed=[] (⚠ when not uniform or a probe failed; never fatal)
 $(plan_prestart_lines)
                      start-all         ${REPO_ROOT}/devnet-finalize.sh --start-all (every unit at one due time, node clocks)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-start-<utc>.log; COORDINATED_START -> manifest.coordinated_start;
@@ -1937,7 +2157,7 @@ $(bench_obs_plan_lines 8 | sed 's/^[[:space:]]*/                       /')
                      --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>${BENCH_NODE_LOG_FILTER:+, log filters == BENCH_NODE_LOG_FILTER}; <DATA_DIR from .node-meta>/parameters.yaml;
                      bench alloy labels; NRestarts=0; eth_chainId == ${CHAIN_ID_HEX} on the internal IP + consensus progressing since the coordinated
                      start (blocks rose OR docker logs 'subdag committed|quorum reached'); boot lines (git sha, delays, fork schedule)
-                     == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service; POSTCFG_OK ... back=-
+                     == manifest node_git_sha / consensus_parameters / node_fork_schedule, else stop; bench-node-sampler.service; POSTCFG_OK ... back=-$(plan_step9_lines)
                      (the whole script: --print-postconfig <instance>; step 7's pre-start script: --print-prestart <instance>)
   10  health gate    wait_healthy x${#INSTANCE_NAMES[@]}; RPC tunnel to ${RPC_URL}:
                      $(plan_tunnel_line)

@@ -1,0 +1,151 @@
+set -euo pipefail
+fail() { echo "POSTCFG_FAIL $*"; exit 1; }
+# 1. the node runs since the coordinated start: unit active and never restarted, one container
+M=/etc/telcoin/.node-meta
+[ -f "$M" ] || fail "no $M (not a tn-node-deployment v2 node)"
+meta() { [ "$(grep -c -E "^$1=" "$M" || true)" = 1 ] || return 1; grep -E "^$1=" "$M" | sed -e 's/^[^=]*=//' -e 's/\r$//'; }
+systemctl is-active --quiet telcoin || fail "telcoin is not active (step 7 start-all starts it)"
+NR="$(systemctl show -p NRestarts --value telcoin 2>/dev/null || true)"
+[ "$NR" = 0 ] || fail "telcoin NRestarts=${NR:-?}, expected 0 (no restart after the coordinated start)"
+STARTED="$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)"
+[ -n "$STARTED" ] || fail "no running telcoin container"
+# 2. its datadir from .node-meta DATA_DIR (never from the start script); parameters.yaml there
+D="$(meta DATA_DIR || true)"; D="${D%/}"
+[ -n "$D" ] || fail "no single DATA_DIR line in $M"
+P="$D/parameters.yaml"
+[ -f "$P" ] || fail "no $P"
+MP="$(meta METRICS_PORT || true)"; MP="${MP:-9101}"
+case "$MP" in *[!0-9]*) fail "METRICS_PORT '$MP' in $M is not a port number" ;; esac
+MP=$((10#$MP))
+# the unit's append file (StandardOutput=append:): every container run since finalize, uncapped
+NL="$(meta NODE_LOG_DIR || true)"; NL="${NL:-/var/log/telcoin}"
+UF="$(sed -n 's/^StandardOutput=append://p' /etc/systemd/system/telcoin.service 2>/dev/null | tail -1 || true)"
+UF="${UF:-$NL/telcoin.log}"
+# 3. alloy labels were set in step 8's session; assert they are still bench labels
+E=/etc/telcoin/alloy/telcoin-alloy.env
+grep -qx 'TN_CHAIN=bench' "$E" && grep -qx 'TN_NODE=bench-validator-01' "$E" || fail "alloy env lacks bench labels (re-run step 8)"
+# 3b. what the node runs with: its parameters.yaml, and the container's command line
+pv() { awk -v k="$1" 'index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/["\047]/, "", v); print v; exit }' "$P"; }
+ms() { case "$1" in '') echo - ;; *ms) echo "${1%ms}" ;; *s) awk -v s="${1%s}" 'BEGIN { printf "%d\n", s * 1000 }' ;; *) echo "?" ;; esac; }
+CMDL="$(docker inspect -f '{{.Path}} {{join .Args " "}}' telcoin 2>/dev/null || true)"
+[ -n "$CMDL" ] || fail "docker inspect telcoin gave no command line"
+arg() { printf '%s\n' "$CMDL" | sed -nE "s/.* $1 ([^[:space:]]+).*/\1/p" | tail -1 || true; }
+rf="$(arg '--log\.stdout\.filter')"; rff="$(arg '--log\.file\.filter')"; rmf="$(arg '--log\.file\.max-files')"
+[ "$rff" = "$rf" ] || fail "running --log.file.filter '$rff' differs from --log.stdout.filter '$rf'"
+pthr="$(pv header_num_of_batches_threshold)"
+# 3c. what step 7's pre-start config put on the node command: RPC and WS on all interfaces
+#     (blasters reach 8545 on the internal IP; no public rule admits it), metrics on loopback
+[ "$(arg '--http\.addr')" = 0.0.0.0 ] || fail "running --http.addr is '$(arg '--http\.addr')', expected 0.0.0.0"
+[ "$(arg '--ws\.addr')" = 0.0.0.0 ] || fail "running --ws.addr is '$(arg '--ws\.addr')', expected 0.0.0.0"
+[ "$(arg '--metrics')" = "127.0.0.1:$MP" ] || fail "running --metrics is '$(arg '--metrics')', expected 127.0.0.1:$MP (.node-meta METRICS_PORT, default 9101)"
+[ "$rf" = 'info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info' ] && [ "$rmf" = '20' ] \
+    || fail "running --log.stdout.filter/--log.file.filter '$rf' --log.file.max-files '$rmf', expected 'info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info' / 20 (BENCH_NODE_LOG_FILTER; step 7 pre-start config)"
+# 4. it serves chain 32286 on the INTERNAL IP and consensus is progressing. An idle TN chain
+#    stays at block 0 (the engine skips empty non-epoch-closing consensus outputs), so progress =
+#    eth_blockNumber increased OR this node's own log shows consensus progress since the coordinated
+#    start: validators log 'subdag committed' / 'quorum reached', an observer (follower) logs
+#    'got new consensus' / 'catching up consensus blocks'.
+T0=''
+[ -n "$T0" ] || T0="$(date -d "$STARTED" +%s 2>/dev/null || date +%s)"
+IP=$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || true)
+[ -n "$IP" ] || fail "no internal IP from the metadata server"
+# A refused or slow RPC is retried: curl's failure is swallowed, empty = retry.
+rpc() { { curl -s --max-time 3 -H 'content-type: application/json' --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":[]}" "http://${IP}:8545" || true; } | sed -n 's/.*"result":"\([^"]*\)".*/\1/p' || true; }
+# consensus lines in the node's docker log in the last 45 s, never before the coordinated start
+commits() {
+    local now since
+    now=$(date +%s); since=$(( now - 45 )); [ "$since" -ge "$T0" ] || since="$T0"
+    { docker logs telcoin --since "$since" 2>&1 || true; } | grep -c -E 'subdag committed|quorum reached|got new consensus|catching up consensus blocks|skipping execution for empty|executing consensus output' || true
+}
+# the running binary's boot lines (logged once, at start; read from the container's StartedAt): git
+# sha, consensus delays, vote timeout (later builds only), fork schedule — labelled as
+# report/provenance.py does: a "fork schedule (adiri)" line -> adiri-schedule; a "fork schedule:" line
+# listing subsecond_timestamp before "active from genesis" -> subsecond-from-genesis; any other
+# "fork schedule:" line -> pre-subsecond; none -> ?. Each pass fills only fields still empty,
+# so a later read (say a transient empty docker logs) never blanks what an earlier one found.
+# The container's json-file log is capped (50 MB x 3) and step 9 runs 30-55 min after the start, so
+# the boot block may have rotated out of it. Then the source is the unit's append file (UF), which
+# holds the stage-only run and then this one: its lines from the LAST 'starting' line on, so every
+# field comes from this container's run. logrotate may have moved that block on too (copytruncate,
+# delaycompress): the first of UF, UF.1, UF.2.gz that holds a 'starting' line is read (ufgen).
+sha=""; mhd=""; nhd=""; mbd=""; vt=""; forks=""; FB=""
+ufgen() {
+    local g
+    for g in "$UF" "$UF.1"; do
+        if LC_ALL=C grep -aqiE 'telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\([^()[:space:]]+\)[[:space:]]+starting' "$g" 2>/dev/null; then
+            cat "$g"; return 0
+        fi
+    done
+    zcat "$UF.2.gz" 2>/dev/null || true
+}
+delay() { printf '%s\n' "$1" | grep -ioE "$2 set to [0-9]+ ?ms" | tail -1 | grep -oE '[0-9]+' | head -1 || true; }
+prov() {
+    local L fl
+    if [ -z "$FB" ]; then
+        L="$({ docker logs telcoin --since "$STARTED" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' || true)"
+        [ -n "$sha" ] || sha="$(printf '%s\n' "$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+        [ -n "$sha" ] || FB=1   # rotated out: from now on every field comes from the unit file
+    fi
+    if [ -n "$FB" ]; then
+        L="$({ ufgen | LC_ALL=C grep -aiE 'telcoin-network|delay set to|vote timeout set to|fork schedule' || true; } \
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+            | awk 'tolower($0) ~ /telcoin-network[ \t]+[^ \t]+[ \t]+\([^() \t]+\)[ \t]+starting/ { n = 0 } { b[++n] = $0 } END { for (i = 1; i <= n; i++) print b[i] }' || true)"
+        [ -n "$sha" ] || sha="$(printf '%s\n' "$L" | sed -nE 's/.*telcoin-network[[:space:]]+[^[:space:]]+[[:space:]]+\(([^()[:space:]]+)\)[[:space:]]+starting.*/\1/p' | tail -1 || true)"
+    fi
+    [ -n "$mhd" ] || mhd="$(delay "$L" 'max header delay')"
+    [ -n "$nhd" ] || nhd="$(delay "$L" 'min header delay')"
+    [ -n "$mbd" ] || mbd="$(delay "$L" 'max batch delay')"
+    [ -n "$vt" ] || vt="$(delay "$L" 'vote timeout')"
+    [ -z "$forks" ] || return 0
+    fl="$(printf '%s\n' "$L" | grep -iE 'fork schedule[[:space:]]*(\(adiri\)|:)' | tail -1 || true)"
+    if [ -z "$fl" ]; then forks=""
+    elif printf '%s\n' "$fl" | grep -qiE 'fork schedule[[:space:]]*\(adiri\)'; then forks=adiri-schedule
+    elif printf '%s\n' "$fl" | grep -qiE 'subsecond_timestamp[[:alnum:]_[:space:],]*active from genesis'; then forks=subsecond-from-genesis
+    else forks=pre-subsecond; fi
+}
+booted() { [ -n "$sha" ] && [ -n "$mhd" ] && [ -n "$nhd" ] && [ -n "$mbd" ]; }
+cid=""; b0=""; b=""; how=""; n=0
+deadline=$(( $(date +%s) + ${POSTCFG_WAIT_SECS:-300} ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+    if [ -z "$how" ]; then
+        cid="$(rpc eth_chainId)"
+        if [ "$cid" = "0x7e1e" ]; then
+            b="$(rpc eth_blockNumber)"
+            if [ -n "$b" ]; then
+                if [ -z "$b0" ]; then b0="$b"; elif [ "$((b))" -gt "$((b0))" ]; then how="blocks $((b0))->$((b))"; fi
+            fi
+            if [ -z "$how" ]; then
+                n="$(commits)"
+                if [ "${n:-0}" -ge 1 ]; then how="consensus log (${n} subdag committed/quorum reached lines in the last 45 s)"; fi
+            fi
+        fi
+    fi
+    booted || prov
+    if [ -n "$how" ] && booted; then break; fi
+    sleep 5
+done
+[ "$cid" = "0x7e1e" ] || fail "eth_chainId on ${IP}:8545 = '$cid', expected 0x7e1e"
+[ -n "$how" ] || fail "consensus not progressing: block ${b0:-none} -> ${b:-none} and no 'subdag committed|quorum reached' in docker logs since the coordinated start"
+prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
+[ -n "$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started ($STARTED) nor in the unit file $UF (nor its .1 / .2.gz generation)"
+# 5. still the same container and no restart while this ran
+[ "$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)" = "$STARTED" ] || fail "the telcoin container restarted while step 9 ran"
+# 6. node sampler (systemd, root)
+echo 'IyEvdXNyL2Jpbi9lbnYgYmFzaAojCiMgbm9kZS1zYW1wbGVyLnNoIOKAlCBvbi1ub2RlIHJlc291cmNlIHNhbXBsZXIgZm9yIHRoZSBiZW5jaG1hcmsgZmxlZXQuIEluc3RhbGxlZCBieQojIGJlbmNobWFyay1kZXBsb3kuc2ggc3RlcCA5IGFzIC91c3IvbG9jYWwvYmluL2JlbmNoLW5vZGUtc2FtcGxlci5zaCBhbmQgcnVuIGFzIFJPT1QgYnkKIyBiZW5jaC1ub2RlLXNhbXBsZXIuc2VydmljZS4gRXZlcnkgU0FNUExFUl9JTlRFUlZBTF9TRUNTICgzMCkgaXQgYXBwZW5kcyBPTkUgcm93IHRvCiMgL3Zhci9saWIvYmVuY2gtc2FtcGxlci88aG9zdG5hbWU+LmNzdiwgY29sdW1ucyBleGFjdGx5IHBlciB0aGUgc2FtcGxlciBjb250cmFjdCBpbgojIHRuLXRyYW5zYWN0aW9uLWdlbmVyYXRvci9iZW5jaC9zY2hlbWEvUkVBRE1FLm1kIChoZWFkZXIgZmlyc3QsIGVtcHR5ID0gdW5hdmFpbGFibGUpOgojCiMgICB0c191bml4LHBpZCxyc3NfYW5vbl9rYixyc3NfZmlsZV9rYixyc3NfdG90YWxfa2IsaW9fd3JpdGVfYnl0ZXMsaW9fcmVhZF9ieXRlcywKIyAgIHBzaV9tZW1fc29tZV9hdmcxMCxwc2lfaW9fc29tZV9hdmcxMCxwc2lfY3B1X3NvbWVfYXZnMTAsZGJfYnl0ZXMsc3RhdGljX2ZpbGVzX2J5dGVzLAojICAgZXBvY2hzX2J5dGVzLGNhY2hlX2J5dGVzLGVwb2NoX2J5dGVzLGxvYWRhdmcxLG9vbV9jb3VudCxyb290X3VzZWRfcGN0CiMKIyBUaGUgbm9kZSBydW5zIGBkb2NrZXIgcnVuIC0tcm0gLS1uYW1lIHRlbGNvaW4gLi4uIHRlbGNvaW4gbm9kZWAgKHRuLW5vZGUtZGVwbG95bWVudAojIHNldHVwLW5vZGUuc2gpLCB3aXRoIHRoZSBkYXRhIGRpciAvdmFyL2xpYi90ZWxjb2luIGJpbmQtbW91bnRlZCBhdCAvaG9tZS9ub25yb290LiBgcGlkYCBpcwojIHRoZSBpbi1jb250YWluZXIgYHRlbGNvaW4gbm9kZWAgcHJvY2VzcyBhcyBzZWVuIGZyb20gdGhlIGhvc3Q6IGBwZ3JlcCAtZiAndGVsY29pbiBub2RlJ2AKIyBuYXJyb3dlZCB0byB0aGUgY29udGFpbmVyJ3MgY2dyb3VwICh0aGUgaG9zdC1zaWRlIGBkb2NrZXIgcnVuYCBjbGllbnQgbWF0Y2hlcyB0aGUgc2FtZQojIHBhdHRlcm4gYW5kIGlzIGV4Y2x1ZGVkIHRoYXQgd2F5KS4KIwojIEV2ZXJ5IFNBTVBMRVJfU1RBVFVTX0VWRVJZIHNhbXBsZXMgKGRlZmF1bHQgNCA9IDIgbWluKSBpdCBhbHNvIHdyaXRlcyBvbmUKIyAgIEJFTkNIX1NUQVRVUyBob3N0PTxoPiB0cz08dW5peD4gcm9vdF91c2VkX3BjdD08bj4gZmF0YWxfZGI9PG4+IGJsb2NrPTxuPiByc3NfdG90YWxfa2I9PG4+CiMgbGluZSB0byB0aGUgc2VyaWFsIGNvbnNvbGUsIHNvIGJlbmNobWFyay1ibGFzdC5zaCdzIGFib3J0IHdhdGNoZXJzIGNhbiByZWFkIGRpc2ssIHRoZQojIEZhdGFsREJGYWlsdXJlIGNvdW50IGFuZCBjaGFpbiBwcm9ncmVzcyBvdmVyIHRoZSBHQ1AgUkVTVCBBUEkgaW5zdGVhZCBvZiBwb2xsaW5nIElBUCBTU0guCiMKIyBTQU1QTEVSX09OQ0U9MSB3cml0ZXMgYSBzaW5nbGUgcm93IGFuZCBleGl0cyAoc21va2UgdGVzdCkuCgpzZXQgLXVvIHBpcGVmYWlsCgpJTlRFUlZBTD0iJHtTQU1QTEVSX0lOVEVSVkFMX1NFQ1M6LTMwfSIKU1RBVFVTX0VWRVJZPSIke1NBTVBMRVJfU1RBVFVTX0VWRVJZOi00fSIKREFUQV9ESVI9IiR7U0FNUExFUl9EQVRBX0RJUjotL3Zhci9saWIvdGVsY29pbn0iCkNPTlRBSU5FUj0iJHtTQU1QTEVSX0NPTlRBSU5FUjotdGVsY29pbn0iClJQQz0iJHtTQU1QTEVSX1JQQzotaHR0cDovLzEyNy4wLjAuMTo4NTQ1fSIKT1VUX0RJUj0iJHtTQU1QTEVSX09VVF9ESVI6LS92YXIvbGliL2JlbmNoLXNhbXBsZXJ9IgpDT05TT0xFPSIke1NBTVBMRVJfQ09OU09MRTotL2Rldi90dHlTMH0iCkhPU1Q9IiQoaG9zdG5hbWUgLXMgMj4vZGV2L251bGwgfHwgaG9zdG5hbWUpIgpPVVQ9IiR7T1VUX0RJUn0vJHtIT1NUfS5jc3YiCk9MRF9IRUFERVI9InRzX3VuaXgscGlkLHJzc19hbm9uX2tiLHJzc19maWxlX2tiLHJzc190b3RhbF9rYixpb193cml0ZV9ieXRlcyxpb19yZWFkX2J5dGVzLHBzaV9tZW1fc29tZV9hdmcxMCxwc2lfaW9fc29tZV9hdmcxMCxwc2lfY3B1X3NvbWVfYXZnMTAsZGJfYnl0ZXMsc3RhdGljX2ZpbGVzX2J5dGVzLGVwb2Noc19ieXRlcyxjYWNoZV9ieXRlcyxlcG9jaF9ieXRlcyxsb2FkYXZnMSxvb21fY291bnQscm9vdF91c2VkX3BjdCIKSEVBREVSPSIke09MRF9IRUFERVJ9LGJsb2NrIgpJTlZFTlRPUlk9IiR7T1VUX0RJUn0vJHtIT1NUfS5lcG9jaHMudHh0IgoKbWtkaXIgLXAgIiR7T1VUX0RJUn0iCmlmIFsgLXMgIiR7T1VUfSIgXTsgdGhlbgogICAgSUZTPSByZWFkIC1yIGV4aXN0aW5nX2hlYWRlciA8ICIke09VVH0iCiAgICBpZiBbICIke2V4aXN0aW5nX2hlYWRlcn0iID0gIiR7T0xEX0hFQURFUn0iIF07IHRoZW4KICAgICAgICAjIFByZXNlcnZlIG9sZCBzYW1wbGVzIHdpdGggYSBibGFuayBibG9jayBmaWVsZCB3aGVuIHRoZSBzYW1wbGVyIGlzIHVwZ3JhZGVkLgogICAgICAgIGF3ayAnTlIgPT0gMSB7IHByaW50ICQwICIsYmxvY2siOyBuZXh0IH0geyBwcmludCAkMCAiLCIgfScgIiR7T1VUfSIgPiAiJHtPVVR9LnVwZ3JhZGUiIFwKICAgICAgICAgICAgJiYgbXYgIiR7T1VUfS51cGdyYWRlIiAiJHtPVVR9IiB8fCBleGl0IDEKICAgIGVsaWYgWyAiJHtleGlzdGluZ19oZWFkZXJ9IiAhPSAiJHtIRUFERVJ9IiBdOyB0aGVuCiAgICAgICAgZWNobyAidW5yZWNvZ25pemVkIHNhbXBsZXIgQ1NWIGhlYWRlcjogJHtPVVR9IiA+JjIKICAgICAgICBleGl0IDEKICAgIGZpCmZpClsgLXMgIiR7T1VUfSIgXSB8fCBwcmludGYgJyVzXG4nICIke0hFQURFUn0iID4gIiR7T1VUfSIKCmNpZD0iIgpwaWQ9IiIKCiMgdGVsY29pbl9waWQg4oCUIHRoZSBjb250YWluZXJpc2VkIGB0ZWxjb2luIG5vZGVgIHBpZCAoY2FjaGVkIHVudGlsIGl0IGRpc2FwcGVhcnMpLgp0ZWxjb2luX3BpZCgpIHsKICAgIGlmIFsgLW4gIiR7cGlkfSIgXSAmJiBbIC1kICIvcHJvYy8ke3BpZH0iIF0gJiYgZ3JlcCAtcSAidGVsY29pbiIgIi9wcm9jLyR7cGlkfS9jbWRsaW5lIiAyPi9kZXYvbnVsbDsgdGhlbgogICAgICAgIHByaW50ZiAnJXMnICIke3BpZH0iOyByZXR1cm4gMAogICAgZmkKICAgIHBpZD0iIgogICAgY2lkPSIkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5JZH19JyAiJHtDT05UQUlORVJ9IiAyPi9kZXYvbnVsbCB8fCB0cnVlKSIKICAgIFsgLW4gIiR7Y2lkfSIgXSB8fCByZXR1cm4gMAogICAgbG9jYWwgcAogICAgZm9yIHAgaW4gJChwZ3JlcCAtZiAndGVsY29pbiBub2RlJyAyPi9kZXYvbnVsbCk7IGRvCiAgICAgICAgaWYgZ3JlcCAtcSAiJHtjaWR9IiAiL3Byb2MvJHtwfS9jZ3JvdXAiIDI+L2Rldi9udWxsOyB0aGVuIHBpZD0iJHtwfSI7IGJyZWFrOyBmaQogICAgZG9uZQogICAgIyBGYWxsYmFjazogdGhlIGNvbnRhaW5lcidzIGluaXQgcHJvY2VzcyAodGhlIGltYWdlJ3MgZW50cnlwb2ludCBpcyB0aGUgYmluYXJ5IGl0c2VsZikuCiAgICBbIC1uICIke3BpZH0iIF0gfHwgcGlkPSIkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5TdGF0ZS5QaWR9fScgIiR7Q09OVEFJTkVSfSIgMj4vZGV2L251bGwgfCBncmVwIC12ICdeMCQnIHx8IHRydWUpIgogICAgcHJpbnRmICclcycgIiR7cGlkfSIKfQoKc3RhdHVzX2t2KCkgeyBhd2sgLXYgaz0iJDI6IiAnJDEgPT0gayB7IHByaW50ICQyOyBleGl0IH0nICIkMSIgMj4vZGV2L251bGw7IH0KaW9fa3YoKSB7IGF3ayAtdiBrPSIkMjoiICckMSA9PSBrIHsgcHJpbnQgJDI7IGV4aXQgfScgIiQxIiAyPi9kZXYvbnVsbDsgfQpwc2lfc29tZSgpIHsgYXdrICckMSA9PSAic29tZSIgeyBmb3IgKGkgPSAyOyBpIDw9IE5GOyBpKyspIGlmICgkaSB+IC9eYXZnMTA9LykgeyBzdWIoL15hdmcxMD0vLCAiIiwgJGkpOyBwcmludCAkaTsgZXhpdCB9IH0nICIvcHJvYy9wcmVzc3VyZS8kMSIgMj4vZGV2L251bGw7IH0KZGlyX2J5dGVzKCkgeyBbIC1kICIkMSIgXSAmJiBkdSAtc2IgIiQxIiAyPi9kZXYvbnVsbCB8IGF3ayAne3ByaW50ICQxfSc7IH0Kcm9vdF9wY3QoKSB7IGRmIC0tb3V0cHV0PXBjZW50IC8gMj4vZGV2L251bGwgfCB0YWlsIC0xIHwgdHIgLWRjICcwLTknOyB9CgpibG9ja19udW1iZXIoKSB7CiAgICBsb2NhbCBoZXgKICAgIGhleD0iJChjdXJsIC1zIC0tbWF4LXRpbWUgMyAtSCAnY29udGVudC10eXBlOiBhcHBsaWNhdGlvbi9qc29uJyBcCiAgICAgICAgLS1kYXRhICd7Impzb25ycGMiOiIyLjAiLCJpZCI6MSwibWV0aG9kIjoiZXRoX2Jsb2NrTnVtYmVyIiwicGFyYW1zIjpbXX0nICIke1JQQ30iIDI+L2Rldi9udWxsIFwKICAgICAgICB8IHNlZCAtbiAncy8uKiJyZXN1bHQiOiIweFwoWzAtOWEtZkEtRl0qXCkiLiovXDEvcCcpIgogICAgWyAtbiAiJHtoZXh9IiBdICYmIHByaW50ZiAnJWQnICIweCR7aGV4fSIKfQoKbGFzdF9zdGF0dXNfdHM9IiIKbGFzdF9pbnZlbnRvcnlfdHM9MApuPTAKd2hpbGUgOjsgZG8KICAgIHRzPSIkKGRhdGUgKyVzKSIKICAgIHA9IiQodGVsY29pbl9waWQpIgogICAgcnNzX2Fub249IiI7IHJzc19maWxlPSIiOyByc3NfdG90YWw9IiI7IGlvX3c9IiI7IGlvX3I9IiIKICAgIGlmIFsgLW4gIiR7cH0iIF0gJiYgWyAtciAiL3Byb2MvJHtwfS9zdGF0dXMiIF07IHRoZW4KICAgICAgICByc3NfYW5vbj0iJChzdGF0dXNfa3YgIi9wcm9jLyR7cH0vc3RhdHVzIiBSc3NBbm9uKSIKICAgICAgICByc3NfZmlsZT0iJChzdGF0dXNfa3YgIi9wcm9jLyR7cH0vc3RhdHVzIiBSc3NGaWxlKSIKICAgICAgICByc3NfdG90YWw9IiQoc3RhdHVzX2t2ICIvcHJvYy8ke3B9L3N0YXR1cyIgVm1SU1MpIgogICAgICAgIGlvX3c9IiQoaW9fa3YgIi9wcm9jLyR7cH0vaW8iIHdyaXRlX2J5dGVzKSIKICAgICAgICBpb19yPSIkKGlvX2t2ICIvcHJvYy8ke3B9L2lvIiByZWFkX2J5dGVzKSIKICAgIGZpCiAgICBwc2lfbT0iJChwc2lfc29tZSBtZW1vcnkpIjsgcHNpX2k9IiQocHNpX3NvbWUgaW8pIjsgcHNpX2M9IiQocHNpX3NvbWUgY3B1KSIKICAgIGRiPSIkKGRpcl9ieXRlcyAiJHtEQVRBX0RJUn0vZGIiKSIKICAgIHNmPSIkKGRpcl9ieXRlcyAiJHtEQVRBX0RJUn0vc3RhdGljX2ZpbGVzIikiCiAgICBlcF9zPSIkKGRpcl9ieXRlcyAiJHtEQVRBX0RJUn0vY29uc2Vuc3VzLWRiL2Vwb2NocyIpIgogICAgY2FjaGU9IiQoZGlyX2J5dGVzICIke0RBVEFfRElSfS9jb25zZW5zdXMtZGIvY2FjaGUiKSIKICAgIGVwPSIkKGRpcl9ieXRlcyAiJHtEQVRBX0RJUn0vY29uc2Vuc3VzLWRiL2Vwb2NoIikiCiAgICBsb2FkMT0iJChhd2sgJ3twcmludCAkMX0nIC9wcm9jL2xvYWRhdmcgMj4vZGV2L251bGwpIgogICAgb29tcz0iJChkbWVzZyAyPi9kZXYvbnVsbCB8IGdyZXAgLWNpICdvdXQgb2YgbWVtb3J5JyB8fCB0cnVlKSIKICAgIHJvb3RwPSIkKHJvb3RfcGN0KSIKICAgIGJsb2NrPSIkKGJsb2NrX251bWJlcikiCiAgICBpZiBbICQoKHRzIC0gbGFzdF9pbnZlbnRvcnlfdHMpKSAtZ2UgNjAgXTsgdGhlbgogICAgICAgIHByaW50ZiAnQkVOQ0hfRVBPQ0hfRklMRVMgdHM9JXMgaG9zdD0lc1xuJyAiJHt0c30iICIke0hPU1R9IiA+PiAiJHtJTlZFTlRPUll9IgogICAgICAgIGxzIC1sYVIgLS1mdWxsLXRpbWUgLS0gIiR7REFUQV9ESVJ9L2NvbnNlbnN1cy1kYi9lcG9jaHMiID4+ICIke0lOVkVOVE9SWX0iIDI+JjEgfHwgdHJ1ZQogICAgICAgIGxhc3RfaW52ZW50b3J5X3RzPSIke3RzfSIKICAgIGZpCiAgICBwcmludGYgJyVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzLCVzXG4nIFwKICAgICAgICAiJHt0c30iICIke3B9IiAiJHtyc3NfYW5vbn0iICIke3Jzc19maWxlfSIgIiR7cnNzX3RvdGFsfSIgIiR7aW9fd30iICIke2lvX3J9IiBcCiAgICAgICAgIiR7cHNpX219IiAiJHtwc2lfaX0iICIke3BzaV9jfSIgIiR7ZGJ9IiAiJHtzZn0iICIke2VwX3N9IiAiJHtjYWNoZX0iICIke2VwfSIgXAogICAgICAgICIke2xvYWQxfSIgIiR7b29tc30iICIke3Jvb3RwfSIgIiR7YmxvY2t9IiA+PiAiJHtPVVR9IgoKICAgIG49JCgobiArIDEpKQogICAgIyBGaXJzdCBzYW1wbGUsIHRoZW4gZXZlcnkgU1RBVFVTX0VWRVJZLXRoICgwIGRpc2FibGVzIHRoZSBzdGF0dXMgbGluZSkuCiAgICBpZiBbICIke1NUQVRVU19FVkVSWX0iIC1ndCAwIF0gJiYgWyAkKCggKG4gLSAxKSAlIFNUQVRVU19FVkVSWSApKSAtZXEgMCBdOyB0aGVuCiAgICAgICAgc2luY2U9IiR7bGFzdF9zdGF0dXNfdHM6LSQoKHRzIC0gSU5URVJWQUwgKiBTVEFUVVNfRVZFUlkpKX0iCiAgICAgICAgZmF0YWw9IiQoZG9ja2VyIGxvZ3MgLS1zaW5jZSAiJHtzaW5jZX0iICIke0NPTlRBSU5FUn0iIDI+JjEgfCBncmVwIC1jICdGYXRhbERCRmFpbHVyZScgfHwgdHJ1ZSkiCiAgICAgICAgbGluZT0iQkVOQ0hfU1RBVFVTIGhvc3Q9JHtIT1NUfSB0cz0ke3RzfSByb290X3VzZWRfcGN0PSR7cm9vdHA6LX0gZmF0YWxfZGI9JHtmYXRhbDotMH0gYmxvY2s9JHtibG9ja30gcnNzX3RvdGFsX2tiPSR7cnNzX3RvdGFsOi19IgogICAgICAgIHsgWyAtdyAiJHtDT05TT0xFfSIgXSAmJiBwcmludGYgJyVzXG4nICIke2xpbmV9IiA+ICIke0NPTlNPTEV9IjsgfSAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgICAgICAgcHJpbnRmICclc1xuJyAiJHtsaW5lfSIgICAjIGpvdXJuYWwgY29weQogICAgICAgIGxhc3Rfc3RhdHVzX3RzPSIke3RzfSIKICAgIGZpCgogICAgWyAiJHtTQU1QTEVSX09OQ0U6LTB9IiA9ICIxIiBdICYmIGV4aXQgMAogICAgc2xlZXAgIiQoKCBJTlRFUlZBTCAtICggJChkYXRlICslcykgLSB0cyApID4gMSA/IElOVEVSVkFMIC0gKCAkKGRhdGUgKyVzKSAtIHRzICkgOiAxICkpIgpkb25lCg==' | base64 -d > /usr/local/bin/bench-node-sampler.sh
+chmod 0755 /usr/local/bin/bench-node-sampler.sh
+cat > /etc/systemd/system/bench-node-sampler.service <<'UNIT'
+[Unit]
+Description=benchmark node sampler (CSV every 30 s -> /var/lib/bench-sampler)
+After=docker.service telcoin.service
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bench-node-sampler.sh
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now bench-node-sampler.service
+systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"
+echo "POSTCFG_OK bench-validator-01 chain=$cid block=${b:-?} ip=${IP} progress=${how} sha=${sha} mhd=${mhd:-?} nhd=${nhd:-?} mbd=${mbd:-?} vt=${vt:-?} forks=${forks:-?} max=$(ms "$(pv max_header_delay)") min=$(ms "$(pv min_header_delay)") batch=$(ms "$(pv max_batch_delay)") thr=${pthr:--} vote=$(ms "$(pv vote_timeout)") filter=${rf:--} maxfiles=${rmf:--} back=-"

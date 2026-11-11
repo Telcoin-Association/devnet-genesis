@@ -33,6 +33,13 @@ require Max header delay set to
 require Min header delay set to
 require Max batch delay set to
 
+# The node switches line (bench 6): the message text of the line the node logs once at every start
+# (target node::switches), one key=value per switch of arms/switches.tsv. Deploy step 9 and
+# tools/params-apply.sh read it back, and report/provenance.py treats it as required once the probe
+# has checked it (manifest node_probe.strings). An image built before bench 6 (bench 5's included)
+# lacks it and is refused here, by design: a run on it could not show which switches were on.
+require node switches
+
 # Fork schedule markers (classify the build; see bench_node_image_probe).
 require-if-subsecond subsecond_timestamp active from genesis
 forbid-if-subsecond fork schedule (adiri)

@@ -11,3 +11,4 @@ FatalDBFailure
 Max header delay set to
 Min header delay set to
 Max batch delay set to
+node switches

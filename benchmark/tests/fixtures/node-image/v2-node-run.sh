@@ -17,7 +17,9 @@ relocate() {
         -e "s#/usr/local/bin/bench-node-sampler.sh#${R}/usr/local/bin/bench-node-sampler.sh#g" \
         -e "s#/opt/telcoin-node-scripts#${R}/opt/telcoin-node-scripts#g" \
         -e "s#/var/lib/telcoin-alloy/#${R}/var/lib/telcoin-alloy/#g" \
-        -e "s#/tmp/bench-obs#${R}/tmp/bench-obs#g"
+        -e "s#/tmp/bench-obs#${R}/tmp/bench-obs#g" \
+        -e "s#/usr/local/bin/bench-persist-sampler.sh#${R}/usr/local/bin/bench-persist-sampler.sh#g" \
+        -e "s#/usr/local/bin/bench-folio-census.py#${R}/usr/local/bin/bench-folio-census.py#g"
 }
 keep=()
 while IFS='=' read -r k _; do

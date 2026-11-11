@@ -1688,6 +1688,8 @@ _bench_index_kind() {
         logs/create-*.log) echo "19|logs/create-<vm>.log|load VM create output (current blast index)|benchmark-blast.sh fund/run" ;;
         sampler/*.csv) echo "20|sampler/<node>.csv|node-sampler.sh rows every 30 s (memory, I/O, PSI, disk, block)|benchmark-blast.sh collect" ;;
         sampler/*.epochs.txt) echo "21|sampler/<node>.epochs.txt|epoch-file inventory of the node every minute|benchmark-blast.sh collect" ;;
+        persist/*.csv) echo "21|persist/<node>.csv|node-persist-sampler.sh rows every 30 s (data-disk I/O, dirty and writeback pages, refaults, memcg, the node's /proc io; mdbx.dat size and residency every 300 s; BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect" ;;
+        persist/*.folios.txt) echo "21|persist/<node>.folios.txt|folio-order census of the node's mdbx.dat every 900 s (tools/folio-census.py; BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect" ;;
         blasters/*) echo "22|blasters/*|blaster results (<vm>.json), txgen and docker logs|benchmark-blast.sh collect (from the run bucket)" ;;
         funder/*) echo "23|funder/*|funder output (prepare.json) and logs|benchmark-blast.sh collect (from the run bucket)" ;;
         meta/*) echo "24|meta/<vm>/*|arguments and node URLs each load VM was created with|benchmark-blast.sh fund/run" ;;
@@ -1707,10 +1709,11 @@ _bench_write_index() {
     {
         echo "# results/$(basename -- "${d}")/ — index"
         echo ""
-        echo "Generated $(bench_now_iso). This directory is the only copy of the run: no bucket keeps"
-        echo "another. Back it up outside the repo. \`CHECKSUMS.sha256\` holds the SHA-256 of every"
-        echo "other file; check them with \`shasum -a 256 -c CHECKSUMS.sha256\` (Linux: \`sha256sum -c\`)"
-        echo "from this directory."
+        echo "Generated $(bench_now_iso). This directory is a working copy of the run: the canonical copy is"
+        echo "the project's archive bucket for bench runs (benchmark/README.md names it; tools/archive-run.sh"
+        echo "copies the run there and tools/archive-verify.py checks every file's size and MD5)."
+        echo "\`CHECKSUMS.sha256\` holds the SHA-256 of every other file; check them with"
+        echo "\`shasum -a 256 -c CHECKSUMS.sha256\` (Linux: \`sha256sum -c\`) from this directory."
         echo ""
         echo "| files | path | what it is | written by |"
         echo "|------:|------|------------|------------|"
@@ -1929,6 +1932,13 @@ bench_certification_record() {
         return 0
     fi
     if ! compgen -G "${logs}/${g}" >/dev/null; then
+        # Nothing pulled yet (a collect before the teardown): no node log (<node>-*.log.gz, every log the
+        # teardown's pull writes) and no pull marker (<node>.pulled*). Not a problem: the teardown records it.
+        if ! compgen -G "${logs}/*.log.gz" >/dev/null && ! compgen -G "${logs}/*.pulled" >/dev/null \
+            && ! compgen -G "${logs}/*.pulled-*" >/dev/null; then
+            echo "    certification: deferred to the teardown (node logs are pulled there)"
+            return 0
+        fi
         bench_warn "certification: no validator log in ${logs} yet (the teardown pulls them; glob ${g}) — not recorded"
         return 0
     fi
@@ -2240,6 +2250,10 @@ EOS
 #      the start, the order the arm tool keeps (arms/README.md)
 #      Each of 11 and 12 prints its HOST_STEP line (bench_host_step_script); a failed one prints the
 #      HOST_STEP failed line, then PRECFG_FAIL.
+#  With BENCH_ARM_FILE (the first-start arm; BENCH_NODE_EVICT_MDBX/BENCH_NODE_READ_AHEAD_KB unset beside
+#  it): 7c writes every switch of the arm that is away from its default (bench_arm_writes) with setp,
+#  marked and counted with the overrides (params=), and 11/12 run the arm's host steps instead of the
+#  knobs'. A BENCH_NODE_PARAM_OVERRIDES item that sets a switch is refused beside it.
 # Last line (contract C5b):
 #   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
 #     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive logrotate=<size|->
@@ -2256,6 +2270,7 @@ EOS
 bench_prestart_script() {
     local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov lrs="${BENCH_LOGROTATE_SIZE:-}" lrt=""
     local dbs="${BENCH_NODE_DB_SYNC_MODE:-}" ev="${BENCH_NODE_EVICT_MDBX:-}" ra="${BENCH_NODE_READ_AHEAD_KB:-}" sfx
+    local arm="${BENCH_ARM_FILE:-}" aw="" an=0 asrc=""
     idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
     case "${ref}" in
         *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
@@ -2280,7 +2295,20 @@ bench_prestart_script() {
     case "${ra}" in
         *[!0-9]*|0?*) echo "❌ bench_prestart_script: BENCH_NODE_READ_AHEAD_KB='${ra}' is not empty or an integer without leading zeros (KiB)" >&2; return 1 ;;
     esac
-    nov="$(bench_node_overrides "${idx}" | grep -c . || true)"
+    if [ -n "${arm}" ]; then
+        # The first-start arm: its switches join this node's setp lines (7c), its host steps are 11/12.
+        [ "${ev:-0}" = 0 ] && [ -z "${ra}" ] \
+            || { echo "❌ bench_prestart_script: BENCH_ARM_FILE sets the host steps itself; BENCH_NODE_EVICT_MDBX and BENCH_NODE_READ_AHEAD_KB must stay unset beside it" >&2; return 1; }
+        bench_arm_state_load "${arm}" || return 1
+        kv="$(bench_arm_override_conflicts | head -n 1)"
+        [ -z "${kv}" ] || { echo "❌ bench_prestart_script: ${kv}" >&2; return 1; }
+        aw="$(bench_arm_writes)"
+        an="$(printf '%s' "${aw}" | grep -c . || true)"
+        ra="$(bench_arm_host_value read-ahead-kb)"
+        [ -z "$(bench_arm_host_value evict-mdbx)" ] || ev=1
+        asrc="arm ${BENCH_ARM_NAME}"
+    fi
+    nov="$(( $(bench_node_overrides "${idx}" | grep -c . || true) + an ))"
     echo 'set -euo pipefail'
     printf 'fail(){ echo "PRECFG_FAIL %s $*"; exit 1; }\n' "${inst}"
     bench_remote_lib_preamble
@@ -2359,6 +2387,10 @@ setp() {
 }
 EOS
     bench_node_overrides "${idx}" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
+    if [ -n "${aw}" ]; then
+        echo "# 7c. the switches of arm ${BENCH_ARM_NAME} (BENCH_ARM_FILE, sha256 ${BENCH_ARM_SHA256}) away from their default, marked as the overrides are"
+        printf '%s\n' "${aw}" | while IFS= read -r kv; do printf 'setp %s %s\n' "${kv%%=*}" "${kv#*=}"; done
+    fi
     cat <<'EOS'
 m="$(grep -c '  # bench-override$' "$P" || true)"
 [ "$m" = "$NOV" ] || fail "$P has $m '# bench-override' line(s), this node has $NOV override(s) (a marked line from an earlier run?)"
@@ -2402,7 +2434,7 @@ u="$(systemctl is-active telcoin 2>/dev/null || true)"
 EOS
     sfx="${dbs:+ dbsync=${dbs}}"
     if [ -n "${ra}" ]; then
-        echo "# 11. host step read-ahead-kb ${ra} (BENCH_NODE_READ_AHEAD_KB): the data disk's queue/read_ahead_kb, written and read back"
+        echo "# 11. host step read-ahead-kb ${ra} (${asrc:-BENCH_NODE_READ_AHEAD_KB}): the data disk's queue/read_ahead_kb, written and read back"
         _bench_host_step_wrappers prestart "${inst}" read-ahead-kb "${ra}"
         _bench_host_step_body read-ahead-kb "${ra}"
         echo 'RA_OLD=$HS_A; RA_NEW=$HS_B'
@@ -2410,7 +2442,7 @@ EOS
         sfx="${sfx}"' ra=${RA_OLD}->${RA_NEW}'
     fi
     if [ "${ev}" = 1 ]; then
-        echo "# 12. host step evict-mdbx (BENCH_NODE_EVICT_MDBX=1): mdbx.dat out of the page cache, the last thing before the start"
+        echo "# 12. host step evict-mdbx (${asrc:-BENCH_NODE_EVICT_MDBX=1}): mdbx.dat out of the page cache, the last thing before the start"
         _bench_host_step_wrappers prestart "${inst}" evict-mdbx -
         _bench_host_step_body evict-mdbx -
         echo 'EV_BEFORE=$HS_A; EV_AFTER=$HS_B'
@@ -2913,7 +2945,10 @@ EOS
 # pages (fincore, else mincore) must then read 0. No mdbx.dat: 0/0. read-ahead-kb: writes <KiB> to
 # /sys/block/<disk>/queue/read_ahead_kb of the disk under <datadir> and reads it back (the kernel
 # keeps whole pages, so a value that is not a multiple of 4 reads back lower and fails). The lines
-# map onto host_steps entries through bench_host_step_record. Prints the script only (no GCP
+# map onto host_steps entries through bench_host_step_record. <datadir> `-` takes the datadir from
+# the surrounding script at run time: the text keeps it as RD="${D:-}" and sets D="$RD" after the
+# literal D line (an empty or
+# unset $D there falls back to DATA_DIR, as no <datadir> does). Prints the script only (no GCP
 # call); non-zero and nothing printed for a bad instance name, step, KiB or datadir.
 bench_host_step_script() {
     local inst="${1:-}" step="${2:-}" v="-" d=""
@@ -2927,12 +2962,16 @@ bench_host_step_script() {
             [ "$#" -le 4 ] || { echo "❌ bench_host_step_script: read-ahead-kb takes <KiB> [<datadir>] only" >&2; return 1; } ;;
         *) echo "❌ bench_host_step_script: unknown step '${step}' (evict-mdbx, read-ahead-kb)" >&2; return 1 ;;
     esac
-    case "${d}" in ''|/?*) ;; *) echo "❌ bench_host_step_script: datadir '${d}' is not an absolute path" >&2; return 1 ;; esac
+    case "${d}" in ''|-|/?*) ;; *) echo "❌ bench_host_step_script: datadir '${d}' is not an absolute path (or -)" >&2; return 1 ;; esac
     echo "# host step ${step} (bench_host_step_script): one subshell, one HOST_STEP line; HOST_STEP_RC 0 = held, 1 = failed"
     echo 'HOST_STEP_RC=0'
     echo '('
     bench_remote_lib_preamble
+    # shellcheck disable=SC2016  # `-`: the node's shell expands $D, the surrounding script's datadir
+    [ "${d}" != - ] || echo 'RD="${D:-}"'
     printf 'D=%q\n' "${d}"
+    # shellcheck disable=SC2016  # as above
+    [ "${d}" != - ] || echo 'D="$RD"'
     _bench_host_step_wrappers standalone "${inst}" "${step}" "${v}"
     cat <<'EOS'
 if [ -z "$D" ]; then
@@ -2983,16 +3022,22 @@ bench_host_step_record() {
 # (the unit is stopped, so no container is there to inspect); mdbx_dat_folios is null (no process
 # maps mdbx.dat yet, and the folio census resolves through one). Run it before any host step: its
 # read_ahead_kb is the value the node booted with, which an arm without the read-ahead step puts
-# back. Prints the script only (no GCP call); non-zero and nothing printed for a bad instance name
-# or a <datadir> that is not absolute.
+# back. <datadir> `-` takes the datadir from the surrounding script at run time (RD="${D:-}" before
+# the literal D line, D="$RD" after it; empty or
+# unset there: DATA_DIR). Prints the script only (no GCP call); non-zero and nothing printed for a
+# bad instance name or a <datadir> that is neither absolute nor `-`.
 bench_host_probe_script() {
     local inst="${1:-}" d="${2:-}"
     _bench_host_name_ok "${inst}" || { echo "❌ bench_host_probe_script: '${inst}' is not an instance name" >&2; return 1; }
-    case "${d}" in ''|/?*) ;; *) echo "❌ bench_host_probe_script: datadir '${d}' is not an absolute path" >&2; return 1 ;; esac
+    case "${d}" in ''|-|/?*) ;; *) echo "❌ bench_host_probe_script: datadir '${d}' is not an absolute path (or -)" >&2; return 1 ;; esac
     echo '# host probe (bench_host_probe_script): a subshell that only prints one HOST_PROBE line'
     echo '('
     bench_remote_lib_preamble
+    # shellcheck disable=SC2016  # `-`: the node's shell expands $D, the surrounding script's datadir
+    [ "${d}" != - ] || echo 'RD="${D:-}"'
     printf 'I=%q\nD=%q\n' "${inst}" "${d}"
+    # shellcheck disable=SC2016  # as above
+    [ "${d}" != - ] || echo 'D="$RD"'
     cat <<'EOS'
 hp(){ echo "HOST_PROBE $I probe_failed $*"; exit 0; }
 if [ -z "$D" ]; then
@@ -3107,6 +3152,198 @@ bench_host_probe_summary() {
     [ -n "${out}" ] || out="⚠ HOST_PROBE_SUMMARY kernel=- image=- ra_kb=- uniform=no differ=[] probe_failed=[] (cannot read ${m})"
     printf '%s\n' "${out}"
     return 0
+}
+
+# --- the first-start arm (BENCH_ARM_FILE; deploy step 7) -----------------------------------------
+# With BENCH_ARM_FILE set, deploy step 7 starts the fleet in that arm (the headline run: no restart).
+# The arm file is read by tools/params-apply.sh, the one parser of its grammar (arms/README.md), in its
+# local mode `--arm-file <file> --print-state`, whose output is fixed:
+#   ARM_NAME <name>
+#   ARM_SHA256 <lower-case hex of the file's bytes>
+#   ARM_SWITCH <key> <bool|int|dur> <value>    one per row of arms/switches.tsv, in its order (defaults included)
+#   ARM_HOST <read-ahead-kb|evict-mdbx> <KiB|->  zero or more, in run order
+# The switches go into each node's parameters.yaml through the pre-start script's setp (the per-node
+# override path), the host steps through its host-step code; the comparisons below follow the arm
+# tool's rules (bool by case, int without leading zeros, dur by its value in ms).
+BENCH_SWITCHES_TSV="${BENCH_LIB_DIR}/arms/switches.tsv"
+BENCH_ARM_STATE_FOR=""; BENCH_ARM_NAME=""; BENCH_ARM_SHA256=""; BENCH_ARM_SWITCHES=""; BENCH_ARM_HOST=""
+
+# _bench_switch_rows — arms/switches.tsv without its header: "<key> <type> <default> <optional>" per row.
+_bench_switch_rows() {
+    awk -F'\t' 'NR > 1 && NF == 6 { print $1, $2, $3, $6 }' "${BENCH_SWITCHES_TSV}"
+}
+
+# _bench_switch_norm <bool|int|dur> <value> — the value in one spelling, to compare (the arm tool's
+# norm_val): bool lower case, int without leading zeros, dur in whole ms (<n>ms, <n>s, <n>m, decimals
+# allowed); "?<value>" for anything else.
+_bench_switch_norm() {
+    local v
+    case "$1" in
+        bool) v="$(printf '%s' "$2" | tr 'A-Z' 'a-z')"; case "${v}" in true|false) echo "${v}" ;; *) echo "?$2" ;; esac ;;
+        int) case "$2" in ''|*[!0-9]*) echo "?$2" ;; *) v="$(printf '%s' "$2" | sed 's/^0*//')"; echo "${v:-0}" ;; esac ;;
+        dur) v="$(awk -v v="$2" 'BEGIN {
+                 if (v !~ /^[0-9]+(\.[0-9]+)?(ms|s|m)$/) exit
+                 u = v; sub(/^[0-9.]+/, "", u)
+                 n = substr(v, 1, length(v) - length(u)); i = n; f = ""
+                 if (index(n, ".")) { i = substr(n, 1, index(n, ".") - 1); f = substr(n, index(n, ".") + 1) }
+                 if (length(f) > 9) f = substr(f, 1, 9)
+                 mul = (u == "ms") ? 1 : ((u == "s") ? 1000 : 60000)
+                 printf "%d\n", i * mul + (f == "" ? 0 : int(f * mul / (10 ^ length(f)))) }')"
+             echo "${v:-?$2}" ;;
+        *) echo "?$2" ;;
+    esac
+}
+
+# bench_arm_state_load [<arm file>] — read the arm (default BENCH_ARM_FILE) once through
+# `tools/params-apply.sh --arm-file <file> --print-state` into BENCH_ARM_NAME, BENCH_ARM_SHA256,
+# BENCH_ARM_SWITCHES ("<key> <type> <value>" per switch, tsv order) and BENCH_ARM_HOST ("<step>
+# <KiB|->" per host step, run order); BENCH_ARM_STATE_FOR names the file they belong to, and a second
+# call for the same file reads nothing. Call it in the shell that uses them (never in $(...)). rc 1
+# with the reason on stderr when the tool refuses the file, or its output is not the fixed format
+# (every switches.tsv row once, in order, with its type), or ARM_SHA256 is not the file's.
+bench_arm_state_load() {
+    local f="${1:-${BENCH_ARM_FILE:-}}" out err rc=0 line w1 w2 w3 w4 w5 name="" sha="" sw="" host="" rows want got
+    [ -n "${f}" ] || { echo "❌ bench_arm_state_load: no arm file (BENCH_ARM_FILE is empty)" >&2; return 1; }
+    [ "${BENCH_ARM_STATE_FOR}" != "${f}" ] || return 0
+    err="$(mktemp "${TMPDIR:-/tmp}/bench-arm-state.XXXXXX")" || { echo "❌ bench_arm_state_load: no temp file" >&2; return 1; }
+    out="$(bash "${BENCH_LIB_DIR}/tools/params-apply.sh" --arm-file "${f}" --print-state 2>"${err}")" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "❌ ${f}: tools/params-apply.sh --print-state refused the arm (rc ${rc}): $(tr '\n' ' ' < "${err}" | cut -c1-400)" >&2
+        rm -f "${err}"; return 1
+    fi
+    rm -f "${err}"
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        w1="" w2="" w3="" w4="" w5=""
+        read -r w1 w2 w3 w4 w5 <<< "${line}"
+        case "${w1}" in
+            ARM_NAME) [ -z "${name}" ] && [ -n "${w2}" ] && [ -z "${w3}" ] || w1="?"; name="${w2}" ;;
+            ARM_SHA256) [ -z "${sha}" ] && [ -n "${w2}" ] && [ -z "${w3}" ] || w1="?"; sha="${w2}" ;;
+            ARM_SWITCH) [ -n "${w4}" ] && [ -z "${w5}" ] || w1="?"; sw="${sw}${w2} ${w3} ${w4}"$'\n' ;;
+            ARM_HOST) [ -n "${w3}" ] && [ -z "${w4}" ] || w1="?"; host="${host}${w2} ${w3}"$'\n' ;;
+            *) w1="?" ;;
+        esac
+        [ "${w1}" != "?" ] || { echo "❌ ${f}: --print-state printed '${line}' (want ARM_NAME, ARM_SHA256, ARM_SWITCH, ARM_HOST lines of the fixed format)" >&2; return 1; }
+    done <<< "${out}"
+    case "${name}" in ''|[!a-z0-9]*|*[!a-z0-9-]*) echo "❌ ${f}: --print-state gave the arm name '${name}' ([a-z0-9][a-z0-9-]{0,39})" >&2; return 1 ;; esac
+    [ "${#name}" -le 40 ] || { echo "❌ ${f}: --print-state gave the arm name '${name}' ([a-z0-9][a-z0-9-]{0,39})" >&2; return 1; }
+    case "${sha}" in *[!0-9a-f]*|'') sha="?${sha}" ;; esac
+    [ "${#sha}" -eq 64 ] || { echo "❌ ${f}: --print-state gave ARM_SHA256 '${sha#?}', not 64 lower-case hex" >&2; return 1; }
+    got="$(bench_file_sha256 "${f}")" || got=""
+    [ "${got}" = "${sha}" ] || { echo "❌ ${f}: ARM_SHA256 ${sha} is not the file's sha256 (${got:-unreadable})" >&2; return 1; }
+    rows="$(_bench_switch_rows | awk '{ print $1, $2 }')"
+    want="$(printf '%s\n' "${sw}" | awk 'NF { print $1, $2 }')"
+    [ -n "${rows}" ] && [ "${want}" = "${rows}" ] || { echo "❌ ${f}: --print-state's ARM_SWITCH lines are not every arms/switches.tsv row once, in order, with its type" >&2; return 1; }
+    while read -r w1 w2 w3; do
+        [ -n "${w1}" ] || continue
+        case "$(_bench_switch_norm "${w2}" "${w3}")" in '?'*) echo "❌ ${f}: --print-state gave ${w1}=${w3}, not a ${w2}" >&2; return 1 ;; esac
+    done <<< "${sw}"
+    while read -r w1 w2; do
+        [ -n "${w1}" ] || continue
+        w3=ok
+        case "${w1}:${w2}" in
+            evict-mdbx:-|read-ahead-kb:0) ;;
+            read-ahead-kb:[1-9]*) case "${w2}" in *[!0-9]*) w3=bad ;; esac ;;
+            *) w3=bad ;;
+        esac
+        [ "${w3}" = ok ] || { echo "❌ ${f}: --print-state gave the host step '${w1} ${w2}' (evict-mdbx -, read-ahead-kb <KiB>)" >&2; return 1; }
+    done <<< "${host}"
+    BENCH_ARM_NAME="${name}"; BENCH_ARM_SHA256="${sha}"; BENCH_ARM_SWITCHES="${sw}"; BENCH_ARM_HOST="${host}"
+    BENCH_ARM_STATE_FOR="${f}"
+}
+
+# bench_file_sha256 <file> — its lower-case hex SHA-256 (sha256sum, else shasum -a 256).
+bench_file_sha256() {
+    { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | awk 'NR == 1 { print $1 }'
+}
+
+# bench_arm_writes — the loaded arm's switches that differ from their switches.tsv default (by value),
+# "<key>=<value>" per line in tsv order: what the pre-start script writes into every node's
+# parameters.yaml. A switch at its default is left out (the node reads an absent key as its default),
+# so an integer switch is never written as 0.
+bench_arm_writes() {
+    local k t v rk rt rd
+    while read -r k t v; do
+        [ -n "${k}" ] || continue
+        while read -r rk rt rd _; do
+            [ "${rk}" = "${k}" ] || continue
+            [ "$(_bench_switch_norm "${t}" "${v}")" = "$(_bench_switch_norm "${rt}" "${rd}")" ] || printf '%s=%s\n' "${k}" "${v}"
+        done <<< "$(_bench_switch_rows)"
+    done <<< "${BENCH_ARM_SWITCHES}"
+}
+
+# bench_arm_host_value <step> — the loaded arm's value of host step <step> ("-" for evict-mdbx); ""
+# when the arm does not list it.
+bench_arm_host_value() {
+    printf '%s\n' "${BENCH_ARM_HOST}" | awk -v s="$1" '$1 == s { print $2; exit }'
+}
+
+# bench_arm_switches_json — the loaded arm's full switch state as compact JSON {key: "value"} (tsv order).
+bench_arm_switches_json() {
+    printf '%s\n' "${BENCH_ARM_SWITCHES}" | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {(.[0]): .[2]}) | add // {}'
+}
+
+# bench_arm_override_conflicts — one line per BENCH_NODE_PARAM_OVERRIDES item that sets a node switch
+# (arms/switches.tsv) while BENCH_ARM_FILE is set: the arm states every switch for every node, so a
+# per-node value beside it would contradict it. No output when there is none (or no arm file).
+bench_arm_override_conflicts() {
+    local i kv k rk
+    [ -n "${BENCH_ARM_FILE:-}" ] || return 0
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        bench_node_overrides "${i}" | while IFS= read -r kv; do
+            k="${kv%%=*}"
+            while read -r rk _; do
+                [ "${rk}" != "${k}" ] || echo "BENCH_NODE_PARAM_OVERRIDES sets the node switch ${k} on ${INSTANCE_NAMES[$i]} beside BENCH_ARM_FILE (the arm states every switch on every node; set it in the arm file)"
+            done <<< "$(_bench_switch_rows)"
+        done
+    done
+}
+
+# bench_switch_line_values <line> — the key=value tokens after the `node switches` message text of a
+# node's log line, one "key=value" per line (quotes dropped); nothing when the line lacks the text.
+bench_switch_line_values() {
+    printf '%s\n' "$1" | awk '{
+        i = index($0, "node switches"); if (!i) exit
+        rest = substr($0, i + length("node switches")); sub(/^"/, "", rest)
+        n = split(rest, tok, /[ \t]+/)
+        for (j = 1; j <= n; j++) {
+            if (tok[j] !~ /^[a-z][a-z0-9_]*=/) continue
+            k = substr(tok[j], 1, index(tok[j], "=") - 1); v = substr(tok[j], index(tok[j], "=") + 1)
+            gsub(/^"|"$/, "", v)
+            print k "=" v
+        }
+        exit
+    }'
+}
+
+# bench_switch_readback <expected JSON {key: "value"}> <node switches line> — rc 0 when the line
+# shows every switch of arms/switches.tsv at its expected value (a key the JSON lacks: its default),
+# compared by value (_bench_switch_norm). A key the line does not print passes only for an optional
+# switch expected at its default. Otherwise rc 1 and one line: the disagreements
+# ("<key>=<logged> (expected <value>)", "<key> is not on the line (expected <value>)"), or why the
+# line cannot be read.
+bench_switch_readback() {
+    local exp="$1" line="$2" vals k t d o want got out=""
+    [ -n "${line}" ] && [ "${line}" != "-" ] || { echo "no 'node switches' line in the node's log since its start (an image that does not log it?)"; return 1; }
+    vals="$(bench_switch_line_values "${line}")"
+    [ -n "${vals}" ] || { echo "the line holds no key=value after 'node switches': ${line:0:200}"; return 1; }
+    while read -r k t d o; do
+        [ -n "${k}" ] || continue
+        want="$(printf '%s' "${exp}" | jq -r --arg k "${k}" '.[$k] // empty' 2>/dev/null)" || want=""
+        want="${want:-${d}}"
+        got="$(printf '%s\n' "${vals}" | sed -n "s/^${k}=//p" | tail -n 1)"
+        if printf '%s\n' "${vals}" | grep -q "^${k}="; then
+            [ "$(_bench_switch_norm "${t}" "${got}")" = "$(_bench_switch_norm "${t}" "${want}")" ] \
+                || out="${out}, ${k}=${got} (expected ${want})"
+        elif [ "${o}" = yes ] && [ "$(_bench_switch_norm "${t}" "${want}")" = "$(_bench_switch_norm "${t}" "${d}")" ]; then
+            :
+        else
+            out="${out}, ${k} is not on the line (expected ${want})"
+        fi
+    done <<< "$(_bench_switch_rows)"
+    [ -n "${out}" ] || return 0
+    echo "${out#, }"
+    return 1
 }
 
 # _bench_node_mode_cmd — the remote command bench_node_mode runs (one tn_iap_ssh, no sudo): the
