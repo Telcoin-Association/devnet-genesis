@@ -387,7 +387,7 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - D43. `wait_for_exit`'s 200-ms grace does not read the channel: > 1,000 spawns inside it would overflow again (bench 5's rate gives
   about 18). Not fixed.
 - D44. The switch's doc in `crates/config/src/node.rs` describes a check on the freshly built record; the code checks a STORED
-  record. One-sentence doc fix at integration (orchestrator).
+  record. One-sentence doc fix at integration (orchestrator). DONE 2026-11-11 (2c9b43209 on the integration branch).
 - Not delivered on purpose: an entry-lag-in-seconds gauge (#1806 E); the rounds-behind gauge in the primary crate covers the arm rule.
 
 ## From U12a (pipelined persist, core; `tasks/bench6/briefs/u12a-api.md`) — held off the integration branch until last
@@ -427,7 +427,7 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - D48. Validators' backlogs rise together, so their gates close together; there is no jitter. An observer's forwarder then walks
   the whole committee, logs a warn per transaction per pass and requeues. Not changed (it needs `forward.rs`).
 - D49. A limit above about 73 can never close (64 in the channel + 8 queued + 1 executing); K = 1 closes whenever any output is
-  in flight. One sentence for the config docs (orchestrator, with D44).
+  in flight. One sentence for the config docs (orchestrator, with D44). DONE 2026-11-11 (74662a889).
 - D50. Only active validators are gated; observers' own submissions pass (their pool feeds the validators' gates). One-line
   change if the user wants observers gated too.
 - The gauge `tn_node_execution_backlog_outputs` is set only when an output is forwarded: during a consensus stall it freezes

@@ -46,3 +46,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 49 | U10 | bench6-obs | — (digest wait from first receipt; review note on #1819) | af793ae56 | c8e5ae7be | #1819 note | | |
 | 50 | U11 | inflight-bound | — (backlog recorded at forward; gauge) | ee277abaf | f792ef186 | — | | |
 | 51 | U11 | inflight-bound | rpc_admission_backlog_outputs | e61d4eeda | 256422898 | — | | |
+| 52 | orch | tracker-drain | — (config doc: the check is on a STORED record; D44) | — | 2c9b43209 | #1806 | | |
+| 53 | orch | inflight-bound | — (config doc: who is gated, bounds above 73 never close; D49) | — | 74662a889 | — | | |
