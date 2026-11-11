@@ -109,6 +109,7 @@ Records merge into the instance's object (`node_startup_merge`), so adding a key
 | `mdbx_dat_size_bytes` | int or null | size of `<datadir>/db/mdbx.dat`; null when the file does not exist yet |
 | `mdbx_dat_resident_pages` | int or null | fincore resident pages of `mdbx.dat` |
 | `mdbx_dat_folios` | {order: int} or null | the folio census of `mdbx.dat`: folios per folio order, keys are the order as a string |
+| `lru_gen_enabled` | string | `/sys/kernel/mm/lru_gen/enabled` (for example `0x0007`); null when the kernel has no multi-generational LRU. With it on, the `active` page flag is mostly unset, which changes how the folio census's `active_folios` reads |
 
 A probe that failed as a whole records `{"probe_failed": true, "reason": "<text>"}` instead, as `fsync_probe` does.
 
@@ -133,7 +134,7 @@ After the pre-start step the deploy prints one line for the fleet:
 ```
 
 Each value is the most common one among the nodes that probed (a tie goes to the first node in fleet order), or `-` when no node probed.
-The uniformity fields are `kernel`, `image_serial`, `datadir_fstype`, `datadir_mount_options`, `read_ahead_kb`, `max_sectors_kb`, `scheduler`, `nr_requests`, `thp_enabled`, `thp_defrag`, `thp_shmem_enabled`, `khugepaged_defrag`, the eight `vm_*` fields, `nproc` and `container_memory_limit_bytes`.
+The uniformity fields are `kernel`, `image_serial`, `datadir_fstype`, `datadir_mount_options`, `read_ahead_kb`, `max_sectors_kb`, `scheduler`, `nr_requests`, `thp_enabled`, `thp_defrag`, `thp_shmem_enabled`, `khugepaged_defrag`, the eight `vm_*` fields, `nproc`, `container_memory_limit_bytes` and `lru_gen_enabled`.
 `differ` lists, in fleet order, the nodes whose value of any uniformity field is not the most common one.
 `uniform=yes` when at least one node probed and `differ` is empty.
 The line starts with `⚠ ` when `uniform=no` or `probe_failed` lists a node.

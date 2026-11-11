@@ -1619,12 +1619,14 @@ bench_node_params_manifest() {
                log_max_files: (if $mf == "" then null else ($mf | tonumber) end)}))'
 }
 
-# --- local results: results/<run>/ is the only copy ------------------------------------------
-# Nothing is copied to a persistent bucket. The run bucket gs://tn-devnet-bench-<run> is only the
-# blasters' upload transport: the teardown copies it into results/<run>/bucket/ and deletes it.
-# So the teardown's local gate proves, before its first delete, that results/<run>/ holds every
-# node's logs and the manifest, and leaves INDEX.md and CHECKSUMS.sha256 beside them. Back
-# results/ up outside the repo: it is gitignored and on one disk.
+# --- local results: results/<run>/ until the run is archived ---------------------------------
+# Since 2026-10-08 the canonical copy of a finished run is the project's GCS archive bucket for
+# bench runs (benchmark/README.md names it); results/<run>/ is a transient working copy, pruned
+# only after the archive is verified to hold every file at the same size and MD5. The run bucket
+# gs://tn-devnet-bench-<run> is only the blasters' upload transport: the teardown copies it into
+# results/<run>/bucket/ and deletes it. So the teardown's local gate proves, before its first
+# delete, that results/<run>/ holds every node's logs and the manifest, and leaves INDEX.md and
+# CHECKSUMS.sha256 beside them.
 
 # _bench_sha256_cmd — the SHA-256 tool, printed one word per line: shasum -a 256 where it exists
 # (macOS), else sha256sum (Linux). Both print "<hex>  <file>" and both check with -c.
@@ -2231,18 +2233,29 @@ EOS
 #   8. every flag of 6 read back with tn_launch_flag_get
 #   9. S is root:root 755 and passes bash -n
 #  10. the unit is still inactive
+#  11. when BENCH_NODE_READ_AHEAD_KB is set: the host step read-ahead-kb <it> (bench_host_step_script
+#      has the same body): the data disk's queue/read_ahead_kb written, then read back
+#  12. when BENCH_NODE_EVICT_MDBX=1: the host step evict-mdbx, <D>/db/mdbx.dat dropped from the page
+#      cache (fsync, posix_fadvise DONTNEED; its residency must then read 0); the last thing before
+#      the start, the order the arm tool keeps (arms/README.md)
+#      Each of 11 and 12 prints its HOST_STEP line (bench_host_step_script); a failed one prints the
+#      HOST_STEP failed line, then PRECFG_FAIL.
 # Last line (contract C5b):
 #   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
 #     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive logrotate=<size|->
 #     paramsbak=<written|kept>[ dbsync=<BENCH_NODE_DB_SYNC_MODE>, only when that is set]
+#     [ ra=<old>-><new>, only when BENCH_NODE_READ_AHEAD_KB is set][ evict=<before>/<after>, only
+#     when BENCH_NODE_EVICT_MDBX=1 (resident pages of mdbx.dat)]
 # Any failure prints `PRECFG_FAIL <inst> <reason>` and exits 1. Prints the script only (no GCP call);
 # non-zero and nothing printed for an instance outside the fleet, a TN_NODE_SCRIPTS_REF that is
-# not 40 lower-case hex, a BENCH_LOGROTATE_SIZE that is not <digits>K|M|G, or a BENCH_NODE_DB_SYNC_MODE
-# other than empty, durable or safe-no-sync. Every knob unset: the script is byte for byte bench 4's.
+# not 40 lower-case hex, a BENCH_LOGROTATE_SIZE that is not <digits>K|M|G, a BENCH_NODE_DB_SYNC_MODE
+# other than empty, durable or safe-no-sync, a BENCH_NODE_EVICT_MDBX other than empty, 0 or 1, or a
+# BENCH_NODE_READ_AHEAD_KB that is not empty or an integer without leading zeros. Every knob unset
+# (BENCH_NODE_EVICT_MDBX empty or 0): the script is byte for byte bench 4's.
 # Step 7 sends bench_fsync_probe_script ahead of it in the same session (below).
 bench_prestart_script() {
     local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov lrs="${BENCH_LOGROTATE_SIZE:-}" lrt=""
-    local dbs="${BENCH_NODE_DB_SYNC_MODE:-}"
+    local dbs="${BENCH_NODE_DB_SYNC_MODE:-}" ev="${BENCH_NODE_EVICT_MDBX:-}" ra="${BENCH_NODE_READ_AHEAD_KB:-}" sfx
     idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
     case "${ref}" in
         *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
@@ -2259,6 +2272,13 @@ bench_prestart_script() {
     case "${dbs}" in
         ''|durable|safe-no-sync) ;;
         *) echo "❌ bench_prestart_script: BENCH_NODE_DB_SYNC_MODE='${dbs}' is not empty, durable or safe-no-sync" >&2; return 1 ;;
+    esac
+    case "${ev}" in
+        ''|0|1) ;;
+        *) echo "❌ bench_prestart_script: BENCH_NODE_EVICT_MDBX='${ev}' is not empty, 0 or 1" >&2; return 1 ;;
+    esac
+    case "${ra}" in
+        *[!0-9]*|0?*) echo "❌ bench_prestart_script: BENCH_NODE_READ_AHEAD_KB='${ra}' is not empty or an integer without leading zeros (KiB)" >&2; return 1 ;;
     esac
     nov="$(bench_node_overrides "${idx}" | grep -c . || true)"
     echo 'set -euo pipefail'
@@ -2380,7 +2400,24 @@ bash -n "$S" || fail "$S does not parse (bash -n)"
 u="$(systemctl is-active telcoin 2>/dev/null || true)"
 [ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
 EOS
-    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}%s"\n' "${inst}" "${dbs:+ dbsync=${dbs}}"
+    sfx="${dbs:+ dbsync=${dbs}}"
+    if [ -n "${ra}" ]; then
+        echo "# 11. host step read-ahead-kb ${ra} (BENCH_NODE_READ_AHEAD_KB): the data disk's queue/read_ahead_kb, written and read back"
+        _bench_host_step_wrappers prestart "${inst}" read-ahead-kb "${ra}"
+        _bench_host_step_body read-ahead-kb "${ra}"
+        echo 'RA_OLD=$HS_A; RA_NEW=$HS_B'
+        # shellcheck disable=SC2016  # the node's shell expands them, in the PRECFG_OK line
+        sfx="${sfx}"' ra=${RA_OLD}->${RA_NEW}'
+    fi
+    if [ "${ev}" = 1 ]; then
+        echo "# 12. host step evict-mdbx (BENCH_NODE_EVICT_MDBX=1): mdbx.dat out of the page cache, the last thing before the start"
+        _bench_host_step_wrappers prestart "${inst}" evict-mdbx -
+        _bench_host_step_body evict-mdbx -
+        echo 'EV_BEFORE=$HS_A; EV_AFTER=$HS_B'
+        # shellcheck disable=SC2016  # the node's shell expands them, in the PRECFG_OK line
+        sfx="${sfx}"' evict=${EV_BEFORE}/${EV_AFTER}'
+    fi
+    printf 'echo "PRECFG_OK %s datadir=$D http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:$MP filter=${F:--} maxfiles=${MF:--} params=$NOV owner=root:root mode=755 unit=$u logrotate=${LRS:--} paramsbak=${BAK:--}%s"\n' "${inst}" "${sfx}"
 }
 
 # bench_fsync_probe_script <inst> — the disk probe deploy step 7 sends first in each node's pre-start
@@ -2496,6 +2533,578 @@ bench_fsync_probe_summary() {
           + "FSYNC_PROBE_SUMMARY median_us=\($med // "-") slow=[\($slow | join(" "))] probe_failed=[\($bad | join(" "))]"
     ' "${m}" 2>/dev/null)" || out=""
     [ -n "${out}" ] || out="⚠ FSYNC_PROBE_SUMMARY median_us=- slow=[] probe_failed=[] (cannot read ${m})"
+    printf '%s\n' "${out}"
+    return 0
+}
+
+# --- host probe and host steps (bench 6) ------------------------------------------------------
+# Pure script builders and local parsers; the callers (deploy step 7, tools/params-apply.sh, the
+# one-VM probe) send the scripts and record the lines. Manifest names: arms/MANIFEST-FIELDS.md.
+
+# _bench_host_py — the python3 program (stdlib only; the Ubuntu 24.04 image ships python3, fincore,
+# findmnt and lsblk) behind the host probe and the host steps, run as `python3 - <mode> ...`:
+#   probe <inst> <datadir> <start script>  one line `HOST_PROBE <inst> <json>` (the frozen keys of
+#                                          node_startup[inst].host, in table order; a field it cannot
+#                                          read is null), or `HOST_PROBE <inst> probe_failed <reason>`
+#   evict-mdbx <datadir>                   one line `ok <before> <after>` or `failed <reason>`
+#   read-ahead-kb <datadir> <KiB>          one line `ok <before> <after>` or `failed <reason>`
+# It never touches a page of mdbx.dat: residency is fincore's count, or (fincore missing or
+# failing) mincore over a read-only map that nothing reads. mdbx_dat_folios is null: the folio
+# census (tools/folio-census.py) resolves folio orders through the node's own page table, and
+# before the start no process maps the file. Every external call has a 10-s timeout and the whole
+# program a 30-s alarm.
+_bench_host_py() {
+    cat <<'EOS'
+import ctypes, json, mmap, os, re, shlex, signal, subprocess, sys
+
+PS = mmap.PAGESIZE
+LOWBIT = bytes(b & 1 for b in range(256))
+THP = "/sys/kernel/mm/transparent_hugepage/"
+VM = ("dirty_ratio", "dirty_background_ratio", "dirty_bytes", "dirty_background_bytes",
+      "dirty_expire_centisecs", "dirty_writeback_centisecs", "swappiness", "vfs_cache_pressure")
+_libc = []
+
+
+class StepFailed(Exception):
+    pass
+
+
+def why(e):
+    return "%s: %s" % (type(e).__name__, " ".join(str(e).split()))
+
+
+def run(argv):
+    """stdout of argv, or None when it is missing, fails or takes over 10 s."""
+    try:
+        p = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=10, universal_newlines=True, errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return p.stdout if p.returncode == 0 else None
+
+
+def text(path):
+    try:
+        with open(path, errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def number(path):
+    t = text(path)
+    return int(t) if t is not None and re.match(r"^[0-9]+$", t) else None
+
+
+def active(path):
+    """The active entry of a sysfs choice file ("always [madvise] never" -> "madvise"), else its text."""
+    t = text(path)
+    m = re.search(r"\[([^]]*)\]", t or "")
+    return m.group(1) if m else t
+
+
+def key_value(path, key, sep):
+    """The value of the first `<key><sep>` line of <path>, shell quotes removed."""
+    for line in (text(path) or "").splitlines():
+        k, s, v = line.partition(sep)
+        if s and k.strip() == key:
+            return " ".join(shlex.split(v))
+    return None
+
+
+def mem_total_kb():
+    for line in (text("/proc/meminfo") or "").splitlines():
+        if line.startswith("MemTotal:"):
+            return int(line.split()[1])
+    return None
+
+
+def libc():
+    if not _libc:
+        c = ctypes.CDLL(None, use_errno=True)
+        c.mmap.restype = ctypes.c_void_p
+        c.mmap.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long)
+        c.munmap.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+        c.mincore.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p)
+        _libc.append(c)
+    return _libc[0]
+
+
+class Mapped(object):
+    """<path> mapped shared and read-only. Mapping faults no page in, and nothing reads the map."""
+
+    def __init__(self, path):
+        self.addr = None
+        self.fd = os.open(path, os.O_RDONLY)
+        self.size = os.fstat(self.fd).st_size
+        self.pages = (self.size + PS - 1) // PS
+        if self.size:
+            c = libc()
+            a = c.mmap(None, self.size, mmap.PROT_READ, mmap.MAP_SHARED, self.fd, 0)
+            if not a or a == ctypes.c_void_p(-1).value:
+                e = ctypes.get_errno()
+                self.close()
+                raise OSError(e, "mmap: " + os.strerror(e))
+            self.addr = a
+
+    def resident(self):
+        """mincore of the map: one byte per page, 1 when the page cache holds the page."""
+        vec = (ctypes.c_ubyte * max(self.pages, 1))()
+        if self.pages and libc().mincore(self.addr, self.size, vec) != 0:
+            e = ctypes.get_errno()
+            raise OSError(e, "mincore: " + os.strerror(e))
+        return bytes(vec)[:self.pages].translate(LOWBIT)
+
+    def close(self):
+        if self.addr:
+            libc().munmap(self.addr, self.size)
+            self.addr = None
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+def resident_pages(path):
+    """Resident pages of <path>: fincore's count when fincore runs, else mincore over an untouched map."""
+    out = (run(["fincore", "--noheadings", "--raw", "--output", "PAGES", path]) or "").strip()
+    if re.match(r"^[0-9]+$", out):
+        return int(out)
+    m = Mapped(path)
+    try:
+        return m.resident().count(1)
+    finally:
+        m.close()
+
+
+def mount_of(d):
+    """(source, fstype, options) of the mount holding <d>, from findmnt."""
+    try:
+        fs = json.loads(run(["findmnt", "--json", "--output", "SOURCE,FSTYPE,OPTIONS", "--target", d]))
+        fs = fs["filesystems"][0]
+        return fs.get("source"), fs.get("fstype"), fs.get("options")
+    except (TypeError, ValueError, KeyError, IndexError):
+        return None, None, None
+
+
+def data_disk(d, source):
+    """The block device whose queue serves <d>: lsblk's PKNAME of the mount source (the disk under a
+    partition), else its KNAME (a whole disk, a device-mapper volume), else the device number of <d>
+    through /sys/dev/block (a partition's parent); the first with a /sys/block/<name>/queue wins."""
+    names = []
+    if source:
+        try:
+            dev = json.loads(run(["lsblk", "--json", "--nodeps", "--output", "PKNAME,KNAME",
+                                  re.sub(r"\[.*$", "", source)]))["blockdevices"][0]
+            names += [dev.get("pkname"), dev.get("kname")]
+        except (TypeError, ValueError, KeyError, IndexError):
+            pass
+    try:
+        st = os.stat(d)
+        link = "/sys/dev/block/%d:%d" % (os.major(st.st_dev), os.minor(st.st_dev))
+        if os.path.exists(link):
+            real = os.path.realpath(link)
+            part = os.path.exists(os.path.join(real, "partition"))
+            names.append(os.path.basename(os.path.dirname(real) if part else real))
+    except OSError:
+        pass
+    names = [n for n in names if n]
+    for n in names:
+        if os.path.isdir("/sys/block/%s/queue" % n):
+            return n
+    return names[0] if names else None
+
+
+def docker_bytes(v):
+    """docker's --memory value in bytes (k/m/g/t/p are powers of 1024)."""
+    m = re.match(r"^([0-9]+(?:\.[0-9]+)?) ?([kmgtp]?)i?b?$", v, re.I)
+    return int(float(m.group(1)) * 1024 ** "_kmgtp".index(m.group(2).lower() or "_")) if m else None
+
+
+def container_memory(start):
+    """The --memory (-m) of the docker run line in the node's start script: what HostConfig.Memory holds once
+    the unit starts it; 0 when the line has none; None without a readable start script or docker run line."""
+    lines = [l for l in (text(start) or "").splitlines()
+             if re.search(r"(^|[\s/])docker run\s", l) and not l.lstrip().startswith("#")]
+    if not lines:
+        return None
+    toks = shlex.split(lines[-1])
+    for k, tok in enumerate(toks):
+        if tok in ("--memory", "-m") and k + 1 < len(toks):
+            return docker_bytes(toks[k + 1])
+        if tok.startswith("--memory="):
+            return docker_bytes(tok[len("--memory="):])
+    return 0
+
+
+def field(f, *a):
+    try:
+        return f(*a)
+    except Exception:
+        return None
+
+
+def probe(d, start):
+    h = {"kernel": text("/proc/sys/kernel/osrelease"), "cmdline": text("/proc/cmdline"),
+         "os_release": field(key_value, "/etc/os-release", "PRETTY_NAME", "="),
+         "image_serial": field(key_value, "/etc/cloud/build.info", "serial", ":"),
+         "mem_total_kb": field(mem_total_kb), "nproc": field(lambda: len(os.sched_getaffinity(0))),
+         "datadir": d}
+    src, fstype, opts = field(mount_of, d) or (None, None, None)
+    disk = field(data_disk, d, src)
+    h.update([("datadir_mount_source", src), ("datadir_fstype", fstype), ("datadir_mount_options", opts),
+              ("disk", disk)])
+    q = "/sys/block/%s/queue/" % disk
+    for k in ("read_ahead_kb", "max_sectors_kb", "max_hw_sectors_kb", "scheduler", "nr_requests"):
+        h[k] = None if disk is None else active(q + k) if k == "scheduler" else number(q + k)
+    for k in ("enabled", "defrag", "shmem_enabled"):
+        h["thp_" + k] = active(THP + k)
+    h["khugepaged_defrag"] = active(THP + "khugepaged/defrag")
+    for k in VM:
+        h["vm_" + k] = number("/proc/sys/vm/" + k)
+    h["container_memory_limit_bytes"] = field(container_memory, start)
+    path = os.path.join(d, "db", "mdbx.dat")
+    exists = os.path.isfile(path)
+    h["mdbx_dat_size_bytes"] = field(lambda: os.stat(path).st_size) if exists else None
+    h["mdbx_dat_resident_pages"] = field(resident_pages, path) if exists else None
+    h["mdbx_dat_folios"] = None   # no process maps mdbx.dat before the start (see above)
+    h["lru_gen_enabled"] = text("/sys/kernel/mm/lru_gen/enabled")
+    return h
+
+
+def evict(d):
+    """Resident pages of <d>/db/mdbx.dat before and after fsync + posix_fadvise(DONTNEED); (0, 0) when the
+    file is not there (a node that never started has nothing of it cached)."""
+    path = os.path.join(d, "db", "mdbx.dat")
+    if not os.path.exists(path):
+        return 0, 0
+    before = resident_pages(path)
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    finally:
+        os.close(fd)
+    after = resident_pages(path)
+    if after:
+        raise StepFailed("%s keeps %d resident page(s) after fsync and posix_fadvise DONTNEED (%d before)"
+                         % (path, after, before))
+    return before, after
+
+
+def read_ahead(d, kb):
+    """queue/read_ahead_kb of the disk under <d> before and after writing <kb> to it."""
+    disk = data_disk(d, mount_of(d)[0])
+    if not disk:
+        raise StepFailed("no block device found under %s" % d)
+    q = "/sys/block/%s/queue/read_ahead_kb" % disk
+    before = number(q)
+    if before is None:
+        raise StepFailed("cannot read %s" % q)
+    try:
+        with open(q, "w") as f:
+            f.write("%d\n" % kb)
+    except OSError as e:
+        raise StepFailed("cannot write %d to %s: %s" % (kb, q, why(e)))
+    after = number(q)
+    if after != kb:
+        raise StepFailed("%s reads %s after writing %d (it was %d; the kernel keeps whole pages)" % (q, after, kb, before))
+    return before, after
+
+
+def expired(signum, frame):
+    raise RuntimeError("not done after 30 s")
+
+
+def main(argv):
+    mode = argv[1] if len(argv) > 1 else ""
+    signal.signal(signal.SIGALRM, expired)
+    signal.alarm(30)
+    try:
+        if mode == "probe":
+            try:
+                line = "%s %s" % (argv[2], json.dumps(probe(argv[3], argv[4]), separators=(",", ":")))
+            except Exception as e:
+                line = "%s probe_failed %s" % (argv[2], why(e))
+            print("HOST_PROBE " + line)
+            return
+        try:
+            if mode == "evict-mdbx":
+                print("ok %d %d" % evict(argv[2]))
+            elif mode == "read-ahead-kb":
+                print("ok %d %d" % read_ahead(argv[2], int(argv[3])))
+            else:
+                print("failed unknown mode '%s'" % mode)
+        except StepFailed as e:
+            print("failed %s" % e)
+        except Exception as e:
+            print("failed %s" % why(e))
+    finally:
+        signal.alarm(0)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
+EOS
+}
+
+# _bench_host_name_ok <inst> — rc 0 when <inst> is a GCE instance name the host scripts may embed
+# (a lower-case letter, then up to 62 of [a-z0-9-]); the fleet's names and the one-VM probe's pass.
+_bench_host_name_ok() {
+    case "${1:-}" in ''|[!a-z]*|*[!a-z0-9-]*) return 1 ;; esac
+    [ "${#1}" -le 63 ]
+}
+
+# _bench_host_step_wrappers <prestart|standalone> <inst> <step> <value|-> — the hsok/hsfail pair a
+# host step body reports through. Both print the step's HOST_STEP line (hsok its result fields,
+# hsfail `failed <reason>`). prestart: hsok returns and hsfail ends the pre-start script through its
+# fail (PRECFG_FAIL); standalone: both end the step's subshell, hsok with 0 and hsfail with 1.
+_bench_host_step_wrappers() {
+    local mode="$1" inst="$2" step="$3" v="$4"
+    if [ "${mode}" = prestart ]; then
+        printf 'hsok(){ echo "HOST_STEP %s %s %s $*"; }\n' "${inst}" "${step}" "${v}"
+        printf 'hsfail(){ echo "HOST_STEP %s %s %s failed $*"; fail "host step %s: $*"; }\n' "${inst}" "${step}" "${v}" "${step}"
+    else
+        printf 'hsok(){ echo "HOST_STEP %s %s %s $*"; exit 0; }\n' "${inst}" "${step}" "${v}"
+        printf 'hsfail(){ echo "HOST_STEP %s %s %s failed $*"; exit 1; }\n' "${inst}" "${step}" "${v}"
+    fi
+}
+
+# _bench_host_step_body <evict-mdbx|read-ahead-kb> <value|-> — the remote shell of one host step, the
+# same text in bench_prestart_script (11, 12) and in bench_host_step_script: reads D (the datadir),
+# runs _bench_host_py's mode, leaves the before/after numbers in HS_A/HS_B and reports them through
+# hsok "<key_before>=<n> <key_after>=<n>"; any failure goes to hsfail "<reason>".
+# evict-mdbx: at a fresh start (deploy step 7) mdbx.dat holds only genesis, and libmdbx drops every
+# page past the used size from the cache when it opens the file, so there the eviction changes
+# little. It matters when an arm restarts a node whose cache is warm (tools/params-apply.sh).
+_bench_host_step_body() {
+    local step="$1" v="$2" a b args
+    case "${step}" in
+        evict-mdbx) a=resident_pages_before; b=resident_pages_after; args='"$D"' ;;
+        read-ahead-kb) a=read_ahead_kb_before; b=read_ahead_kb_after; args="\"\$D\" ${v}" ;;
+        *) echo "❌ _bench_host_step_body: unknown step '${step}'" >&2; return 1 ;;
+    esac
+    echo 'command -v python3 >/dev/null 2>&1 || hsfail "no python3 on the node"'
+    printf "r=0; o=\"\$(python3 - %s %s <<'PY'\n" "${step}" "${args}"
+    _bench_host_py
+    printf 'PY\n)" || r=$?\n'
+    cat <<'EOS'
+HS_A=''; HS_B=''
+case "$o" in
+    "ok "*) HS_A="${o#ok }"; HS_B="${HS_A#* }"; HS_A="${HS_A%% *}"; [ "ok $HS_A $HS_B" = "$o" ] || HS_B='' ;;
+    "failed "*) hsfail "${o#failed }" ;;
+    *) hsfail "python3 exited $r${o:+: $o}" ;;
+esac
+case "$HS_A:$HS_B" in :*|*:|*[!0-9:]*) hsfail "python3 printed '$o'" ;; esac
+EOS
+    printf 'hsok "%s=$HS_A %s=$HS_B"\n' "${a}" "${b}"
+}
+
+# bench_host_step_script <inst> evict-mdbx [<datadir>]
+# bench_host_step_script <inst> read-ahead-kb <KiB> [<datadir>]
+# One host step as a remote script, for a node whose unit is stopped (deploy step 7 runs the same
+# body inside bench_prestart_script; tools/params-apply.sh runs it between a node's stop and start).
+# Run as root (`bash -s`, or embedded in a longer script). <datadir> defaults to DATA_DIR from
+# /etc/telcoin/.node-meta. The text is one subshell that sets HOST_STEP_RC (0 the step held, 1 it
+# failed) and never stops the script around it, set -e or not; it prints exactly one line:
+#   HOST_STEP <inst> evict-mdbx - resident_pages_before=<n> resident_pages_after=<n>
+#   HOST_STEP <inst> read-ahead-kb <KiB> read_ahead_kb_before=<n> read_ahead_kb_after=<n>
+#   HOST_STEP <inst> <step> <KiB|-> failed <reason>
+# evict-mdbx: fsync of <datadir>/db/mdbx.dat, then posix_fadvise(DONTNEED) over it; its resident
+# pages (fincore, else mincore) must then read 0. No mdbx.dat: 0/0. read-ahead-kb: writes <KiB> to
+# /sys/block/<disk>/queue/read_ahead_kb of the disk under <datadir> and reads it back (the kernel
+# keeps whole pages, so a value that is not a multiple of 4 reads back lower and fails). The lines
+# map onto host_steps entries through bench_host_step_record. Prints the script only (no GCP
+# call); non-zero and nothing printed for a bad instance name, step, KiB or datadir.
+bench_host_step_script() {
+    local inst="${1:-}" step="${2:-}" v="-" d=""
+    _bench_host_name_ok "${inst}" || { echo "❌ bench_host_step_script: '${inst}' is not an instance name" >&2; return 1; }
+    case "${step}" in
+        evict-mdbx) [ "$#" -le 3 ] || { echo "❌ bench_host_step_script: evict-mdbx takes [<datadir>] only" >&2; return 1; }
+                    d="${3:-}" ;;
+        read-ahead-kb)
+            v="${3:-}"; d="${4:-}"
+            case "${v}" in ''|*[!0-9]*|0?*) echo "❌ bench_host_step_script: read-ahead-kb '${v}' is not an integer without leading zeros (KiB)" >&2; return 1 ;; esac
+            [ "$#" -le 4 ] || { echo "❌ bench_host_step_script: read-ahead-kb takes <KiB> [<datadir>] only" >&2; return 1; } ;;
+        *) echo "❌ bench_host_step_script: unknown step '${step}' (evict-mdbx, read-ahead-kb)" >&2; return 1 ;;
+    esac
+    case "${d}" in ''|/?*) ;; *) echo "❌ bench_host_step_script: datadir '${d}' is not an absolute path" >&2; return 1 ;; esac
+    echo "# host step ${step} (bench_host_step_script): one subshell, one HOST_STEP line; HOST_STEP_RC 0 = held, 1 = failed"
+    echo 'HOST_STEP_RC=0'
+    echo '('
+    bench_remote_lib_preamble
+    printf 'D=%q\n' "${d}"
+    _bench_host_step_wrappers standalone "${inst}" "${step}" "${v}"
+    cat <<'EOS'
+if [ -z "$D" ]; then
+    r=0; D="$(meta DATA_DIR)" || r=$?
+    [ "$r" = 0 ] || hsfail "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
+fi
+case "$D" in /?*) ;; *) hsfail "datadir '$D' is not an absolute path" ;; esac
+[ -d "$D" ] || hsfail "datadir $D is not a directory"
+EOS
+    _bench_host_step_body "${step}" "${v}"
+    echo ') || HOST_STEP_RC=$?'
+}
+
+# bench_host_step_record <inst> — the host steps of one node from a session's output on stdin (CRs
+# dropped): one JSON array, one entry per line that starts `HOST_STEP <inst> `, in order, each
+#   {"step": "evict-mdbx"|"read-ahead-kb", "value": null|"<KiB>", "result": <result>}
+# with <result> {"resident_pages_before": n, "resident_pages_after": n},
+# {"read_ahead_kb_before": n, "read_ahead_kb_after": n} or {"failed": "<reason>"} (a line it cannot
+# parse gives {"failed": "unparsed: <line>"}): node_startup[inst].host_steps, and the per-node
+# result of a param_arms[].host entry (arms/MANIFEST-FIELDS.md). No line: []. rc 0 always.
+bench_host_step_record() {
+    local inst="${1:-}" out
+    out="$(awk -v p="HOST_STEP ${inst} " 'index($0, p) == 1 { print substr($0, length(p) + 1) }' | jq -R -s -c '
+        [split("\n")[] | select(length > 0) | . as $l | split(" ") as $w | $w[0] as $s | ($w[1] // "") as $v
+         | ({"evict-mdbx": ["resident_pages_before", "resident_pages_after"],
+             "read-ahead-kb": ["read_ahead_kb_before", "read_ahead_kb_after"]}[$s]) as $k
+         | (if $s == "evict-mdbx" then $v == "-" else ($v | test("^(0|[1-9][0-9]*)$")) end) as $vok
+         | {step: $s, value: (if $v == "-" or $v == "" then null else $v end),
+            result: (if $k == null or ($vok | not) then {failed: ("unparsed: " + $l)}
+                     elif $w[2] == "failed" then {failed: ($w[3:] | join(" ") | if . == "" then "(no reason given)" else . end)}
+                     elif ($w | length) == 4 and ($w[2] | test("^" + $k[0] + "=(0|[1-9][0-9]{0,17})$"))
+                          and ($w[3] | test("^" + $k[1] + "=(0|[1-9][0-9]{0,17})$"))
+                     then {($k[0]): ($w[2] | ltrimstr($k[0] + "=") | tonumber),
+                           ($k[1]): ($w[3] | ltrimstr($k[1] + "=") | tonumber)}
+                     else {failed: ("unparsed: " + $l)} end)}]' 2>/dev/null)" || out=""
+    printf '%s\n' "${out:-[]}"
+    return 0
+}
+
+# bench_host_probe_script <inst> [<datadir>] — the pre-start host probe: deploy step 7 sends it after
+# bench_fsync_probe_script in each node's pre-start session (the one-VM probe sends it alone, with
+# its <datadir>). A subshell that only prints, so nothing in it stops the session; it takes well
+# under a second on a node (a 30-s alarm bounds it) and prints exactly one line:
+#   HOST_PROBE <inst> <json>                   node_startup[inst].host, compact, the frozen keys in order
+#   HOST_PROBE <inst> probe_failed <reason>    no python3, the datadir unusable, the program failed
+# <datadir> defaults to DATA_DIR from /etc/telcoin/.node-meta (as bench_fsync_probe_script reads it);
+# the memory limit is read off the docker run line of /usr/local/libexec/telcoin/tn-start-docker
+# (the unit is stopped, so no container is there to inspect); mdbx_dat_folios is null (no process
+# maps mdbx.dat yet, and the folio census resolves through one). Run it before any host step: its
+# read_ahead_kb is the value the node booted with, which an arm without the read-ahead step puts
+# back. Prints the script only (no GCP call); non-zero and nothing printed for a bad instance name
+# or a <datadir> that is not absolute.
+bench_host_probe_script() {
+    local inst="${1:-}" d="${2:-}"
+    _bench_host_name_ok "${inst}" || { echo "❌ bench_host_probe_script: '${inst}' is not an instance name" >&2; return 1; }
+    case "${d}" in ''|/?*) ;; *) echo "❌ bench_host_probe_script: datadir '${d}' is not an absolute path" >&2; return 1 ;; esac
+    echo '# host probe (bench_host_probe_script): a subshell that only prints one HOST_PROBE line'
+    echo '('
+    bench_remote_lib_preamble
+    printf 'I=%q\nD=%q\n' "${inst}" "${d}"
+    cat <<'EOS'
+hp(){ echo "HOST_PROBE $I probe_failed $*"; exit 0; }
+if [ -z "$D" ]; then
+    r=0; D="$(meta DATA_DIR)" || r=$?
+    [ "$r" = 0 ] || hp "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
+fi
+case "$D" in /?*) ;; *) hp "datadir '$D' is not an absolute path" ;; esac
+[ -d "$D" ] || hp "datadir $D is not a directory"
+command -v python3 >/dev/null 2>&1 || hp "no python3 on the node"
+r=0; python3 - probe "$I" "$D" /usr/local/libexec/telcoin/tn-start-docker <<'PY' || r=$?
+EOS
+    _bench_host_py
+    cat <<'EOS'
+PY
+[ "$r" = 0 ] || hp "python3 exited $r"
+EOS
+    echo ') || true'
+}
+
+# _bench_host_fields — the keys of node_startup[inst].host in table order, each <key>:<s|i|o>
+# (string, integer or the folio object; any may be null). arms/MANIFEST-FIELDS.md is the contract.
+_bench_host_fields() {
+    printf '%s\n' "kernel:s cmdline:s os_release:s image_serial:s mem_total_kb:i nproc:i datadir:s" \
+        "datadir_mount_source:s datadir_fstype:s datadir_mount_options:s disk:s read_ahead_kb:i" \
+        "max_sectors_kb:i max_hw_sectors_kb:i scheduler:s nr_requests:i thp_enabled:s thp_defrag:s" \
+        "thp_shmem_enabled:s khugepaged_defrag:s vm_dirty_ratio:i vm_dirty_background_ratio:i" \
+        "vm_dirty_bytes:i vm_dirty_background_bytes:i vm_dirty_expire_centisecs:i" \
+        "vm_dirty_writeback_centisecs:i vm_swappiness:i vm_vfs_cache_pressure:i" \
+        "container_memory_limit_bytes:i mdbx_dat_size_bytes:i mdbx_dat_resident_pages:i mdbx_dat_folios:o" \
+        "lru_gen_enabled:s" | tr '\n' ' '
+}
+
+# _bench_host_uniform_fields — the fields HOST_PROBE_SUMMARY compares across the fleet.
+_bench_host_uniform_fields() {
+    printf '%s' "kernel image_serial datadir_fstype datadir_mount_options read_ahead_kb max_sectors_kb scheduler " \
+        "nr_requests thp_enabled thp_defrag thp_shmem_enabled khugepaged_defrag vm_dirty_ratio " \
+        "vm_dirty_background_ratio vm_dirty_bytes vm_dirty_background_bytes vm_dirty_expire_centisecs " \
+        "vm_dirty_writeback_centisecs vm_swappiness vm_vfs_cache_pressure " "nproc container_memory_limit_bytes " \
+        "lru_gen_enabled"
+}
+
+# bench_host_probe_record <inst> — node_startup[<inst>].host from that node's session output on stdin
+# (CRs dropped): the last line that starts `HOST_PROBE <inst> ` gives
+#   the host object, its keys exactly _bench_host_fields' in that order   from `<json>`
+#   {"probe_failed":true,"reason":"<text>"}    from `probe_failed <reason>`, JSON that is not an object
+#                                              with every key at its type ("unparsed: ..."), or no line
+# One JSON object on one line, rc 0 (a failed probe never stops step 7).
+bench_host_probe_record() {
+    local inst="${1:-}" line rest out=""
+    line="$(awk -v p="HOST_PROBE ${inst} " 'index($0, p) == 1 { l = $0 } END { print l }')" || line=""
+    rest="${line#"HOST_PROBE ${inst} "}"
+    if [ -z "${line}" ]; then
+        rest="no HOST_PROBE line in the session output"
+    else
+        case "${rest}" in
+            "{"*)
+                out="$(printf '%s\n' "${rest}" | jq -c --arg f "$(_bench_host_fields)" '
+                    ($f | split(" ") | map(select(. != "") | split(":"))) as $fs
+                    | def ok($t): if . == null then true elif $t == "s" then type == "string"
+                                  elif $t == "i" then type == "number" and . == floor and . >= 0
+                                  else type == "object" and all(to_entries[];
+                                       (.key | test("^(0|[1-9][0-9]?)$")) and (.value | type) == "number") end;
+                    if type != "object" then {probe_failed: true, reason: "unparsed: not a JSON object"}
+                    else . as $h
+                    | [$fs[] | .[0] as $k | select(($h | has($k)) | not) | $k] as $miss
+                    | [$fs[] | . as [$k, $t] | select(($h | has($k)) and (($h[$k] | ok($t)) | not)) | $k] as $bad
+                    | if ($miss | length) > 0 then {probe_failed: true, reason: ("unparsed: no " + ($miss | join(", ")))}
+                      elif ($bad | length) > 0 then {probe_failed: true, reason: ("unparsed: wrong type: " + ($bad | join(", ")))}
+                      else reduce $fs[] as [$k, $t] ({}; .[$k] = $h[$k]) end
+                    end' 2>/dev/null)" || out=""
+                [ -n "${out}" ] || rest="unparsed: not JSON: ${rest:0:120}" ;;
+            "probe_failed "*) rest="${rest#probe_failed }" ;;
+            probe_failed) rest="(no reason given)" ;;
+            *) rest="unparsed: ${rest:0:120}" ;;
+        esac
+    fi
+    [ -n "${out}" ] || out="$(jq -n -c --arg r "${rest}" '{probe_failed: true, reason: $r}')"
+    printf '%s\n' "${out}"
+    return 0
+}
+
+# bench_host_probe_summary <manifest> <inst…> — one line on the fleet's host probes, read from
+# node_startup[<inst>].host in <manifest> (an instance without a record is left out):
+#   [⚠ ]HOST_PROBE_SUMMARY kernel=<v> image=<serial> ra_kb=<n> uniform=yes|no differ=[<inst> …] probe_failed=[<inst> …]
+# Each value is the most common one among the nodes that probed (a tie goes to the first in the
+# order given, the fleet's), `-` when none probed or that value is null. differ lists, in that
+# order, the nodes whose value of any _bench_host_uniform_fields field is not the most common one;
+# uniform=yes when a node probed and differ is empty. "⚠ " leads when uniform=no or probe_failed
+# lists a node. rc 0 always: a host difference is a finding for the analysis, never a reason to stop.
+bench_host_probe_summary() {
+    local m="${1:-}" out
+    [ "$#" -eq 0 ] || shift
+    out="$(jq -r --arg ii "$*" --arg uf "$(_bench_host_uniform_fields)" '
+        def mode($ok; $k): [$ok[] | .h[$k] | tojson] as $v
+            | if ($v | length) == 0 then null
+              else [range(0; $v | length) as $j | {s: $v[$j], n: ([$v[] | select(. == $v[$j])] | length)}] as $c
+                   | ($c | map(.n) | max) as $top | first($c[] | select(.n == $top)) | .s end;
+        def show($common; $k): ($common[$k] // "null" | fromjson) as $x | if $x == null then "-" else ($x | tostring) end;
+        [($ii | split(" ") | map(select(. != "")))[] as $i
+         | {i: $i, h: (.node_startup[$i].host // null)} | select(.h != null)] as $r
+        | [$r[] | select((.h | type) == "object" and (.h.probe_failed // false) != true)] as $ok
+        | [$r[] | select(((.h | type) == "object" and (.h.probe_failed // false) != true) | not) | .i] as $bad
+        | ($uf | split(" ") | map(select(. != ""))) as $u
+        | (reduce $u[] as $k ({}; .[$k] = mode($ok; $k))) as $common
+        | [$ok[] | . as $n | select(any($u[]; ($n.h[.] | tojson) != $common[.])) | .i] as $differ
+        | (($ok | length) > 0 and ($differ | length) == 0) as $uni
+        | (if ($uni | not) or ($bad | length) > 0 then "⚠ " else "" end)
+          + "HOST_PROBE_SUMMARY kernel=\(show($common; "kernel")) image=\(show($common; "image_serial"))"
+          + " ra_kb=\(show($common; "read_ahead_kb")) uniform=\(if $uni then "yes" else "no" end)"
+          + " differ=[\($differ | join(" "))] probe_failed=[\($bad | join(" "))]"
+    ' "${m}" 2>/dev/null)" || out=""
+    [ -n "${out}" ] || out="⚠ HOST_PROBE_SUMMARY kernel=- image=- ra_kb=- uniform=no differ=[] probe_failed=[] (cannot read ${m})"
     printf '%s\n' "${out}"
     return 0
 }
