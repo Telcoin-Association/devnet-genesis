@@ -682,9 +682,11 @@ archive_prev_blast() {
 }
 
 # archive_blast_outputs — archive_prev_blast's moves, without its index check: the blast in the
-# results dir (if any) into blast-<its index>-<UTC>/, its per-blast manifest keys reset.
+# results dir (if any) into blast-<its index>-<UTC>/, its per-blast manifest keys reset. In the same
+# manifest write, a blast_runs[] entry whose log moved points at it again: blast-<index>-<UTC>/<log>
+# (D5; the manifest copy in that directory keeps the paths as they were).
 archive_blast_outputs() {
-    local r="${BENCH_RESULTS_DIR}" prev dest it n=0 items=()
+    local r="${BENCH_RESULTS_DIR}" prev dest it n=0 items=() moved
     if ! prev_blast_recorded; then echo "    no previous blast in ${r} — nothing to archive"; return 0; fi
     prev="$(prev_blast_index)"
     [ "${prev}" != "unknown" ] || bench_warn "the previous blast recorded no BENCH_RUN_INDEX: make sure index ${BENCH_RUN_INDEX} was funded and never blasted"
@@ -713,15 +715,21 @@ archive_blast_outputs() {
             bench_die "could not move ${it} into ${dest}/ — nothing was deleted and the blast has not started; what moved is in ${dest}/, the rest is still in place"
         fi
     done
-    bench_manifest_jq '.blasters = [] | .chaos = [] | .abort = null | .phases = [] | del(.blast) | del(.phases_planned)
-        | .timestamps |= del(.blast_start_at, .blast_end, .collect_start, .step_14_done, .step_15_done)' \
+    moved="$(printf '%s\n' ${items[@]+"${items[@]}"} | jq -R -s -c 'split("\n") | map(select(. != ""))')" || moved="[]"
+    bench_manifest_jq --argjson mv "${moved}" --arg d "$(basename "${dest}")" \
+        '.blasters = [] | .chaos = [] | .abort = null | .phases = [] | del(.blast) | del(.phases_planned)
+        | .timestamps |= del(.blast_start_at, .blast_end, .collect_start, .step_14_done, .step_15_done)
+        | if has("blast_runs") then .blast_runs |= map(if type == "object" and (.log | type) == "string"
+              and (.log as $l | $mv | index([$l])) != null then .log = $d + "/" + .log else . end) else . end' \
         || bench_die "outputs moved into ${dest}/ but manifest.json was not reset — the blast has not started"
     bench_manifest_note "blast index ${prev} archived into $(basename "${dest}")/ at $(bench_now_iso); earlier notes belong to it or to the fleet" || true
     echo "    ✓ previous blast archived: ${dest}/"
 }
 
 # record_blast <start_at-unix> — manifest.blast: the settings that tell one blast from another, with
-# tail_scan_secs, the blasters' --tail-scan-secs (0: off).
+# tail_scan_secs, the blasters' --tail-scan-secs (0: off), and the type of the blast (kind, from
+# BENCH_BLAST_KIND; senders, window and the planned warmup, duration and cooldown seconds), so that the
+# archived copy alone still tells what the blast was.
 record_blast() {
     echo "    blast: BENCH_RUN_INDEX=${BENCH_RUN_INDEX} chaos=${BENCH_CHAOS} lag_inject=${BENCH_LAG_INJECT} (node idx ${BENCH_LAG_IDX}, mixed+${BENCH_LAG_AT_SECS}s for ${BENCH_LAG_PAUSE_SECS}s)$([ "${BENCH_TAIL_SCAN_SECS:-0}" = 0 ] || echo " tail_scan=${BENCH_TAIL_SCAN_SECS}s")"
     echo "    bucket prefix: $(bucket_prefix blasters)/"
@@ -729,9 +737,12 @@ record_blast() {
     bench_manifest_jq --arg i "${BENCH_RUN_INDEX}" --arg c "${BENCH_CHAOS}" --arg li "${BENCH_LAG_INJECT}" --arg lx "${BENCH_LAG_IDX}" \
         --arg la "${BENCH_LAG_AT_SECS}" --arg lp "${BENCH_LAG_PAUSE_SECS}" --arg s "$(bench_iso_from_unix "$1")" --arg bp "$(bucket_prefix blasters)" \
         --arg ts "${BENCH_TAIL_SCAN_SECS:-0}" \
+        --arg k "${BENCH_BLAST_KIND:-load}" --arg sn "${BENCH_SENDERS}" --arg w "${BENCH_WINDOW}" \
+        --arg wu "${BENCH_WARMUP_SECS}" --arg du "${BENCH_DURATION_SECS}" --arg cd "${BENCH_COOLDOWN_SECS}" \
         '.blast = {run_index: ($i|tonumber), chaos: ($c|tonumber), lag_inject: ($li|tonumber), lag_idx: ($lx|tonumber),
                    lag_at_secs: ($la|tonumber), lag_pause_secs: ($lp|tonumber), start_at: $s, bucket_prefix: $bp,
-                   tail_scan_secs: ($ts|tonumber)}'
+                   tail_scan_secs: ($ts|tonumber), kind: $k, senders: ($sn|tonumber), window: ($w|tonumber),
+                   warmup_secs: ($wu|tonumber), duration_secs: ($du|tonumber), cooldown_secs: ($cd|tonumber)}'
 }
 
 # ================================ fund ===============================================
@@ -1847,7 +1858,7 @@ record_real_phases() {
 # one bounded query for the fleet (bench_prom_query: 20 s), evaluated at start_at - 1 (with an offset
 # when it runs later). A node's txpool_status RPC cannot stand in: TN serves no txpool_* method.
 # Recorded as .blast.pool_at_start = {inst: {pending, queued}} (null for a node without a sample, every
-# node null when the query failed); light_record copies it into blasts[]. Prints
+# node null when the query failed); blasts_append copies it into blasts[]. Prints
 #   POOL_AT_START blast=<index> at=<time> read=<n>/<nodes> queued_max=<q> (<inst>) pending_max=<p> (<inst>)
 # and a ⚠ line naming every node above POOL_QUEUED_WARN queued: bench 5's load began with stale queued
 # transactions from earlier blasts on three nodes, and those three evicted accepted ones. Record only:
@@ -2338,24 +2349,35 @@ arm_in_force() {
         | last | .name // empty' "$(bench_manifest)" 2>/dev/null || true
 }
 
-# light_record <p> <started> <ended> <rc> [<arm>] — with --yes, manifest blasts[] += plan entry <p>'s
-# blast: {index, senders, window, chaos, started, ended, rc, kind (light|load), arm (null: none)}, and
-# from the child's own record when the live manifest holds it (.blast.run_index is this index):
-# phases (+ phases_planned once they are real, record_real_phases) and pool_at_start.
-light_record() {
-    [ "${BENCH_APPLY}" = "1" ] || return 0
-    local chaos=0
-    [ "${LIGHT_KIND[$1]}" = light ] || chaos="${BENCH_CHAOS}"
-    bench_manifest_jq --argjson i "${LIGHT_IDX[$1]}" --argjson s "${LIGHT_SND[$1]}" --argjson w "${LIGHT_WIN[$1]}" \
-        --argjson c "${chaos}" --arg a "$2" --arg e "$3" --argjson rc "$4" --arg k "${LIGHT_KIND[$1]}" --arg arm "${5:-}" \
-        '(if (.blast.run_index // null) == $i then
+# blasts_append <index> <senders> <window> <chaos> <kind> <started> <ended> <rc> <arm> — manifest
+# blasts[] += {index, senders, window, chaos, started, ended, rc, kind (light|load), arm (null: "")},
+# and from the blast's own record when the live manifest holds it (.blast.run_index is <index>):
+# phases (+ phases_planned once they are real, record_real_phases) and pool_at_start. The one writer
+# of a blasts[] entry: a blast of the light-load sequence (light_record) and a `run` started by hand
+# (blast_run_end). A number that is not one stays a string, an empty one is null. Never fails.
+blasts_append() {
+    bench_manifest_jq --arg i "$1" --arg s "$2" --arg w "$3" --arg c "$4" --arg k "$5" --arg a "$6" --arg e "$7" \
+        --argjson rc "$8" --arg arm "$9" \
+        'def num: if . == "" then null else (tonumber? // .) end;
+         ($i | num) as $i | ($s | num) as $s | ($w | num) as $w | ($c | num) as $c
+         | (if $i != null and (.blast.run_index // null) == $i then
               (if (.phases // []) != [] then {phases: .phases} else {} end)
               + (if has("phases_planned") then {phases_planned: .phases_planned} else {} end)
               + (if (.blast | has("pool_at_start")) then {pool_at_start: .blast.pool_at_start} else {} end)
           else {} end) as $own
          | .blasts = (.blasts // []) + [{index: $i, senders: $s, window: $w, chaos: $c, started: $a, ended: $e, rc: $rc,
                                          kind: $k, arm: (if $arm == "" then null else $arm end)} + $own]' \
-        || bench_warn "blasts[] not updated in $(bench_manifest) (index ${LIGHT_IDX[$1]} rc=$4)"
+        || bench_warn "blasts[] not updated in $(bench_manifest) (index $1 rc=$8)"
+    return 0
+}
+
+# light_record <p> <started> <ended> <rc> [<arm>] — with --yes, plan entry <p>'s blast into manifest
+# blasts[] (blasts_append): its plan index, senders, window and kind; chaos 0 for a light blast.
+light_record() {
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    local chaos=0
+    [ "${LIGHT_KIND[$1]}" = light ] || chaos="${BENCH_CHAOS}"
+    blasts_append "${LIGHT_IDX[$1]}" "${LIGHT_SND[$1]}" "${LIGHT_WIN[$1]}" "${chaos}" "${LIGHT_KIND[$1]}" "$2" "$3" "$4" "${5:-}"
 }
 
 # light_stop <action> <rc> <p> [<p>...] — plan entry <p> ended rc != 0: print the whole command
@@ -2367,7 +2389,7 @@ light_record() {
 # D38). A failed fund has spent nothing: the remaining funds keep their indices, then the sequence's
 # `run` follows.
 light_stop() {
-    local action="$1" rc="$2" p="$3" q f fresh cmd="benchmark/benchmark-blast.sh"
+    local action="$1" rc="$2" p="$3" q fresh cmd="benchmark/benchmark-blast.sh"
     local collect="benchmark/benchmark-deploy.sh --yes --from 15 --to 15 --run ${BENCH_RUN_ID}"
     shift 2
     echo "❌ light-load arm: ${action} of index ${LIGHT_IDX[$p]} (${LIGHT_KIND[$p]}, ${LIGHT_SND[$p]} senders per blaster at window ${LIGHT_WIN[$p]}) ended rc=${rc}; the sequence stopped there" >&2
@@ -2383,14 +2405,9 @@ light_stop() {
     echo "     $(light_env "${p}") ${cmd} fund --yes --run ${BENCH_RUN_ID}" >&2
     for q in "$@"; do echo "     $(light_env "${q}") BENCH_LOG_RATE_CHECK=1 ${cmd} run --yes --run ${BENCH_RUN_ID}" >&2; done
     echo "     ${collect}" >&2
-    echo "   blasts[] records this sequence's blasts only; a blast run by hand is recorded in its own manifest .blast and in blast_runs[]." >&2
+    echo "   A run by hand records its blasts[] entry (kind, senders, window, arm) as the sequence's blasts do, and its blast_runs[] entry." >&2
     [ "${LIGHT_KIND[$q]}" = load ] \
         || echo "   A light blast run by hand after the load stays current: the configured profile's outputs are then in its blast-<index>-<UTC>/, and step 15 collects the light blast." >&2
-    for f in "$@"; do
-        [ "${LIGHT_KIND[$f]}" = light ] || continue
-        echo "   A light blast run by hand is not in blasts[], so the floor KPIs miss it: pass its blast-<index>-<UTC>/ as --floor-blast-dir to report/make_bundle.py and report/kpis.py." >&2
-        break
-    done
     exit "${rc}"
 }
 
@@ -2500,16 +2517,25 @@ blast_run_begin() {
 }
 
 # blast_run_end <rc> — once per hand run: manifest blast_runs[] += {action, index, started, ended, rc,
-# log} (log: this invocation's output copy, relative to results/<run>/; null without one), and
-# timestamps.step_14_done when a `run` ended rc 0, as deploy step 14 sets it. Never fails.
+# log} (log: this invocation's output copy, relative to results/<run>/; null without one). A single
+# `run` (not the light-load arm's, whose blasts light_run records) also gets the blasts[] entry a
+# sequence blast gets (blasts_append), whatever its rc: its BENCH_RUN_INDEX, BENCH_SENDERS,
+# BENCH_WINDOW, BENCH_CHAOS and BENCH_BLAST_KIND, the same started and ended, and the arm in force
+# at its start. A `run` that ended rc 0 sets timestamps.step_14_done, as deploy step 14 does. Never fails.
 blast_run_end() {
     [ -n "${BLAST_RUN_STARTED}" ] && [ "${BLAST_RUN_RECORDED}" -eq 0 ] || return 0
     BLAST_RUN_RECORDED=1
-    bench_manifest_jq --arg a "${ACTION}" --arg i "${BENCH_RUN_INDEX:-}" --arg s "${BLAST_RUN_STARTED}" --arg e "$(bench_now_iso)" \
+    local ended
+    ended="$(bench_now_iso)" || ended=""
+    bench_manifest_jq --arg a "${ACTION}" --arg i "${BENCH_RUN_INDEX:-}" --arg s "${BLAST_RUN_STARTED}" --arg e "${ended}" \
         --argjson rc "$1" --arg l "${BLAST_LOG#"${BENCH_RESULTS_DIR}"/}" \
         '.blast_runs = ((.blast_runs // []) + [{action: $a, index: ($i | tonumber? // $i), started: $s, ended: $e, rc: $rc,
                                                log: (if $l == "" then null else $l end)}])' \
         || bench_warn "blast_runs[] not updated in $(bench_manifest) (${ACTION} rc=$1)"
+    if [ "${ACTION}" = run ] && [ "${BENCH_LIGHT_LOAD:-0}" != 1 ]; then
+        blasts_append "${BENCH_RUN_INDEX:-}" "${BENCH_SENDERS:-}" "${BENCH_WINDOW:-}" "${BENCH_CHAOS:-}" "${BENCH_BLAST_KIND:-load}" \
+            "${BLAST_RUN_STARTED}" "${ended}" "$1" "$(arm_in_force "${BLAST_RUN_STARTED}")"
+    fi
     if [ "${ACTION}" = run ] && [ "$1" -eq 0 ]; then bench_manifest_ts step_14_done || true; fi
     return 0
 }

@@ -388,8 +388,8 @@ class LightPlanTests(SandboxCase):
 # The sequence with --yes, its single-blast children stubbed: a stub child archives the blast in place as
 # a real `run` does (archive_blast_outputs), then writes its own outputs and .blast; FAIL_AT=<index>
 # makes that child (run or fund) end FAIL_RC.
-SEQ_FUNCTIONS = ("light_plan", "light_env", "light_show_plan", "light_check_indices", "arm_in_force", "light_record",
-                 "light_stop", "light_swap_back", "light_fund", "light_run", "blaster_name", "prev_blast_index",
+SEQ_FUNCTIONS = ("light_plan", "light_env", "light_show_plan", "light_check_indices", "arm_in_force", "blasts_append",
+                 "light_record", "light_stop", "light_swap_back", "light_fund", "light_run", "blaster_name", "prev_blast_index",
                  "prev_blast_recorded", "blast_indices_used", "prev_blast_items", "blast_items_in", "archive_blast_outputs")
 SEQ_PREAMBLE = r'''
 set -euo pipefail
@@ -421,8 +421,10 @@ light_child() {
 class SequenceTests(unittest.TestCase):
     LIB = shell_functions(BENCH / "bench-lib.sh", "bench_die", "bench_warn", "bench_manifest", "bench_manifest_jq",
                           "bench_manifest_note")
-    FLOOR_NOTE = ("   A light blast run by hand is not in blasts[], so the floor KPIs miss it: pass its "
-                  "blast-<index>-<UTC>/ as --floor-blast-dir to report/make_bundle.py and report/kpis.py.\n")
+    # H13: a run by hand records its own blasts[] entry, so the floor KPIs find a light blast run by hand and no
+    # --floor-blast-dir note is printed any more.
+    HAND_NOTE = ("   A run by hand records its blasts[] entry (kind, senders, window, arm) as the sequence's blasts do, "
+                 "and its blast_runs[] entry.\n")
 
     def sequence(self, action, manifest=None, extra="", **env):
         """light_<action> with --yes; (rc, stdout, stderr, children, results dir listing, live manifest)."""
@@ -526,7 +528,8 @@ class SequenceTests(unittest.TestCase):
             "benchmark/benchmark-deploy.sh --yes --from 15 --to 15 --run rtest"])
         self.assertIn("   Resume by hand, one command at a time, each once the one before it succeeded (the last is the "
                       "collect, deploy step 15):\n", run["err"])
-        self.assertEqual(run["err"].count(self.FLOOR_NOTE), 1)
+        self.assertEqual(run["err"].count(self.HAND_NOTE), 1)
+        self.assertNotIn("--floor-blast-dir", run["err"])
 
     def test_the_default_arm_pairs_each_light_entry_with_its_window(self):
         run = self.sequence("run", SENDERS="8 16 600", WINDOWS="16 16 4")
@@ -549,16 +552,14 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(run["manifest"]["blasts"][-1]["rc"], 1)
         self.assertIn("configured profile's outputs are then in its blast-<index>-<UTC>/", run["err"])
         self.assertIn("BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=4 benchmark/benchmark-blast.sh fund --yes", run["err"])
-        self.assertIn(self.FLOOR_NOTE, run["err"])            # the light blast after the load is left
+        self.assertNotIn("--floor-blast-dir", run["err"])    # the light blast after the load is left, recorded by hand
         # Only the configured profile left: no light blast to point the floor KPIs at.
         run = self.sequence("run", FAIL_AT="2")
         self.assertEqual(run["rc"], 1)
         self.assertIn("BENCH_LIGHT_LOAD=0 BENCH_RUN_INDEX=3 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes",
                       run["err"])
         self.assertTrue(run["err"].endswith("     benchmark/benchmark-deploy.sh --yes --from 15 --to 15 --run rtest\n"
-                                            "   blasts[] records this sequence's blasts only; a blast run by hand is "
-                                            "recorded in its own manifest .blast and in blast_runs[].\n"), run["err"])
-        self.assertNotIn(self.FLOOR_NOTE, run["err"])
+                                            + self.HAND_NOTE), run["err"])
 
     def test_fund_order_and_a_failed_fund(self):
         run = self.sequence("fund", AFTER="1")
@@ -755,7 +756,7 @@ LIVE_FNS = ("blaster_name", "node_url", "resolve_node_urls", "is_stockout", "cre
             "poll_blasters", "bucket_done_check", "done_wait_extra_secs", "settle_blasters", "exit_relay", "exit_step",
             "delete_unstarted_blasters", "wait_blasters_done", "on_run_exit", "start_delay_secs", "create_errors",
             "create_error_detail", "create_blasters", "record_late_secs", "record_real_phases", "prev_attempt_unsent",
-            "blast_run_end")
+            "blast_run_end", "blasts_append", "arm_in_force")
 LIVE_TOP = re.compile(r"^(NODE_IP|CREATE_[A-Z_]+|ABORT_REASON|UNSTARTED_DELETED|RELABEL_WAIT_SECS|DELETE_[A-Z_]+"
                       r"|BUCKET_[A-Z_]+|UNLANDED_LOOKUP_SECS|BLAST_RUN_[A-Z_]+)=")
 LIVE_PREAMBLE = r"""
@@ -1664,7 +1665,10 @@ record_real_phases
 
 
 class BlastRecordTests(H1bLiveCase):
-    """manifest .blast carries tail_scan_secs, the blasters' --tail-scan-secs (0 when off)."""
+    """manifest .blast carries tail_scan_secs, the blasters' --tail-scan-secs (0 when off), and (H13) the blast's type:
+    kind, senders, window and the planned warmup, duration and cooldown, so an archived copy alone types the blast."""
+
+    TYPE_KEYS = ["kind", "senders", "window", "warmup_secs", "duration_secs", "cooldown_secs"]
 
     GLUE = 'record_blast $(( 1767225600 + 300 ))\n'
 
@@ -1675,8 +1679,19 @@ class BlastRecordTests(H1bLiveCase):
                 self.assertEqual(run["rc"], 0, run["out"])
                 blast = run["manifest"]["blast"]
                 self.assertEqual(list(blast), ["run_index", "chaos", "lag_inject", "lag_idx", "lag_at_secs", "lag_pause_secs",
-                                               "start_at", "bucket_prefix", "tail_scan_secs"])
+                                               "start_at", "bucket_prefix", "tail_scan_secs"] + self.TYPE_KEYS)
                 self.assertEqual((blast["start_at"], blast["tail_scan_secs"]), ("2026-01-01T00:05:00Z", want))
+
+    def test_the_type_of_the_blast_is_recorded_with_it(self):
+        light = {"BENCH_BLAST_KIND": "light", "BENCH_SENDERS": "8", "BENCH_WINDOW": "4", "BENCH_WARMUP_SECS": "60",
+                 "BENCH_DURATION_SECS": "360", "BENCH_COOLDOWN_SECS": "70"}
+        for env, want in ((light, ["light", 8, 4, 60, 360, 70]),
+                          ({"BENCH_SENDERS": "600", "BENCH_WINDOW": "16", "BENCH_WARMUP_SECS": "120",
+                            "BENCH_DURATION_SECS": "480", "BENCH_COOLDOWN_SECS": "180"}, ["load", 600, 16, 120, 480, 180])):
+            with self.subTest(env=env):
+                run = self.live(glue=self.GLUE, fns=LIVE_FNS + ("record_blast",), **env)
+                self.assertEqual(run["rc"], 0, run["out"])
+                self.assertEqual([run["manifest"]["blast"][k] for k in self.TYPE_KEYS], want)
 
 
 class ExitCleanupTests(H1bLiveCase):
@@ -1696,6 +1711,10 @@ class ExitCleanupTests(H1bLiveCase):
         self.assertEqual([(e["action"], e["index"], e["started"], e["rc"], e["log"]) for e in entry],
                          [("run", 0, "2026-01-01T00:00:00Z", 1, None)])
         self.assertNotIn("step_14_done", run["manifest"]["timestamps"])
+        # H13: the failed hand run is in blasts[] too, with its rc and the same times as its blast_runs[] entry
+        blasts = run["manifest"]["blasts"]
+        self.assertEqual([(b["index"], b["rc"], b["kind"], b["started"], b["ended"]) for b in blasts],
+                         [(0, 1, "load", entry[0]["started"], entry[0]["ended"])])
 
 
 # blast_runs[] (D46): a `fund` or `run` started by hand records itself; the deploy and the sequence's children do not.
@@ -1715,14 +1734,18 @@ exit "${RC:-0}"
 
 class BlastRunTests(unittest.TestCase):
     LIB = shell_functions(BENCH / "bench-lib.sh", "bench_warn", "bench_manifest", "bench_manifest_jq", "bench_manifest_ts")
+    # H13: run 1's blast types as run-arms.sh hands them to a run by hand (type_env)
+    LIGHT = {"BENCH_BLAST_KIND": "light", "BENCH_SENDERS": "8", "BENCH_WINDOW": "16", "BENCH_CHAOS": "0"}
+    ARMS = [{"name": "a0", "begin": "2025-12-31T23:00:00Z", "end": "2026-01-01T00:00:01Z"},
+            {"name": "v-vote", "begin": "2026-01-01T00:00:01Z", "end": None}, {"name": "later", "begin": "2026-01-02T00:00:00Z"}]
 
-    def hand(self, via_deploy=False, **env):
+    def hand(self, via_deploy=False, manifest=None, **env):
         """(rc, stdout, manifest) of the harness, run by hand or from a parent script named benchmark-deploy.sh."""
         fns = self.LIB + shell_functions(BENCH / "benchmark-blast.sh", "blast_caller", "blast_run_begin", "blast_run_end",
-                                         "blast_run_exit")
+                                         "blast_run_exit", "blasts_append", "arm_in_force")
         with tempfile.TemporaryDirectory(prefix="blast-runs-") as directory:
             work = Path(directory)
-            (work / "manifest.json").write_text(json.dumps({"notes": [], "timestamps": {}}))
+            (work / "manifest.json").write_text(json.dumps(manifest or {"notes": [], "timestamps": {}}))
             (work / "harness.sh").write_text(BLAST_RUN_HARNESS.replace("@FUNCTIONS@", fns))
             (work / "benchmark-deploy.sh").write_text('bash "$WORK/harness.sh"\nexit $?\n')
             script = "benchmark-deploy.sh" if via_deploy else "harness.sh"
@@ -1738,6 +1761,40 @@ class BlastRunTests(unittest.TestCase):
                                             "ended": "2026-01-01T00:00:02Z", "rc": 0,
                                             "log": "logs/blast-run-20260101T000000Z.log"}])
         self.assertEqual(m["timestamps"], {"step_14_done": "2026-01-01T00:00:03Z"})
+
+    def test_a_hand_run_records_the_blasts_entry_a_sequence_blast_gets(self):
+        own = {"run_index": 4, "pool_at_start": {"bench-validator-01": {"pending": 1, "queued": 2}}}
+        phases = [{"name": "mixed", "start": "real", "end": "real-end"}]
+        planned = [{"name": "mixed", "start": "plan", "end": "plan-end"}]
+        rc, _, m = self.hand(RC="0", manifest={"notes": [], "timestamps": {}, "param_arms": self.ARMS, "blast": own,
+                                               "phases": phases, "phases_planned": planned}, **self.LIGHT)
+        self.assertEqual(rc, 0)
+        run = m["blast_runs"][0]
+        # light_record's keys in light_record's order, then the blast's own record (blasts_append writes both)
+        self.assertEqual(m["blasts"], [{"index": 4, "senders": 8, "window": 16, "chaos": 0, "started": run["started"],
+                                        "ended": run["ended"], "rc": 0, "kind": "light", "arm": "v-vote",
+                                        "phases": phases, "phases_planned": planned,
+                                        "pool_at_start": own["pool_at_start"]}])
+        self.assertEqual(m["timestamps"], {"step_14_done": "2026-01-01T00:00:03Z"})
+
+    def test_a_failed_hand_run_is_in_blasts_with_its_rc_and_a_fund_is_not(self):
+        # it stopped before record_blast: the live .blast is the previous blast's, so none of its record is copied
+        rc, _, m = self.hand(RC="3", manifest={"notes": [], "timestamps": {}, "blast": {"run_index": 3, "pool_at_start": {}}},
+                             BENCH_SENDERS="600", BENCH_WINDOW="16", BENCH_CHAOS="0")
+        self.assertEqual(rc, 3)
+        self.assertEqual([(b["index"], b["rc"], b["kind"], b["arm"]) for b in m["blasts"]], [(4, 3, "load", None)])
+        self.assertEqual(sorted(m["blasts"][0]), ["arm", "chaos", "ended", "index", "kind", "rc", "senders", "started",
+                                                  "window"])
+        rc, _, m = self.hand(ACT="fund", RC="0", **self.LIGHT)
+        self.assertEqual([e["action"] for e in m["blast_runs"]], ["fund"])
+        self.assertNotIn("blasts", m)
+
+    def test_the_light_load_arm_by_hand_leaves_blasts_to_its_sequence(self):
+        # light_run writes one entry per blast of the sequence; the hand run around it adds none
+        rc, _, m = self.hand(RC="0", BENCH_LIGHT_LOAD="1", **self.LIGHT)
+        self.assertEqual(rc, 0)
+        self.assertEqual([e["action"] for e in m["blast_runs"]], ["run"])
+        self.assertNotIn("blasts", m)
 
     def test_a_failed_run_or_a_fund_sets_no_step_14(self):
         rc, _, m = self.hand(RC="3")
@@ -1763,7 +1820,64 @@ class BlastRunTests(unittest.TestCase):
                 rc, out, m = self.hand(via_deploy=via_deploy, RC="0", **env)
                 self.assertEqual((rc, out), (0, "CALLER %s\n" % caller))
                 self.assertNotIn("blast_runs", m)
+                self.assertNotIn("blasts", m)
                 self.assertEqual(m["timestamps"], {})
+
+
+class ArchiveLogPathTests(unittest.TestCase):
+    """D5 (H13): the archive moves a hand run's logs/blast-run-<UTC>.log into blast-<i>-<UTC>/logs/, and the same
+    manifest write that resets the per-blast keys points that run's blast_runs[].log at the new path."""
+
+    HARNESS = SEQ_PREAMBLE.split("light_child() {")[0] + 'BLAST_LOG="$BENCH_RESULTS_DIR/logs/blast-run-D.log"\n'
+    FILES = ("blasters/bench-blaster-01.json", "logs/blast-run-B.log", "logs/blast-fund-A.log", "logs/blast-run-D.log",
+             "blast-2-20260101T000000Z/logs/blast-run-C.log")
+    RUNS = [{"action": "fund", "index": 3, "log": "logs/blast-fund-A.log"},
+            {"action": "run", "index": 2, "log": "blast-2-20260101T000000Z/logs/blast-run-C.log"},
+            {"action": "run", "index": 3, "log": "logs/blast-run-B.log"},
+            {"action": "run", "index": 3, "log": None}, "not an entry"]
+
+    def archive(self, apply="1", manifest=None):
+        code = (self.HARNESS + "BENCH_APPLY=%s\n" % apply + SequenceTests.LIB
+                + shell_functions(BENCH / "benchmark-blast.sh", *SEQ_FUNCTIONS) + "archive_blast_outputs\n")
+        with tempfile.TemporaryDirectory(prefix="blast-archive-") as directory:
+            work = Path(directory)
+            results = work / "results"
+            for rel in self.FILES:
+                (results / rel).parent.mkdir(parents=True, exist_ok=True)
+                (results / rel).write_text(rel + "\n")
+            m = manifest or {"notes": [], "timestamps": {"step_14_done": "x"}, "blast": {"run_index": 3},
+                             "blasters": [{"name": "bench-blaster-01"}], "blast_runs": self.RUNS}
+            (results / "manifest.json").write_text(json.dumps(m))
+            rc, out, err = run_bash(code, WORK=str(work))
+            files = sorted(str(f.relative_to(results)) for f in results.rglob("*") if f.is_file())
+            copies = dict((d.name, json.loads((d / "manifest.json").read_text())) for d in results.glob("blast-3-*"))
+            return rc, out, err, json.loads((results / "manifest.json").read_text()), files, copies
+
+    def test_the_moved_log_is_pointed_at_where_it_went(self):
+        rc, out, err, m, files, copies = self.archive()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(copies), 1)
+        dest = list(copies)[0]
+        self.assertEqual([r["log"] if isinstance(r, dict) else r for r in m["blast_runs"]],
+                         ["logs/blast-fund-A.log", "blast-2-20260101T000000Z/logs/blast-run-C.log",
+                          dest + "/logs/blast-run-B.log", None, "not an entry"])
+        for r in m["blast_runs"]:
+            if isinstance(r, dict) and r["log"]:
+                self.assertIn(r["log"], files)
+        # the same write reset the per-blast keys; the copy beside the moved files keeps the paths as they were
+        self.assertNotIn("blast", m)
+        self.assertEqual((m["blasters"], m["timestamps"]), ([], {}))
+        self.assertEqual(copies[dest]["blast_runs"], self.RUNS)
+        self.assertIn("logs/blast-run-D.log", files)          # this invocation's own log stays
+
+    def test_without_blast_runs_or_in_a_dry_run_nothing_is_added(self):
+        rc, out, err, m, files, _ = self.archive(manifest={"notes": [], "blast": {"run_index": 3}})
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("blast_runs", m)
+        rc, out, err, m, files, copies = self.archive(apply="0")
+        self.assertEqual((rc, copies), (0, {}), err)
+        self.assertEqual(m["blast_runs"], self.RUNS)
+        self.assertIn("logs/blast-run-B.log", files)
 
 
 class FunderSetAsideTests(unittest.TestCase):

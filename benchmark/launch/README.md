@@ -183,6 +183,23 @@ ARMS_RESUME <the command that resumes the walk>
 Every driver's own output goes to the same log, each call after a `>>> <UTC> <command>` line.
 A dry run prints `DRY RUN` lines and none of these tags.
 
+### The walk's own log
+
+From `ARMS_START` on, run-arms also appends everything it prints (its tags, each driver's output, its own errors) to `results/<run>/logs/run-arms-<segment>-<UTC>.log`, where `<segment>` is `LAUNCH_SEGMENT` (`arms` under `launch.sh`) and `hand` for a direct call; the second line of the walk names the file (`>>> run-arms: output copied to ...`).
+The archive and the bundle read `results/`, never `tasks/`, so this copy is the one that travels with the run: kind and attempt per index, retry reasons, pool-gate readings, `ARMS_EPOCH`, the stop and its resume command.
+The segment log in `tasks/bench6/<run>/` gets every line as before.
+A refusal before the walk starts and a dry run write no copy.
+
+The copy is made inside run-arms, not by a second handle in `launch.sh`:
+
+- A walk started without `launch.sh` (the `ARMS_RESUME` line of a walk that was, the rehearsal test) gets its copy too.
+- `launch.sh` is unchanged: its clean-tree check (`results/` is ignored), the pid written from inside the detached shell, `nohup setsid`, and its rc line. `launch.sh` runs eleven kinds of segment and knows nothing of a run's results layout.
+- No tee sits between the wrapper and its child, so the wrapper still passes its signals to the walk itself.
+
+Each stream goes through its own `tee -a` reading a FIFO, line by line as the walk prints, so a walk killed at any point (even with SIGKILL) leaves every line it printed.
+The tees ignore HUP, INT, TERM and PIPE and end when every writer has closed, so the output of a driver that outlives a killed walk reaches both copies.
+Before each exit of its own (`ARMS_DONE`, a stop, a refusal inside the walk) run-arms closes its ends and waits for both tees, so `== arms rc=` stays the last line of the segment log.
+
 ### Stops
 
 The walk stops, leaves the fleet as it is, and ends with `ARMS_STOPPED` and `ARMS_RESUME` on:

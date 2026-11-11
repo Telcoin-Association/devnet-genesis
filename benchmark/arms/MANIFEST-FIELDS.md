@@ -142,7 +142,11 @@ A host difference is a finding for the analysis, so the summary never stops the 
 
 ## blasts[]
 
-One entry per blast of a sequence (`benchmark-blast.sh`).
+One entry per blast, written by `benchmark-blast.sh` (`blasts_append`, the only writer): each blast of a light-load sequence, and each `run` started by hand (H13), which is how run 1's sequencer starts every blast.
+A hand run's entry has the same `started`, `ended` and `rc` as its `blast_runs[]` entry, and `index`, `senders`, `window`, `chaos` and `kind` from its `BENCH_RUN_INDEX`, `BENCH_SENDERS`, `BENCH_WINDOW`, `BENCH_CHAOS` and `BENCH_BLAST_KIND` (unset: `load`).
+A `fund` writes no entry, and neither does the hand-run `run` of a light-load arm (`BENCH_LIGHT_LOAD=1`), whose sequence writes one per blast.
+A blast that failed is recorded too, with its `rc`: a reader that measures blasts takes only `rc` 0.
+An index can appear twice when a run that never sent is retried under its own index; the later entry is the retry.
 Existing fields keep their names: `index`, `senders`, `window`, `chaos`, `started`, `ended`, `rc`.
 
 | field | type | status | meaning |
@@ -151,7 +155,9 @@ Existing fields keep their names: `index`, `senders`, `window`, `chaos`, `starte
 | `arm` | string or null | new | the `param_arms[].name` in force when the blast started (the latest arm whose `begin` is at or before `started`); null when the manifest has no arm |
 | `phases` | [{`name`, `start`, `end`}] | new | the blast's phases, real when `phases_planned` is present (below) |
 | `phases_planned` | [{`name`, `start`, `end`}] | new | the plan, kept when `phases` was rewritten from the blasters |
-| `pool_at_start` | {inst: {`pending`, `queued`}} | new | each node's transaction pool one second before the blast's `start_at`: reth's pending and queued sub-pool sizes (`reth_transaction_pool_pending_pool_transactions`, `reth_transaction_pool_queued_pool_transactions`) from bench-obs Prometheus, since the node serves no `txpool_status`; a node without a sample is null, and every node is null when the query failed. The blast tool records it as `blast.pool_at_start` for every blast, and the light-load sequence copies it into the entry |
+| `pool_at_start` | {inst: {`pending`, `queued`}} | new | each node's transaction pool one second before the blast's `start_at`: reth's pending and queued sub-pool sizes (`reth_transaction_pool_pending_pool_transactions`, `reth_transaction_pool_queued_pool_transactions`) from bench-obs Prometheus, since the node serves no `txpool_status`; a node without a sample is null, and every node is null when the query failed. The blast tool records it as `blast.pool_at_start` for every blast and copies it into the entry |
+
+`phases`, `phases_planned` and `pool_at_start` are copied from the live manifest when its `blast.run_index` is the entry's index, that is when the blast got as far as recording itself; a blast that stopped before has none of the three.
 
 `windows.light_blasts` selects `kind == "light"` with `rc` 0 when `kind` is present, and falls back to the bench-5 rule (chaos off, not the top blast) for entries without it.
 An idle window has no blasters and is not a blast: it is a `param_arms[].marks` entry.
@@ -179,9 +185,11 @@ Existing fields keep their names: `name`, `zone`, `machine_type`, `instance_id`,
 | name | status | meaning |
 |---|---|---|
 | `blast.tail_scan_secs` | new | the `--tail-scan-secs` the blasters ran with (`BENCH_TAIL_SCAN_SECS`); 0 when off |
+| `blast.kind`, `blast.senders`, `blast.window` | new (H13) | the blast's type: `BENCH_BLAST_KIND` (`"light"` or `"load"`, unset: `"load"`), senders per blaster and the generator window; after `tail_scan_secs`, so an archived `blast-<i>-<UTC>/manifest.json` alone says what the blast was |
+| `blast.warmup_secs`, `blast.duration_secs`, `blast.cooldown_secs` | new (H13) | the planned phase lengths in seconds (`BENCH_WARMUP_SECS`, `BENCH_DURATION_SECS`, `BENCH_COOLDOWN_SECS`; the mixed phase is `duration_secs`) |
 | `abort.reason` values `create_failed`, `late_create` | new | a blaster create that failed twice, or one that finished after `start_at` − 30 s |
 | `abort.node`, `abort.detail`, `abort.unsent` | new | the blaster, the first `ERROR:` line, and true when no blaster sent |
-| `blast_runs[]` | new | blasts run by hand (`fund` and `run`), recorded by the blast tool; its writer documents the entry |
+| `blast_runs[]` | new | blasts run by hand (`fund` and `run`), recorded by the blast tool: `{action, index, started, ended, rc, log}` (below) |
 | `node_boot_image` | new | `{"ref": IMAGE, "name": "<image>", "status": "READY", "deprecation_state": null or "<state>"}` from deploy step 0's `images describe` |
 | `instances[].source_image` | new | the boot disk's source image as the disks list reports it (deploy step 2) |
 | `archive.remote` | new | `{"uri": "<archive prefix of the run>", "verified_at": time, "files": int, "bytes": int}` from the archive verify |
@@ -189,6 +197,27 @@ Existing fields keep their names: `name`, `zone`, `machine_type`, `instance_id`,
 The design named the remote archive record `manifest.archive_remote`.
 It is `archive.remote` here because `report/scrub.py` already drops the whole `manifest.archive` object, which names the private bucket, so the record needs no new scrub rule.
 The teardown's local gate assigns `.archive = {kind: "local", ...}` as a whole today; it must merge into the object instead, or a teardown re-run after the archive drops `archive.remote`.
+
+## blast_runs[]
+
+One entry per `benchmark-blast.sh fund` or `run` started by hand with `--yes` (not by the deploy, not a child of the light-load sequence), written as it exits.
+
+| field | type | meaning |
+|---|---|---|
+| `action` | `"fund"` or `"run"` | what was run |
+| `index` | int | its `BENCH_RUN_INDEX` (a string when that was not a number) |
+| `started`, `ended` | time | when the invocation began and ended |
+| `rc` | int | its exit status |
+| `log` | string or null | its output copy, relative to `results/<run>/` (`logs/blast-<action>-<UTC>.log`); null without one |
+
+When a later blast archives a run's outputs, its log moves into `blast-<index>-<UTC>/logs/` and the same manifest write sets `log` to that path (H13), so every `log` names a file that exists.
+The manifest copy archived beside the moved files keeps the path the log had then.
+A `fund` log never moves.
+
+## The sequencer's log
+
+`logs/run-arms-<segment>-<UTC>.log` under `results/<run>/` is not a manifest field: it is the copy `benchmark/launch/run-arms.sh` writes of everything it prints from `ARMS_START` on (H13), `<segment>` being `LAUNCH_SEGMENT` (`arms`) or `hand`.
+Its tags are listed in `benchmark/launch/README.md`; one file per invocation, so a resumed walk has two.
 
 ## The blaster's run.tail_scan
 

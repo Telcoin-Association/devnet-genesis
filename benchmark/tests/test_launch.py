@@ -164,6 +164,12 @@ class LaunchBase(unittest.TestCase):
     def rc_line(self, log, seg, secs=20.0):
         return wait_for(lambda: [l for l in log.read_text().splitlines() if l.startswith("== %s rc=" % seg)], secs)
 
+    def the_rc_line(self, log, seg, secs=20.0):
+        """The segment's rc line; an assertion (not an IndexError) when the log never got one."""
+        lines = self.rc_line(log, seg, secs)
+        self.assertTrue(lines, "no '== %s rc=' line in %s:\n%s" % (seg, log.name, log.read_text()[-800:]))
+        return lines[0]
+
 
 class LaunchRefusalTests(LaunchBase):
     def env_file(self, body):
@@ -284,14 +290,14 @@ class LaunchStartTests(LaunchBase):
         self.assertEqual(call["sid"], pid, "the detached shell leads its own session")
         self.assertNotEqual(os.getsid(0), pid)
         self.assertEqual(call["argv"], ["--yes", "--with-contracts", "--to", "12"])
-        self.assertEqual(self.rc_line(log, "deploy12")[0].split()[2], "rc=0")
+        self.assertEqual(self.the_rc_line(log, "deploy12").split()[2], "rc=0")
         head = log.read_text().splitlines()
         self.assertRegex(head[0], r"^== deploy12 start \S+ bench6-launch:%s:deploy12 pid=%d harness=[0-9a-f]{12}$" % (RUN, pid))
 
     def test_the_rc_line_on_failure(self):
         self.t.scenario({"benchmark-teardown.sh": [{"rc": 3}]})
         pid, log = self.started(self.launch(self.envf, "teardown"))
-        self.assertRegex(self.rc_line(log, "teardown")[0], r"^== teardown rc=3 \S+Z$")
+        self.assertRegex(self.the_rc_line(log, "teardown"), r"^== teardown rc=3 \S+Z$")
         self.assertEqual(self.t.calls()[0]["argv"], ["--run", RUN, "--yes"])
 
     def test_the_rc_line_when_the_session_is_killed(self):
@@ -299,7 +305,8 @@ class LaunchStartTests(LaunchBase):
         pid, log = self.started(self.launch(self.envf, "step15"))
         wait_for(lambda: self.t.calls())
         os.kill(pid, signal.SIGTERM)
-        self.assertRegex(self.rc_line(log, "step15")[0], r"^== step15 rc=143 ")
+        # without the wrapper's TERM trap the TERM ends the wrapper itself: no rc line, the driver left running
+        self.assertRegex(self.the_rc_line(log, "step15"), r"^== step15 rc=143 ")
         self.assertRaises(OSError, os.kill, self.t.calls()[0]["pid"], 0)
 
     def test_the_rc_line_when_the_driver_is_killed(self):
@@ -307,7 +314,7 @@ class LaunchStartTests(LaunchBase):
         pid, log = self.started(self.launch(self.envf, "blast15"))
         child = wait_for(lambda: self.t.calls())[0]["pid"]
         os.kill(child, signal.SIGKILL)
-        self.assertRegex(self.rc_line(log, "blast15")[0], r"^== blast15 rc=137 ")
+        self.assertRegex(self.the_rc_line(log, "blast15"), r"^== blast15 rc=137 ")
 
     def test_the_segment_gets_the_env_file_and_nothing_inherited(self):
         pid, log = self.started(self.launch(self.envf, "deploy12", BENCH_LEAK="1", RUN_ARMS_LEAK="1", BENCH_CHAOS="1"))
@@ -643,7 +650,8 @@ class ArmsTimingTests(ArmsBase):
         self.assertRegex([l for l in p.tags if l.startswith("ARMS_READY")][0], r"wait=[23] *$")
 
     def test_a_ready_time_too_far_off(self):
-        self.t.scenario({"pa:arm-file": [{"ready_in": 1000}]})
+        # just past the limit, so a walk that ignored it would wait ~15 s and finish (an assertion, not a timeout)
+        self.t.scenario({"pa:arm-file": [{"ready_in": 15}]})
         p = self.arms("--plan", self.plan("a0-control I\n"), RUN_ARMS_READY_MAX_WAIT_SECS="5")
         self.stopped(p, "ready-too-far", 0, 0)
         self.assertNotIn("pa:mark", self.keys())
@@ -741,6 +749,99 @@ class ArmsResumeTests(ArmsBase):
         self.assertEqual(self.t.calls(), [])
         p = self.arms(BENCH_RUN_ID="")
         self.assertEqual(p.returncode, 2)
+
+
+class ArmsLogTests(ArmsBase):
+    """D3 (H13): the walk's own log is part of the run. From ARMS_START on, everything run-arms prints is also appended
+    to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is printed (<segment>: LAUNCH_SEGMENT, else hand),
+    so the archive and the bundle carry it and a killed walk leaves it; the caller still sees every line."""
+
+    LOG_RE = r"^run-arms-%s-\d{8}T\d{6}Z\.log$"
+
+    def walk_logs(self):
+        return sorted((self.t.root / "benchmark/results" / RUN / "logs").glob("run-arms-*.log"))
+
+    def test_the_retry_and_the_stop_are_in_the_results_log(self):
+        self.t.scenario({"blast:run": [{"rc": 1}, {"rc": 1}]})
+        p = self.arms("--plan", self.plan("p1-mdbx-advice M16 L\n"))
+        self.stopped(p, "blast-failed-twice", 0, 1)
+        logs = self.walk_logs()
+        self.assertEqual(len(logs), 1, logs)
+        self.assertRegex(logs[0].name, self.LOG_RE % "hand")
+        text = logs[0].read_text()
+        self.assertEqual([l for l in text.splitlines() if l.startswith("ARMS_")], p.tags)
+        self.assertTrue(p.tags[0].startswith("ARMS_START ") and "ARMS_RETRY " in text, text)
+        self.assertIn(">>> run-arms: output copied to benchmark/results/%s/logs/%s\n" % (RUN, logs[0].name), p.stdout)
+        # each driver's own output too, and the walk's lines on stderr (none here) would follow them in
+        self.assertEqual(text.count("REACHED"), p.stdout.count("REACHED"))
+        self.assertGreater(text.count("REACHED"), 0)
+
+    def test_a_launched_walk_names_its_segment_and_a_refusal_or_a_dry_run_writes_none(self):
+        p = self.arms("--plan", self.plan("a0-control I\n"), LAUNCH_SEGMENT="arms")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual([l.name for l in self.walk_logs() if re.match(self.LOG_RE % "arms", l.name)],
+                         [l.name for l in self.walk_logs()])
+        self.assertEqual(len(self.walk_logs()), 1)
+        for args in (["--dry-run"], ["--from-arm", "9"]):
+            with self.subTest(args=args):
+                self.arms(*args)
+                self.assertEqual(len(self.walk_logs()), 1)
+
+    def test_a_killed_walk_leaves_every_line_it_printed(self):
+        self.t.scenario({"blast:run": [{"sleep": 60}]})
+        e = {"BENCH_RUN_ID": RUN, "RUN_ARMS_IDLE_SECS": "0", "RUN_ARMS_POOL_POLL_SECS": "1", "RUN_ARMS_POOL_WAIT_SECS": "2",
+             "RUN_ARMS_HEALTH_SECS": "20", "RUN_ARMS_READY_MAX_WAIT_SECS": "30"}
+        proc = subprocess.Popen(["bash", str(self.t.root / "benchmark/launch/run-arms.sh"), "--plan",
+                                 self.plan("p1-mdbx-advice M16\n")], cwd=str(self.t.root), env=self.t.env(**e),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(lambda: os.killpg(proc.pid, signal.SIGKILL) if proc.poll() is None else None)
+        self.assertTrue(wait_for(lambda: "blast:run" in self.keys(), 60), self.keys())
+        log = wait_for(lambda: self.walk_logs())
+        self.assertTrue(log)
+        self.assertTrue(wait_for(lambda: "benchmark-blast.sh run --yes" in log[0].read_text(), 10))
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=30)
+        text = log[0].read_text()
+        self.assertRegex(text, r"(?m)^ARMS_START ")
+        self.assertRegex(text, r"(?m)^ARMS_POOL arm=p1-mdbx-advice step=1 verdict=ok ")
+        self.assertRegex(text, r"(?m)^>>> \S+ env .* benchmark/benchmark-blast.sh run --yes --run %s$" % RUN)
+
+
+# A tee that writes each line 0.1 s late (to stdout and every file argument; -a appends, -i is ignored).
+SLOW_TEE = r'''#!/usr/bin/env bash
+append=0 files=()
+for x in "$@"; do case "$x" in -a) append=1 ;; -i) ;; *) files+=("$x") ;; esac; done
+if [ "${append}" = 0 ]; then for f in ${files[@]+"${files[@]}"}; do : > "$f"; done; fi
+while IFS= read -r line || [ -n "${line}" ]; do
+    sleep 0.1
+    printf '%s\n' "${line}"
+    for f in ${files[@]+"${files[@]}"}; do printf '%s\n' "${line}" >> "$f"; done
+done
+'''
+
+
+class ArmsLaunchLogTests(LaunchBase):
+    """D3 through launch.sh: the walk's lines are in the segment log as before, the same tags in the results copy,
+    the rc line still the segment log's last line, and the next launch still finds a clean harness tree."""
+
+    def test_the_arms_segment_writes_both_logs(self):
+        self.t.write("tasks/one.plan", "a0-control L\n")      # the env file's 300-s idle step would only slow it
+        # Every tee copies each line a tenth of a second late, so the walk's last lines are still on their way when it
+        # reaches its exit: only its wait for the copies keeps launch.sh's rc line last.
+        slow = self.t.write(".fake/slowbin/tee", SLOW_TEE, 0o755)
+        path = "%s:%s:%s" % (slow.parent, FIX / "bin", os.environ.get("PATH", "/usr/bin:/bin"))
+        pid, log = self.started(self.launch(self.envf, "arms", "--plan", "tasks/one.plan", PATH=path))
+        self.assertRegex(self.the_rc_line(log, "arms", 90), r"^== arms rc=0 ")
+        seg = log.read_text().splitlines()
+        self.assertTrue(seg[-1].startswith("== arms rc=0 "), seg[-3:])
+        copies = sorted((self.t.root / "benchmark/results" / RUN / "logs").glob("run-arms-arms-*.log"))
+        self.assertEqual(len(copies), 1)
+        tags = [l for l in copies[0].read_text().splitlines() if l.startswith("ARMS_")]
+        self.assertEqual(tags, [l for l in seg if l.startswith("ARMS_")])
+        self.assertRegex(tags[-1], r"^ARMS_DONE arms=1 blasts=1 ")
+        # results/ is ignored: the next launch's clean-tree check passes
+        self.assertEqual(git(self.t.root, "status", "--porcelain", "--", "benchmark/", ":(exclude)benchmark/launch/bench5"), "")
+        self.assertEqual(self.launch("--dry-run", self.envf, "reindex").returncode, 0)
 
 
 class EnvAndPlanTests(unittest.TestCase):

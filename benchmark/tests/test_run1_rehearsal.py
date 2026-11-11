@@ -303,9 +303,16 @@ def load_module(name, path):
 
 
 ARMS_BLAST_RE = re.compile(r"^ARMS_BLAST arm=(\S+) step=\d+ kind=(\S+) index=(\d+) attempt=(\d) fund_rc=(\S+) run_rc=(\S+) ")
-# The driver gaps the rehearsal found (the hand-back's ranked list). Each assertion that pins one fails once a
-# driver change closes it: then teach the readers to use the new record and drop the assertion.
-GAP = "driver gap %s is closed: use the new record in the readers, then drop this assertion"
+# Each blast index of the walk: its run-arms type, the type's record (kind, senders, window, warmup, mixed and
+# cooldown seconds: run-arms.sh type_env) and the arm in force when it started (by the arms' begin).
+WALK_TYPES = {0: "L", 1: "L", 2: "M16", 3: "M16s", 4: "M16s", 5: "M16s", 6: "M16"}
+TYPE_RECORD = {"L": ("light", 8, 16, 60, 360, 60), "M16": ("load", 600, 16, 120, 480, 180),
+               "M16s": ("load", 600, 16, 120, 300, 180)}
+WALK_ARMS = {0: "a0-control", 1: "a0-control", 2: "a0-control", 3: "v-vote", 4: "v-vote", 5: "v-vote-r2", 6: "a0-prime"}
+TYPE_KEYS = ("kind", "senders", "window", "warmup_secs", "duration_secs", "cooldown_secs")
+# A reader that mishandles what the drivers now record (H13's hand-back): pinned as it behaves, so the fix shows
+# up here. The unit that fixes the reader flips the assertion.
+FINDING = "reader finding %s is fixed: flip this assertion to the right behaviour"
 
 
 class Run1RehearsalTests(unittest.TestCase):
@@ -380,7 +387,8 @@ class Run1RehearsalTests(unittest.TestCase):
         runs = self.m["blast_runs"]
         self.assertEqual([(r["action"], r["index"], r["rc"]) for r in runs],
                          [(act, i, 1 if (act == "run" and i in (0, 3, 4)) else 0) for i in range(7) for act in ("fund", "run")])
-        self.assertNotIn("blasts", self.m)
+        self.assertEqual([(b["index"], b["rc"]) for b in self.m["blasts"]],
+                         [(i, 1 if i in (0, 3, 4) else 0) for i in range(7)])
         self.assertEqual(sorted(re.sub(r"-[0-9]{8}T[0-9]{6}Z$", "", d.name) for d in self.R.glob("blast-*")),
                          ["blast-%d" % i for i in range(6)])
         self.assertEqual(sorted(re.sub(r"-[0-9]{8}T[0-9]{6}Z$", "", d.name) for d in self.R.glob("funder-*")),
@@ -400,19 +408,50 @@ class Run1RehearsalTests(unittest.TestCase):
             # the failed blaster's /out, fetched over IAP before its delete, travels with the blast
             self.assertEqual((d / "blasters" / "scp-bench-blaster-03").is_dir(), idx in (0, 3, 4), d.name)
 
-    def test_driver_gaps_still_open(self):
-        """The records run 1 lacks (the hand-back's list): pinned so that a driver change shows up here."""
-        for rec in [self.m["blast"]] + [json.loads((d / "manifest.json").read_text())["blast"] for d in self.R.glob("blast-*")]:
-            for key in ("kind", "senders", "window", "arm"):
-                self.assertNotIn(key, rec, GAP % "D1 (.blast)")
+    def test_each_hand_run_is_recorded_like_a_scripted_blast(self):
+        """H12's driver gaps, closed by H13: D1 and D2 (a hand run's blasts[] entry, the blast's type in .blast), D5
+        (blast_runs[].log follows the archive)."""
+        copies = dict((int(d.name.split("-")[1]), json.loads((d / "manifest.json").read_text())) for d in self.R.glob("blast-*"))
+        copies[self.m["blast"]["run_index"]] = self.m
+        self.assertEqual(sorted(copies), list(range(7)))
+        # D1: every blast's own record says what it was, the archived copies included
+        for i, doc in sorted(copies.items()):
+            self.assertEqual(tuple(doc["blast"][k] for k in TYPE_KEYS), TYPE_RECORD[WALK_TYPES[i]], i)
+        # D2: one blasts[] entry per hand `run`, failed ones too, in light_record's keys and order plus the blast's
+        # own record; the same times and rc as its blast_runs[] entry; the arm in force by its begin
+        runs = [r for r in self.m["blast_runs"] if r["action"] == "run"]
+        blasts = self.m["blasts"]
+        self.assertEqual(len(blasts), len(runs))
+        for b, r in zip(blasts, runs):
+            i = b["index"]
+            self.assertEqual(list(b), ["index", "senders", "window", "chaos", "started", "ended", "rc", "kind", "arm",
+                                       "phases", "phases_planned", "pool_at_start"], i)
+            self.assertEqual((i, b["started"], b["ended"], b["rc"]), (r["index"], r["started"], r["ended"], r["rc"]))
+            self.assertEqual((b["kind"], b["senders"], b["window"], b["chaos"], b["arm"]),
+                             TYPE_RECORD[WALK_TYPES[i]][:3] + (0, WALK_ARMS[i]), i)
+            self.assertEqual((b["phases"], b["phases_planned"], b["pool_at_start"]),
+                             (copies[i]["phases"], copies[i]["phases_planned"], copies[i]["blast"]["pool_at_start"]), i)
+        # a fund records no blast
+        self.assertEqual(len([r for r in self.m["blast_runs"] if r["action"] == "fund"]), 7)
+        # D5: every blast_runs[].log is where the log is now; an archived run's points into its blast-<i>-<UTC>/
         for r in self.m["blast_runs"]:
-            self.assertEqual(sorted(r), ["action", "ended", "index", "log", "rc", "started"], GAP % "D1 (blast_runs[])")
-        # D5: the archive moves each run's logs/blast-run-<UTC>.log into its blast-<i>-<UTC>/logs/, and the
-        # blast_runs[] entry keeps the old path
-        for r in self.m["blast_runs"]:
+            self.assertTrue((self.R / r["log"]).is_file(), r)
             if r["action"] == "run" and r["index"] != self.m["blast"]["run_index"]:
-                self.assertFalse((self.R / r["log"]).exists(), GAP % "D5")
-                self.assertEqual(len(list(self.R.glob("blast-%d-*/%s" % (r["index"], r["log"])))), 1, r)
+                self.assertRegex(r["log"], r"^blast-%d-\d{8}T\d{6}Z/logs/blast-run-\d{8}T\d{6}Z\.log$" % r["index"])
+
+    def test_the_sequencer_log_is_part_of_the_run(self):
+        """D3: each run-arms invocation's own log under results/<run>/logs/, with its retries and its stop."""
+        logs = sorted((self.R / "logs").glob("run-arms-*.log"))
+        self.assertEqual([re.sub(r"\d{8}T\d{6}Z", "<UTC>", l.name) for l in logs], ["run-arms-hand-<UTC>.log"] * 2)
+        for log, p in zip(logs, (self.first, self.second)):
+            text = log.read_text()
+            self.assertEqual([l for l in text.splitlines() if l.startswith("ARMS_")],
+                             [l for l in p.stdout.splitlines() if l.startswith("ARMS_")], log.name)
+        first, second = (l.read_text() for l in logs)
+        self.assertEqual(len(re.findall(r"(?m)^ARMS_RETRY ", first)), 2)
+        self.assertRegex(first, r"(?m)^ARMS_STOPPED arm=v-vote step=1 reason=blast-failed-twice ")
+        self.assertRegex(first, r"(?m)^ARMS_RESUME BENCH_RUN_ID=%s benchmark/launch/run-arms.sh " % RUN_ID)
+        self.assertRegex(second, r"(?m)^ARMS_DONE arms=2 blasts=2 ")
 
     # --- the readers ------------------------------------------------------------------------------
     def test_arms_summary_rows(self):
@@ -451,9 +490,22 @@ class Run1RehearsalTests(unittest.TestCase):
         windows = load_module("rehearsal_windows", BENCH / "report" / "windows.py")
         self.assertEqual([(w["name"], w["start"], w["start_unix"], w["end_unix"]) for w in windows.arm_windows(self.m)],
                          [(n, "ready") + self.arm_window(n) for n in self.arms])
-        # D2: blasts[] is the only source of these helpers, and no hand run writes it
-        self.assertEqual(windows.light_blasts(str(self.R), self.m), [], GAP % "D2")
-        self.assertEqual(windows.load_blasts(str(self.R), self.m), [], GAP % "D2")
+        # D2 closed: each helper finds the hand-run blasts in blasts[], with their kind, window and arm
+        light = windows.light_blasts(str(self.R), self.m)
+        load = windows.load_blasts(str(self.R), self.m)
+        self.assertEqual([(b["index"], b["name"], b["kind"], b["window"], b["arm"], b["rc"]) for b in light],
+                         [(1, "light8", "light", 16, "a0-control", 0)])
+        self.assertEqual([(b["index"], b["name"], b["kind"], b["window"], b["arm"], b["rc"]) for b in load],
+                         [(2, "load600", "load", 16, "a0-control", 0), (5, "load600", "load", 16, "v-vote-r2", 0)])
+        for b in light + load:
+            self.assertEqual(Path(b["dir"]) / "blasters", self.blast_dir(b["index"]))
+        floor, caveats = windows.floor_blast(str(self.R), self.m)
+        self.assertEqual((floor["index"], caveats), (1, []))
+        # the failed blasts are recorded with their rc, and no helper that feeds a KPI returns one
+        self.assertEqual([(b["index"], b["rc"]) for b in self.m["blasts"] if b["rc"] != 0], [(0, 1), (3, 1), (4, 1)])
+        measured = [b["index"] for b in light + load] + [floor["index"]] + [
+            w["index"] for w in windows.light_windows(str(self.R), self.m) + windows.load_windows(str(self.R), self.m)]
+        self.assertEqual(sorted(set(measured)), [1, 2, 5])
 
     def arm_rows(self, names):
         return [(n, iso(self.arm_window(n)[0]), iso(self.arm_window(n)[1])) for n in names]
@@ -475,6 +527,23 @@ class Run1RehearsalTests(unittest.TestCase):
         self.assertEqual(dict((k, (v["start"], v["end"])) for k, v in ws.items() if k != "all"),
                          dict([(n, (f, t)) for n, f, t in self.arm_rows(self.arms)]
                               + [("a0-control/idle-1", (mk["begin"], mk["end"]))]))
+
+    def test_stage_latency_without_windows_still_names_failed_blasts(self):
+        """FINDING R1 for the reader unit: without --windows, stage-latency.py (derived_windows) makes a window of
+        every blast it finds, rc never read. Now that the hand runs are in blasts[], the failed light blast (index 0)
+        takes the plain name and the measured one (index 1) gets the -2 suffix; v-vote's two windows are both
+        failed blasts."""
+        p = self.walk.tool(BENCH / "tools" / "stage-latency.py", "--run-dir", self.R, "--format", "json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        ws = dict((k, (v["start"], v["end"])) for k, v in json.loads(p.stdout)["windows"].items())
+
+        def mixed(i):
+            b = [b for b in self.m["blasts"] if b["index"] == i][0]
+            return [(ph["start"], ph["end"]) for ph in b["phases"] if ph["name"] == "mixed"][0]
+
+        self.assertEqual(ws.get("a0-control/light8x16"), mixed(0), FINDING % "R1")
+        self.assertEqual(ws.get("a0-control/light8x16-2"), mixed(1), FINDING % "R1")
+        self.assertEqual((ws.get("v-vote/load600x16"), ws.get("v-vote/load600x16-2")), (mixed(3), mixed(4)), FINDING % "R1")
 
     def test_block_rate_and_propose_latency_windows(self):
         mk = self.arms["a0-control"]["marks"][0]

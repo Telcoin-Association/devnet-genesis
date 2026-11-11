@@ -13,7 +13,9 @@
 #   --from-step <n>     with either: begin that arm at its step n (1 = its first step)
 #   --dry-run           print the whole walk, every driver command with its environment; call nothing
 # Needs BENCH_RUN_ID (launch.sh exports the env file). Exit: 0 ARMS_DONE (or a dry run), 1 ARMS_STOPPED
-# (the fleet is left as it is), 2 refused before anything ran (arguments, plan).
+# (the fleet is left as it is), 2 refused before anything ran (arguments, plan). From ARMS_START on,
+# everything it prints is also appended to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is
+# printed (start_walk_log).
 #
 # Per arm (k): the recorded name is the arm file's `name`, or <name>-r<N> when the run's manifest
 # already records that name (a re-applied arm: the arm tool refuses a recorded name).
@@ -64,7 +66,19 @@ readonly HEALTH_ABORTS=" disk-full batch-cache-cliff quorum-lost node-stalled ob
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now() { date -u +%s; }
 iso() { jq -rn --argjson t "$1" '$t | todateiso8601'; }
-die() { echo "run-arms: $*" >&2; exit 2; }
+WALK_LOG="" WALK_TEES=""
+# leave <rc> — exit <rc> once both copies of the walk's log (start_walk_log) hold every line it
+# printed: its own ends close first, then it waits for the two tees. Before the log starts (and in a
+# command substitution, whose wait finds no tee) it is a plain exit.
+leave() {
+    if [ -n "${WALK_TEES}" ]; then
+        exec >/dev/null 2>&1
+        # shellcheck disable=SC2086  # two pids, split on purpose
+        wait ${WALK_TEES} || true
+    fi
+    exit "$1"
+}
+die() { echo "run-arms: $*" >&2; leave 2; }
 bounded() {
     local s="$1"; shift
     if command -v timeout >/dev/null 2>&1; then timeout "${s}" "$@"; return; fi
@@ -223,7 +237,7 @@ resume_cmd() { # <k> <step>
 stop() {
     echo "ARMS_STOPPED arm=${CUR_NAME:-${A_NAME[$1]}} step=$2 reason=$3 $(utc)"
     echo "ARMS_RESUME $(resume_cmd "$1" "$4")"
-    exit 1
+    leave 1
 }
 step_line() { echo "ARMS_STEP arm=${CUR_NAME} step=$1 kind=$2 rc=$3 $(utc)"; }
 
@@ -241,6 +255,30 @@ call() {
 sleep_until() { local t="$1" d; while :; do d=$(( t - $(now) )); [ "${d}" -gt 0 ] || return 0; [ "${d}" -le 30 ] || d=30; sleep "${d}"; done; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/run-arms.XXXXXX")"
 trap 'rm -rf "${TMP}"' EXIT
+
+# start_walk_log — from ARMS_START on, everything the walk prints (its tags, each driver's output, its
+# own errors) is also appended to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is printed:
+# <segment> is LAUNCH_SEGMENT (launch.sh's `arms`), else `hand`. The archive and the bundle read
+# results/, never tasks/, and a killed walk leaves every line it printed. What the caller sees (the
+# segment log in tasks/bench6/<run>/, a terminal) is unchanged. A tee per stream reads a FIFO, so the
+# walk knows both pids (leave waits for them, then launch.sh's rc line is the last line of its log);
+# each tee ignores HUP, INT, TERM and PIPE and ends when every writer closed its FIFO, so the output
+# of a driver that outlives a killed walk reaches both copies.
+start_walk_log() {
+    local n=0 seg="${LAUNCH_SEGMENT:-hand}"
+    case "${seg}" in ''|*[!a-z0-9-]*) seg=hand ;; esac
+    mkdir -p "${RESULTS}/logs" || die "cannot create ${RESULTS}/logs"
+    until WALK_LOG="${RESULTS}/logs/run-arms-${seg}-$(date -u +%Y%m%dT%H%M%SZ).log"; ( set -C; : > "${WALK_LOG}" ) 2>/dev/null; do
+        n=$((n + 1)); [ "${n}" -lt 5 ] || die "no free log name in ${RESULTS}/logs"
+        sleep 1
+    done
+    mkfifo "${TMP}/out" "${TMP}/err" || die "cannot make the log FIFOs in ${TMP}"
+    ( trap '' HUP INT TERM PIPE; exec tee -i -a "${WALK_LOG}" ) < "${TMP}/out" &
+    WALK_TEES="$!"
+    ( trap '' HUP INT TERM PIPE; exec tee -i -a "${WALK_LOG}" >&2 ) < "${TMP}/err" &
+    WALK_TEES="${WALK_TEES} $!"
+    exec > "${TMP}/out" 2> "${TMP}/err"
+}
 
 # --- checks between steps --------------------------------------------------------------------------
 expected_nodes() {
@@ -445,7 +483,9 @@ dry_walk() {
 }
 
 if [ "${DRY}" = 1 ]; then dry_walk; exit 0; fi
+start_walk_log
 echo "ARMS_START plan=${PLAN} run=${RUN} arms=${K0}..${K1} from_step=${STEP0} $(utc)"
+echo ">>> run-arms: output copied to ${WALK_LOG}"
 
 # Every arm file of the walk passes the arm tool's own parser (no node) before anything changes.
 for k in $(seq "${K0}" "${K1}"); do
@@ -474,7 +514,8 @@ for k in $(seq "${K0}" "${K1}"); do
         if [ "${k}" -lt "${K1}" ]; then stop "$((k + 1))" "$((st + 1))" "close-rc${rc}" 1; fi
         echo "ARMS_STOPPED arm=${CUR_NAME} step=$((st + 1)) reason=close-rc${rc} $(utc)"
         echo "ARMS_RESUME BENCH_RUN_ID=${RUN} ${PA} --from-config --close-arm ${CUR_NAME}"
-        exit 1
+        leave 1
     fi
 done
 echo "ARMS_DONE arms=$((K1 - K0 + 1)) blasts=${BLASTS} $(utc)"
+leave 0
