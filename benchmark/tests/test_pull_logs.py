@@ -1382,3 +1382,51 @@ class PersistPullTests(PullCase):
         self.assertIn("+ persist files: bench-validator-01 %s/<host>.{persist.csv,folios.txt}" % self.sampler, p.stdout)
         self.assertEqual(self.calls(), [])
         self.assertFalse(self.results.exists())
+
+
+# ---- bench6 log shapes (H15) ----
+# The bench-6 node messages the prefilter keeps (tasks/bench6-contract.md, verbatim: target, level, text), and
+# the arm summary's check that the prefiltered copy holds what it reads. The node writes a message through
+# tracing-logfmt's escape_debug, so an apostrophe reaches the log as \' (bench 5: "the closing block\'s
+# on-chain record"): a shape holding one never matches.
+ARMS_SUMMARY = BENCH / "tools" / "arms-summary.py"
+STAGE_LATENCY = BENCH / "tools" / "stage-latency.py"
+BENCH6_MESSAGES = (
+    ("primary::proposer", "debug", "parent grace ended"),
+    ("worker::batch_builder", "info", "batch builder started"),
+    ("tn::reth", "warn", "mdbx random-access advice not applied; the database works without it"),
+    ("tn::reth", "info", "mdbx random-access advice applied"),
+    ("epoch-manager", "info", "epoch close drained"),
+    ("epoch-manager", "error", "stored epoch record's final state is not this node's closing block; halting"),
+    ("primary::proposer", "debug", "parent grace armed"),
+    ("primary::proposer", "debug", "batch digest already queued"),
+    ("consensus::metrics", "info", "batch digest already reported"),
+    ("worker::batch_builder", "debug", "kept sealed transactions in the pool"),
+)
+
+
+def node_line(target, level, message):
+    """A log line as the node writes it: tracing-logfmt quotes a value with a space and escape_debug's it."""
+    esc = message.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+    return 'ts=2026-11-11T00:00:00.000000000Z level=%s target=%s message="%s" epoch=3' % (level, target, esc)
+
+
+class Bench6ShapeTests(unittest.TestCase):
+    def test_every_bench6_message_is_kept_as_the_node_writes_it(self):
+        shapes = shape_lines()
+        for target, level, message in BENCH6_MESSAGES:
+            line = node_line(target, level, message)
+            self.assertTrue([s for s in shapes if s in line], "no shape keeps %r" % line)
+        self.assertEqual([s for s in shapes if "'" in s or '"' in s or "\\" in s], [],
+                         "the node escapes quotes and backslashes: a shape holding one never matches")
+        halt = node_line(*BENCH6_MESSAGES[5])
+        self.assertNotIn(BENCH6_MESSAGES[5][2], halt)          # the contract's own text is not what the log holds
+        self.assertIn("final state is not this node", halt)
+
+    def test_the_arm_summary_can_read_the_prefiltered_copy(self):
+        asum = _load("arms_summary_shapes", ARMS_SUMMARY)
+        lits = asum.literals(_load("stage_latency_shapes", STAGE_LATENCY), _load("cert_rate_shapes6", CERT_RATE))
+        self.assertEqual([asum.F[k] for k in ("msg_grace_ended", "msg_builder", "msg_advice_refused")
+                          if asum.F[k] not in lits], [])
+        with tempfile.TemporaryDirectory(prefix="shapes-") as d:
+            self.assertIsNone(asum.prefilter_usable(d, lits))

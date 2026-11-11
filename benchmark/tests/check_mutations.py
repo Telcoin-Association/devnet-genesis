@@ -1781,6 +1781,20 @@ cases = [
      '            F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"]]',
      '            F["msg_grace_ended"]]',
      'test_arms_summary.ArmsSummaryTests.test_bench6_arm_inputs'),
+    # H15. The prefilter keeps the bench-6 node lines as the node writes them (an apostrophe as \'), and a floor
+    # blast dir whose every entry failed is a bundle caveat.
+    ('benchmark/tools/log-shapes.txt',
+     'parent grace ended\n',
+     '',
+     'test_pull_logs.Bench6ShapeTests.test_every_bench6_message_is_kept_as_the_node_writes_it'),
+    ('benchmark/tools/log-shapes.txt',
+     'final state is not this node\n',
+     "stored epoch record's final state is not this node's closing block\n",
+     'test_pull_logs.Bench6ShapeTests.test_every_bench6_message_is_kept_as_the_node_writes_it'),
+    ('benchmark/report/make_bundle.py',
+     '        blast, caveats = kpis_mod.floor_from_dir(live, resolve_floor_dir(run_id, floor_dir))\n',
+     '        blast, caveats = kpis_mod.blast_from_dir(live, resolve_floor_dir(run_id, floor_dir)), []\n',
+     'test_report_bundle.FloorDirTests.test_a_dir_whose_blasts_all_failed_is_a_caveat'),
 ]
 
 

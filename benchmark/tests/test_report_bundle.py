@@ -1882,5 +1882,37 @@ class GeneratorFieldsEndToEndTests(TmpMixin, unittest.TestCase):
         self.assertEqual([e["path"] for e in marker["landings"]], ["r20260101-gen6/blasters/landings-load-a.ndjson.gz"])
 
 
+# ---- bench6 floor caveat (H15) ----
+FLOOR_DIR = "blast-4-20261111T120000Z"
+
+
+class FloorDirTests(TmpMixin, unittest.TestCase):
+    """--floor-blast-dir reads the last rc-0 blasts[] entry of the dir's index (kpis.floor_from_dir); a dir whose
+    every entry failed is no floor and a caveat that says why, never a bundle silently without floor KPIs."""
+
+    def floor(self, rcs):
+        run = os.path.join(self.results_root, "r20261111-1200")
+        d = os.path.join(run, FLOOR_DIR)
+        write_json(os.path.join(d, "blasters", "bench-blaster-01.json"), {"schema": "tn-blast/v2"})
+        write_json(os.path.join(run, "manifest.json"), {"blasts": [
+            {"index": 4, "kind": "light", "senders": 8, "window": 16, "rc": rc} for rc in rcs]})
+        scratch = os.path.join(self.tmp, "scratch")
+        os.makedirs(scratch)
+        (blast, caveats), _, _ = quiet(mb.prepare_floor, scratch, "r20261111-1200", d)
+        return blast, caveats, os.path.join(scratch, mb.FLOOR_SCRATCH)
+
+    def test_a_dir_whose_blasts_all_failed_is_a_caveat(self):
+        blast, caveats, copy = self.floor([1, 2])
+        self.assertIsNone(blast)
+        self.assertEqual(caveats, ["floor blast dir %s (index 4) ended rc=1,2; floor KPIs not computed from it"
+                                   % FLOOR_DIR])
+        self.assertFalse(os.path.exists(copy))
+
+    def test_a_retry_that_ended_rc0_is_the_floor(self):
+        blast, caveats, copy = self.floor([1, 0])
+        self.assertEqual((blast["name"], blast["index"], blast["rc"], caveats), ("light8", 4, 0, []))
+        self.assertEqual(tree(copy), ["blasters/bench-blaster-01.json"])
+
+
 if __name__ == "__main__":
     unittest.main()

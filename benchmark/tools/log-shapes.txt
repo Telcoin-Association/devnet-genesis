@@ -33,3 +33,17 @@ output saved
 subdag sequenced
 vote path timing
 waited for execution before assembling the output
+# bench 6 node lines tools/arms-summary.py reads (tasks/bench6-contract.md):
+parent grace ended
+batch builder started
+mdbx random-access advice not applied
+# bench 6 node lines no tool reads yet, kept for the arm reviews: once per node start, epoch or halt
+# (the node writes an apostrophe as \' so the halt's shape stops before one), then per header or batch
+# with the switch on (the last is debug on worker::batch_builder, which the default filter keeps at info):
+mdbx random-access advice applied
+epoch close drained
+final state is not this node
+parent grace armed
+batch digest already queued
+batch digest already reported
+kept sealed transactions in the pool

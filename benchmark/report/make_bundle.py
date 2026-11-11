@@ -611,13 +611,14 @@ def prepare_floor(scratch, run_id, floor_dir=None, step=None):
     """Copy the light blast the floor KPIs read (its manifest copy and blasters/*.json) into
     scratch/floor/ and record it in the marker. The blast is --floor-blast-dir, else the light8
     entry of the live manifest's blasts[] (windows.floor_blast). Returns (blast | None, caveats);
-    a run without a light-load arm is (None, [])."""
+    a run without a light-load arm is (None, []), a --floor-blast-dir whose every blasts[] entry
+    failed (None, [why]) (kpis.floor_from_dir)."""
     step = step or S_SCRATCH
     results = results_path(run_id)
     top = os.path.join(results, "manifest.json")
     live = _load_input(top) if os.path.isfile(top) else {}
     if floor_dir:
-        blast, caveats = kpis_mod.blast_from_dir(live, resolve_floor_dir(run_id, floor_dir)), []
+        blast, caveats = kpis_mod.floor_from_dir(live, resolve_floor_dir(run_id, floor_dir))
     else:
         blast, caveats = win.floor_blast(results, live)
     if blast is None:

@@ -274,7 +274,7 @@ The name ends in `.txt` so that `persist/*.csv` matches only the 30-s files.
 So the new keys pass through make_bundle unchanged; what the readers should learn is how to use them:
 
 - `report/windows.py` `light_blasts` (and through it `floor_blast`, which make_bundle uses): select `kind == "light"` and `rc` 0 when `kind` is present.
-  `report/kpis.py` `blast_from_dir` reads `blasts[]` by index and needs no change.
+  `report/kpis.py` `blast_from_dir` (for `--floor-blast-dir`) takes the last entry of the dir's index that ended `rc` 0 (no `rc` counts as 0), and `floor_from_dir`, which `kpis.py` and make_bundle's `prepare_floor` call, turns a dir whose every entry failed into a caveat instead of a floor.
 - `report/provenance.py`: add the node's `node switches` startup line to `_CANDIDATE_MARKERS` and compare each start's switches with `param_arms[].switches` of the arm in force at that start (a `via: "prestart"` arm covers the first start).
   `expected_param_values` handles integers and durations only (`_as_int`, `dur_ms`), so the boolean switches need their own comparison.
 - `tools/cert-rate.py`, `tools/stage-latency.py`, `tools/block-rate.py` and `tools/propose-latency.py` read an arm window as `begin`/`start` to `end`; they should start it at `ready` when present, and may add `marks[]` as sub-windows.
