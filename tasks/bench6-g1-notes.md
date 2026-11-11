@@ -800,3 +800,42 @@ four validators to the transactions that are in no pool.
   the switch-on arm is expected to hold near zero). Nothing lost or executed twice.
 - L1, being fixed: a mark that lands after the next epoch's orphan pass is never cleared (timing only).
 - L2-L4 and ten Info items go to the upstream list.
+
+### vote-starvation (#1804: quorum-exec-block + voter-lock) — APPROVE WITH FOLLOW-UPS; nothing Critical, High or Medium; nothing to change before the image (report `tasks/bench6/review/vote-starvation-report.md`)
+- Switch off: the header comes from the same tip call at the same point (a byte-equality test pins it); the voter's waits,
+  lock order and answers are unchanged. Mixed fleet: no fork, no rejection, no stall — the only field another validator
+  checks is the header's named block, and voters, the subscriber and state sync check only that its number and hash are on
+  their own chain (not recency, not that it is the author's tip). `vote_queue_fix` changes only the voter's own answers,
+  through an existing recoverable wire variant.
+- The central safety question: an honest proposer always names its own executed block, at or below its tip and never below
+  the epoch's opening block; the voter change refuses only requests the author has already cancelled, and never answers
+  later than before.
+- D75 (Low, plausible; before the upstream PR): a Byzantine low parent plus an honest snapshot restore in the first outputs
+  of an epoch can keep the fleet halted (headers fall to the 8-entry floor, below the restored voter's restore floor; its
+  refusal is fatal and cached). Fix ≈ 10 lines: clamp the named block to the epoch's opening block and drop parent values
+  below it. The benchmark is not exposed (no Byzantine member; restores come only from epoch exports).
+- D76 (Low, confirmed; for the analysis): the adaptive policy starts over at EVERY epoch boundary (the proposer is rebuilt
+  per epoch), so a starved fast node pays the 5-10-header climb again in the first ≈ 130 rounds of each epoch (≈ 0.1-0.25 %
+  at one-hour epochs). Read the adaptive arm with that in mind; for the PR, optionally carry the window and the streak
+  across epochs.
+- Superseded refusals have no counter (the benchmark's log filter keeps the `vote path timing outcome=superseded` lines, so
+  run 1 can count them). Five Info items in the report.
+
+### pipelined-persist (#1800) — APPROVE WITH FOLLOW-UPS; no Critical, High or Medium: go/no-go gate 7 is met (report `tasks/bench6/review/pipelined-persist-report.md`)
+- Reviewed: the 18 commits of the stack plus the 19th (the startup read of the test hook) that landed during the review.
+- Switch off: the sequential loop's body is byte-identical to the base, and the build/commit split keeps the old side
+  effects in the old order. Mixed fleet: cannot fork, wrongly reject or stall — blocks and epoch records are identical; only
+  announce timing changes (a sequential voter can answer the recoverable "execution behind" on a pipelined node's header
+  under persist-bound load, as it does today for a validator with a faster disk).
+- All five topic questions (the pinned snapshot, durability before visibility, the crash matrix, the epoch close, the two
+  threads on reth's in-memory chain) came back clean with file:line evidence.
+- Two Low for the PR: if the commit task dies and the head read then fails, a durable output is rolled out of MEMORY (the
+  node halts; nothing durable is lost); no test reaches the I/O-side fail-closed guards. D45 is understated: the pinned
+  read transaction can live for N's commit PLUS N+1's build.
+- D77. **Image-cut checks for the pipelined stack:** (1) build the image as `etc/Dockerfile` does (`-p telcoin-network`, no
+  extra features) and leave `TN_TEST_PERSIST_DELAY_MS` and `TN_TEST_EXECUTION_DELAY_MS` unset: in a build with
+  tn-types/test-utils every node honours them, switch-off nodes included; (2) in the analysis count the
+  `pinning the output overlay failed` warnings per pipelined node — each is a cycle that ran sequentially, and no metric
+  counts them; (3) do not measure during the rolling restart's mixed window.
+- **Go/no-go for pipelined persist now: gates 1, 2, 3, 4, 7 PASS. Open: 5 (the cycle bench on a quiet host) and 6 (the repo's
+  e2e sets on the stack; running behind the integration head's sets).**

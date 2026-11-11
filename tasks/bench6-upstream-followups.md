@@ -41,10 +41,11 @@ image unless it says so. Each line: the item, where it is described, and its sta
 - Upstream alternative for M2: seed a TN pending-pool default in `init_reth_defaults`, or state the global cap as a residual. OPEN (decision).
 
 ## quorum-exec-block / voter-lock (#1804)
+- Review DONE (approve with follow-ups; nothing C/H/M). D75 (clamp the named block to the epoch's opening block; ≈ 10 lines), D76 (carry the adaptive window across epochs, optional), a counter for superseded refusals, `quorum_exec_block_starved_rounds` not validated, five Info: OPEN.
 - D61 the adaptive reset rule: DONE (U1b, 20858d28d). D70 (a vote-withholding minority can hold a node in long windows: staleness only) and D71 (latency cancels restart the streak) for the PR text. Review running.
 
 ## tracker-drain (#1806), recovery-pool (#1805), plumbing
 - Review-only passes not started yet.
 
 ## pipelined-persist (#1800)
-- Held stack `b6/pipe-stack`; gates 4 (e2e) and 5 (cycle bench on a quiet host) open; review after gate 4.
+- Held stack `b6/pipe-stack-2` (19 commits on d91d65d3e). Review DONE (approve with follow-ups; nothing C/H/M). For the PR: F1 (a durable output rolled out of memory when the commit task dies and the head read fails; node halts), F2 (no test reaches the I/O-side fail-closed guards), the doc claim at `output_overlay.rs:156-158` (seeded and unseeded builds emit differently shaped trie updates; root and rows identical), D45 restated (the pinned read transaction lives for a commit plus a build), ten Info. Gates 5 and 6 open.
