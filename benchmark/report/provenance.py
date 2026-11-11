@@ -25,6 +25,17 @@ probe), first rule that applies:
 
 The raw text of the last such line is kept in scan_run()'s "fork_schedule_line".
 
+Bench-6 images also log, once per start after parameters.yaml is loaded, the node switch line
+
+    message="node switches" quorum_exec_block=false ... parent_grace=150ms ...   (target node::switches)
+
+with one key=value field per switch of benchmark/arms/switches.tsv that the image knows, named as
+its parameters.yaml key, values as YAML scalars. scan_run() attaches each one to the start it
+follows in the same file (start["switches"], only on starts that logged one), and check() compares
+it with the switch state the manifest says was in force at that start (check_switches()). A run
+none of whose starts logged the line and whose image contract does not require it (benches 3-5)
+is checked exactly as before.
+
 Lines may be logfmt (`ts=... level=... message="..."`, what the bench nodes write), JSON
 (`--log.stdout.format json`: `fields.message` / `message` / `msg`, `timestamp` / `ts` / `time`)
 or plain text with an optional leading ISO timestamp. ANSI colour codes are stripped.
@@ -105,8 +116,11 @@ FORK_ADIRI = "adiri-schedule"
 FORK_SUBSECOND = "subsecond-from-genesis"
 FORK_PRE_SUBSECOND = "pre-subsecond"
 
+# The node switch line's message (bench 6; one line per start, target node::switches).
+SWITCH_MESSAGE = "node switches"
+
 # Byte substrings a line must contain to be worth parsing (superset of the patterns above).
-_CANDIDATE_MARKERS = (b"starting", b"et to", b"ET TO", b"chedule", b"CHEDULE")
+_CANDIDATE_MARKERS = (b"starting", b"et to", b"ET TO", b"chedule", b"CHEDULE", b"node switches")
 
 # Node log file names (bench-lib.sh). The instance part is greedy (the last "-telcoin" /
 # "-unit-" starts the suffix), so an instance name containing "-telcoin" still parses; a saved
@@ -280,6 +294,70 @@ def parse_fork_schedule(lines: Iterable[str]) -> Optional[str]:
     return label
 
 
+# logfmt fields: key=value, the value quoted (backslash escapes) or bare.
+_LOGFMT_FIELD_RE = re.compile(r'(?:^|\s)([A-Za-z_][A-Za-z0-9_.]*)=("(?:[^"\\]|\\.)*"|\S*)')
+_SWITCH_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+# Line keys that are never a switch: the logfmt / JSON envelope.
+_SWITCH_META_KEYS = frozenset(("ts", "time", "timestamp", "level", "target", "span", "span_path", "spans",
+                               "message", "msg", "fields", "filename", "line_number", "thread_id", "thread_name"))
+
+
+def _switch_text(value: Any) -> str:
+    """A logged switch value as text: true / false for a JSON boolean, digits for a JSON integer,
+    a string without the extra quotes a Debug-formatted value carries."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return str(int(value)) if value == int(value) else repr(value)
+    text = str(value).strip()
+    for _layer in range(2):  # the logfmt quotes, then the Debug quotes of a string field
+        if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+            text = _unquote(text).strip()
+    return text
+
+
+def parse_switch_line(line: str) -> Optional[Tuple[Optional[str], Dict[str, str]]]:
+    """(timestamp or None, {switch key: value as text}) for a node switch line (message exactly
+    "node switches") in logfmt, JSON or plain form; None for any other line. Fields are the ones
+    after the message (logfmt, plain) or the event's fields (JSON), envelope keys left out."""
+    if SWITCH_MESSAGE not in line:
+        return None
+    ts, msg = _parse_line(line)
+    clean = _ANSI_RE.sub("", line).strip()
+    pairs = []  # type: List[Tuple[str, Any]]
+    if clean.startswith("{"):
+        try:
+            obj = json.loads(clean)
+        except ValueError:
+            obj = None
+        if not isinstance(obj, dict) or str(msg).strip() != SWITCH_MESSAGE:
+            return None
+        fields = obj.get("fields") if isinstance(obj.get("fields"), dict) else obj
+        pairs = list(fields.items())
+    else:
+        m = _LOGFMT_MSG_RE.search(clean)
+        if m:
+            if _unquote(m.group(1)).strip() != SWITCH_MESSAGE:
+                return None
+            rest = clean[m.end():]
+        else:
+            # Plain text: "<ts> INFO node::switches: node switches key=value ...".
+            at = clean.find(SWITCH_MESSAGE)
+            rest = clean[at + len(SWITCH_MESSAGE):]
+            if rest[:1] not in ("", " ", "\t"):
+                return None
+        pairs = [(k, v) for k, v in _LOGFMT_FIELD_RE.findall(rest)]
+    values = {}  # type: Dict[str, str]
+    for key, value in pairs:
+        key = str(key)
+        if key in _SWITCH_META_KEYS or not _SWITCH_KEY_RE.match(key) or isinstance(value, (dict, list)):
+            continue
+        values[key] = _switch_text(value)
+    return ts, values
+
+
 # --- run scan and check --------------------------------------------------------------------
 
 
@@ -288,9 +366,36 @@ def _chrono_key(ts: Optional[str], seq: int) -> Tuple[int, str, int]:
     return (0 if ts is None else 1, ts or "", seq)
 
 
+def _starts_and_switches(lines: List[str], instance: str, seen: Dict[Tuple[Any, ...], Dict[str, Any]],
+                         starts: List[Dict[str, Any]]) -> None:
+    """parse_startups() over one file's lines, appending new starts to `starts` (a start already in
+    `seen`, the same instance / ts / version / sha from another file, is not added again), and
+    each node switch line's values to the start it follows in this file as start["switches"]
+    (the first one per start; a line before any start of the file is not attached)."""
+    current = None  # type: Optional[Dict[str, Any]]
+    for line in lines:
+        if "starting" in line:
+            got = parse_startups([line], instance)
+            if got:
+                s = got[0]
+                key = (s["instance"], s["ts"], s["version"], s["sha"])
+                if s["ts"] is not None and key in seen:
+                    current = seen[key]
+                    continue
+                seen[key] = s
+                starts.append(s)
+                current = s
+                continue
+        if current is not None and "switches" not in current:
+            sw = parse_switch_line(line)
+            if sw is not None:
+                current["switches"] = sw[1]
+
+
 def scan_run(run_dir: str) -> Dict[str, Any]:
     """Scan every node log of a run. Returns
-    {"starts": [start dicts, repeats across files dropped, sorted by instance then ts],
+    {"starts": [start dicts, repeats across files dropped, sorted by instance then ts; a start
+                followed by a node switch line carries its values as "switches"],
      "shas": sorted unique start shas,
      "params": {key: chronologically last value},
      "fork_schedule": label of the chronologically last fork-schedule line, or None,
@@ -302,7 +407,7 @@ def scan_run(run_dir: str) -> Dict[str, Any]:
      "unreadable" ([{"file", "error"}] for files that could not be read to the end)}."""
     files = node_log_files(run_dir)
     starts = []  # type: List[Dict[str, Any]]
-    seen = set()
+    seen = {}  # type: Dict[Tuple[Any, ...], Dict[str, Any]]
     params_ev = []  # type: List[Tuple[Tuple[int, str, int], str, int]]
     inst_ev = []  # type: List[Tuple[Tuple[int, str, int], Dict[str, Any]]]
     seen_ev = set()
@@ -319,12 +424,7 @@ def scan_run(run_dir: str) -> Dict[str, Any]:
                 lines.append(line)
         except (OSError, EOFError, ValueError) as exc:
             unreadable.append({"file": path, "error": "%s: %s" % (type(exc).__name__, exc)})
-        for s in parse_startups(lines, inst):
-            key = (s["instance"], s["ts"], s["version"], s["sha"])
-            if s["ts"] is not None and key in seen:
-                continue
-            seen.add(key)
-            starts.append(s)
+        _starts_and_switches(lines, inst, seen, starts)
         for ts, key, value in _param_events(lines):
             seq += 1
             params_ev.append((_chrono_key(ts, seq), key, value))
@@ -493,6 +593,177 @@ def listed_instances(manifest: Optional[Dict[str, Any]]) -> List[str]:
     return sorted(out)
 
 
+# --- node switches (bench 6): the switch line of every start against the arm in force -------
+# benchmark/arms/switches.tsv (columns key, type, default, arm_values, topic, optional) is the one
+# list of switches; manifest param_arms[].switches holds the full state an arm file puts every
+# node in (a `via: "prestart"` arm from the first start on), and an arm given with --set changes the
+# switches its nodes[<instance>] entry wrote; before the first arm every switch is at its default,
+# or at the value consensus_parameters.overrides gave that node.
+
+SWITCHES_TSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "arms", "switches.tsv")
+_SWITCH_TSV_COLUMNS = ("key", "type", "default", "arm_values", "topic", "optional")
+# A Rust Duration's Debug form ("150ms", "1.5s", "0ns", "20\u00b5s") or a YAML duration; bare = ms.
+_SWITCH_DUR_RE = re.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*(ns|us|\u00b5s|ms|s|m)?\\s*$")
+_SWITCH_DUR_US = {"ns": 0.001, "us": 1.0, "\u00b5s": 1.0, "ms": 1000.0, None: 1000.0, "s": 1e6, "m": 6e7}
+
+
+def switch_rows(path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """The rows of switches.tsv in file order: [{"key", "type" (bool | int | dur), "default",
+    "optional" (bool)}]. Raises OSError, or ValueError for a file that is not the frozen format."""
+    path = path or SWITCHES_TSV
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read().splitlines()
+    if not text or tuple(text[0].split("\t")) != _SWITCH_TSV_COLUMNS:
+        raise ValueError("%s: the header is not %s" % (path, " ".join(_SWITCH_TSV_COLUMNS)))
+    rows = []
+    for n, line in enumerate(text[1:], 2):
+        cells = line.split("\t")
+        if len(cells) != len(_SWITCH_TSV_COLUMNS) or cells[1] not in ("bool", "int", "dur"):
+            raise ValueError("%s:%d: not a switch row" % (path, n))
+        rows.append({"key": cells[0], "type": cells[1], "default": cells[2], "optional": cells[5] == "yes"})
+    return rows
+
+
+def switch_value(kind: str, value: Any) -> Any:
+    """A switch value in comparable form: True / False for a bool ("true" / "false", any case),
+    a non-negative int for an int, microseconds for a dur ("150ms", "0ms", "1.5s", "0ns"; a bare
+    number is ms); None when the value is not one of its type."""
+    if value is None:
+        return None
+    if kind == "bool":
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        return True if text == "true" else (False if text == "false" else None)
+    if kind == "int":
+        v = _as_int(value)
+        return v if v is not None and v >= 0 else None
+    if kind == "dur":
+        if isinstance(value, bool):
+            return None
+        m = _SWITCH_DUR_RE.match(str(value))
+        return None if not m else round(float(m.group(1)) * _SWITCH_DUR_US[m.group(2)], 3)
+    return None
+
+
+def switch_line_required(manifest: Optional[Dict[str, Any]]) -> bool:
+    """True when the image probe checked the node switch line as part of the image contract
+    (a manifest node_probe.strings key holding "node switches")."""
+    strings = ((manifest or {}).get("node_probe") or {}).get("strings")
+    return isinstance(strings, dict) and any(SWITCH_MESSAGE in str(k) for k in strings)
+
+
+def _switch_state(rows: List[Dict[str, Any]], values: Dict[str, Any]) -> Dict[str, str]:
+    """Every switch of `rows` as text: the value given, else the default."""
+    return {r["key"]: str(values[r["key"]]) if values.get(r["key"]) is not None else r["default"] for r in rows}
+
+
+def expected_switches(manifest: Optional[Dict[str, Any]], instance: str, ts: Optional[str],
+                      rows: List[Dict[str, Any]]) -> List[Tuple[str, Dict[str, str]]]:
+    """[(label, full switch state)] a start of <instance> at <ts> may log, the state in force
+    first. The defaults with the instance's consensus_parameters.overrides, then each param arm
+    whose begin is at or before <ts> in begin order (a `via: "prestart"` arm counts from the first
+    start): an arm with a `switches` state (an arm file) puts every node in that state; one
+    without (`--set`) changes only the switches its `nodes` entry wrote for <instance>. An arm
+    that `failed` also allows the state before it (the node it stopped at may be put back by
+    hand). Without a usable <ts>, every state the manifest names is allowed."""
+    manifest = manifest or {}
+    cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
+    ov = cp.get("overrides") if isinstance(cp.get("overrides"), dict) else {}
+    mine = ov.get(instance) if isinstance(ov.get(instance), dict) else {}
+    keys = {r["key"] for r in rows}
+    base = _switch_state(rows, {k: v for k, v in mine.items() if k in keys})
+    arms = []  # type: List[Tuple[float, int, Dict[str, Any]]]
+    for n, arm in enumerate(manifest.get("param_arms") or []):
+        if not isinstance(arm, dict):
+            continue
+        begin = float("-inf") if arm.get("via") == "prestart" else ts_epoch(arm.get("begin"))
+        if begin is not None:
+            arms.append((begin, n, arm))
+    when = ts_epoch(ts)
+    allowed = [("the defaults" + (" with this node's overrides" if any(k in keys for k in mine) else ""), base)]
+    for begin, _n, arm in sorted(arms, key=lambda a: (a[0], a[1])):
+        if isinstance(arm.get("switches"), dict):
+            new = _switch_state(rows, arm["switches"])
+        else:
+            nodes = arm.get("nodes") if isinstance(arm.get("nodes"), dict) else {}
+            wrote = nodes.get(instance) if isinstance(nodes.get(instance), dict) else {}
+            wrote = {k: v for k, v in wrote.items() if k in keys and v is not None}
+            if not wrote:
+                continue  # this arm left the instance's switches as they were
+            new = dict(allowed[0][1], **{k: str(v) for k, v in wrote.items()})
+        state = ("arm %s" % arm.get("name"), new)
+        if when is None:
+            allowed.append(state)
+            continue
+        if begin > when:
+            break
+        allowed = [state] + ([allowed[0]] if arm.get("failed") else [])
+    return allowed
+
+
+def _switch_diff(rows: List[Dict[str, Any]], logged: Dict[str, str], want: Dict[str, str]) -> List[Tuple[str, str, str]]:
+    """[(key, logged text or "(absent)", expected text)] for every switch the line does not match.
+    A key the line lacks is fine only for an optional switch the state leaves at its default."""
+    out = []
+    for r in rows:
+        k, kind = r["key"], r["type"]
+        exp = switch_value(kind, want[k])
+        if k not in logged:
+            if not (r["optional"] and exp == switch_value(kind, r["default"])):
+                out.append((k, "(absent)", want[k]))
+            continue
+        got = switch_value(kind, logged[k])
+        if got is None or got != exp:
+            out.append((k, logged[k], want[k]))
+    return out
+
+
+def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, Any]],
+                   rows: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    """The node switch line of every start against expected_switches(). None when no start logged
+    one and the image contract does not require it (benches 3-5: nothing to check). Otherwise
+    {"required", "checked" (starts compared), "matched", "missing" (starts without a line while
+    the contract requires one), "problems" ([text])}."""
+    required = switch_line_required(manifest)
+    if not required and not any(isinstance(s.get("switches"), dict) for s in starts):
+        return None
+    problems = []  # type: List[str]
+    try:
+        rows = rows if rows is not None else switch_rows()
+    except (OSError, ValueError) as exc:
+        return {"required": required, "checked": 0, "matched": 0, "missing": 0,
+                "problems": ["node switches not checked: %s" % exc]}
+    checked = matched = 0
+    missing = []  # type: List[str]
+    bad = {}  # type: Dict[Tuple[str, str, str, str], List[str]]
+    for s in starts:
+        inst = s.get("instance") or "?"
+        logged = s.get("switches")
+        if not isinstance(logged, dict):
+            if required:
+                missing.append("%s at %s" % (inst, s.get("ts") or "?"))
+            continue
+        checked += 1
+        allowed = expected_switches(manifest, inst, s.get("ts"), rows)
+        if any(not _switch_diff(rows, logged, state) for _label, state in allowed):
+            matched += 1
+            continue
+        label = " or ".join(lab for lab, _state in allowed)
+        for key, got, want in _switch_diff(rows, logged, allowed[0][1]):
+            bad.setdefault((label, key, got, want), []).append("%s at %s" % (inst, s.get("ts") or "?"))
+    if missing:
+        problems.append("no node switches line at %d start(s), though the image contract requires one: %s"
+                        % (len(missing), ", ".join(missing)))
+    for (label, key, got, want) in sorted(bad):
+        where = bad[(label, key, got, want)]
+        shown = "lack %s" % key if got == "(absent)" else "show %s=%s" % (key, got)
+        problems.append("node switches %s at %d start(s) (%s); %s sets %s=%s"
+                        % (shown, len(where), ", ".join(where), label, key, want))
+    return {"required": required, "checked": checked, "matched": matched, "missing": len(missing),
+            "problems": problems}
+
+
 def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: Optional[str] = None) -> Dict[str, Any]:
     """Check a scan_run() result against the expected build and the manifest.
 
@@ -505,10 +776,13 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
     the manifest's; when the manifest records per-node values (consensus_parameters.overrides or
     param_arms) and the scan has "param_events", per instance and line: the fleet value, that
     instance's override, or a value a param arm begun by then set for it
-    (expected_param_values). No expected sha at all fails with "no expected sha".
+    (expected_param_values); (e) when a start logged a node switch line or the image contract
+    requires one, every start's switches equal the state in force (check_switches(); its result
+    is returned as "switches", and its problems are among "problems"). No expected sha at all
+    fails with "no expected sha".
 
     Returns {"starts", "shas", "fork_schedule", "params", "expected_sha", "ok", "problems",
-    "checked_at" (ISO UTC)}."""
+    "checked_at" (ISO UTC)}, plus "switches" when (e) ran."""
     manifest = manifest or {}
     starts = list(scan.get("starts") or [])
     shas = sorted({s.get("sha") for s in starts if s.get("sha")})
@@ -592,7 +866,12 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
                         "logs show %s=%s, manifest consensus_parameters.%s is %r" % (key, v, key, cp.get(key))
                     )
 
-    return {
+    # (e)
+    switches = check_switches(starts, manifest)
+    if switches is not None:
+        problems.extend(switches["problems"])
+
+    result = {
         "starts": starts,
         "shas": shas,
         "fork_schedule": fork,
@@ -602,6 +881,9 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
         "problems": problems,
         "checked_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if switches is not None:
+        result["switches"] = switches
+    return result
 
 
 # --- manifest and CLI ----------------------------------------------------------------------
@@ -662,6 +944,11 @@ def _report(run_dir: str, scan: Dict[str, Any], result: Dict[str, Any]) -> str:
         "  fork schedule: %s%s"
         % (scan.get("fork_schedule") or "none logged", ' (last line: "%s")' % raw if raw else "")
     )
+    sw = result.get("switches")
+    if sw is not None:
+        lines.append("  node switches: %d start(s) checked, %d matched the arm in force, %d without a line%s"
+                     % (sw["checked"], sw["matched"], sw["missing"],
+                        " (the image contract requires one)" if sw["required"] else ""))
     for u in scan.get("unreadable") or []:
         lines.append("  warning: %s not read to the end: %s" % (u["file"], u["error"]))
     lines.append("  expected sha: %s" % (result.get("expected_sha") or "-"))

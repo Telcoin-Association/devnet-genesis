@@ -1094,8 +1094,9 @@ class OfflineAssemblyTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="tb2-asm-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def build(self, backfill, all_generators_secs=None):
+    def build(self, backfill, all_generators_secs=None, manifest_update=None):
         manifest = enriched_synthetic_manifest()
+        manifest.update(manifest_update or {})
         metrics, combined = load_json(SYNTH / "metrics.json"), load_json(SYNTH / "combined.json")
         a = mb.parse_args(["--run", "r20260101-synth", "--analysis-sha", "abcdef0"])
 
@@ -1652,6 +1653,223 @@ class Run20260929IntegrationTests(unittest.TestCase):
         raw_manifest = os.path.join(work, self.RUN, "manifest.json")
         self.assertEqual(mb.hscrub.scan_dir(out, raw_manifest), [])
         self.assertEqual(doc["report"]["sha256"], sha256(os.path.join(out, "report.html")))
+
+
+
+# ---- bench6 switch provenance and the prestart arm ----
+
+SWITCHES_OFF = {"quorum_exec_block": "false", "quorum_exec_block_starved_rounds": "0", "vote_queue_fix": "false",
+                "mdbx_random_advice": "false", "sealed_tx_keep": "false", "digest_dedupe": "false",
+                "recovery_threads": "0", "epoch_close_task_drain": "false", "epoch_record_state_check": "false",
+                "parent_grace": "0ms", "rpc_admission_backlog_outputs": "0", "pipelined_persist": "false"}
+SWITCHES_FINAL = dict(SWITCHES_OFF, vote_queue_fix="true", mdbx_random_advice="true", recovery_threads="3",
+                      parent_grace="150ms")
+
+
+def final_arm(**extra):
+    """The arm deploy step 7 applies before the first start (BENCH_ARM_FILE=benchmark/arms/final.arm)."""
+    a = {"name": "final", "begin": "2026-01-01T00:00:30Z", "end": None, "via": "prestart",
+         "file": "benchmark/arms/final.arm", "sha256": "0" * 64, "switches": dict(SWITCHES_FINAL)}
+    a.update(extra)
+    return a
+
+
+def switch_line(switches):
+    return ('2026-01-01T00:00:01Z INFO node::switches: node switches %s\n'
+            % " ".join("%s=%s" % kv for kv in switches.items()))
+
+
+class SwitchProvenanceStepTests(unittest.TestCase):
+    def setUp(self):
+        self.scratch = tempfile.mkdtemp(prefix="tb2-sw-")
+        self.addCleanup(shutil.rmtree, self.scratch, True)
+
+    def logs(self, sha, v2_switches=SWITCHES_FINAL):
+        write_text(os.path.join(self.scratch, "logs", "val-1-telcoin.log"), node_log(sha) + switch_line(SWITCHES_FINAL))
+        write_text(os.path.join(self.scratch, "logs", "val-2-telcoin.log"), node_log(sha) + switch_line(v2_switches))
+
+    def step(self, manifest, backfill, allow=False):
+        return quiet(mb.provenance_step, self.scratch, manifest, backfill, allow)
+
+    def test_matching_switches_are_a_detail_line(self):
+        self.logs(SHA)
+        p, out, err = self.step({"node_git_sha": SHA, "param_arms": [final_arm()]}, {})
+        up = p["upstream"]
+        self.assertEqual((up["evidence"], up["sha"], p["caveats"]), ("verified", SHA, []))
+        self.assertIn("Each of the 2 node starts logged its node switches line, and each matched the switch state "
+                      "the manifest records for that start", up["evidence_detail"])
+        self.assertIn("node switches: 2 start(s) checked, 2 matched the arm in force, 0 without a line -> ok", out)
+        self.assertEqual(err, "")
+
+    def test_a_mismatch_refuses_unless_allowed_and_keeps_the_commit_verified(self):
+        self.logs(SHA, v2_switches=dict(SWITCHES_FINAL, recovery_threads="0"))
+        m = {"node_git_sha": SHA, "param_arms": [final_arm()]}
+        with self.assertRaisesRegex(mb.BundleError, "node switch check failed .*\n  - node switches show "
+                                                    "recovery_threads=0 at 1 start"):
+            self.step(m, {})
+        p, out, err = self.step(m, {}, allow=True)
+        up = p["upstream"]
+        self.assertEqual((up["evidence"], up["sha"]), ("verified", SHA))
+        self.assertEqual(p["caveats"], [
+            "The node switch lines did not match the switch state the manifest records: node switches show "
+            "recovery_threads=0 at 1 start(s) (val-2 at 2026-01-01T00:00:00Z); arm final sets recovery_threads=3"])
+        self.assertIn("Node switch lines: 1 of 2 start(s) matched the switch state the manifest records, and 0 "
+                      "start(s) logged none; see the caveats", up["evidence_detail"])
+        self.assertIn("-> 1 problem(s)", out)
+        self.assertIn("warning: --allow-provenance-mismatch: the node switch lines do not match", err)
+
+    def test_a_missing_line_the_contract_requires_refuses(self):
+        write_text(os.path.join(self.scratch, "logs", "val-1-telcoin.log"), node_log(SHA))
+        m = {"node_git_sha": SHA, "node_probe": {"strings": {"node switches": 1}}}
+        with self.assertRaisesRegex(mb.BundleError, "no node switches line at 1 start"):
+            self.step(m, {})
+        # The same logs without the contract: the build checks out and no switch line is judged.
+        p, out, _ = self.step({"node_git_sha": SHA}, {})
+        self.assertEqual(p["upstream"]["evidence"], "verified")
+        self.assertNotIn("node switches", out)
+        self.assertFalse(any("switches" in d for d in p["upstream"]["evidence_detail"]))
+
+    def test_build_and_switch_mismatches_are_separate_caveats(self):
+        self.logs(SHA, v2_switches=dict(SWITCHES_FINAL, recovery_threads="0"))
+        m = {"param_arms": [final_arm()]}
+        with self.assertRaisesRegex(mb.BundleError, "provenance check failed"):
+            self.step(m, {"upstream": {"sha": OTHER_SHA}})
+        p, _, _ = self.step(m, {"upstream": {"sha": OTHER_SHA}}, allow=True)
+        self.assertEqual(p["upstream"]["evidence"], "inferred")
+        self.assertEqual(len(p["caveats"]), 2)
+        self.assertTrue(p["caveats"][0].startswith("The node logs did not confirm the upstream commit: "))
+        self.assertNotIn("switches", p["caveats"][0])
+        self.assertTrue(p["caveats"][1].startswith("The node switch lines did not match"))
+
+
+class PrestartArmTests(unittest.TestCase):
+    """An arm deploy step 7 applied before the first start (via "prestart") is published as a
+    consensus.param_arms row of its switches (the headline's switch configuration)."""
+
+    def manifest(self, *arms, nodes=11):
+        insts = [{"name": "bench-validator-%02d" % i, "role": "validator"} for i in range(1, nodes)]
+        insts.append({"name": "bench-observer-%02d" % nodes, "role": "observer"})
+        return {"consensus_parameters": dict(ConsensusPerNodeTests.FLEET), "instances": insts, "param_arms": list(arms)}
+
+    def consensus(self, manifest):
+        caveats = []
+        block = mb.consensus_block(manifest, {"params": dict(ConsensusPerNodeTests.LOGS), "param_values": {}}, {},
+                                   caveats)
+        return block, caveats
+
+    def test_row_states_the_switches_away_from_their_default(self):
+        block, caveats = self.consensus(self.manifest(final_arm()))
+        self.assertEqual(block["param_arms"], [
+            {"arm": "final", "begin_utc": "2026-01-01T00:00:30Z", "end_utc": None,
+             "values": "all 11 nodes: mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, "
+                       "vote_queue_fix=true"}])
+        self.assertEqual(caveats, [])
+        self.assertEqual(mb.headline_switches(self.manifest(final_arm())),
+                         ("final", "all 11 nodes: mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, "
+                                   "vote_queue_fix=true"))
+        # A later params-apply arm keeps its written values as before.
+        later = {"name": "p2", "begin": "2026-01-01T02:00:00Z", "end": None, "switches": dict(SWITCHES_OFF),
+                 "nodes": {"bench-validator-01": {"mdbx_random_advice": "false"}}}
+        block, _ = self.consensus(self.manifest(final_arm(end="2026-01-01T02:00:00Z"), later))
+        self.assertEqual([r["values"] for r in block["param_arms"]][1], "bench-validator-01: mdbx_random_advice=false")
+
+    def test_all_defaults_has_no_row_and_bad_values_refuse(self):
+        block, _ = self.consensus(self.manifest(final_arm(switches=dict(SWITCHES_OFF, parent_grace="0s"))))
+        self.assertNotIn("param_arms", block)
+        self.assertIsNone(mb.headline_switches(self.manifest(final_arm(switches=dict(SWITCHES_OFF)))))
+        for bad in ({"parent_grace": "/" + "tmp/x"}, {"recovery_threads": 3}, {"vote_queue_fix": "yes please"}):
+            with self.assertRaises(mb.BundleError, msg=bad):
+                self.consensus(self.manifest(final_arm(switches=dict(SWITCHES_FINAL, **bad))))
+        with self.assertRaisesRegex(mb.BundleError, "lists no node"):
+            self.consensus({"param_arms": [final_arm()]})
+        # Its nodes are not read: deploy step 7 records what it likes there.
+        block, _ = self.consensus(self.manifest(final_arm(nodes=["not", "a", "map"])))
+        self.assertEqual(len(block["param_arms"]), 1)
+
+
+class PrestartArmAssemblyTests(unittest.TestCase):
+    """Steps 4-8 on the synthetic run with a prestart arm (OfflineAssemblyTests' build, not its tests)."""
+
+    setUp = OfflineAssemblyTests.setUp
+    build = OfflineAssemblyTests.build
+    BACKFILL = {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA},
+                "consensus": {"max_header_delay_ms": 500, "min_header_delay_ms": 250, "max_batch_delay_ms": 250,
+                              "vote_timeout_ms": 5000, "file": "consensus-parameters.yaml",
+                              "confirmed_by": "harness manifest"}}
+
+    def test_run_json_carries_the_switches_in_consensus(self):
+        _, doc, out, _ = self.build(self.BACKFILL, manifest_update={"param_arms": [final_arm()]})
+        self.assertEqual(doc["consensus"]["param_arms"], [
+            {"arm": "final", "begin_utc": "2026-01-01T00:00:30Z", "end_utc": None,
+             "values": "all 4 nodes: mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, "
+                       "vote_queue_fix=true"}])
+        self.assertFalse(any("switches of arm" in c for c in doc["caveats"]))
+        if SITE_SCRUB.is_file():
+            site = load_site_scrub()
+            self.assertEqual(site.validate_run(load_json(os.path.join(out, "run.json"))), [])
+            self.assertEqual([f.format() for f in site.check_bundle(out)], [])
+
+    def test_without_a_consensus_block_a_caveat_states_them(self):
+        bf = {k: v for k, v in self.BACKFILL.items() if k != "consensus"}
+        _, doc, _, _ = self.build(bf, manifest_update={"param_arms": [final_arm()]})
+        self.assertIsNone(doc["consensus"])
+        self.assertIn("The nodes ran the switches of arm final from their first start (all 4 nodes: "
+                      "mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, vote_queue_fix=true); the "
+                      "consensus block is not published for this run, so they are stated here.", doc["caveats"])
+
+
+
+GEN_FIELDS = load_json(FIX / "generator-fields" / "additions.json")
+
+
+@unittest.skipUnless((TXGEN_BENCH / "aggregate.py").is_file() and SITE_SCRUB.is_file(),
+                     "needs the tn-transaction-generator and tn-benchmarks checkouts next to this repo")
+class GeneratorFieldsEndToEndTests(TmpMixin, unittest.TestCase):
+    """The synthetic run built by main() twice, the second time with the generator's bench-6 additions
+    (fixtures/report/generator-fields) in every blaster and a landings export whose rows carry `late`: the
+    tools' aggregate.py takes them in, and every KPI, window and series comes out as before."""
+
+    def make_run(self, run, extra):
+        results = os.path.join(self.results_root, run)
+        shutil.copytree(str(SYNTH), results)
+        write_json(os.path.join(results, "manifest.json"), enriched_synthetic_manifest())
+        for name in ("val-1", "val-2", "val-3", "obs-1"):
+            write_text(os.path.join(results, "logs", "%s-telcoin.log" % name), node_log(SHA, vote_timeout=5000))
+        if extra:
+            add = copy.deepcopy(GEN_FIELDS["blaster"])
+            node_resends = add.pop("node_resends")
+            for path in sorted(Path(results, "blasters").glob("*.json")):
+                doc = load_json(path)
+                doc["run"].update(add["run"])
+                for k in ("series", "senders", "totals"):
+                    doc.setdefault(k, {}).update(add[k])
+                doc["nodes"] = [{"label": "val-1", "resends": dict(node_resends)}]
+                write_json(path, doc)
+            with gzip.open(os.path.join(results, "blasters", "landings-load-a.ndjson.gz"), "wt") as fh:
+                fh.write(json.dumps(GEN_FIELDS["landings_row"]) + "\n")
+        out = os.path.join(self.tmp, "out", run)
+        rc, stdout, err = self.main("--run", run, "--backfill", self.backfill, "--out", out, "--txgen-bench",
+                                    TXGEN_BENCH, "--analysis-sha", "abcdef0", BENCH_SITE_REPO=self.site)
+        self.assertEqual(rc, 0, err[-3000:])
+        return load_json(os.path.join(out, "run.json")), load_json(os.path.join(out, "series", "tps-1s.json"))
+
+    def setUp(self):
+        super(GeneratorFieldsEndToEndTests, self).setUp()
+        self.site = os.path.join(self.tmp, "site")
+        os.makedirs(self.site)
+        shutil.copyfile(str(SITE_SCRUB), os.path.join(self.site, "scrub.py"))
+        self.backfill = os.path.join(self.tmp, "bf.json")
+        write_json(self.backfill, {"title": "Synthetic", "summary": "Synthetic run.", "upstream": {"sha": SHA}})
+
+    def test_new_generator_fields_change_no_kpi(self):
+        plain, plain_series = self.make_run("r20260101-synth", False)
+        extra, extra_series = self.make_run("r20260101-gen6", True)
+        for key in ("kpis", "headline", "windows", "series", "recovery", "workload", "consensus", "chaos"):
+            self.assertEqual(json.dumps(extra[key]), json.dumps(plain[key]), key)
+        self.assertEqual(extra_series, plain_series)
+        self.assertEqual(extra["caveats"], plain["caveats"])
+        marker = mb.read_marker(os.path.join(self.work_root, "r20260101-gen6"))
+        self.assertEqual([e["path"] for e in marker["landings"]], ["r20260101-gen6/blasters/landings-load-a.ndjson.gz"])
 
 
 if __name__ == "__main__":

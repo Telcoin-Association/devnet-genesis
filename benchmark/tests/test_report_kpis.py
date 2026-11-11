@@ -935,3 +935,68 @@ class Bench4IdentityTests(unittest.TestCase):
         self.assertIsNone(self.marker["floor"])
         self.assertEqual((self.marker["archives"], self.marker["landings"]), ([], []))
         self.assertEqual(len(self.marker["inputs"]), 2 + 10 + 11)  # manifest, metrics, blasters, sampler csv
+
+
+# ---- bench6 generator fields ----
+#
+# fixtures/report/generator-fields/additions.json holds the generator's bench-6 additions (series.send_per_second*,
+# senders.blocked, nodes[].resends, totals.resends, run.tail_scan, the landings rows' late). Merged into the
+# synthetic run's blasters and combined result, they change no window, KPI, recovery figure or caveat.
+
+GEN_FIELDS = load_json(TESTS / "fixtures" / "report" / "generator-fields" / "additions.json")
+
+
+def with_generator_fields(doc, part):
+    """A copy of a blaster (part "blaster") or combined (part "combined") document with the additions merged
+    in: objects key by key, and every nodes[] entry (one is made when there is none) gets its resends."""
+    add = copy.deepcopy(GEN_FIELDS[part])
+    node_resends = add.pop("node_resends")
+    out = copy.deepcopy(doc)
+
+    def merge(dst, src):
+        for k, v in src.items():
+            if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                merge(dst[k], v)
+            else:
+                dst[k] = v
+    merge(out, add)
+    out["nodes"] = [dict(n, resends=dict(node_resends)) for n in out.get("nodes") or [{"label": "val-1"}]]
+    return out
+
+
+class GeneratorFieldsTests(Fixture):
+    def test_fixture_carries_every_addition(self):
+        b = with_generator_fields(load_json(RUN / "blasters" / "load-a.json"), "blaster")
+        self.assertEqual(set(b["series"]), {"send_per_second_columns", "send_per_second_t0_unix", "send_per_second"})
+        self.assertEqual((sorted(b["senders"]), sorted(b["totals"])), (["blocked"], ["resends", "unlanded_own_at_cooldown_end"]))
+        self.assertIn("tail_scan", b["run"])
+        self.assertIn("resends", b["nodes"][0])
+        self.assertIs(GEN_FIELDS["landings_row"]["late"], True)
+
+    def test_kpis_windows_and_floor_unchanged(self):
+        plain = windows_mod.load_blasters(str(RUN / "blasters"))
+        extra = [with_generator_fields(d, "blaster") for d in plain]
+        combined = with_generator_fields(self.combined, "combined")
+        self.assertNotEqual(combined, self.combined)
+        built_plain, built_extra = windows_mod.build(plain, self.combined), windows_mod.build(extra, combined)
+        self.assertEqual(json.dumps(built_extra), json.dumps(built_plain))
+        m = built_plain["merged"]
+        self.assertEqual(windows_mod.blocks(combined, built_extra["mixed_windows"], m["start_unix"], m["end_unix"]),
+                         windows_mod.blocks(self.combined, built_plain["mixed_windows"], m["start_unix"], m["end_unix"]))
+        self.assertEqual(json.dumps(self.compute(combined=combined)), json.dumps(self.compute()))
+        # The floor KPIs read light blasters: the same documents with the additions give the same figures.
+        floor_docs = [GEN_A, GEN_B]
+        floor = {"name": "light8", "index": 0, "senders": 8, "window": 16, "dir": "blast-0-x", "boundaries": []}
+        with_plain = self.compute(floor=dict(floor, docs=floor_docs))
+        with_extra = self.compute(floor=dict(floor, docs=[with_generator_fields(d, "blaster") for d in floor_docs]))
+        self.assertEqual(json.dumps(with_extra), json.dumps(with_plain))
+        self.assertIn("floor_time_to_land_p50_s", self.by_id(with_extra))
+
+    def test_bundle_blocks_unchanged(self):
+        def blocks(docs, combined):
+            caveats = []
+            return (mb.workload_block(docs, combined, {}, caveats),
+                    mb.generator_block(self.manifest, docs, {}, "abcdef0", None, caveats), caveats)
+        plain = windows_mod.load_blasters(str(RUN / "blasters"))
+        extra = [with_generator_fields(d, "blaster") for d in plain]
+        self.assertEqual(blocks(extra, with_generator_fields(self.combined, "combined")), blocks(plain, self.combined))

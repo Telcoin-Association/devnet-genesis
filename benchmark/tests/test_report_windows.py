@@ -18,8 +18,10 @@ combined.series.per_second chain_tx: 10 outside the merged window, 100 on [T0, T
     merged          100*100 + 116000 + 100*100 = 136000 tx  -> 194.2857 tx/s
     best 60 s       the burst, 500.0 tx/s
 """
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -274,6 +276,199 @@ class CliTests(unittest.TestCase):
             res = self.run_cli(empty, RUN / "combined.json")            # no tn-blast results
             self.assertEqual(res.returncode, 2)
             self.assertIn("no tn-blast results", res.stderr)
+
+
+# ---- bench6 blasts kind, real phases, load windows and arm windows ----
+#
+# A bench-6 manifest (benchmark/arms/MANIFEST-FIELDS.md) built in a temp results dir; blast.run_index 7
+# (the headline, at the top of the results dir). T0 = 2026-01-01T00:00:00Z.
+#
+#   0  light 8x16    rc 0  arm a0  blast-0-<UTC>/blasters: mixed [T0+100, T0+460)        -> light8, "blasters"
+#   1  light 8x16    rc 1  arm a0  never sent                                             -> not light; floor caveat
+#   2  load 600x16   rc 0  arm a0  chaos off; blast-2-<UTC>/manifest.json with real phases (phases_planned):
+#                                  mixed [T0+1000, T0+1480)                               -> load600, "manifest.phases"
+#   3  load 600x16   rc 0  arm p1  nothing archived; real phases in the entry, mixed [T0+2000, T0+2480)
+#                                  -> load600, "blasts[].phases"
+#   4  light 600x4   rc 0  arm p1  blast-4-<UTC>/manifest.json with the plan only (mixed [T0+3000, T0+3360))
+#                                  and the entry's real phases (mixed [T0+3010, T0+3372)) -> the entry's real ones
+#   5  load 600x4    rc 0  arm p1  nothing archived, no phases                            -> load600x4, no window
+#   6  load 600x16   rc 3  arm p1  failed                                                 -> not a load window
+#   7  load 600x16   rc 0  arm p1  the headline                                           -> not a load window
+
+def _utc(secs):
+    return windows.iso(T0 + secs)
+
+
+def _phases(mixed_lo, mixed_hi):
+    return [{"name": "warmup", "start": _utc(mixed_lo - 60), "end": _utc(mixed_lo)},
+            {"name": "mixed", "start": _utc(mixed_lo), "end": _utc(mixed_hi)},
+            {"name": "cooldown", "start": _utc(mixed_hi), "end": _utc(mixed_hi + 60)}]
+
+
+def _entry(index, kind, senders, window, rc, arm, started, **extra):
+    e = {"index": index, "senders": senders, "window": window, "chaos": 0, "started": _utc(started),
+         "ended": _utc(started + 600), "rc": rc, "kind": kind, "arm": arm}
+    e.update(extra)
+    return e
+
+
+BENCH6_MANIFEST = {
+    "schema": "tn-bench-manifest/v1", "run_id": "r20260101-0006",
+    "blast": {"run_index": 7, "chaos": 0},
+    "param_arms": [
+        {"name": "a0", "begin": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:30:00Z", "via": "prestart",
+         "nodes": {}, "switches": {"vote_queue_fix": "false"}},
+        {"name": "p1", "begin": "2026-01-01T00:30:00Z", "end": None, "ready": "2026-01-01T00:31:40Z",
+         "nodes": {"bench-validator-01": {"mdbx_random_advice": "true"}}, "switches": {"mdbx_random_advice": "true"}},
+    ],
+    "blasts": [
+        _entry(0, "light", 8, 16, 0, "a0", 0),
+        _entry(1, "light", 8, 16, 1, "a0", 600),
+        _entry(2, "load", 600, 16, 0, "a0", 900, phases=_phases(1000, 1480), phases_planned=_phases(1000, 1440)),
+        _entry(3, "load", 600, 16, 0, "p1", 1900, phases=_phases(2000, 2480), phases_planned=_phases(2000, 2440)),
+        _entry(4, "light", 600, 4, 0, "p1", 2900, phases=_phases(3010, 3372), phases_planned=_phases(3000, 3360)),
+        _entry(5, "load", 600, 4, 0, "p1", 3500),
+        _entry(6, "load", 600, 16, 3, "p1", 4200),
+        _entry(7, "load", 600, 16, 0, "p1", 5000),
+    ],
+}
+
+
+def _write_json(path, doc):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(doc, f)
+
+
+def build_bench6_run(root):
+    """The bench-6 run above under root/; returns its path."""
+    run = os.path.join(root, "r20260101-0006")
+    _write_json(os.path.join(run, "manifest.json"), BENCH6_MANIFEST)
+    b0 = os.path.join(run, "blast-0-20260101T001000Z")
+    _write_json(os.path.join(b0, "blasters", "gen-a.json"), blaster("gen-a", T0 + 100, T0 + 460))
+    _write_json(os.path.join(b0, "blasters", "gen-b.json"), blaster("gen-b", T0 + 105, T0 + 455))
+    _write_json(os.path.join(run, "blast-2-20260101T002600Z", "manifest.json"),
+                {"phases": _phases(1000, 1480), "phases_planned": _phases(1000, 1440)})
+    _write_json(os.path.join(run, "blast-4-20260101T005900Z", "manifest.json"), {"phases": _phases(3000, 3360)})
+    return run
+
+
+class Bench6BlastTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="windows-bench6-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.run_dir = build_bench6_run(self.tmp)
+        self.manifest = load_json(os.path.join(self.run_dir, "manifest.json"))
+
+    def test_light_blasts_select_kind_light_and_rc_0(self):
+        got = windows.light_blasts(self.run_dir, self.manifest)
+        self.assertEqual([(b["name"], b["index"], b["kind"], b["arm"]) for b in got],
+                         [("light8", 0, "light", "a0"), ("light600x4", 4, "light", "p1")])
+        # The chaos-off load blast 2 is not light once kind is recorded (the bench-5 rule would take it).
+        bare = copy.deepcopy(self.manifest)
+        for e in bare["blasts"]:
+            del e["kind"]
+        self.assertEqual([b["index"] for b in windows.light_blasts(self.run_dir, bare)], [0, 1, 2, 3, 4, 5, 6])
+        # Without kind the failed blast 1 stays a light blast, as in bench 5; with kind it does not.
+        self.assertNotIn(1, [b["index"] for b in got])
+
+    def test_floor_blast_names_a_failed_light8_with_kind(self):
+        blast, caveats = windows.floor_blast(self.run_dir, self.manifest)
+        self.assertEqual((blast["name"], blast["index"], caveats), ("light8", 0, []))
+        only_failed = copy.deepcopy(self.manifest)
+        only_failed["blasts"] = [e for e in only_failed["blasts"] if e["index"] != 0]
+        self.assertEqual(windows.floor_blast(self.run_dir, only_failed),
+                         (None, ["light8 blast (index 1) ended rc=1; floor KPIs not computed from it"]))
+
+    def test_light_windows_read_real_phases_before_planned_ones(self):
+        got = {w["index"]: w for w in windows.light_windows(self.run_dir, self.manifest)}
+        self.assertEqual((got[0]["start_unix"], got[0]["end_unix"], got[0]["source"], got[0]["arm"]),
+                         (T0 + 100, T0 + 460, "blasters", "a0"))
+        # The copy holds the plan only; the entry's phases are real (phases_planned): they win.
+        w4 = got[4]
+        self.assertEqual((w4["start_unix"], w4["end_unix"], w4["secs"], w4["source"]),
+                         (T0 + 3010, T0 + 3372, 362, "blasts[].phases"))
+        self.assertEqual((w4["phases"], w4["phases_real"]), (_phases(3010, 3372), True))
+        # Without the entry's real phases the copy's plan is read, as before.
+        planned = copy.deepcopy(self.manifest)
+        del planned["blasts"][4]["phases_planned"]
+        w4 = {w["index"]: w for w in windows.light_windows(self.run_dir, planned)}[4]
+        self.assertEqual((w4["start_unix"], w4["end_unix"], w4["source"], w4["phases_real"]),
+                         (T0 + 3000, T0 + 3360, "manifest.phases", False))
+
+    def test_load_blasts_and_windows(self):
+        got = windows.load_blasts(self.run_dir, self.manifest)
+        self.assertEqual([(b["name"], b["index"], b["arm"]) for b in got],
+                         [("load600", 2, "a0"), ("load600", 3, "p1"), ("load600x4", 5, "p1")])
+        w = windows.load_windows(self.run_dir, self.manifest)
+        self.assertEqual([(x["index"], x["start_unix"], x["end_unix"], x["source"]) for x in w], [
+            (2, T0 + 1000, T0 + 1480, "manifest.phases"),     # the copy's real phases
+            (3, T0 + 2000, T0 + 2480, "blasts[].phases"),     # the entry's real phases
+            (5, None, None, None)])                           # no approximate fallback for a load blast
+        self.assertEqual((w[0]["arm"], w[0]["phases"], w[0]["phases_real"]), ("a0", _phases(1000, 1480), True))
+        self.assertNotIn("phases", w[2])
+        # A manifest without kind has no load windows (bench 5 and older).
+        bare = copy.deepcopy(self.manifest)
+        for e in bare["blasts"]:
+            del e["kind"]
+        self.assertEqual(windows.load_blasts(self.run_dir, bare), [])
+
+    def test_cli_prints_load_windows_only_when_there_are_some(self):
+        args = [str(BLASTERS), str(RUN / "combined.json"), "--run-dir", self.run_dir, "--keep-boundaries"]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(windows.main(args), 0)
+        doc = json.loads(out.getvalue())
+        self.assertEqual([w["index"] for w in doc["light"]], [0, 4])
+        self.assertEqual([w["index"] for w in doc["load"]], [2, 3, 5])
+        bare = copy.deepcopy(self.manifest)
+        for e in bare["blasts"]:
+            del e["kind"]
+        _write_json(os.path.join(self.run_dir, "manifest.json"), bare)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(windows.main(args), 0)
+        self.assertNotIn("load", json.loads(out.getvalue()))
+
+    def test_arm_window_starts_at_ready(self):
+        a0, p1 = self.manifest["param_arms"]
+        self.assertEqual(windows.arm_window(p1), {"name": "p1", "start_unix": T0 + 1900, "end_unix": None,
+                                                  "secs": None, "start": "ready"})
+        self.assertEqual(windows.arm_window(a0), {"name": "a0", "start_unix": T0, "end_unix": T0 + 1800,
+                                                  "secs": 1800, "start": "begin"})
+        closed = dict(p1, end="2026-01-01T01:00:00Z")
+        self.assertEqual((windows.arm_window(closed)["start_unix"], windows.arm_window(closed)["secs"]),
+                         (T0 + 1900, 1700))
+        self.assertEqual([w["name"] for w in windows.arm_windows(self.manifest)], ["a0", "p1"])
+        for broken in (None, "a0", {"name": "x"}, {"name": "x", "begin": "soon"}):
+            self.assertIsNone(windows.arm_window(broken))
+        self.assertEqual(windows.arm_windows({}), [])
+
+
+class Bench5BlastsPinTests(unittest.TestCase):
+    """The bench-5 manifest's blasts[] (no kind, arm or phases) selects exactly what it always did."""
+
+    FIXTURE = TESTS / "fixtures" / "report" / "bench5-r20261107-1504" / "manifest-blasts.json"
+
+    def test_light_and_load_blasts_unchanged(self):
+        m = load_json(self.FIXTURE)
+        with tempfile.TemporaryDirectory() as d:
+            got = windows.light_blasts(d, m)
+            self.assertEqual(got, [
+                {"name": "light8", "index": 0, "senders": 8, "window": 16, "rc": 0,
+                 "started": "2026-11-07T16:10:48Z", "ended": "2026-11-07T16:30:44Z", "dir": None},
+                {"name": "light16", "index": 1, "senders": 16, "window": 16, "rc": 0,
+                 "started": "2026-11-07T16:30:44Z", "ended": "2026-11-07T16:50:39Z", "dir": None},
+                {"name": "light600x4", "index": 2, "senders": 600, "window": 4, "rc": 0,
+                 "started": "2026-11-07T16:50:40Z", "ended": "2026-11-07T17:12:21Z", "dir": None}])
+            self.assertEqual(windows.load_blasts(d, m), [])
+            self.assertEqual(json.dumps(windows.light_windows(d, m)), json.dumps([
+                {"name": "light8", "index": 0, "senders": 8, "window": 16, "start_unix": 1794067908,
+                 "end_unix": 1794068984, "secs": 1076, "source": "blasts[] (approximate)", "boundaries": []},
+                {"name": "light16", "index": 1, "senders": 16, "window": 16, "start_unix": 1794069104,
+                 "end_unix": 1794070179, "secs": 1075, "source": "blasts[] (approximate)", "boundaries": []},
+                {"name": "light600x4", "index": 2, "senders": 600, "window": 4, "start_unix": 1794070300,
+                 "end_unix": 1794071481, "secs": 1181, "source": "blasts[] (approximate)", "boundaries": []}]))
 
 
 if __name__ == "__main__":

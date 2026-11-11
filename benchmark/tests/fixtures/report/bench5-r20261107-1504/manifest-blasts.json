@@ -1,0 +1,45 @@
+{
+ "_comment": "blasts[] and blast.run_index/chaos of bench 5 (r20261107-1504) as recorded: no kind, arm or phases on the entries; the load blast index 3 failed (rc 1) and ran again as index 4 at the top of the results dir.",
+ "blast": {
+  "run_index": 4,
+  "chaos": 1
+ },
+ "blasts": [
+  {
+   "index": 0,
+   "senders": 8,
+   "window": 16,
+   "chaos": 0,
+   "started": "2026-11-07T16:10:48Z",
+   "ended": "2026-11-07T16:30:44Z",
+   "rc": 0
+  },
+  {
+   "index": 1,
+   "senders": 16,
+   "window": 16,
+   "chaos": 0,
+   "started": "2026-11-07T16:30:44Z",
+   "ended": "2026-11-07T16:50:39Z",
+   "rc": 0
+  },
+  {
+   "index": 2,
+   "senders": 600,
+   "window": 4,
+   "chaos": 0,
+   "started": "2026-11-07T16:50:40Z",
+   "ended": "2026-11-07T17:12:21Z",
+   "rc": 0
+  },
+  {
+   "index": 3,
+   "senders": 600,
+   "window": 16,
+   "chaos": 1,
+   "started": "2026-11-07T17:12:21Z",
+   "ended": "2026-11-07T17:29:10Z",
+   "rc": 1
+  }
+ ]
+}

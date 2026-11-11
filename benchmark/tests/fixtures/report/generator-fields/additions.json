@@ -1,0 +1,47 @@
+{
+ "_comment": "The bench-6 additions to the generator's documents (tn-transaction-generator bench/schema/README.md: send series, window waits, resends, tail scan, landings late), merged into the synthetic run's blasters and combined result by test_report_kpis.GeneratorFieldsTests and test_report_bundle.GeneratorFieldsEndToEndTests. The report must ignore them: every KPI, window and block comes out as without them.",
+ "blaster": {
+  "run": {
+   "args": {"tail_scan_secs": 180},
+   "tail_scan": {"secs": 180, "start_ms": 1767226200000, "end_ms": 1767226380000, "end_reason": "elapsed",
+                 "boundary_block": 16391, "landed_late": 40, "by_type": {"native_transfer": 40}, "unlanded_after": 7}
+  },
+  "series": {
+   "send_per_second_columns": ["s", "submitted", "accepted", "resent", "resigned", "rpc_errors", "blocked_senders", "inflight"],
+   "send_per_second_t0_unix": 1767225540,
+   "send_per_second": [[0, 120, 118, 2, 0, 3, 4, 900], [1, 130, 130, 0, 1, 0, 6, 950], [2, 0, 0, 0, 0, 0, 600, 9600]]
+  },
+  "senders": {
+   "blocked": {"per_sender_ms": [0, 1200, 340], "total_ms": 1540, "p50": 340, "p95": 1200, "max": 1200,
+               "by_phase": {"warmup": 100, "mixed": 1400, "cooldown": 40}}
+  },
+  "totals": {
+   "resends": {"transient": 5, "other": 1, "gap_episodes": 1, "gap_txs": 16, "resign_nonce": 2, "resign_fee": 0, "dropped": 0},
+   "unlanded_own_at_cooldown_end": 47
+  },
+  "node_resends": {"transient": 5, "other": 1, "gap_episodes": 1, "gap_txs": 16, "resign_nonce": 2, "resign_fee": 0, "dropped": 0}
+ },
+ "combined": {
+  "run": {
+   "tail_scan": {"secs": 180, "start_ms": 1767226200000, "end_ms": 1767226380000, "end_reasons": {"elapsed": 3},
+                 "landed_late": 120, "by_type": {"native_transfer": 120}, "unlanded_after": 21}
+  },
+  "series": {
+   "send_per_second_columns": ["s", "submitted", "accepted", "resent", "resigned", "rpc_errors", "blocked_senders", "inflight"],
+   "send_per_second_t0_unix": 1767225540,
+   "send_per_second": [[0, 360, 354, 6, 0, 9, 12, 2700], [1, 390, 390, 0, 3, 0, 18, 2850]]
+  },
+  "senders": {
+   "blocked": {"per_sender_ms": [0, 1200, 340, 0, 1200, 340, 0, 1200, 340], "total_ms": 4620, "p50": 340, "p95": 1200,
+               "max": 1200, "by_phase": {"warmup": 300, "mixed": 4200, "cooldown": 120}}
+  },
+  "totals": {
+   "resends": {"transient": 15, "other": 3, "gap_episodes": 3, "gap_txs": 48, "resign_nonce": 6, "resign_fee": 0, "dropped": 0},
+   "unlanded_own_at_cooldown_end": 141
+  },
+  "node_resends": {"transient": 5, "other": 1, "gap_episodes": 1, "gap_txs": 16, "resign_nonce": 2, "resign_fee": 0, "dropped": 0}
+ },
+ "landings_row": {"hash": "0xabc1", "type": "native_transfer", "node": "val-1", "sender": 17, "nonce": 42,
+                  "submit_ms": 1767225900123, "accept_ms": 1767225900131, "block": 14000, "seen_ms": 1767226250812,
+                  "phase": "mixed", "late": true}
+}

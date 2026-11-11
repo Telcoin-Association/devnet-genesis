@@ -31,12 +31,24 @@ boundary waits for execution, which a floor must not average in): --exclude-boun
 changes the width, --keep-boundaries keeps the whole window. light_window() and light_windows()
 exclude only when given exclude_secs.
 
+Bench 6 (benchmark/arms/MANIFEST-FIELDS.md, D45 and D42). A `blasts[]` entry may carry `kind`
+("light" or "load": the path that ran it), `arm` (the param arm in force when it started),
+`phases` and `phases_planned` (`phases` holds the real times when `phases_planned` is present,
+and so does a manifest copy's `phases` when the copy has `phases_planned`). An entry with `kind`
+is a light blast when kind is "light" and rc is 0; an entry without it follows the bench-5 rule
+above, so a bench-5 manifest selects exactly what it always did. Before the approximate
+fallback, a window reads real phases first (the manifest copy's, then the entry's), then planned
+ones (the copy's, then the entry's). load_blasts() / load_windows() give the other load blasts
+of the run (kind "load", rc 0, not the headline at the top of the results dir) as windows of
+their own, with their arm and phases. An arm's measurement window (arm_window()) runs from
+`ready` when it is recorded, else from `begin`, to `end`.
+
 Usage: python3 windows.py <blasters-dir> <combined.json> [--blocks]
                           [--run-dir RESULTS/<run> [--exclude-boundaries [SECS] | --keep-boundaries]]
 Prints the build() dict as JSON (with a "blocks" list of 5-minute blocks over the merged
-window when --blocks is given, and a "light" list of light-blast windows when --run-dir is
-given; without --run-dir the output is what it always was). Exits 1 when build() reports
-problems, 2 on bad input.
+window when --blocks is given, a "light" list of light-blast windows when --run-dir is given,
+and a "load" list when that run has other load blasts; without --run-dir the output is what it
+always was). Exits 1 when build() reports problems, 2 on bad input.
 
 Python 3.9+, standard library only.
 """
@@ -258,10 +270,14 @@ def _unix(ts) -> Optional[int]:
     return int(d.timestamp())
 
 
+def _blast_name(prefix: str, senders, window) -> str:
+    w = DEFAULT_WINDOW if window in (None, "") else int(window)
+    return "%s%d" % (prefix, int(senders)) if w == DEFAULT_WINDOW else "%s%dx%d" % (prefix, int(senders), w)
+
+
 def light_name(senders, window) -> str:
     """'light8' for 8 senders at the default window 16, 'light600x4' for 600 at window 4."""
-    w = DEFAULT_WINDOW if window in (None, "") else int(window)
-    return "light%d" % int(senders) if w == DEFAULT_WINDOW else "light%dx%d" % (int(senders), w)
+    return _blast_name("light", senders, window)
 
 
 def _archive_dir(run_dir: str, index: int) -> Optional[str]:
@@ -273,34 +289,73 @@ def _archive_dir(run_dir: str, index: int) -> Optional[str]:
     return (full or dirs or [None])[-1]
 
 
+# Bench-6 blasts[] fields a blast record carries over when the entry has them (MANIFEST-FIELDS.md).
+_BLAST_EXTRA_KEYS = ("kind", "arm", "phases", "phases_planned")
+
+
+def _blast_record(run_dir: str, e: dict, name: str) -> dict:
+    """One blasts[] entry as {name, index, senders, window, rc, started, ended, dir}, plus the
+    bench-6 keys (kind, arm, phases, phases_planned) the entry has; dir is its
+    blast-<index>-<UTC>/ (None when nothing was archived)."""
+    idx = int(e["index"])
+    rec = {"name": name, "index": idx, "senders": int(e["senders"]),
+           "window": DEFAULT_WINDOW if e.get("window") in (None, "") else int(e["window"]),
+           "rc": e.get("rc"), "started": e.get("started"), "ended": e.get("ended"),
+           "dir": _archive_dir(run_dir, idx)}
+    rec.update((k, e[k]) for k in _BLAST_EXTRA_KEYS if k in e)
+    return rec
+
+
+def _blast_entries(manifest: dict) -> List[dict]:
+    """The blasts[] entries with an index and a sender count."""
+    return [e for e in (manifest or {}).get("blasts") or []
+            if isinstance(e, dict) and e.get("index") is not None and e.get("senders") is not None]
+
+
+def _light_entries(run_dir: str, manifest: dict) -> List[dict]:
+    """Every light blast of blasts[] whatever its rc: kind "light" for an entry with `kind`, the
+    bench-5 rule (chaos off, not the blast at the top of the results dir) for one without."""
+    top = ((manifest or {}).get("blast") or {}).get("run_index")
+    out = []
+    for e in _blast_entries(manifest):
+        if "kind" in e:
+            if e["kind"] != "light":
+                continue
+        elif e.get("chaos") not in (0, False, None) or e.get("index") == top:
+            continue
+        out.append(_blast_record(run_dir, e, light_name(e["senders"], e.get("window"))))
+    return out
+
+
 def light_blasts(run_dir: str, manifest: dict) -> List[dict]:
     """The light blasts of a light-load arm, in blasts[] order, from the live manifest.
 
-    Light = a blasts[] entry with chaos off whose index is not the blast at the top of the
-    results dir (manifest.blast.run_index, the configured profile's). Each entry is
-    {name, index, senders, window, rc, started, ended, dir}; dir is its blast-<index>-<UTC>/
-    (None when nothing was archived). A run without blasts[] has none."""
+    Light = a blasts[] entry with kind "light" and rc 0 when the entry has `kind` (bench 6);
+    otherwise an entry with chaos off whose index is not the blast at the top of the results dir
+    (manifest.blast.run_index, the configured profile's), whatever its rc. Each entry is
+    {name, index, senders, window, rc, started, ended, dir} plus the entry's kind, arm, phases
+    and phases_planned when it has them; dir is its blast-<index>-<UTC>/ (None when nothing was
+    archived). A run without blasts[] has none."""
+    return [b for b in _light_entries(run_dir, manifest) if "kind" not in b or b["rc"] == 0]
+
+
+def load_blasts(run_dir: str, manifest: dict) -> List[dict]:
+    """The load blasts of the run other than the headline, in blasts[] order: entries with kind
+    "load" and rc 0 whose index is not manifest.blast.run_index (the blast whose files are at the
+    top of the results dir). Records as light_blasts() gives them, named 'load600' (600 senders at
+    window 16) or 'load600x4'. A manifest without `kind` in blasts[] (bench 5 and older) has none."""
     top = ((manifest or {}).get("blast") or {}).get("run_index")
-    out = []
-    for e in (manifest or {}).get("blasts") or []:
-        if not isinstance(e, dict) or e.get("index") is None or e.get("senders") is None:
-            continue
-        if e.get("chaos") not in (0, False, None) or e.get("index") == top:
-            continue
-        idx = int(e["index"])
-        out.append({"name": light_name(e["senders"], e.get("window")), "index": idx,
-                    "senders": int(e["senders"]),
-                    "window": DEFAULT_WINDOW if e.get("window") in (None, "") else int(e["window"]),
-                    "rc": e.get("rc"), "started": e.get("started"), "ended": e.get("ended"),
-                    "dir": _archive_dir(run_dir, idx)})
-    return out
+    return [_blast_record(run_dir, e, _blast_name("load", e["senders"], e.get("window")))
+            for e in _blast_entries(manifest)
+            if e.get("kind") == "load" and e.get("rc") == 0 and e.get("index") != top]
 
 
 def floor_blast(run_dir: str, manifest: dict) -> Tuple[Optional[dict], List[str]]:
     """(the first light8 blast that ended rc 0 and has archived blasters, caveats). No light
-    blast in blasts[] at all is (None, []): the run had no light-load arm."""
+    blast in blasts[] at all is (None, []): the run had no light-load arm. A light8 entry that
+    did not end rc 0 is named in the caveats (bench 6 entries with kind included)."""
     caveats = []
-    for b in light_blasts(run_dir, manifest):
+    for b in _light_entries(run_dir, manifest):
         if b["name"] != FLOOR_LIGHT:
             continue
         if b["rc"] not in (0, None):
@@ -355,9 +410,28 @@ def _phase_secs(phases, name) -> Optional[int]:
     return hi - lo if lo is not None and hi is not None and hi >= lo else None
 
 
+def _mixed_span(phases) -> Optional[Tuple[int, int]]:
+    """The `mixed` entry of a manifest-style phases list ({name, start, end} in UTC) as unix
+    seconds, or None when it is missing or empty."""
+    p = next((p for p in phases or [] if isinstance(p, dict) and p.get("name") == "mixed"), None)
+    lo, hi = _unix((p or {}).get("start")), _unix((p or {}).get("end"))
+    return (lo, hi) if lo is not None and hi is not None and hi > lo else None
+
+
 def light_window(blast: dict, exclude_secs: Optional[int] = None) -> dict:
     """One light blast's mixed window (see the module docstring for the sources, in order)."""
+    return _blast_window(blast, exclude_secs, approximate=True)
+
+
+def _blast_window(blast: dict, exclude_secs: Optional[int], approximate: bool) -> dict:
+    """light_window() for a light blast (approximate=True: the blasts[] fallback with the light
+    phase lengths) or a load blast (no approximate fallback)."""
     out = {k: blast.get(k) for k in ("name", "index", "senders", "window")}
+    if "arm" in blast:
+        out["arm"] = blast["arm"]
+    if "phases" in blast:
+        out["phases"] = blast["phases"]
+        out["phases_real"] = "phases_planned" in blast
     d = blast.get("dir")
     docs = load_blasters(os.path.join(d, "blasters")) if d else []
     mixed = mixed_windows(docs)
@@ -369,16 +443,22 @@ def light_window(blast: dict, exclude_secs: Optional[int] = None) -> dict:
         except (OSError, ValueError):
             manifest = {}
     phases = manifest.get("phases") if isinstance(manifest, dict) else None
+    copy_real = isinstance(manifest, dict) and "phases_planned" in manifest
     span, source = None, None
     if mixed:
         m = merged(mixed)
         span, source = (m["start_unix"], m["end_unix"]), "blasters"
     else:
-        p = next((p for p in phases or [] if isinstance(p, dict) and p.get("name") == "mixed"), None)
-        lo, hi = _unix((p or {}).get("start")), _unix((p or {}).get("end"))
-        if lo is not None and hi is not None and hi > lo:
-            span, source = (lo, hi), "manifest.phases"
-        else:
+        # Real phases first, then planned ones; the manifest copy before the blasts[] entry.
+        for cand, label, usable in ((phases, "manifest.phases", copy_real),
+                                    (blast.get("phases"), "blasts[].phases", "phases_planned" in blast),
+                                    (phases, "manifest.phases", True),
+                                    (blast.get("phases"), "blasts[].phases", True)):
+            got = _mixed_span(cand) if usable else None
+            if got is not None:
+                span, source = got, label
+                break
+        if span is None and approximate:
             warm = _phase_secs(phases, "warmup")
             cool = _phase_secs(phases, "cooldown")
             warm = LIGHT_WARMUP_SECS if warm is None else warm
@@ -406,6 +486,34 @@ def light_window(blast: dict, exclude_secs: Optional[int] = None) -> dict:
 def light_windows(run_dir: str, manifest: dict, exclude_secs: Optional[int] = None) -> List[dict]:
     """light_window() for every light blast of the run, in blasts[] order."""
     return [light_window(b, exclude_secs) for b in light_blasts(run_dir, manifest)]
+
+
+def load_windows(run_dir: str, manifest: dict, exclude_secs: Optional[int] = None) -> List[dict]:
+    """The mixed window of every load blast load_blasts() gives, in blasts[] order: the light
+    window's record and sources without its approximate fallback, so a load blast with nothing
+    archived and no phases has start_unix None."""
+    return [_blast_window(b, exclude_secs, approximate=False) for b in load_blasts(run_dir, manifest)]
+
+
+def arm_window(arm: dict) -> Optional[dict]:
+    """A param arm's measurement window (MANIFEST-FIELDS.md): from `ready` (the last node's
+    consensus progress after its restart plus 120 s) when recorded, else from `begin`, to `end`.
+    {"name", "start_unix", "end_unix" (None while the arm is open), "secs" (None while open),
+    "start": "ready" | "begin"}; None for an entry without a usable start."""
+    if not isinstance(arm, dict):
+        return None
+    ready = _unix(arm.get("ready"))
+    start, source = (ready, "ready") if ready is not None else (_unix(arm.get("begin")), "begin")
+    if start is None:
+        return None
+    end = _unix(arm.get("end"))
+    return {"name": arm.get("name"), "start_unix": start, "end_unix": end,
+            "secs": end - start if end is not None and end >= start else None, "start": source}
+
+
+def arm_windows(manifest: dict) -> List[dict]:
+    """arm_window() of every manifest.param_arms entry with a usable start, in list order."""
+    return [w for w in (arm_window(a) for a in (manifest or {}).get("param_arms") or []) if w is not None]
 
 
 def load_blasters(directory: str) -> List[dict]:
@@ -460,6 +568,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             with open(os.path.join(args.run_dir, "manifest.json")) as f:
                 manifest = json.load(f)
             out["light"] = light_windows(args.run_dir, manifest, excl)
+            load = load_windows(args.run_dir, manifest, excl)
+            if load:  # bench 6 (blasts[].kind); absent for older manifests, as before
+                out["load"] = load
         except (OSError, ValueError) as e:
             print("windows.py: %s" % e, file=sys.stderr)
             return 2

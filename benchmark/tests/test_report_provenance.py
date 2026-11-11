@@ -443,5 +443,224 @@ class CliTests(RunDirCase):
         self.assertFalse((run / "manifest.json").exists())
 
 
+# ---- bench6 switch provenance ----
+#
+# The node logs one "node switches" line (target node::switches) after parameters.yaml is loaded at every
+# start: a key=value field per switch of benchmark/arms/switches.tsv the image knows, values as YAML scalars.
+
+ALL_OFF = {"quorum_exec_block": "false", "quorum_exec_block_starved_rounds": "0", "vote_queue_fix": "false",
+           "mdbx_random_advice": "false", "sealed_tx_keep": "false", "digest_dedupe": "false",
+           "recovery_threads": "0", "epoch_close_task_drain": "false", "epoch_record_state_check": "false",
+           "parent_grace": "0ms", "rpc_admission_backlog_outputs": "0", "pipelined_persist": "false"}
+FINAL = dict(ALL_OFF, vote_queue_fix="true", mdbx_random_advice="true", recovery_threads="3",
+             parent_grace="150ms")
+CONTRACT = {"at": "2026-01-01T00:00:00Z", "flags_ok": True,
+            "strings": {"Max header delay set to": 1, "node switches": 1}}
+
+
+def switch_boot(ts, switches, drop=()):
+    """boot_log() plus the node switch line, logfmt as the bench nodes write it."""
+    fields = " ".join("%s=%s" % (k, v) for k, v in switches.items() if k not in drop)
+    return boot_log(ts, 500) + ('ts=%s.900Z level=info target=node::switches span=node-startup '
+                                'span_path=node-startup message="node switches" %s\n' % (ts, fields))
+
+
+def arm(name, begin, switches, **extra):
+    a = {"name": name, "begin": begin, "end": None, "nodes": {}, "switches": dict(switches)}
+    a.update(extra)
+    return a
+
+
+class SwitchParseTests(unittest.TestCase):
+    def test_logfmt_json_and_plain_lines(self):
+        line = switch_boot("2026-01-01T00:00:00", FINAL).splitlines()[-1]
+        self.assertEqual(P.parse_switch_line(line), ("2026-01-01T00:00:00.900Z", FINAL))
+        js = json.dumps({"timestamp": "2026-01-01T00:00:01Z", "level": "INFO", "target": "node::switches",
+                         "fields": {"message": "node switches", "vote_queue_fix": True, "recovery_threads": 3,
+                                    "parent_grace": "150ms"}})
+        self.assertEqual(P.parse_switch_line(js), ("2026-01-01T00:00:01Z",
+                                                   {"vote_queue_fix": "true", "recovery_threads": "3",
+                                                    "parent_grace": "150ms"}))
+        plain = "\x1b[32m2026-01-01T00:00:02Z  INFO\x1b[0m node::switches: node switches digest_dedupe=false parent_grace=0ms"
+        self.assertEqual(P.parse_switch_line(plain), ("2026-01-01T00:00:02Z",
+                                                      {"digest_dedupe": "false", "parent_grace": "0ms"}))
+        # A Debug-formatted string value keeps no quotes.
+        dbg = 'ts=2026-01-01T00:00:03Z level=info message="node switches" parent_grace="\\"150ms\\""'
+        self.assertEqual(P.parse_switch_line(dbg)[1], {"parent_grace": "150ms"})
+        for other in ('ts=2026-01-01T00:00:03Z message="node switches seen" a=1',
+                      'ts=2026-01-01T00:00:03Z message="other" note="node switches" a=1',
+                      "nothing here"):
+            self.assertIsNone(P.parse_switch_line(other), other)
+        self.assertIn(b"node switches", P._CANDIDATE_MARKERS)
+
+    def test_value_comparison_by_type(self):
+        self.assertEqual([P.switch_value("bool", v) for v in ("true", "False", True, "1", "yes", None)],
+                         [True, False, True, None, None, None])
+        self.assertEqual([P.switch_value("int", v) for v in ("3", 3, "0", "-1", "x", True)], [3, 3, 0, None, None, None])
+        self.assertEqual([P.switch_value("dur", v) for v in ("150ms", "0.15s", "0ms", "0ns", "0", "150", "1m", "x", True)],
+                         [150000.0, 150000.0, 0.0, 0.0, 0.0, 150000.0, 60000000.0, None, None])
+        rows = P.switch_rows()
+        self.assertEqual([r["key"] for r in rows], list(ALL_OFF))
+        self.assertEqual([r["key"] for r in rows if r["optional"]], ["pipelined_persist"])
+
+
+class SwitchCheckTests(RunDirCase):
+    def run_with(self, logs, **manifest):
+        run = self.make_run({})
+        for name, text in logs.items():
+            (run / "logs" / name).write_text(text)
+        return P.scan_run(str(run)), manifest_for(**manifest)
+
+    def test_old_runs_are_checked_as_before(self):
+        scan, m = self.run_with({"bench-validator-01-telcoin.log": boot_log("2026-01-01T00:00:00", 500)},
+                                param_arms=[arm("p1", "2026-01-01T00:00:00Z", FINAL)])
+        self.assertNotIn("switches", scan["starts"][0])
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertNotIn("switches", r)
+
+    def test_defaults_before_the_first_arm_then_the_arm_in_force(self):
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T00:00:00", ALL_OFF)
+                + switch_boot("2026-01-01T01:00:05", FINAL),
+                "bench-validator-01-unit-stdout.log": switch_boot("2026-01-01T00:00:00", ALL_OFF)}
+        scan, m = self.run_with(logs, node_probe=CONTRACT, param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        self.assertEqual([s["switches"] for s in scan["starts"]], [ALL_OFF, FINAL])   # the unit copy is a repeat
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertEqual(r["switches"], {"required": True, "checked": 2, "matched": 2, "missing": 0, "problems": []})
+        self.assertEqual(r["starts"][1]["switches"], FINAL)
+
+    def test_mismatch_names_the_key_the_start_and_the_arm(self):
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", dict(FINAL, recovery_threads="0")),
+                "bench-validator-02-telcoin.log": switch_boot("2026-01-01T01:00:06", dict(FINAL, recovery_threads="0"))}
+        scan, m = self.run_with(logs, param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        r = P.check(scan, m)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["problems"], [
+            "node switches show recovery_threads=0 at 2 start(s) (bench-validator-01 at 2026-01-01T01:00:05.000Z, "
+            "bench-validator-02 at 2026-01-01T01:00:06.000Z); arm final sets recovery_threads=3"])
+        self.assertEqual(r["switches"]["problems"], r["problems"])
+        self.assertEqual((r["switches"]["checked"], r["switches"]["matched"]), (2, 0))
+        # A start before the arm began runs the defaults: FINAL there is a mismatch too.
+        scan, m = self.run_with({"bench-validator-03-telcoin.log": switch_boot("2026-01-01T00:59:00", FINAL)},
+                                param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        problems = P.check(scan, m)["problems"]
+        self.assertEqual(len(problems), 4)
+        self.assertIn("node switches show parent_grace=150ms at 1 start(s) (bench-validator-03 at "
+                      "2026-01-01T00:59:00.000Z); the defaults sets parent_grace=0ms", problems)
+
+    def test_bools_and_durations_compare_by_value(self):
+        spelled = dict(FINAL, vote_queue_fix="True", parent_grace="0.15s", mdbx_random_advice="TRUE")
+        scan, m = self.run_with({"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", spelled)},
+                                param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        self.assertTrue(P.check(scan, m)["ok"])
+        not_bool = dict(FINAL, vote_queue_fix="1")
+        scan, m = self.run_with({"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", not_bool)},
+                                param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        self.assertIn("show vote_queue_fix=1", P.check(scan, m)["problems"][0])
+
+    def test_missing_line_fails_only_where_the_contract_requires_it(self):
+        logs = {"bench-validator-01-telcoin.log": boot_log("2026-01-01T00:00:00", 500),
+                "bench-validator-02-telcoin.log": switch_boot("2026-01-01T00:00:01", ALL_OFF)}
+        scan, m = self.run_with(logs, node_probe=CONTRACT)
+        r = P.check(scan, m)
+        self.assertEqual(r["problems"], ["no node switches line at 1 start(s), though the image contract requires one: "
+                                         "bench-validator-01 at 2026-01-01T00:00:00.000Z"])
+        self.assertEqual((r["switches"]["missing"], r["switches"]["checked"]), (1, 1))
+        # Without the contract a start without the line is not judged; the one with it still is.
+        scan, m = self.run_with(logs)
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertEqual(r["switches"], {"required": False, "checked": 1, "matched": 1, "missing": 0, "problems": []})
+        # The contract alone runs the check, even with no line logged anywhere.
+        scan, m = self.run_with({"bench-validator-01-telcoin.log": boot_log("2026-01-01T00:00:00", 500)},
+                                node_probe=CONTRACT)
+        self.assertEqual(P.check(scan, m)["switches"]["missing"], 1)
+
+    def test_an_optional_switch_may_be_absent_only_at_its_default(self):
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", FINAL, drop=("pipelined_persist",))}
+        scan, m = self.run_with(logs, param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        self.assertTrue(P.check(scan, m)["ok"])
+        piped = dict(FINAL, pipelined_persist="true")
+        scan, m = self.run_with(logs, param_arms=[arm("pipe", "2026-01-01T01:00:00Z", piped)])
+        self.assertEqual(P.check(scan, m)["problems"], [
+            "node switches lack pipelined_persist at 1 start(s) (bench-validator-01 at 2026-01-01T01:00:05.000Z); "
+            "arm pipe sets pipelined_persist=true"])
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", FINAL, drop=("parent_grace",))}
+        scan, m = self.run_with(logs, param_arms=[arm("final", "2026-01-01T01:00:00Z", FINAL)])
+        self.assertIn("node switches lack parent_grace", P.check(scan, m)["problems"][0])
+
+    def test_a_prestart_arm_covers_the_first_start(self):
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T00:00:00", FINAL)
+                + switch_boot("2026-01-01T02:00:00", FINAL)}        # a chaos restart later on
+        prestart = arm("final", "2026-01-01T00:00:30Z", FINAL, via="prestart")
+        scan, m = self.run_with(logs, node_probe=CONTRACT, param_arms=[prestart])
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        # Applied by params-apply at that begin, the arm would not cover a start 30 s before it.
+        scan, m = self.run_with(logs, param_arms=[dict(prestart, via="params-apply")])
+        self.assertFalse(P.check(scan, m)["ok"])
+
+    def test_overrides_before_the_first_arm_and_a_failed_arm(self):
+        cp = dict(GOOD_PARAMS, overrides={"bench-validator-03": {"vote_queue_fix": "true"}})
+        logs = {"bench-validator-03-telcoin.log": switch_boot("2026-01-01T00:00:00", dict(ALL_OFF, vote_queue_fix="true"))}
+        scan, m = self.run_with(logs, consensus_parameters=cp)
+        self.assertTrue(P.check(scan, m)["ok"])
+        scan, m = self.run_with(logs)
+        self.assertIn("the defaults sets vote_queue_fix=false", P.check(scan, m)["problems"][0])
+        # v02 was restarted into arm v, which failed there; put back by hand it logs arm a's state.
+        a = arm("a", "2026-01-01T00:00:00Z", ALL_OFF, end="2026-01-01T01:00:00Z")
+        v = arm("v", "2026-01-01T01:00:00Z", FINAL, failed="bench-validator-02")
+        logs = {"bench-validator-02-telcoin.log": switch_boot("2026-01-01T01:00:05", FINAL)
+                + switch_boot("2026-01-01T01:10:00", ALL_OFF)}
+        scan, m = self.run_with(logs, param_arms=[a, v])
+        self.assertTrue(P.check(scan, m)["ok"])
+        scan, m = self.run_with(logs, param_arms=[a, dict(v, failed=None)])
+        self.assertEqual(P.check(scan, m)["problems"][0].split(";")[1], " arm v sets mdbx_random_advice=true")
+        self.assertEqual(P.expected_switches(m, "bench-validator-02", None, P.switch_rows())[0][0], "the defaults")
+        self.assertEqual([lab for lab, _s in P.expected_switches(m, "x", None, P.switch_rows())],
+                         ["the defaults", "arm a", "arm v"])
+
+    def test_a_set_arm_changes_only_the_switches_it_wrote_on_its_nodes(self):
+        # tools/params-apply.sh --set all:... or <node>:... records no switches state, only nodes[].
+        a0 = arm("a0", "2026-01-01T00:00:00Z", FINAL, via="prestart")
+        s1 = {"name": "s1", "begin": "2026-01-01T01:00:00Z", "end": None, "via": "params-apply", "file": None,
+              "nodes": {"bench-validator-01": {"recovery_threads": "0", "max_header_delay": "700ms"}}}
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T01:00:05", dict(FINAL, recovery_threads="0")),
+                "bench-validator-02-telcoin.log": switch_boot("2026-01-01T01:00:06", FINAL)}
+        scan, m = self.run_with(logs, param_arms=[a0, s1])
+        r = P.check_switches(scan["starts"], m)
+        self.assertEqual((r["checked"], r["matched"], r["problems"]), (2, 2, []))
+        # v02 restarted with v01's write would not match: the arm did not touch it.
+        logs["bench-validator-02-telcoin.log"] = switch_boot("2026-01-01T01:00:06", dict(FINAL, recovery_threads="0"))
+        scan, m = self.run_with(logs, param_arms=[a0, s1])
+        self.assertEqual(P.check_switches(scan["starts"], m)["problems"], [
+            "node switches show recovery_threads=0 at 1 start(s) (bench-validator-02 at 2026-01-01T01:00:06.000Z); "
+            "arm a0 sets recovery_threads=3"])
+
+    def test_unreadable_switch_list_is_a_problem(self):
+        scan, m = self.run_with({"bench-validator-01-telcoin.log": switch_boot("2026-01-01T00:00:00", ALL_OFF)})
+        orig = P.SWITCHES_TSV
+        P.SWITCHES_TSV = str(self.root / "absent.tsv")
+        try:
+            r = P.check(scan, m)
+        finally:
+            P.SWITCHES_TSV = orig
+        self.assertFalse(r["ok"])
+        self.assertTrue(r["problems"][0].startswith("node switches not checked: "), r["problems"])
+
+    def test_cli_reports_the_switch_check(self):
+        run = self.make_run({}, manifest=manifest_for(node_probe=CONTRACT))
+        (run / "logs" / "bench-validator-01-telcoin.log").write_text(switch_boot("2026-01-01T00:00:00", ALL_OFF))
+        p = self.cli(run)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("  node switches: 1 start(s) checked, 1 matched the arm in force, 0 without a line "
+                      "(the image contract requires one)", p.stdout)
+        (run / "logs" / "bench-validator-02-telcoin.log").write_text(boot_log("2026-01-01T00:00:01", 500))
+        p = self.cli(run)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("no node switches line at 1 start(s)", p.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

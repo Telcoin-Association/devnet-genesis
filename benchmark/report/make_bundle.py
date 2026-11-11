@@ -49,6 +49,10 @@ Pipeline, one log line per step, numbered in execution order:
                   manifest whose node_startup[<inst>].db_sync_mode is "safe-no-sync" on any node
                   (BENCH_NODE_DB_SYNC_MODE; MDBX commits without fsync) refuses unless
                   --allow-safe-no-sync, which publishes it with a caveat naming those nodes at step 8.
+                  Bench 6: each start's "node switches" line against the arm in force
+                  (provenance.check_switches); a mismatch, or a missing line the image contract
+                  requires, refuses the same way, and --allow-provenance-mismatch publishes it with a
+                  warning, a caveat and an upstream.evidence_detail line (the commit stays verified).
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
@@ -59,7 +63,10 @@ Pipeline, one log line per step, numbered in execution order:
     7 kpis        kpis.compute() plus the backfill's published KPIs; recovery. The floor KPIs
                   (floor_time_to_land_p50_s, floor_time_to_seen_p50_s) come from floor/; a run
                   without a light blast has none and no caveat about it.
-    8 assemble    run.json, every RUN_SCHEMA key, nothing else.
+    8 assemble    run.json, every RUN_SCHEMA key, nothing else. An arm deploy step 7 applied before
+                  the first start (param_arms[].via "prestart", BENCH_ARM_FILE) is published as a
+                  consensus.param_arms row whose values are its switches away from their default
+                  ("all 11 nodes: k=v, ..."); without a consensus block, as a caveat.
     9 write       run.json, report.html, series/ into a staging dir next to the out dir
                   (<parent>/.<R>.tmp-<pid>/<R>; inside the site that is runs/.<R>.tmp-<pid>/<R>).
     10 gates      on the staged bundle: harness scrub.scan_dir() must be clean, then the site's
@@ -724,6 +731,30 @@ def ensure_compare(r2, blast_index, tool_dir, force):
 
 # ------------------------------------------------------------------------- step 2: provenance
 
+def switch_provenance(switches, allow_mismatch, caveats, detail):
+    """Step 2 for the node switch lines (provenance.check_switches(), bench 6): one log line; a
+    mismatch or a missing line refuses unless --allow-provenance-mismatch, which publishes it with
+    a warning, a caveat and an upstream.evidence_detail line."""
+    problems = switches["problems"]
+    log(S_PROV, "node switches: %d start(s) checked, %d matched the arm in force, %d without a line -> %s"
+        % (switches["checked"], switches["matched"], switches["missing"],
+           "%d problem(s)" % len(problems) if problems else "ok"))
+    if not problems:
+        detail.append("Each of the %d node starts logged its node switches line, and each matched the switch "
+                      "state the manifest records for that start" % switches["checked"])
+        return
+    if not allow_mismatch:
+        raise BundleError("node switch check failed (pass --allow-provenance-mismatch to publish with a "
+                          "caveat):\n  - " + "\n  - ".join(problems))
+    warn("--allow-provenance-mismatch: the node switch lines do not match the manifest (caveat added):\n  - "
+         + "\n  - ".join(problems))
+    caveats.append("The node switch lines did not match the switch state the manifest records: %s"
+                   % "; ".join(problems))
+    detail.append("Node switch lines: %d of %d start(s) matched the switch state the manifest records, and %d "
+                  "start(s) logged none; see the caveats" % (switches["matched"], switches["checked"],
+                                                            switches["missing"]))
+
+
 def provenance_step(run_dir, manifest, backfill, allow_mismatch):
     """Upstream block, logged version / fork schedule / parameters, and caveats, from the node logs
     in <run_dir>/logs/ (the run's results dir: read in place, never copied)."""
@@ -736,6 +767,11 @@ def provenance_step(run_dir, manifest, backfill, allow_mismatch):
     sha = expected if expected and FULL_SHA_RE.fullmatch(expected) else None
     if scan["files"]:
         res = provenance.check(scan, manifest, expect_sha=expected)
+        # The node switch lines (bench 6) are checked apart from the build: a switch mismatch refuses
+        # like any provenance problem, but does not make the logged commit unconfirmed.
+        switches = res.get("switches")
+        sw_problems = list((switches or {}).get("problems") or [])
+        problems = [p for p in res["problems"] if p not in sw_problems]
         starts = scan["starts"]
         versions = sorted({s["version"] for s in starts if s.get("version")})
         out.update(version=", ".join(versions) or None, fork_schedule=scan.get("fork_schedule"),
@@ -743,7 +779,7 @@ def provenance_step(run_dir, manifest, backfill, allow_mismatch):
         if scan.get("unreadable"):
             caveats.append("%d node log file(s) could not be read to the end; provenance covers the rest"
                            % len(scan["unreadable"]))
-        if res["ok"]:
+        if not problems:
             evidence = "verified"
             logged = [s for s in res["shas"] if FULL_SHA_RE.fullmatch(s or "")]
             if len(logged) == 1:
@@ -756,16 +792,17 @@ def provenance_step(run_dir, manifest, backfill, allow_mismatch):
             if scan.get("fork_schedule_line"):
                 detail.append("Node logs: %s" % scan["fork_schedule_line"])
         else:
-            problems = res["problems"]
             if not allow_mismatch:
                 raise BundleError("provenance check failed (pass --allow-provenance-mismatch to publish "
-                                  "with a caveat):\n  - " + "\n  - ".join(problems))
+                                  "with a caveat):\n  - " + "\n  - ".join(res["problems"]))
             evidence = bf_up.get("evidence") if bf_up.get("evidence") in ("inferred", "not-recorded") \
                 else ("inferred" if expected else "not-recorded")
             caveats.append("The node logs did not confirm the upstream commit: %s" % "; ".join(problems))
         log(S_PROV, "%d log files, %d starts, shas %s, expected %s -> %s"
             % (len(scan["files"]), len(scan["starts"]), ",".join(s[:9] for s in scan["shas"]) or "-",
                (expected or "-")[:12], evidence))
+        if switches is not None:
+            switch_provenance(switches, allow_mismatch, caveats, detail)
     else:
         evidence = bf_up.get("evidence") or ("inferred" if expected else "not-recorded")
         if evidence == "verified":
@@ -1047,9 +1084,41 @@ def _arm_values_text(rows):
     return "; ".join(parts)
 
 
+def prestart_switches(manifest, where, arm):
+    """The switch state of an arm deploy step 7 applied before the first start (via "prestart",
+    BENCH_ARM_FILE) as arm values text: "all <n> nodes: k=v, ..." over the switches it sets away
+    from their switches.tsv default, n the nodes the manifest lists; "" when every switch is at
+    its default. The values are checked as _node_values checks a written one."""
+    try:
+        rows = provenance.switch_rows()
+    except (OSError, ValueError) as e:
+        raise BundleError("%s.switches: cannot read the switch list: %s" % (where, e))
+    sw = arm["switches"]
+    pairs = []
+    for r in rows:
+        v = sw.get(r["key"])
+        if v is None or provenance.switch_value(r["type"], v) == provenance.switch_value(r["type"], r["default"]):
+            continue
+        if not isinstance(v, str) or not _PARAM_VALUE_RE.match(v):
+            raise BundleError("%s.switches.%s: %r is not a parameter value" % (where, r["key"], v))
+        pairs.append((r["key"], v))
+    if not pairs:
+        return ""
+    n = len(provenance.listed_instances(manifest)) or len(arm.get("nodes") or {})
+    if not n:
+        raise BundleError("%s: a prestart arm, but the manifest lists no node" % where)
+    return "all %d nodes: %s" % (n, ", ".join("%s=%s" % kv for kv in sorted(pairs)))
+
+
+def _is_prestart(arm):
+    return isinstance(arm, dict) and arm.get("via") == "prestart" and isinstance(arm.get("switches"), dict)
+
+
 def arm_rows(manifest):
     """manifest.param_arms (tools/params-apply.sh) as table rows [{arm, begin_utc, end_utc, values}]
-    in begin order ([] when none); values is _arm_values_text, plus the node an arm stopped at."""
+    in begin order ([] when none); values is _arm_values_text, plus the node an arm stopped at.
+    An arm deploy step 7 applied before the first start (via "prestart") states its switches
+    instead (prestart_switches; no row when every switch is at its default)."""
     arms = manifest.get("param_arms")
     if not arms:
         return []
@@ -1063,7 +1132,12 @@ def arm_rows(manifest):
         for k in ("begin", "end"):
             if not (arm.get(k) is None and k == "end") and not _UTC_RE.match(str(arm.get(k))):
                 raise BundleError("%s.%s: %r is not YYYY-MM-DDTHH:MM:SSZ" % (where, k, arm.get(k)))
-        text = _arm_values_text(_node_values(where + ".nodes", arm.get("nodes")))
+        if _is_prestart(arm):
+            text = prestart_switches(manifest, where, arm)
+            if not text:
+                continue
+        else:
+            text = _arm_values_text(_node_values(where + ".nodes", arm.get("nodes")))
         failed = arm.get("failed")
         if failed is not None:
             if not _NODE_NAME_RE.match(str(failed)):
@@ -1071,6 +1145,18 @@ def arm_rows(manifest):
             text += " (stopped at %s, which did not come back after its restart)" % failed
         out.append({"arm": arm["name"], "begin_utc": arm["begin"], "end_utc": arm.get("end"), "values": text})
     return sorted(out, key=lambda r: r["begin_utc"])
+
+
+def headline_switches(manifest):
+    """(arm name, prestart_switches text) of the last arm deploy step 7 applied before the first
+    start, or None when there is none or it leaves every switch at its default."""
+    arms = manifest.get("param_arms") if isinstance(manifest.get("param_arms"), list) else []
+    found = None
+    for n, arm in enumerate(arms):
+        if _is_prestart(arm):
+            text = prestart_switches(manifest, "manifest param_arms[%d]" % n, arm)
+            found = (arm.get("name"), text) if text else None
+    return found
 
 
 def _per_node_explains(manifest, key, values):
@@ -1437,6 +1523,11 @@ def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built,
     sync_caveat = sync_mode_caveat(manifest)
     if sync_caveat:
         caveats.append(sync_caveat)
+    head_switches = headline_switches(manifest)
+    if head_switches and consensus is None:
+        # consensus.param_arms carries the switches; without a consensus block they go here.
+        caveats.append("The nodes ran the switches of arm %s from their first start (%s); the consensus block "
+                       "is not published for this run, so they are stated here" % head_switches)
     return {
         "schema": SCHEMA_ID,
         "id": run_id,
@@ -1803,6 +1894,10 @@ def _main(a):
     log(S_ASSEMBLE, "%d kpis, %d caveats, %d chaos events, consensus %s, workload %s"
         % (len(run_doc["kpis"]), len(run_doc["caveats"]), len(run_doc["chaos"]),
            "set" if run_doc["consensus"] else "null", "set" if run_doc["workload"] else "null"))
+    head_switches = headline_switches(manifest)
+    if head_switches:
+        log(S_ASSEMBLE, "switches from the first start: arm %s: %s (%s)"
+            % (head_switches + ("consensus.param_arms" if run_doc["consensus"] else "a caveat",)))
     install_bundle(out, run_doc, report_src, series_doc, raw_manifest, site_checkout, site_repo)
     return _summary(run_doc)
 
