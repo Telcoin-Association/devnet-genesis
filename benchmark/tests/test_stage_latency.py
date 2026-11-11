@@ -363,6 +363,50 @@ class StageLatencyTests(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.loads(p.stdout)["run"], "r20261106-1000")
 
+    # ---- bench6 arm windows ----
+    def bench6_run(self, phases_planned=True, name="b6"):
+        """The fixture's blast as blast index 1 of arm v (archived) and index 2 of arm a0b (the main
+        blasters/), with bench-6 blasts[] entries; index 1's real mixed phase is 10:00:20-10:00:50."""
+        run = self.make_run(name="%s-%d" % (name, len(list(self.tmp.glob(name + "-*")))))
+        d = run / "blast-1-20261106T100500Z" / "blasters"
+        d.mkdir(parents=True)
+        shutil.copy(str(run / "blasters" / "bench-blaster-01.json"), str(d / "bench-blaster-01.json"))
+        real = [{"name": "mixed", "start": "2026-11-06T10:00:20Z", "end": "2026-11-06T10:00:50Z"}]
+        e1 = {"index": 1, "senders": 600, "window": 16, "chaos": 0, "kind": "load", "arm": "v", "rc": 0, "phases": real}
+        if phases_planned:
+            e1["phases_planned"] = [{"name": "mixed", "start": "2026-11-06T10:00:00Z", "end": "2026-11-06T10:08:00Z"}]
+        e2 = {"index": 2, "senders": 8, "window": 16, "chaos": 0, "kind": "light", "arm": "a0b", "rc": 0}
+        (run / "manifest.json").write_text(json.dumps({"blasts": [e1, e2], "param_arms": [
+            {"name": "v", "begin": "2026-11-06T09:50:00Z", "ready": "2026-11-06T10:00:10Z", "end": "2026-11-06T10:00:40Z",
+             "marks": [{"label": "idle", "begin": "2026-11-06T09:59:00Z", "end": "2026-11-06T09:59:30Z"}]}]}))
+        return run
+
+    def test_bench6_blasts_are_windows_by_arm_and_kind_on_their_real_phases(self):
+        doc = self.doc(self.bench6_run(), windows=False)
+        self.assertEqual(list(doc["windows"]), ["v/load600x16", "a0b/light8x16", "all"])
+        self.assertEqual((doc["windows"]["v/load600x16"]["start"], doc["windows"]["v/load600x16"]["end"]),
+                         ("2026-11-06T10:00:20Z", "2026-11-06T10:00:50Z"))
+        self.assertEqual(doc["windows"]["a0b/light8x16"]["start"], "2026-11-06T10:00:00Z")   # no real phases: blasters'
+        plan = self.doc(self.bench6_run(phases_planned=False), windows=False)  # phases without phases_planned are a plan
+        self.assertEqual(plan["windows"]["v/load600x16"]["start"], "2026-11-06T10:00:00Z")
+        only = self.doc(self.bench6_run(), "--only", "v/*", windows=False)
+        self.assertEqual(list(only["windows"]), ["v/load600x16", "all"])
+        p = self.run_tool(self.bench6_run(), "--only", "nothing*")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("no window matches --only", p.stderr)
+
+    def test_a_manifest_as_windows_reads_its_arms_from_ready(self):
+        run = self.bench6_run()
+        doc = self.doc(run, "--windows", str(run / "manifest.json"), windows=False)
+        self.assertEqual(list(doc["windows"]), ["v", "v/idle", "all"])
+        self.assertEqual((doc["windows"]["v"]["start"], doc["windows"]["v"]["end"]),
+                         ("2026-11-06T10:00:10Z", "2026-11-06T10:00:40Z"))
+        self.assertEqual(doc["windows"]["v/idle"]["start"], "2026-11-06T09:59:00Z")
+        arms = self.tmp / "arms-list.json"                     # the param_arms[] list itself: `ready` starts it too
+        arms.write_text(json.dumps(json.loads((run / "manifest.json").read_text())["param_arms"]))
+        listed = self.doc(run, "--windows", str(arms), windows=False)
+        self.assertEqual(listed["windows"]["v"]["start"], "2026-11-06T10:00:10Z")
+
 
 if __name__ == "__main__":
     unittest.main()

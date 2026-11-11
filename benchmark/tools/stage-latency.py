@@ -61,11 +61,16 @@ is canceled (an own header's certification was cancelled) or committed (the comm
 them), unknown on a build whose line has no cause=.
 
 Windows (block timestamp in [start, end)): --windows FILE takes {"windows": {name: {start, end}}}
-(ISO, or start_utc/end_utc, or start_unix/end_unix), a top-level {name: {...}} map or a list of
-{name, start, end}. Without it: under --run-dir, each archived light blast (blast-<i>-<UTC>/blasters)
-is its mixed phase, named from manifest blasts[] as light<senders> (light<senders>x<window> when the
-window is not 16) or load (chaos); the main blasters/ dir is load when manifest blasts[] exists, else
-its preamble, warmup, mixed and cooldown phases. "all" (no filter) is always added.
+(ISO, or start_utc/end_utc, or start_unix/end_unix), a top-level {name: {...}} map, a list of
+{name, start, end}, or a manifest: its param_arms[], each from `ready` (else begin) to end, and their
+marks[] as <arm>/<label>. Without it: under --run-dir, each archived light blast
+(blast-<i>-<UTC>/blasters) is its mixed phase, named from manifest blasts[] as light<senders>
+(light<senders>x<window> when the window is not 16) or load (chaos); the main blasters/ dir is load
+when manifest blasts[] exists, else its preamble, warmup, mixed and cooldown phases. A bench-6
+blasts[] entry (one with `kind` or `arm`) is named [<arm>/]<kind><senders>x<window>, so the 600 x 16
+load of arm v is "v/load600x16", and its window is the entry's real mixed phase (its `phases` when
+`phases_planned` is present), else the blasters' own. --only GLOB keeps the matching windows.
+"all" (no filter) is always added.
 Blocks within --boundary-secs of an epoch boundary (blocks with closes_epoch set) are dropped from the
 light* windows by default (a loaded boundary waits for execution, which a floor must not average in);
 --exclude-boundaries GLOB applies the exclusion to the windows matching GLOB instead, and
@@ -388,18 +393,34 @@ def merged_phase(docs, name):
     return (min(s for s, _ in spans), max(e for _, e in spans)) if spans else None
 
 
+def arm_windows(arms):
+    """[(name, {begin, end})] of a manifest's param_arms[]: each arm from `ready` (else begin) to end,
+    then its marks[] as "<arm>/<label>"."""
+    items = []
+    for w in arms:
+        if not isinstance(w, dict):
+            continue
+        items.append((w.get("name"), {"begin": w.get("ready") or w.get("begin") or w.get("start"), "end": w.get("end")}))
+        for mk in w.get("marks") or []:
+            if isinstance(mk, dict):
+                items.append(("%s/%s" % (w.get("name") or "?", mk.get("label") or "?"), mk))
+    return items
+
+
 def windows_from_file(path):
     with open(path) as fh:
         doc = json.load(fh)
     src = doc.get("windows", doc) if isinstance(doc, dict) else doc
     items = []
-    if isinstance(src, dict):
+    if isinstance(doc, dict) and "windows" not in doc and isinstance(doc.get("param_arms"), list):
+        items = arm_windows(doc["param_arms"])      # a manifest: its arms (bench 6)
+    elif isinstance(src, dict):
         items = [(k, v) for k, v in src.items() if isinstance(v, dict)]
     elif isinstance(src, list):
         items = [(v.get("name") or v.get("label"), v) for v in src if isinstance(v, dict)]
     out = []
     for name, v in items:
-        s = next((v[k] for k in ("start", "start_utc", "start_unix", "begin") if v.get(k) is not None), None)
+        s = next((v[k] for k in ("ready", "start", "start_utc", "start_unix", "begin") if v.get(k) is not None), None)
         e = next((v[k] for k in ("end", "end_utc", "end_unix") if v.get(k) is not None), None)
         if name and s is not None and e is not None:
             out.append((str(name), parse_time(s), parse_time(e)))
@@ -409,11 +430,26 @@ def windows_from_file(path):
 
 
 def blast_name(entry):
-    if entry.get("chaos") or entry.get("kind") == "load":
+    if "kind" in entry or "arm" in entry:
+        # bench 6: [<arm>/]<kind><senders>x<window>, e.g. "v/load600x16" (the 600 x 16 blast of arm v)
+        base = "%s%sx%s" % (entry.get("kind") or "blast", entry.get("senders", "?"), entry.get("window") or DEFAULT_WINDOW)
+        return "%s/%s" % (entry["arm"], base) if entry.get("arm") else base
+    if entry.get("chaos"):
         return "load"
     w = entry.get("window")
     name = "light%s" % entry.get("senders", "?")
     return name if w in (None, "", DEFAULT_WINDOW, str(DEFAULT_WINDOW)) else "%sx%s" % (name, w)
+
+
+def real_mixed(entry):
+    """(start, end) of a blasts[] entry's real mixed phase: its `phases` once the blast tool rewrote
+    them from the blasters (`phases_planned` present, bench 6), else None (a plan is not a window)."""
+    if not entry or not entry.get("phases_planned"):
+        return None
+    for p in entry.get("phases") or []:
+        if isinstance(p, dict) and p.get("name") == "mixed" and p.get("start") and p.get("end"):
+            return parse_time(p["start"]), parse_time(p["end"])
+    return None
 
 
 def derived_windows(groups, manifest):
@@ -431,14 +467,16 @@ def derived_windows(groups, manifest):
                 if span:
                     out.append((ph, span[0], span[1]))
             continue
-        span = merged_phase(docs, "mixed")
-        if not span:
-            continue
         if index is None:
             rest = [i for i in blasts if i not in archived]
-            name = blast_name(blasts[rest[0]]) if len(rest) == 1 else "load"
+            entry = blasts[rest[0]] if len(rest) == 1 else None
+            name = blast_name(entry) if entry else "load"
         else:
-            name = blast_name(blasts[index]) if index in blasts else "blast%d" % index
+            entry = blasts.get(index)
+            name = blast_name(entry) if entry else "blast%d" % index
+        span = real_mixed(entry) or merged_phase(docs, "mixed")
+        if not span:
+            continue
         out.append((name, span[0], span[1]))
     seen = collections.Counter()
     named = []
@@ -903,7 +941,9 @@ def parse_args(argv):
     p.add_argument("--logs", help="directory of node logs (instead of --run-dir)")
     p.add_argument("--blasters", action="append", default=[], help="directory of tn-blast results (repeatable)")
     p.add_argument("--manifest", help="manifest.json for blasts[] names (default <run-dir>/manifest.json)")
-    p.add_argument("--windows", metavar="FILE", help="named windows with ISO start/end")
+    p.add_argument("--windows", metavar="FILE", help="named windows with ISO start/end, or a manifest (its param_arms[])")
+    p.add_argument("--only", action="append", default=[], metavar="GLOB",
+                   help="keep only the windows whose name matches GLOB (repeatable; \"all\" stays), e.g. 'v/load*'")
     p.add_argument("--node", action="append", default=[], metavar="INST", help="only this node (repeatable)")
     p.add_argument("--log-glob", help="log file names per node, {node} replaced (default {node}-unit-stdout*.log*, "
                                       "else every {node}-*.log* but stderr)")
@@ -980,6 +1020,10 @@ def main(argv=None):
                 if node and (not a.node or node in a.node):
                     per_node.setdefault(node, Blocks()).add(doc, path)
         windows = windows_from_file(a.windows) if a.windows else derived_windows(groups, manifest)
+        if a.only:
+            windows = [w for w in windows if any(fnmatch.fnmatch(w[0], g) for g in a.only)]
+            if not windows:
+                raise ValueError("no window matches --only %s" % " ".join(a.only))
         if not any(w[0] == "all" for w in windows):
             windows.append(("all", 0.0, 0.0))
         nodes = []

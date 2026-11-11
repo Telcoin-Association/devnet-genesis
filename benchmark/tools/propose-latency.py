@@ -14,9 +14,10 @@ period p50/p95 (ms, consecutive proposals), own quorum -> next proposal p50/p95,
 vote errors. This is the calibration input of cadence-model.py (the processing residual is C minus
 the UDP RTT to the 6th-nearest voter).
 
-Windows: --windows MANIFEST takes manifest.param_arms[] ({name, begin|start, end}) and
-manifest.phases[] ({name, start, end}) plus one "run" window from the first start to the last end,
-one table each; an arm or phase without an end is left out. --from/--to is one window (either end
+Windows: --windows MANIFEST takes manifest.param_arms[] ({name, begin|start, end}; from `ready`
+instead of begin when the arm records it, and each marks[] {label, begin, end} as
+"mark <arm>/<label>") and manifest.phases[] ({name, start, end}) plus one "run" window from the
+first start to the last end, one table each; an arm or phase without an end is left out. --from/--to is one window (either end
 may be left out); a full UTC time (2026-10-06T23:50:00Z), or HH:MM:SS when every event of the logs
 falls on one UTC day. Default: the whole log. A window holds start <= t < end.
 
@@ -166,7 +167,10 @@ def fmt(x):
 
 
 def manifest_windows(path):
-    """(windows, notes) from manifest.param_arms[] and .phases[] plus a "run" window."""
+    """(windows, notes) from manifest.param_arms[] and .phases[] plus a "run" window.
+
+    An arm's window starts at its `ready` (bench 6) when recorded, else at `begin`; each of its
+    `marks[]` with a begin and an end is a sub-window "mark <arm>/<label>" after it."""
     with open(path) as fh:
         m = json.load(fh)
     out, notes = [], []
@@ -176,10 +180,16 @@ def manifest_windows(path):
                 continue
             name = "%s %s" % (label, w.get("name") or "?")
             begin, end = w.get("begin") or w.get("start"), w.get("end")
+            if key == "param_arms" and w.get("ready"):
+                begin = w["ready"]
             if begin and end:
                 out.append((name, parse_iso(begin), parse_iso(end)))
             else:
                 notes.append("%s has no %s: left out" % (name, "end" if begin else "begin"))
+            for mk in (w.get("marks") or []) if key == "param_arms" else []:
+                if isinstance(mk, dict) and mk.get("begin") and mk.get("end"):
+                    out.append(("mark %s/%s" % (w.get("name") or "?", mk.get("label") or "?"),
+                                parse_iso(mk["begin"]), parse_iso(mk["end"])))
     if not out:
         raise ValueError("%s has no param_arms or phases with a begin and an end" % path)
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))

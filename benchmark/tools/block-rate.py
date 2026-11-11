@@ -25,9 +25,10 @@ Sources (each optional; a column with no source stays empty):
             basic auth from $BENCH_PROM_AUTH (user:password) when set.
 
 Windows: --windows MANIFEST (default DIR/manifest.json with --run) takes manifest.param_arms[]
-({name, begin|start, end}) and .phases[] ({name, start, end}) plus one "run" window from the
-first start to the last end; without them, or with --bucket-min N, N-minute buckets (N = 10)
-over the data. --from/--to is one window.
+({name, begin|start, end}; from `ready` instead of begin when the arm records it, and each
+marks[] {label, begin, end} as "mark <arm>/<label>") and .phases[] ({name, start, end}) plus one
+"run" window from the first start to the last end; without them, or with --bucket-min N,
+N-minute buckets (N = 10) over the data. --from/--to is one window.
 
 Exit status: 0 = report written; 1 = bad arguments or unreadable input; 2 = no data at all.
 Stdlib only.
@@ -68,7 +69,10 @@ def parse_iso(text):
 
 
 def manifest_windows(path):
-    """(windows, note) from manifest.param_arms[] and .phases[] plus a "run" window."""
+    """(windows, note) from manifest.param_arms[] and .phases[] plus a "run" window.
+
+    An arm's window starts at its `ready` (bench 6) when recorded, else at `begin`; each of its
+    `marks[]` with a begin and an end is a sub-window "mark <arm>/<label>" after it."""
     with open(path) as fh:
         m = json.load(fh)
     out = []
@@ -77,8 +81,14 @@ def manifest_windows(path):
             if not isinstance(w, dict):
                 continue
             begin, end = w.get("begin") or w.get("start"), w.get("end")
+            if key == "param_arms" and w.get("ready"):
+                begin = w["ready"]
             if begin and end:
                 out.append(("%s %s" % (label, w.get("name") or "?"), parse_iso(begin), parse_iso(end)))
+            for mk in (w.get("marks") or []) if key == "param_arms" else []:
+                if isinstance(mk, dict) and mk.get("begin") and mk.get("end"):
+                    out.append(("mark %s/%s" % (w.get("name") or "?", mk.get("label") or "?"),
+                                parse_iso(mk["begin"]), parse_iso(mk["end"])))
     if not out:
         return None, "%s has no param_arms or phases: buckets instead" % os.path.basename(path)
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))
