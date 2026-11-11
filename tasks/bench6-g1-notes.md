@@ -839,3 +839,20 @@ four validators to the transactions that are in no pool.
   counts them; (3) do not measure during the rolling restart's mixed window.
 - **Go/no-go for pipelined persist now: gates 1, 2, 3, 4, 7 PASS. Open: 5 (the cycle bench on a quiet host) and 6 (the repo's
   e2e sets on the stack; running behind the integration head's sets).**
+
+### plumbing (the switches, their log line and gauge, the e2e scaffold) — APPROVE WITH FOLLOW-UPS; no Critical or High (report `tasks/bench6/review/plumbing-report.md`)
+- With every switch at its default nothing changes behaviour, and a genesis ceremony writes the same 14 keys to
+  `parameters.yaml` as before (all 12 switch fields are skipped at their default; guard tests exist).
+- An unknown or mistyped key in `parameters.yaml` is silently ignored by the node (true before this branch too). For the
+  benchmark the arm tool rejects unknown keys and reads the `node switches` line back after every restart, so a misspelled
+  switch is caught there.
+- D78 (Medium; same root as D69, sharper): **the harness's guard for the optional pipelined switch assumes a cut image has
+  NO `pipelined_persist` key** (`benchmark/arms/README.md`), but every image built from the integration branch knows the key
+  (three plumbing commits: 8ab9e89e4, d789015b0, 8d363e368) and nothing acts on it without the held stack. A cut image would
+  log `pipelined_persist=true`, pass the readback and run that arm as a control. Rule for the image cut: if pipelined
+  persist is OUT, the image branch reverts those three commits (so the key is unknown and the arm tool refuses the arm
+  files that set it), and the arm files drop the switch; if it is IN, nothing to do. The summary's `pipelined` column
+  (read from `output executed … pipelined=true`) is the second line of defence.
+- `TN_E2E_PARAMETERS` accepts a mistyped key too (an "all switches on" e2e run could quietly run at defaults): every such
+  run is checked by reading a node's `node switches` line from its test log. One epochs test starts its nodes directly and
+  never gets the variable.
