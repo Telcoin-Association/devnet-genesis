@@ -60,3 +60,6 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 59 | ST-A | quorum-exec-block | — (e2e: fast executor certification in three arms; mixed-switch fleet is one chain) | 72bf1a3e6 | 8bd68e514 | #1804 | | |
 | 60 | ST-A | tracker-drain | — (e2e: a loaded epoch close with a slow member, drain and control arms) | 35a3e71a4 | 4e9c19782 | #1806 | | |
 | 61 | ST-A | quorum-exec-block | — (e2e: the adaptive arm must beat the control and reach 0.75) | 65a4bbcca | 31ef1149c | #1804 | | |
+| 62 | ST-B | sealed-keep | — (e2e: validators mark and every tx lands once; mixed fleet; restart with marks; switch-off control) | 21db45417 | fe86f1658 | #1807 | | |
+| 63 | ST-B | inflight-bound | — (e2e: the bound refuses then readmits; bound-0 control; observer forward survives closed gates) | 376a3ebc1 | 1e563ad4c | — | | |
+| 64 | ST-B | sealed-keep | — (e2e: an S9 kill that leaves nothing to resend is reported, not failed) | 2a0c07497 | ae62cc47a | #1807 | | |

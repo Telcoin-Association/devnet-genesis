@@ -1,7 +1,7 @@
 # Review scope — inflight-bound
 
 Upstream issue: none (a bench-6 measure against the execution queue seen in bench 5). Switch: `rpc_admission_backlog_outputs` (count; default 0 = no bound; the benchmark uses 2, or 3 with pipelined persist).
-Where: the checked-out branch `bench/bench6-2026-11`, head dc7855cc6. Size: 7 commits, +1193 lines (tests included).
+Where: the checked-out branch `bench/bench6-2026-11`, head ae62cc47a. Size: 8 commits, +1742 lines (tests included).
 
 ## Commits (the diff under review, in branch order)
 - `639817091` feat(config): add rpc_admission_backlog_outputs and tn_types::ExecutionBacklog
@@ -11,9 +11,11 @@ Where: the checked-out branch `bench/bench6-2026-11`, head dc7855cc6. Size: 7 co
 - `f792ef186` feat(node): record forwarded outputs in the execution backlog
 - `256422898` feat(rpc): refuse raw submissions while execution trails consensus
 - `74662a889` docs(config): say who the admission bound gates and which bounds can close
+- `1e563ad4c` test(e2e): the RPC admission bound refuses, readmits and spares forwards
 
 ## Files touched
 - `crates/config/src/node.rs`
+- `crates/e2e-tests/tests/it/admission.rs`
 - `crates/engine/src/lib.rs`
 - `crates/node/src/engine/inner.rs`
 - `crates/node/src/manager/node.rs`

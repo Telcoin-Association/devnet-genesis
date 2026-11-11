@@ -598,3 +598,31 @@ Four local validators, three of them executing 1.75 s late per output, productio
   D38 understated what one author can do (an author that lands just inside G costs about G every round, outcome `complete`);
   the log lines cannot name the author waited for; two far validators can wait on each other. The fix unit handles the
   cheap ones and documents the rest.
+
+## From ST-B (first e2e of sealed-keep and the admission bound; `tasks/checkpoint-bench6-st-b.md`)
+Four local validators, 8 senders with consecutive nonces (at most 16 unexecuted each), a client that NEVER resends an accepted
+transaction; "exactly once" is checked by walking every block on all four nodes.
+- **#1807 reproduced on a local fleet with the switch off, without any client resend (the most important result):** in 2 of
+  4 control runs whole windows (16 transactions) of 2-3 senders never executed, 240 s after the load stopped, and no
+  validator's pool knew them; every validator counted `nonce_too_high` skips. Mechanism as the issue says: a later batch of a
+  sender executes before an earlier one, its transactions are skipped, and they were pruned from the pool at the quorum
+  ack, so only a client resend can land them.
+- **With `sealed_tx_keep` on: no loss in 4 of 4 runs** (3,300-3,550 transactions each, every one in exactly one block), every
+  validator's `batch builder started` line shows `keeps_sealed=true`, the marked gauge peaked at 32-64 per node and returned
+  to 0, cleared-by-execution counted 783-928 per node. Caveat, stated by the test unit: the switched-on runs logged no
+  `nonce_too_high` skip, so the live REPAIR of an out-of-order execution is not shown — only the absence of loss.
+- D64. S9 (restart with marked, uncommitted transactions): marks live in memory, so after the restart the node does not
+  know them; the client's resend is accepted as new and each transaction lands exactly once (no duplicate execution, no
+  loss) — I-2's expectation "already known after a restart" does not hold and would need persisted marks. Accept for the
+  benchmark; state it in the PR.
+- **A fleet mixed on these two switches is one chain: YES** (4 of 4, with a restart of a switched-on node).
+- **The admission bound refuses and readmits as specified: YES** (4 of 4): with one validator executing 500 ms late per output
+  its gate closed 3.5 s into the load, it answered −32003 "txpool is full", the other three admitted; a refused transaction
+  is in no pool and lands only when resubmitted; after the load stopped the same bytes were admitted and landed once. The
+  bound-0 control admits throughout and serves no refusal series.
+- **A forwarded transaction survives closed gates: YES** (3 of 3): the observer never answers −32003, requeues, and
+  everything lands once after the gates reopen. The observer still reported 5 `unreached` drops for transactions that
+  landed (the counter counts a pass, not a loss: D48).
+- Not written (budget): S6 (a seal that fails to report at the epoch boundary) and S7 (eviction of a marked transaction).
+- The switch-off control is being made deterministic (it passes on either outcome and asserts the loss has the issue's
+  signature), so that it can live in the e2e suite.
