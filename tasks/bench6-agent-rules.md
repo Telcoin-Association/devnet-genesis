@@ -98,6 +98,9 @@ HARD RULES:
   your brief; it is the cherry-pick index). Every commit compiles alone. Never commit the `tn-contracts` pointer, `tasks/`, `.env`, `target/`.
 
 ## Test units (`ST-*`)
+- Clock trap: `tn_types::test_genesis()` stamps the current second into the genesis. A test that opens one datadir twice, or
+  compares two chains, builds the genesis ONCE and shares it, or uses `tn_types::test_genesis_at(<fixed>)`. A test that passes
+  only when no second ticks between two calls is a bug, not a flake.
 - `tn-write-e2e` / `tn-write-proptest` skill first. You own exactly the `it/*.rs` module or proptest file in your row.
 - e2e runs use fixed ports: **one e2e job on the machine at a time**. Run every `-p e2e-tests` command through
   `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane.sh <cmd…>` (it takes the machine-wide lock, waits for a foreign

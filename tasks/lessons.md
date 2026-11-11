@@ -1527,3 +1527,16 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   commit is finished by the orchestrator with a gate script, not by a new agent; (4) when a limit stops a wave, record in the
   orchestrator checkpoint that the old handles are dead before doing anything else; (5) the fan-out that the plan calls for spent a
   weekly limit in about four hours of wall clock: say so to the user and pace the waves.
+
+## 2026-11-11 — a unit's own package gate is not the workspace's gate (bench 6, W2)
+- What happened: every node unit ran check, clippy and tests for its own packages only, and I cherry-picked on the strength of
+  those logs. Two things surfaced only when I ran the whole workspace on the integration head: (1) U3's re-open tests fail
+  whenever a second ticks between two opens of one datadir, because a shared test helper builds its chain from
+  `test_genesis()`, which stamps the current second — the unit's own runs happened to pass, and so did my first two workspace
+  runs; (2) U6b's switch did nothing without a node wiring hunk in files it did not own, which it handed over as a patch.
+- Rules: (1) after every batch of cherry-picks run the whole workspace (check all targets, clippy, nextest) on the integration
+  head in a spare worktree detached at that commit, and do it more than once: one green run does not show a test is not
+  time-dependent; (2) a failure in such a run is reproduced in a loop and traced to its cause before anything is called
+  flaky; (3) a brief for a test-writing unit names the clock traps of the fixtures it will use (`test_genesis()` vs
+  `test_genesis_at`); (4) a unit that hands back "needs a patch in a file I do not own" is not integrated until that patch is
+  in and has a test of its own — the switch being logged is not the switch acting.
