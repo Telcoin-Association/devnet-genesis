@@ -371,3 +371,32 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - Run-1 blasts are hand `fund` / `run` calls, recorded in `blast_runs[]` and each blast's archived directory, not in `blasts[]`.
   A rehearsal unit (H12) is checking that every reader copes before the fleet is paid for.
 - A filled env file inside `benchmark/` must be committed before a launch (the launcher refuses a dirty harness tree).
+
+## From U5 (tracker drain and the final-state check; `tasks/checkpoint-bench6-u5.md`)
+- As built: with `epoch_close_task_drain` on, the boundary handler drives close, record and export through `track_while`, which
+  keeps draining the tracking channel and reaping tasks and can never drop the future (tested with a critical task ending,
+  failing and panicking while the future sits between the record save and the persist). With `epoch_record_state_check` on, a
+  STORED epoch record whose final state is not this node's closing block halts the node with an error naming both blocks.
+- Correction to an earlier note: an empty recent-blocks ring answers the default header (block 0 with a fixed non-zero hash), not
+  (0, zero hash); a record is never written in that state today (the committee read fails and the node halts). So "skip the check
+  when the ring is empty" is safe as built: it warns and counts.
+- D42. **The halt does not survive a restart** (reviewer, Low): after the halt the closing block is executed; on restart the node
+  enters the next epoch and never compares the stored record again. No worse than bench 5. A fix (compare record N−1's final
+  state with the canonical header at start, behind the switch) needs its own skip rules for nodes restored from a snapshot. Not
+  built. Upstream question for #1806's PR; for the bench the check is on only as a tripwire.
+- D43. `wait_for_exit`'s 200-ms grace does not read the channel: > 1,000 spawns inside it would overflow again (bench 5's rate gives
+  about 18). Not fixed.
+- D44. The switch's doc in `crates/config/src/node.rs` describes a check on the freshly built record; the code checks a STORED
+  record. One-sentence doc fix at integration (orchestrator).
+- Not delivered on purpose: an entry-lag-in-seconds gauge (#1806 E); the rounds-behind gauge in the primary crate covers the arm rule.
+
+## From U12a (pipelined persist, core; `tasks/bench6/briefs/u12a-api.md`) — held off the integration branch until last
+- Three commits, 544 tests, the domain review (execution, storage, epoch) approved with nothing at medium or above. With the
+  switch off no new code runs on the engine's path. The build/commit split of `payload_builder.rs` is a refactor of the
+  SEQUENTIAL path too (the existing 27-test engine suite passes unchanged): it lands only if pipelined persist makes the image.
+- The riskiest invariant is pinned: every state root of N+1 reads one snapshot taken before N's persist starts. A hand mutation
+  that opens a fresh transaction per root is caught by `test_pinned_anchor_root_ignores_later_commit`.
+- D45. The pinned read transaction falls under libmdbx's 5-minute read-transaction timeout: a build or persist longer than that
+  would stop the node. Unreachable at bench timings (persist ≈ 1.2 s); a statement for the PR.
+- D46. Go/no-go status (D7): gates 1 and 2 (differential proptest, persist faults) are being written by an independent test unit
+  now; gate 3 (epoch-close barrier) and gate 4 (e2e sets, 2-on/2-off fleet) need the wiring unit, which waits for U3.

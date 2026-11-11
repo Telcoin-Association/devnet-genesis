@@ -37,3 +37,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 38 | U9 | parent-grace | parent_grace | 2741f6df0 | 80584c6f6 | #1803 | | |
 | 39 | U9 (U1v) | quorum-exec-block | — (voter tests) | 5edc17421 | 14b55b04c | #1804 | | |
 | 40 | U6a | sealed-keep | sealed_tx_keep (store + pool side) | da24d6780 | edc616c0d | #1807 | | |
+| 41-44 | U5 | tracker-drain | epoch_close_task_drain, epoch_record_state_check | 9277bf947, 1f00d60a2, 115be0879, 584f86a83 | 2783dfa79..42b2a6f39 | #1806 | | |
+| (held) | U12a | pipelined-persist | (core; not integrated until last) | e74947cca, 938493304, fd81652d2 | — | — | | |
