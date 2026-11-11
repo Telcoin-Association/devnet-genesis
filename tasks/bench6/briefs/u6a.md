@@ -1,7 +1,7 @@
 # U6a — sealed-keep, the store and the pool side (node unit, wave 1)
 
 Rules first: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6-agent-rules.md` (all but the harness and investigation sections).
-Worktree: `/home/drtnarg/coding/telcoin/tn-b6-u6a` (branch `b6/u-u6a`, cut from the integration branch with U0a's switches and U0c's
+Worktree: `/home/drtnarg/coding/telcoin/tn-b6-u2` — a finished unit's directory, reused for its warm build cache; the directory name is NOT your unit's — (branch `b6/u-u6a`, cut from the integration branch with U0a's switches and U0c's
 plumbing in). Checkpoint: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/checkpoint-bench6-u6a.md`.
 Skills: `tn-rust-skills`, `tn-domain-worker`, `tn-domain-execution`. Topic slug: `sealed-keep`. Refs #1807.
 
