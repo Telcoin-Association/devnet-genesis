@@ -783,3 +783,20 @@ four validators to the transactions that are in no pool.
   refusal counter, the advice gauge. Their log-side fallbacks work today. `gen_pool_full` also counts pool-full refusals that
   happen WITHOUT the bound: read it against the control arm.
 - "Votes refused: execution behind" is read from `vote path timing` lines with `outcome=behind`.
+
+### sealed-keep (#1807) — APPROVE WITH FOLLOW-UPS; no Critical or High (report `tasks/bench6/review/sealed-keep-report.md`)
+- Switch off: unchanged (marking is reachable only with the switch on AND a quorum-sealing worker; the always-on lines are
+  bookkeeping that cannot change a decision). Mixed fleet: safe — the switch changes only which locally pooled transactions
+  a node packs and what its RPC answers; ST-B's mixed fleet was one chain 4 of 4.
+- D74. **A benchmark confound, being fixed (M2): the pool's global cap.** With the switch on the in-flight transactions
+  stay in reth's pending sub-pool (default cap 10,000 transactions, 20 MB). The main load keeps ≈ 9,600 in flight per
+  validator: off, most are out of the pool; on, they are in it, at 96 % of the cap. Above the cap reth silently drops
+  accepted tail nonces and their descendants — #1807's symptom by another path, on the switch-on arm only. Fix in
+  progress: with the switch on the node raises the pending limits (no new switch, switch-off limits exactly today's); the
+  snapshot also collects reth's own pool series so a crossing is visible. The earlier residual (D12, "the per-sender 256
+  slots are clear at windows 16 and 4") did not cover the global cap.
+- M1, being fixed: the builder walks a snapshot of the pending pool but reads marks live, so a canonical update during the
+  walk can make it re-pack this node's own just-executed transactions (skipped at execution as `nonce too low`: the count
+  the switch-on arm is expected to hold near zero). Nothing lost or executed twice.
+- L1, being fixed: a mark that lands after the next epoch's orphan pass is never cleared (timing only).
+- L2-L4 and ten Info items go to the upstream list.
