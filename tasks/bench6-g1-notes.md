@@ -532,3 +532,22 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - Readers still to fix (next unit): `stage-latency.py` without `--windows` names failed blasts as measured ones; the floor-blast
   helper takes the first entry of an index even when a retry under the same index succeeded; three tools take phase windows
   from the live manifest only (the last blast).
+
+## From the topic reviews (code review + security evaluation, findings verified; reports under `tasks/bench6/review/`)
+### digest-dedupe (#1807) — APPROVE WITH FOLLOW-UPS; nothing Critical, High or Medium; nothing to change before the image
+- Switch off: every path is the previous behaviour (two counters registered at 0; one debug field that copies an address
+  already recovered). Mixed fleet: safe — the switch only changes which of a node's OWN digests go into its own headers, and
+  voters do not check duplicates, minimum size or order.
+- The central question (can either half drop the only live copy of a digest?): no path found; in the worst case a batch waits
+  for the node's next own commit or the next epoch start, and its cache row survives.
+- D59 (Low, plausible; before the upstream PR): a commit-notice window. The own-headers commit notice goes out after the loop
+  that sequences sub-dags, so a batch's cache row can be evicted before the proposer learns its header committed; an identical
+  re-seal in that window is dropped by the proposer and then suppressed by the worker for the rest of the run. Only
+  transactions the first copy skipped are affected, and they wait for orphan recovery (delayed, not lost). The window widens
+  when execution lags — which is what a benchmark does. Either document it or send each sub-dag's own committed rounds
+  inside the loop.
+- D60 (before the upstream PR): no test runs the real worker against the real proposer; two proposer tests are sketched in
+  the report.
+- Doc fix made (b89ad570f): the config doc now says the worker needs the primary's ack of its latest seal AND the cache row.
+- For reading the benchmark (the reviewer's inference): with `sealed_tx_keep` on the worker-side counter should stay near 0;
+  judge the proposer counter and the duplicate-digests-executed check.

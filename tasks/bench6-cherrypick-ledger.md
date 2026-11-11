@@ -56,3 +56,4 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | (held) | ST-U12a | pipelined-persist | — (differential + fault tests) | 2f763333f | b6/pipe-stack a2d2c3255 | — | | |
 | 57 | orch | mdbx-advice | — (test helper: fixed genesis time, so the re-open tests do not depend on the clock; proof: forced 1.1-s gap passes with the fix, fails 3 of 4 without) | — | dc7855cc6 | #1802 | | |
 | (held) | ST-U12c | pipelined-persist | — (cycle bench, gate 5; ignored test) | c6e207b15 | b6/pipe-stack c6e207b15 | — | | |
+| 58 | orch (review follow-up) | digest-dedupe | — (docs: when the worker suppresses a seal) | — | b89ad570f | #1807 | | |
