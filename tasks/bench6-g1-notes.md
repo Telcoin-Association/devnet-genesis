@@ -949,3 +949,12 @@ silently, so this was checked). One epochs test starts its nodes directly and do
      short second deployment on local-SSD shapes for the control and the advice arm (cost: one more deploy, about 2-3 h of
      fleet time; C3 offers local SSD only on its `-lssd` standard shapes, so the machine type differs from the fleet's
      `c3-highcpu-8` — a confound to state); (c) run 2's headline is taken on both disk classes (two headline deployments).
+
+### sealed-keep fixes, delta review — APPROVE WITH FOLLOW-UPS; no Critical, High or Medium; nothing to change before the image (report `tasks/bench6/review/sealed-keep-delta-report.md`)
+- The six commits close M1, M2 and L1. The only production path that builds a worker pool carries the switch. No
+  transaction that must be packed again is starved (every skip lasts one selection walk); no legitimate mark of a new run
+  is refused (the orphan pass runs before any builder starts). Switch off: unchanged. Mixed fleet: safe (local state only).
+- Four Low and six Info for the upstream PR (a pool read lock per candidate in the presence check; a tail packed across a
+  nonce gap after a mid-walk eviction and a partial resend; a possible 250-ms wait at low load; two wrong doc comments;
+  the refused-mark counter mixes three causes).
+- **Every commit on the integration head (80a0c76c0) has now been through a review.**
