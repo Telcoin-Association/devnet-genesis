@@ -883,3 +883,8 @@ four validators to the transactions that are in no pool.
   where the switch-off path logs ERROR; the close gauges exist only on the live boundary close, not on replay closes.
 - **All per-topic reviews are done: digest-dedupe, parent-grace (fixed), mdbx-advice, inflight-bound, sealed-keep (fixes in
   progress), vote-starvation, pipelined-persist, recovery-pool, plumbing, tracker-drain. No Critical or High anywhere.**
+
+### Pipelined persist on the repo's STANDARD e2e binary (orchestrator re-run on the stack tip d30bb1809)
+After the test hook was made part of the standard e2e build: the SIGKILL test 3 of 3, the mixed fleet 1 of 1, the epoch close
+1 of 1; clippy clean and 532 storage tests pass. The one failure in between (recorded in the checkpoint) was the hook's log
+line missing from a run killed before its first persist — a test-assertion effect of where the hook was read, fixed.
