@@ -351,3 +351,23 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   in mind.
 - A node that leaves the committee kept marks under orphaned digests; the batch-builder unit (U6b) clears them at the epoch close.
 - Left to the e2e test: the epoch-boundary loss path (I-2's S6) and a restart with marks (S9).
+
+## From H11 (launchers and the arm sequencer; `benchmark/launch/README.md`)
+- Default run-1 walk as built (14 blasts): A0 control I, L, M4, M16 → P1 M16 → V L, M16 → POOL+LOCAL M16 with an epoch boundary
+  ≈ 240 s into its mixed phase → PIPE M4, M16 → BOUND M4, M16 → GR150 I, L, short M16 → A0′ M16. The table is
+  `benchmark/launch/bench6-run1.plan`, edited by hand at G2.
+- The sequencer stops by itself on: a node failing its restart or readback, two guard deferrals, a blast failing twice or
+  aborting on fleet health, queued pools ≥ 1,000 before a saturated blast (it waits up to 10 min first), a commit stall > 120 s
+  after a blast, a root disk > 85 %, a fatal database line in the newest status. It always prints the resume command.
+- D39. **What the sequencer does not watch** (the orchestrator's watch items during run 1): a fatal database failure inside a long
+  step (only the newest status line is read), a commit stall while idle, the BOUND entry rule (abort the arm when a validator
+  enters ≥ 30 rounds behind: read `tn_primary_epoch_entry_rounds_behind`), memory late in the run, and "read the vote arm before
+  PIPE or BOUND" (the plan's rule): the sequencer walks straight through unless told `--only-arm`. Orchestrator's proposal: run 1
+  as three launches — arms 0-2 (control, P1, V), a read of the vote arm, then arms 3-7 — so the rule is kept without a stop
+  inside the tool.
+- D40. A resume re-applies the arm under a new name, and an arm with `host evict-mdbx` then restarts every node again (≈ 10 min).
+- D41. Unreadable pools at the deadline let the walk go on with a note (the blast's own preflight fails if the obs VM is down);
+  make the gate strict?
+- Run-1 blasts are hand `fund` / `run` calls, recorded in `blast_runs[]` and each blast's archived directory, not in `blasts[]`.
+  A rehearsal unit (H12) is checking that every reader copes before the fleet is paid for.
+- A filled env file inside `benchmark/` must be committed before a launch (the launcher refuses a dirty harness tree).
