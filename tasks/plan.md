@@ -60,7 +60,7 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 - [ ] wave 0b: U0c plumbing — launched 2026-11-11 ≈ 01:22Z from 5b9f13b25 (brief `tasks/bench6/briefs/u0c.md`)
 - [ ] wave 1: **U7 DONE** (93e9d7c21, integrated; its agent was cut off after code and review, the orchestrator ran the gates: fmt, check, clippy, 112 tests) · **U1 DONE** (73b8a0d24 + e823da217, integrated; both policies behind the two switches; 477 tests; domain review found one liveness defect in the K-doubling window, fixed) · **U2 DONE** (c56b33c0a + 12bb5bb45, integrated; 481 tests, equivocation tests pass with the switch on and off; the review's one finding fixed: a third mark check right after the lock is taken) — U1 quorum-exec-block · U2 voter-lock · U3 mdbx-advice · U4a recovery-pool · U4b contention bench · U5 tracker-drain ·
       U6a sealed-keep store · U7 digest-dedupe (worker) · U8 bench6-obs · U12a pipelined-persist core (after I-5)
-- [ ] wave 2: U9 parent-grace · U11 inflight-bound · U12b pipelined wiring · U6b sealed-keep batch marks · U1v voter cases · ST-U12a
+- [ ] wave 2: U9 parent-grace (launched 2026-11-11 ≈ 16:42Z from 16695b20a; carries U1v's voter cases as its part B) · U11 inflight-bound · U12b pipelined wiring · U6b sealed-keep batch marks · ST-U12a
 - [ ] wave 3: U10 digest-dedupe (proposer) · ST-U1 · ST-U5 · ST-U6 · ST-U11 · ST-U12b
 - [ ] integration by cherry-pick: U0a-c, U8, U5, U4, U3, U2, U1 (+U1v), U7, U6a-b, U9, U10, U11, U12 last
 - [ ] pipelined persist go/no-go recorded
