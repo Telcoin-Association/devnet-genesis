@@ -339,3 +339,15 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - Two existing run-loop quirks seen while testing, unchanged (candidates for upstream notes): both interval timers fire once at
   start, so round 2 goes out the moment its parents arrive; `handle_proposal_result` resets `advance_round`, so parents that arrive
   while a header is still pending lose their readiness until the max delay.
+
+## From U6a (sealed-transaction store; `tasks/bench6/briefs/u6a-api.md`)
+- Deviation from the design, kept: marking needs a **seal ticket** taken when the batch is built. The worker acks a batch only after
+  reporting its digest, so under load the batch can execute before the builder handles the ack; a mark made then would leave a
+  skipped transaction marked for good. `mark_sealed` refuses when the digest has executed since the ticket.
+- A canonical-state broadcast lag drops every mark (the digests executed in the lost rounds are unknown): at most one duplicate
+  copy per affected transaction, which execution skips, instead of a sender blocked for good.
+- Sealed transactions now hold pool capacity until execution, including reth's 256 per-sender slots (bench windows are 16 and 4).
+  This interacts with D12 (pool hygiene): the queued and pending gauges will read higher with the switch on; compare arms with that
+  in mind.
+- A node that leaves the committee kept marks under orphaned digests; the batch-builder unit (U6b) clears them at the epoch close.
+- Left to the e2e test: the epoch-boundary loss path (I-2's S6) and a restart with marks (S9).
