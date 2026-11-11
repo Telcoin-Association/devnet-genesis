@@ -54,3 +54,4 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | (held) | U12b | pipelined-persist | pipelined_persist (wiring: run_sequential verbatim + run_pipelined; metrics; persist hooks) | 2e2d5f3b4..1f9dde523 (7) | b6/pipe-stack a89ff912c..1c6ba2ef7 | — | | |
 | (held) | orch | pipelined-persist | — (execution delay hook in the pipelined build task) | 2ea56e7dd | b6/pipe-stack 27de9976e | — | | |
 | (held) | ST-U12a | pipelined-persist | — (differential + fault tests) | 2f763333f | b6/pipe-stack a2d2c3255 | — | | |
+| 57 | orch | mdbx-advice | — (test helper: fixed genesis time, so the re-open tests do not depend on the clock; proof: forced 1.1-s gap passes with the fix, fails 3 of 4 without) | — | dc7855cc6 | #1802 | | |
