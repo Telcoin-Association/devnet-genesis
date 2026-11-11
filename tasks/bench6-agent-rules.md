@@ -36,9 +36,11 @@ Tick list: `tasks/plan.md`. Ledger: `tasks/bench6-cherrypick-ledger.md`. Names c
   `remaining:`, `notes:`. If a Write is refused, do not work around it: return the complete text in your final answer.
 - Budget: well under 250k tokens. Read large files in ranges after `grep -n`. If you trend past ~180k, finish the current section,
   update the checkpoint and hand back with the exact resume point. Do not explore past your read list; hand back instead.
-- Scratch: only `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/5182cb11-39b0-49d7-92e2-41574ff8f3c2/scratchpad/<unit>/`
+- Scratch: only `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/32c51110-7507-4447-a3fb-2d90bd31a117/scratchpad/<unit>/`
   (the scratchpad is shared; `/tmp` is a quota-limited tmpfs: nothing over ~200 MB there). Bigger data (snapshot copies, extracts)
   goes under `/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/<unit>/` (gitignored).
+- The session changed on 2026-11-11: the scratch path above is the NEW one. Scratch you wrote before that under the old session's
+  path (`…/5182cb11-39b0-49d7-92e2-41574ff8f3c2/scratchpad/<unit>/`) may still be read if it exists, but write nothing new there.
 - Read `date -u` before writing a time anywhere. Every poll loop has a deadline and a pattern that cannot match itself.
 - Prose you write (commit bodies, docs, reports, issue/PR drafts): load the `human-writing` skill first. Markdown: one sentence
   per line in new files; keep an existing file's own wrapping.

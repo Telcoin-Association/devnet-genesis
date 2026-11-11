@@ -1512,3 +1512,18 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Rule: an exclude regex never starts with `^` (gcloud matches from the start of the relative path anyway: `genesis[^/]*/.*|…`);
   every upload script first runs the same command with `--dry-run` and refuses to continue if a path that must stay local appears in
   the "Would copy" list; the verify step also fails when an excluded file exists in the bucket.
+
+## 2026-11-11 — a rate limit followed by a new login kills every subagent handle: briefs and state must already be on disk
+- Symptom: a weekly account limit stopped ten running agents at once (01:45-02:05Z). The failure notices said "send the agent a
+  message to let it continue", but the user came back on another account, the session id changed, and `SendMessage` to every old
+  handle answered "No transcript found". Six of the ten briefs existed only as Agent prompts in the dead conversation.
+- What saved the work: every unit had a checkpoint file and its own worktree or file set, so the state was on disk. The checkpoints
+  under-reported it (H1b: "reading done" with 444 lines of driver edits; H10: "S1 done" with a 1,027-line driver and a test module),
+  exactly as the user's rule 2b warns: read `git status` and the diff, not only the checkpoint.
+- Rules: (1) write every brief to `tasks/<round>/briefs/<unit>.md` BEFORE the Agent call and make the prompt a pointer to it, so a
+  second agent can be started with one line; (2) keep a `CONTINUE.md` that tells a second agent how to treat what it finds (the
+  checkpoint can under-report; uncommitted edits are unverified work in progress; background jobs and sub-agents are gone; a claimed
+  result counts only with a log that carries `EXIT=`); (3) a unit whose code and review are done and which only owes gates and a
+  commit is finished by the orchestrator with a gate script, not by a new agent; (4) when a limit stops a wave, record in the
+  orchestrator checkpoint that the old handles are dead before doing anything else; (5) the fan-out that the plan calls for spent a
+  weekly limit in about four hours of wall clock: say so to the user and pace the waves.

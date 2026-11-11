@@ -27,22 +27,26 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
   definition cannot run cargo, write tests or spawn its own reviewer; lesson 2026-11-05). `tn-review-agent` / `tn-security-eval`
   per topic stay as planned in W3.
 
+## Interruption 2026-11-11 (recorded so the tick list stays true)
+- ≈ 01:45-02:05Z a weekly account limit stopped ten agents (U0b, U0c, U1, U2, U7, H1b, H3, H5b, H10, H9c). Resumed 15:42Z on another
+  account; the old agent handles cannot be continued, so second agents were started from the briefs (`tasks/bench6/briefs/`, with
+  `CONTINUE.md`), the checkpoints and the files on disk: H3, H5b, H1b, H10, U0c, U1, U2. U7, U0b and H9c had their code and review
+  done: the orchestrator runs their gates (`tasks/bench6/orch-gates.sh`) and commits.
+
 ## W0 — preflight (orchestrator)
 - [x] bench-5 launchers copied out of the old session scratch → `benchmark/launch/bench5/` (5 launchers + 2 gate scripts, cmp-identical) — 23:20Z
 - [x] old plan archived; this tick list written
 - [x] planning reports saved to `benchmark/private/bench6-prep/design/` (node design, harness design, explorers A-C, decomposer check)
 - [x] `tasks/bench6-agent-rules.md`; helpers `tasks/bench6/{mk-worktree.sh,e2e-lane.sh,w0-archive.sh,w0-archive-verify.py}`
 - [x] integration worktree `/home/drtnarg/coding/telcoin/telcoin-network-b6` @ 165e3fe01 on `bench/bench6-2026-11` (rerere on, tn-contracts by reference)
-- [ ] archive r20261103-1922, r20261107-1504, r20261105-0803 → `gs://tn-devnet-benchmark-archive/runs/<run>/results/` (detached, pid
-      `tasks/bench6/w0-archive.pid`, log `tasks/bench6/w0-archive-20261110T232332Z.log`; exclude rule re-proven by dry run: a `^`-leading
-      `--exclude` is silently ignored by gcloud and would have uploaded `genesis/`); verify report `tasks/bench6/w0-archive-verify.md`
+- [x] archive r20261103-1922, r20261107-1504, r20261105-0803 → `gs://tn-devnet-benchmark-archive/runs/<run>/results/` — DONE 2026-11-11T03:07Z: every archived file matches by size and MD5 (231 / 781 / 227 files; bench 4 = 91.4 GB); genesis/, tunnel.pid and dot-files excluded (24-25 per run); report `tasks/bench6/w0-archive-verify.md`; nothing local deleted (prune is a G1 question)
 - [x] project-context ×3 (sonnet): devnet-genesis 38 KB, telcoin-network 52 KB (describes the b6 tree at 165e3fe01; lives in the main checkout's `.claude/`), tn-benchmarks 23 KB
 - [x] task-decomposer: the task tool was not available to it, so the list and its dependency corrections are `tasks/bench6-task-list.md` (85 tasks; U1, U2, U7 need only U0a; GCE probe waits on I-1; H11 after H10; site pushes wait for their gates)
 - [x] ledger, contract and upstream-map files seeded (`tasks/bench6-{cherrypick-ledger,contract,upstream-map}.md`); orchestrator resume state `tasks/checkpoint-bench6-orch.md`
 
 ## W1 — investigations (opus; outputs `benchmark/private/bench6-prep/<unit>/`) — all six launched 2026-11-10 ≈ 23:35Z
 - [x] I-1 persist trigger — DONE: the load ran in a re-opened DB whose advice covered only the genesis pages (stage-only start + start-all); `MADV_RANDOM` closes read-around but not the prefault `pwritev` route; eviction is ineffective; bench-4 commit = 38 µs/tx; local probe arms 7/8 built
-- [ ] I-1r local probe run (`run-i1.sh`, ≈ 40 min quiet window `tasks/bench6/QUIET`; builds wait behind `tasks/bench6/cargo-slot.sh`)
+- [ ] I-1r local probe run — STARTED 2026-11-11T15:43:55Z (detached; `tasks/bench6/i1-probe-20261111T154355Z.log`; QUIET flag set; results `mdbx-writeback-probe/results/i1-20261111T154355Z/`)
 - [x] I-2 generator and sealed tx — DONE: no window generator-bound; resends reconcile (60.5 % accepted as new); 3,804 queued-pool evictions from stale entries; ≥ 95 % of the unlanded lost; the cliff exists since bench 3; boundary loss path uncovered (S6 → ST-U6)
 - [ ] I-3 ceiling recut — sections 1, 2, 3a, 4, 5, 6 DONE (commit cost drifts +0.031 s/output per minute of load in both windows; overlap slows `finish` 2-3×; v09's lost leader rounds = the #934 durability barrier); 3b pending U4b's Criterion results; ten report corrections saved for the I-6b pass
 - [x] I-4 design answers — DONE: design D as written always settles on the floor (8 outputs stale); a twelfth switch `quorum_exec_block_starved_rounds` makes both variants buildable; U2 also owns `network/message.rs` + `error/network.rs`; G1 items in `tasks/bench6-g1-notes.md`
@@ -62,7 +66,7 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 
 ## W2b — harness and generator units
 - [x] H0 knobs and frozen names — DONE (config.sh +85/−5, `arms/switches.tsv` 12 keys, arm-file format, persist CSV + folio headers, `MANIFEST-FIELDS.md`; 9 new tests, 11/11 mutation anchors killed); H9a DONE (per-second send series, window waits, resends by cause; 211 tests; send path byte-identical to a golden recorded before the change; uncommitted in the generator repo); H9b DONE (tail scan, gap resends by answer, stalled columns, unlanded export, tail histogram, `aggregate.py`; 229 tests; golden untouched); generator commit d3be21a on its local main (ahead 1, not pushed); H9c launched 2026-11-11 ≈ 01:20Z (tail landings must not change any pre-existing field)
-- [ ] H1a → H1b · H2 → H3 · H4 · H5a → H5b · H6a · H7a ∥ H7b · H10 · H11 — **H1a DONE** (38aa93a) · **H2 DONE** (451d090) · **H6a DONE** (a99566b: prefilter pass ≈ 1 min for 64 logs, readers 600 s → 55 s; archive-run + archive-verify) · H5a running · H1b and H10 launched ≈ 01:27Z · **H4 DONE** (persist sampler + folio census, 36 tests; follow-up running: one more CSV column) · **H7a DONE** (switch provenance, kind-based windows, 5 modules green, bench-5 bundle reproduces) · **H7b DONE** (arms-summary.py + arm windows; bench-5 self-check reproduces the recut), committed
+- [ ] H1a → H1b · H2 → H3 · H4 · H5a → H5b · H6a · H7a ∥ H7b · H10 · H11 — **H1a DONE** (38aa93a) · **H2 DONE** (451d090) · **H6a DONE** (a99566b: prefilter pass ≈ 1 min for 64 logs, readers 600 s → 55 s; archive-run + archive-verify) · **H5a DONE** (7b97695: arm tool with guarded restarts and switch readback; eleven arm files) · H5b and H3 launched ≈ 01:50Z · H1b and H10 launched ≈ 01:27Z · **H4 DONE** (persist sampler + folio census, 36 tests; follow-up running: one more CSV column) · **H7a DONE** (switch provenance, kind-based windows, 5 modules green, bench-5 bundle reproduces) · **H7b DONE** (arms-summary.py + arm windows; bench-5 self-check reproduces the recut), committed
 - [ ] H6b (README) and H8 (gate) last, no cargo job running
 
 ## W3 — verify, image, GCE probe
