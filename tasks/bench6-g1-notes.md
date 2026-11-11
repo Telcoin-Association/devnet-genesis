@@ -626,3 +626,15 @@ transaction; "exactly once" is checked by walking every block on all four nodes.
 - Not written (budget): S6 (a seal that fails to report at the epoch boundary) and S7 (eviction of a marked transaction).
 - The switch-off control is being made deterministic (it passes on either outcome and asserts the loss has the issue's
   signature), so that it can live in the e2e suite.
+
+## From H14a (stop signals; `tasks/checkpoint-bench6-H14a.md`) — D58 closed
+- A TERM to a segment is passed to its driver; the rc line is written only when nothing of the segment is left running.
+  For the arms walk: the running call (apply, fund, blast, mark, close) finishes, nothing new starts, the arm stays open,
+  exit 143, and the resume line says where to continue. Between calls the walk stops at once.
+- Only TERM reaches a detached segment: HUP, INT and QUIT are ignored from its start (true before, now documented).
+- Cutting the wait by hand: `kill <pid>` with the pid from the `ARMS_STOPPING` line. A blast driver cleans up its load VMs on
+  exit; a `fund` does NOT — its funder VM is then listed by `benchmark-blast.sh status --run <run>` and removed by
+  `benchmark-blast.sh delete --yes --run <run>`.
+- A process that outlives its driver for more than `LAUNCH_LEFT_WAIT_SECS` (60) ends the segment log with `LEFT_RUNNING` and
+  exit 125 instead of an rc line. With `BENCH_TUNNEL_MODE` other than `ssh` the deploy's tunnel would count as such a process;
+  the benchmark uses the default ssh tunnels (own session), so nothing changes for it.
