@@ -1540,3 +1540,16 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   flaky; (3) a brief for a test-writing unit names the clock traps of the fixtures it will use (`test_genesis()` vs
   `test_genesis_at`); (4) a unit that hands back "needs a patch in a file I do not own" is not integrated until that patch is
   in and has a test of its own — the switch being logged is not the switch acting.
+
+## 2026-11-11 — the measure that matters depends on the disk (user's steer, bench 6)
+- What happened: I framed bench 5's persist regression, the fix (whole-map `MADV_RANDOM`) and the GCE probe's verdict around one
+  number: device bytes ÷ bytes MDBX dirtied. The user pointed out that on a cloud network disk (Hyperdisk, EBS: 4,500–20,000
+  writes per second on ours, about 1 ms per sync) the number of writes is what binds, and that bytes only bind on local NVMe —
+  and that the benchmark should compare the two.
+- Rules: (1) a storage finding states the device's binding constraint first (write count and syncs, throughput, or bytes) and
+  reports write count, sync count, write size and commit time beside any byte ratio; (2) a fix that trades bytes for
+  operations (fewer large writes → many 4 KiB writes) is judged on commit time per device class, never on the ratio; (3) when
+  a storage result decides something, measure both disk classes — on one VM where possible, so that only the device differs.
+- Also from the same hour: the probe's first live run stopped at setup because the pinned boot image has no `fincore`, which a
+  comment in the harness said the image ships. A tool a script requires on a fresh VM is checked against the PINNED image
+  (or carried in the bundle), not against a comment or the developer's machine.
