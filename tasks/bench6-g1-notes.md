@@ -319,3 +319,23 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   binary like the repo's existing bench. Confirm, or ask for Criterion (a new dependency tree in `Cargo.lock`).
 - The switch line renders a zero duration as `0s` and a duration such as 1.5 s as `1s 500ms` (a space): harness readers compare
   durations by value, and the arm values in use (150 ms, 100 ms) are unaffected.
+
+## From U9 (parent grace; `tasks/checkpoint-bench6-u9.md`)
+- As built: when the proposer is ready and the max-delay path did not fire, it waits up to G for the authors its LAST own header
+  carried as parents and that are missing now; it proposes as soon as they are all in or G expires; a max-delay tick or a jump to
+  newer parents ends the grace. At most one grace per round; never below quorum; G is capped at `max_header_delay`; no grace in the
+  first two rounds of an epoch, after a skipped round, or after a restart until a header is built. With G = 0 no timer exists.
+- The two voter cases for the proposer fix hold with `vote_queue_fix` off and on: an old executed block is voted for at once, also
+  when it has left the ring (confirmed from the canonical database); an old number with another hash is refused as
+  `UnknownExecutionResult`, never as "behind".
+- D37. **Whose certificate was late** is not recorded: `tn_primary_late_parents_total{origin}` has static labels only. The #1803 field
+  "own certificates of the two far validators committed ≥ 90 %" comes from the certification analysis (per-validator committed
+  share), which exists; a per-late-certificate log line would add the author. Orchestrator: not needed for run 1.
+- D38. **Cost bound for upstream** (reviewer): a slow or Byzantine author can delay its certificate past G; one author can do it
+  every other round, two alternating authors every round. The cost per round is at most G and never exceeds `max_header_delay`.
+  Goes into the PR text so G stays small.
+- `missing` can include the proposer's own authority: a node whose own header fails to certify sees `expired` outcomes (read the
+  grace counters together with the certification share).
+- Two existing run-loop quirks seen while testing, unchanged (candidates for upstream notes): both interval timers fire once at
+  start, so round 2 goes out the moment its parents arrive; `handle_proposal_result` resets `advance_round`, so parents that arrive
+  while a header is still pending lose their readiness until the max delay.

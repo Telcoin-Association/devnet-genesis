@@ -34,3 +34,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 24 | U2 | tracker-drain | — (gauge) | 12bb5bb45 | 16695b20a | #1806 | | |
 | 25-36 | U0c | bench6-switches, mdbx-advice, recovery-pool ×2, sealed-keep ×2, inflight-bound ×2, pipelined-persist ×4 | (plumbing; no behaviour) | 644569519..8c64788b8 (12) | 16695b20a..7cfe52acd | | | |
 | 37 | U4a | recovery-pool | recovery_threads | 4a9e1c014 | aa71a50f8 | #1805 | | |
+| 38 | U9 | parent-grace | parent_grace | 2741f6df0 | 80584c6f6 | #1803 | | |
+| 39 | U9 (U1v) | quorum-exec-block | — (voter tests) | 5edc17421 | 14b55b04c | #1804 | | |
