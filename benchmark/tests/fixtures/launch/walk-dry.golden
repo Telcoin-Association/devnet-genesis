@@ -1,0 +1,78 @@
+DRY RUN: run-arms walks benchmark/launch/bench6-run1.plan on r20261112-0900; nothing is called
+  inherited environment:
+    BENCH_RUN_ID=r20261112-0900
+    BENCH_TAIL_SCAN_SECS=180
+    RUN_ARMS_HEALTH_SECS=20
+    RUN_ARMS_IDLE_SECS=0
+    RUN_ARMS_POOL_POLL_SECS=1
+    RUN_ARMS_POOL_WAIT_SECS=2
+    RUN_ARMS_READY_MAX_WAIT_SECS=30
+  pool gate: queued < 1000 on every node (0 = off), polled every 1 s for up to 2 s at http://127.0.0.1:19090/api/v1
+  health after each step: benchmark/benchmark-blast.sh status (bounded 20 s): stop on root disk > 85 % or fatal_db > 0
+arm 0 a0-control (benchmark/arms/a0-control.arm): I L M4 M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/a0-control.arm --arm a0-control; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  I: benchmark/tools/params-apply.sh --from-config --mark idle-1; sleep 0; benchmark/tools/params-apply.sh --from-config --end-mark idle-1; health
+  step 2  L: env BENCH_RUN_INDEX=0 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           env BENCH_RUN_INDEX=0 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 3  M4: env BENCH_RUN_INDEX=1 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=1 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 4  M16: env BENCH_RUN_INDEX=2 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=2 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm a0-control
+arm 1 p1-mdbx-advice (benchmark/arms/p1-mdbx-advice.arm): M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/p1-mdbx-advice.arm --arm p1-mdbx-advice; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  M16: env BENCH_RUN_INDEX=3 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=3 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm p1-mdbx-advice
+arm 2 v-vote (benchmark/arms/v-vote.arm): L M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/v-vote.arm --arm v-vote; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  L: env BENCH_RUN_INDEX=4 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           env BENCH_RUN_INDEX=4 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 2  M16: env BENCH_RUN_INDEX=5 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=5 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm v-vote
+arm 3 pool-local (benchmark/arms/pool-local.arm): M16@epoch
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/pool-local.arm --arm pool-local; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  M16@epoch: env BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           epoch: python3 benchmark/recovery-schedule.py --rpc-url http://localhost:18545 ...; launch so the boundary falls 240 s into the mixed phase
+           env BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm pool-local
+arm 4 pipe (benchmark/arms/pipe.arm): M4 M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/pipe.arm --arm pipe; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  M4: env BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 2  M16: env BENCH_RUN_INDEX=8 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=8 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm pipe
+arm 5 bound (benchmark/arms/bound.arm): M4 M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/bound.arm --arm bound; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  M4: env BENCH_RUN_INDEX=9 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=9 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 2  M16: env BENCH_RUN_INDEX=10 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=10 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm bound
+arm 6 gr150 (benchmark/arms/gr150.arm): I L M16s
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/gr150.arm --arm gr150; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  I: benchmark/tools/params-apply.sh --from-config --mark idle-1; sleep 0; benchmark/tools/params-apply.sh --from-config --end-mark idle-1; health
+  step 2  L: env BENCH_RUN_INDEX=11 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           env BENCH_RUN_INDEX=11 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  step 3  M16s: env BENCH_RUN_INDEX=12 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=300 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=12 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=300 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm gr150
+arm 7 a0-prime (benchmark/arms/a0-prime.arm): M16
+  step 0  benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/a0-prime.arm --arm a0-prime; wait until its ARM_READY ready= (at most 30 s); health
+  step 1  M16: env BENCH_RUN_INDEX=13 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-0900
+           pool gate (above)
+           env BENCH_RUN_INDEX=13 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-0900; on failure once more under the next index; health
+  close   benchmark/tools/params-apply.sh --from-config --close-arm a0-prime
+DRY RUN END: 8 arm(s), 16 step(s), 14 blast(s)

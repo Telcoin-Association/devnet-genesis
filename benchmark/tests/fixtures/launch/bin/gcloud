@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# gcloud shim (test_launch.py): logs the call; FAKE_GCLOUD_MODE ok (default) prints a token,
+# fail exits 1, hang sleeps 30 s, reached prints REACHED and exits 9.
+echo "gcloud $*" >> "${FAKE_GCLOUD_LOG:-/dev/null}"
+case "${FAKE_GCLOUD_MODE:-ok}" in
+    fail) echo "ERROR: (gcloud.auth.print-access-token) Reauthentication failed." >&2; exit 1 ;;
+    hang) sleep 30; exit 0 ;;
+    reached) echo REACHED; exit 9 ;;
+    *) echo "ya29.fake-token"; exit 0 ;;
+esac

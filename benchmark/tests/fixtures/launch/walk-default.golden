@@ -1,0 +1,183 @@
+# tags
+ARMS_START plan=benchmark/launch/bench6-run1.plan run=r20261112-0900 arms=0..7 from_step=1 <UTC>
+ARMS_ARM k=0 arm=a0-control file=benchmark/arms/a0-control.arm steps=I,L,M4,M16
+ARMS_STEP arm=a0-control step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=a0-control ready=<UTC> wait=<s>
+ARMS_HEALTH arm=a0-control after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=a0-control step=1 kind=I rc=0 <UTC>
+ARMS_HEALTH arm=a0-control after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_BLAST arm=a0-control step=2 kind=L index=0 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=a0-control step=2 kind=L rc=0 <UTC>
+ARMS_HEALTH arm=a0-control after=2 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=a0-control step=3 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=a0-control step=3 kind=M4 index=1 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=a0-control step=3 kind=M4 rc=0 <UTC>
+ARMS_HEALTH arm=a0-control after=3 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=a0-control step=4 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=a0-control step=4 kind=M16 index=2 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=a0-control step=4 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=a0-control after=4 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=a0-control step=5 kind=close rc=0 <UTC>
+ARMS_ARM k=1 arm=p1-mdbx-advice file=benchmark/arms/p1-mdbx-advice.arm steps=M16
+ARMS_STEP arm=p1-mdbx-advice step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=p1-mdbx-advice ready=<UTC> wait=<s>
+ARMS_HEALTH arm=p1-mdbx-advice after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=p1-mdbx-advice step=1 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=p1-mdbx-advice step=1 kind=M16 index=3 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=p1-mdbx-advice step=1 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=p1-mdbx-advice after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=p1-mdbx-advice step=2 kind=close rc=0 <UTC>
+ARMS_ARM k=2 arm=v-vote file=benchmark/arms/v-vote.arm steps=L,M16
+ARMS_STEP arm=v-vote step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=v-vote ready=<UTC> wait=<s>
+ARMS_HEALTH arm=v-vote after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_BLAST arm=v-vote step=1 kind=L index=4 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=v-vote step=1 kind=L rc=0 <UTC>
+ARMS_HEALTH arm=v-vote after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=v-vote step=2 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=v-vote step=2 kind=M16 index=5 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=v-vote step=2 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=v-vote after=2 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=v-vote step=3 kind=close rc=0 <UTC>
+ARMS_ARM k=3 arm=pool-local file=benchmark/arms/pool-local.arm steps=M16@epoch
+ARMS_STEP arm=pool-local step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=pool-local ready=<UTC> wait=<s>
+ARMS_HEALTH arm=pool-local after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=pool-local step=1 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_EPOCH arm=pool-local step=1 boundary=<UTC> launch_at=<UTC> offset=240 lead=750
+ARMS_BLAST arm=pool-local step=1 kind=M16@epoch index=6 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=pool-local step=1 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=pool-local after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=pool-local step=2 kind=close rc=0 <UTC>
+ARMS_ARM k=4 arm=pipe file=benchmark/arms/pipe.arm steps=M4,M16
+ARMS_STEP arm=pipe step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=pipe ready=<UTC> wait=<s>
+ARMS_HEALTH arm=pipe after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=pipe step=1 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=pipe step=1 kind=M4 index=7 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=pipe step=1 kind=M4 rc=0 <UTC>
+ARMS_HEALTH arm=pipe after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=pipe step=2 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=pipe step=2 kind=M16 index=8 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=pipe step=2 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=pipe after=2 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=pipe step=3 kind=close rc=0 <UTC>
+ARMS_ARM k=5 arm=bound file=benchmark/arms/bound.arm steps=M4,M16
+ARMS_STEP arm=bound step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=bound ready=<UTC> wait=<s>
+ARMS_HEALTH arm=bound after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=bound step=1 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=bound step=1 kind=M4 index=9 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=bound step=1 kind=M4 rc=0 <UTC>
+ARMS_HEALTH arm=bound after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=bound step=2 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=bound step=2 kind=M16 index=10 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=bound step=2 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=bound after=2 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=bound step=3 kind=close rc=0 <UTC>
+ARMS_ARM k=6 arm=gr150 file=benchmark/arms/gr150.arm steps=I,L,M16s
+ARMS_STEP arm=gr150 step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=gr150 ready=<UTC> wait=<s>
+ARMS_HEALTH arm=gr150 after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=gr150 step=1 kind=I rc=0 <UTC>
+ARMS_HEALTH arm=gr150 after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_BLAST arm=gr150 step=2 kind=L index=11 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=gr150 step=2 kind=L rc=0 <UTC>
+ARMS_HEALTH arm=gr150 after=2 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=gr150 step=3 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=gr150 step=3 kind=M16s index=12 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=gr150 step=3 kind=M16s rc=0 <UTC>
+ARMS_HEALTH arm=gr150 after=3 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=gr150 step=4 kind=close rc=0 <UTC>
+ARMS_ARM k=7 arm=a0-prime file=benchmark/arms/a0-prime.arm steps=M16
+ARMS_STEP arm=a0-prime step=0 kind=apply rc=0 <UTC>
+ARMS_READY arm=a0-prime ready=<UTC> wait=<s>
+ARMS_HEALTH arm=a0-prime after=0 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_POOL arm=a0-prime step=1 verdict=ok queued_max=0 (bench-validator-02) read=3/3 limit=1000 <UTC>
+ARMS_BLAST arm=a0-prime step=1 kind=M16 index=13 attempt=1 fund_rc=0 run_rc=0 <UTC>
+ARMS_STEP arm=a0-prime step=1 kind=M16 rc=0 <UTC>
+ARMS_HEALTH arm=a0-prime after=1 verdict=ok read=3/3 disk_max=40 (bench-validator-01) fatal_db=0 <UTC>
+ARMS_STEP arm=a0-prime step=2 kind=close rc=0 <UTC>
+ARMS_DONE arms=8 blasts=14 <UTC>
+# driver calls
+params-apply.sh --arm-file benchmark/arms/a0-control.arm --print-state
+params-apply.sh --arm-file benchmark/arms/p1-mdbx-advice.arm --print-state
+params-apply.sh --arm-file benchmark/arms/v-vote.arm --print-state
+params-apply.sh --arm-file benchmark/arms/pool-local.arm --print-state
+params-apply.sh --arm-file benchmark/arms/pipe.arm --print-state
+params-apply.sh --arm-file benchmark/arms/bound.arm --print-state
+params-apply.sh --arm-file benchmark/arms/gr150.arm --print-state
+params-apply.sh --arm-file benchmark/arms/a0-prime.arm --print-state
+params-apply.sh --from-config --arm-file benchmark/arms/a0-control.arm --arm a0-control
+benchmark-blast.sh status
+params-apply.sh --from-config --mark idle-1
+params-apply.sh --from-config --end-mark idle-1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=0 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=0 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=1 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=1 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=2 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=2 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm a0-control
+params-apply.sh --from-config --arm-file benchmark/arms/p1-mdbx-advice.arm --arm p1-mdbx-advice
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=3 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=3 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm p1-mdbx-advice
+params-apply.sh --from-config --arm-file benchmark/arms/v-vote.arm --arm v-vote
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=4 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=4 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=5 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=5 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm v-vote
+params-apply.sh --from-config --arm-file benchmark/arms/pool-local.arm --arm pool-local
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+recovery-schedule.py --rpc-url http://localhost:18545 --earliest-kill <now+30+lead-1> --before-close 1 --downtime 2
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm pool-local
+params-apply.sh --from-config --arm-file benchmark/arms/pipe.arm --arm pipe
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=8 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=8 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm pipe
+params-apply.sh --from-config --arm-file benchmark/arms/bound.arm --arm bound
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=9 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=9 BENCH_BLAST_KIND=light BENCH_SENDERS=600 BENCH_WINDOW=4 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=10 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=10 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm bound
+params-apply.sh --from-config --arm-file benchmark/arms/gr150.arm --arm gr150
+benchmark-blast.sh status
+params-apply.sh --from-config --mark idle-1
+params-apply.sh --from-config --end-mark idle-1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=11 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=11 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=12 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=300 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=12 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=300 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm gr150
+params-apply.sh --from-config --arm-file benchmark/arms/a0-prime.arm --arm a0-prime
+benchmark-blast.sh status
+benchmark-blast.sh fund --yes --run r20261112-0900 | BENCH_RUN_INDEX=13 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh run --yes --run r20261112-0900 | BENCH_RUN_INDEX=13 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1
+benchmark-blast.sh status
+params-apply.sh --from-config --close-arm a0-prime

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# pgrep shim (test_launch.py): logs its arguments; prints FAKE_PGREP's content (pids) when that file is
+# not empty, else finds nothing (rc 1), so no process of the host can make a test refuse.
+echo "pgrep $*" >> "${FAKE_PGREP_LOG:-/dev/null}"
+if [ -s "${FAKE_PGREP:-/nonexistent}" ]; then cat "${FAKE_PGREP}"; exit 0; fi
+exit 1

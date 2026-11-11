@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# curl shim (test_launch.py): logs the call; answers with FAKE_CURL_DIR/<n>.json, n = this call's
+# number from 0, the last file repeating; a file holding FAIL makes the call fail (rc 7).
+echo "curl $*" >> "${FAKE_CURL_LOG:-/dev/null}"
+d="${FAKE_CURL_DIR:-/nonexistent}"
+[ -d "${d}" ] || { echo "curl: (7) Failed to connect" >&2; exit 7; }
+n="$(cat "${d}/count" 2>/dev/null || echo 0)"
+echo "$((n + 1))" > "${d}/count"
+k="${n}"
+while [ ! -f "${d}/${k}.json" ] && [ "${k}" -gt 0 ]; do k=$((k - 1)); done
+f="${d}/${k}.json"
+if [ "$(cat "${f}")" = FAIL ]; then echo "curl: (7) Failed to connect" >&2; exit 7; fi
+cat "${f}"
