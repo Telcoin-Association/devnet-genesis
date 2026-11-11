@@ -16,7 +16,11 @@
 # workingset_refault_file; cgroup v1 names as a fallback); /proc/<pid>/io. Every
 # PERSIST_MDBX_EVERY_SECS (300) the row also carries mdbx.dat's size, its resident pages (fincore, or
 # the census tool's --resident-only), and the summed Size of the node's mdbx.dat mappings in
-# /proc/<pid>/smaps with the part whose VmFlags carry `rr`; on the other rows those four are empty.
+# /proc/<pid>/smaps with the part whose VmFlags carry `rr`, and the resident pages at or past the used
+# size of the database: the node's gauge tn_reth_mdbx_used_bytes, read from PERSIST_METRICS_URL with
+# `curl -s --max-time 3`, then the census tool's --resident-only --from-bytes <used>. On the other rows
+# those five are empty; the last one is also empty whenever the gauge cannot be read (an image without
+# it, a node that is down).
 # Every row has every column: a source that cannot be read leaves its cells empty.
 #
 # Nothing here reads mdbx.dat or opens the MDBX environment (no mdbx_stat): the file is stat'ed, checked
@@ -41,11 +45,15 @@
 #   PERSIST_FINCORE [fincore]                 empty = always use the census tool's --resident-only
 #   PERSIST_TIMEOUT_SECS [20]                 the limit on every external call
 #   PERSIST_TICKS [0 = forever]               stop after this many rows (tests, the probe)
-#   PERSIST_ROOT []                           prefix for /proc and /sys (tests)
+#   PERSIST_METRICS_URL [http://127.0.0.1:<METRICS_PORT>/metrics]  the node's Prometheus endpoint; the
+#                                             port as the harness reads it (bench-lib.sh prestart and
+#                                             admission read): METRICS_PORT in /etc/telcoin/.node-meta,
+#                                             9101 when absent, empty or set twice
+#   PERSIST_ROOT []                           prefix for /proc, /sys and /etc/telcoin/.node-meta (tests)
 
 set -uo pipefail
 
-HEADER="ts_unix,pid,disk_rd_ios_total,disk_rd_bytes_total,disk_rd_ticks_ms_total,disk_wr_ios_total,disk_wr_bytes_total,disk_wr_ticks_ms_total,disk_flush_ios_total,disk_flush_ticks_ms_total,disk_in_flight_ios,disk_io_ticks_ms_total,vm_nr_dirty_pages,vm_nr_writeback_pages,vm_nr_dirtied_pages_total,vm_nr_written_pages_total,vm_workingset_refault_file_pages_total,vm_pgmajfault_total,vm_thp_file_alloc_total,vm_thp_file_fallback_total,mem_available_kb,mem_cached_kb,mem_dirty_kb,mem_writeback_kb,memcg_current_bytes,memcg_file_bytes,memcg_file_dirty_bytes,memcg_file_writeback_bytes,memcg_workingset_refault_file_pages_total,proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,proc_write_bytes_total,proc_cancelled_write_bytes_total,mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes"
+HEADER="ts_unix,pid,disk_rd_ios_total,disk_rd_bytes_total,disk_rd_ticks_ms_total,disk_wr_ios_total,disk_wr_bytes_total,disk_wr_ticks_ms_total,disk_flush_ios_total,disk_flush_ticks_ms_total,disk_in_flight_ios,disk_io_ticks_ms_total,vm_nr_dirty_pages,vm_nr_writeback_pages,vm_nr_dirtied_pages_total,vm_nr_written_pages_total,vm_workingset_refault_file_pages_total,vm_pgmajfault_total,vm_thp_file_alloc_total,vm_thp_file_fallback_total,mem_available_kb,mem_cached_kb,mem_dirty_kb,mem_writeback_kb,memcg_current_bytes,memcg_file_bytes,memcg_file_dirty_bytes,memcg_file_writeback_bytes,memcg_workingset_refault_file_pages_total,proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,proc_write_bytes_total,proc_cancelled_write_bytes_total,mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes,mdbx_dat_resident_past_used_pages"
 
 ROOT="${PERSIST_ROOT:-}"
 DATA_DIR="${PERSIST_DATA_DIR:-/var/lib/telcoin}"
@@ -64,6 +72,16 @@ FINCORE="${PERSIST_FINCORE-fincore}"
 TO="${PERSIST_TIMEOUT_SECS:-20}"
 TICKS="${PERSIST_TICKS:-0}"
 CENSUS="${PERSIST_CENSUS:-}"
+METRICS_URL="${PERSIST_METRICS_URL:-}"
+if [ -z "${METRICS_URL}" ]; then
+    _mp="$(awk 'index($0, "METRICS_PORT=") == 1 { n++; v = substr($0, 14) } END { sub(/\r$/, "", v); if (n == 1) print v }' \
+        "${ROOT}/etc/telcoin/.node-meta" 2>/dev/null)" || _mp=""
+    [ -n "${_mp}" ] || _mp=9101
+    case "${_mp}" in
+        *[!0-9]*|??????*) echo "node-persist-sampler: METRICS_PORT '${_mp}' is not a port number; no used size" >&2 ;;
+        *) METRICS_URL="http://127.0.0.1:$((10#${_mp}))/metrics" ;;
+    esac
+fi
 if [ -z "${CENSUS}" ]; then
     CENSUS=/usr/local/bin/bench-folio-census.py
     [ -f "${CENSUS}" ] || CENSUS="$(cd "$(dirname "$0")" && pwd -P)/tools/folio-census.py"
@@ -188,6 +206,19 @@ M_SIZE=""
 M_RES=""
 M_VMA=""
 M_RR=""
+M_PAST=""
+
+# The gauge's value from the Prometheus text (with or without labels). It reads to the end, so curl is
+# never cut off by a closed pipe (pipefail would then drop a good value).
+# shellcheck disable=SC2016  # awk program text
+USED_AWK='
+!found && (index($0, "tn_reth_mdbx_used_bytes ") == 1 || index($0, "tn_reth_mdbx_used_bytes{") == 1) {
+    s = $0
+    if (index(s, "{") == 24) sub(/^.*\}/, "", s); else s = substr(s, 24)
+    split(s, f, " ")
+    if (f[1] ~ /^[0-9]/) { found = 1; used = f[1] }
+}
+END { if (found) printf "%.0f\n", used }'
 
 # shellcheck disable=SC2016  # awk program text: $n are awk fields
 SMAPS_AWK='
@@ -199,8 +230,8 @@ cur && $1 == "VmFlags:" { for (i = 2; i <= NF; i++) if ($i == "rr") { rr += sz; 
 END { if (NR > 0) printf "%.0f %.0f\n", vma, rr }'
 
 mdbx_columns() {
-    local st dev ino maj min devstr out
-    M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""
+    local st dev ino maj min devstr out used
+    M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""; M_PAST=""
     st="$(stat -L -c '%s %d %i' "${MDBX}" 2>/dev/null)" || st=""
     case "${st}" in *" "*" "*) ;; *) return 0 ;; esac
     M_SIZE="${st%% *}"; st="${st#* }"
@@ -212,6 +243,14 @@ mdbx_columns() {
     fi
     out="${out//[[:space:]]/}"
     case "${out}" in ''|*[!0-9]*) ;; *) M_RES="${out}" ;; esac
+    if [ -n "${METRICS_URL}" ]; then
+        used="$(timeout "${TO}" curl -s --max-time 3 "${METRICS_URL}" 2>/dev/null | awk "${USED_AWK}")" || used=""
+        case "${used}" in
+            ''|*[!0-9]*) ;;
+            *) out="$(timeout "${TO}" python3 "${CENSUS}" --file "${MDBX}" --resident-only --from-bytes "${used}" 2>/dev/null)" || out=""
+               case "${out}" in ''|*[!0-9]*) ;; *) M_PAST="${out}" ;; esac ;;
+        esac
+    fi
     [ -n "${pid}" ] && [ -r "${ROOT}/proc/${pid}/smaps" ] || return 0
     maj=$(( ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff) ))
     min=$(( (dev & 0xff) | ((dev >> 12) & ~0xff) ))
@@ -281,7 +320,7 @@ BEGIN {
         kv(root "/proc/" pid "/io", io)
     }
     v["mdbx_dat_size_bytes"] = msize; v["mdbx_dat_resident_pages"] = mres
-    v["mdbx_dat_vma_bytes"] = mvma; v["mdbx_dat_rr_bytes"] = mrr
+    v["mdbx_dat_vma_bytes"] = mvma; v["mdbx_dat_rr_bytes"] = mrr; v["mdbx_dat_resident_past_used_pages"] = mpast
     n = split(header, col, ",")
     out = ""
     for (i = 1; i <= n; i++) out = out (i > 1 ? "," : "") num(v[col[i]])
@@ -299,10 +338,11 @@ while :; do
     if [ $(( n % MDBX_TICKS )) -eq 0 ]; then
         mdbx_columns
     else
-        M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""
+        M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""; M_PAST=""
     fi
     row="$(timeout "${TO}" awk -v root="${ROOT}" -v ts="${ts}" -v pid="${pid}" -v disk="${DISK}" -v cg="${CG}" \
-        -v msize="${M_SIZE}" -v mres="${M_RES}" -v mvma="${M_VMA}" -v mrr="${M_RR}" -v header="${HEADER}" \
+        -v msize="${M_SIZE}" -v mres="${M_RES}" -v mvma="${M_VMA}" -v mrr="${M_RR}" -v mpast="${M_PAST}" \
+        -v header="${HEADER}" \
         "${ROW_AWK}" < /dev/null 2>/dev/null)" || row=""
     [ -n "${row}" ] || row="${ts},${pid}${BLANK_TAIL}"
     printf '%s\n' "${row}" >> "${OUT}"

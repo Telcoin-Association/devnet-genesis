@@ -3053,7 +3053,8 @@ PERSIST_COLUMNS = (
     "memcg_workingset_refault_file_pages_total,"
     "proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,"
     "proc_write_bytes_total,proc_cancelled_write_bytes_total,"
-    "mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes")
+    "mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes,"
+    "mdbx_dat_resident_past_used_pages")
 FOLIO_COLUMNS = ("ts_unix,census_secs,mdbx_dat_size_bytes,mdbx_dat_resident_pages,unresolved_pages,"
                  "folio_order,folios,dirty_folios,writeback_folios,active_folios")
 # Every column name carries its unit (or is a count named by what it counts).

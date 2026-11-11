@@ -16,6 +16,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -31,7 +32,9 @@ PERSIST_HEADER = (BENCH / "tools" / "persist-csv-header.txt").read_text()
 FOLIO_HEADER = (BENCH / "tools" / "folio-census-header.txt").read_text()
 NCOLS = len(PERSIST_HEADER.strip().split(","))
 COL = {name: i for i, name in enumerate(PERSIST_HEADER.strip().split(","))}
-MDBX_COLS = ("mdbx_dat_size_bytes", "mdbx_dat_resident_pages", "mdbx_dat_vma_bytes", "mdbx_dat_rr_bytes")
+MDBX_COLS = ("mdbx_dat_size_bytes", "mdbx_dat_resident_pages", "mdbx_dat_vma_bytes", "mdbx_dat_rr_bytes",
+             "mdbx_dat_resident_past_used_pages")
+PAST = "mdbx_dat_resident_past_used_pages"
 PS = os.sysconf("SC_PAGE_SIZE")
 
 _spec = importlib.util.spec_from_file_location("folio_census", str(CENSUS))
@@ -129,6 +132,8 @@ class SamplerCase(unittest.TestCase):
         os.ftruncate(fd, 32 * PS)
         os.close(fd)
         self.st = os.stat(str(self.mdbx))
+        # The node's /metrics as a file curl reads: used size 4 pages, so pages 4-7 are past it.
+        self.metrics_url = self.metrics("# TYPE tn_reth_mdbx_used_bytes gauge\ntn_reth_mdbx_used_bytes %d\n" % (4 * PS))
         proc = self.root / "proc"
         (proc / "diskstats").write_text(DISKSTATS)
         (proc / "vmstat").write_text(VMSTAT)
@@ -185,16 +190,25 @@ class SamplerCase(unittest.TestCase):
                        "VmFlags: %s\n" % (head, size_kb, flags))
         return "".join(out)
 
-    def run_sampler(self, ticks, mdbx_every=60, census_every=0, extra=None, path_first=None):
+    def metrics(self, body, name="metrics.txt"):
+        """A file:// URL serving body as the node's Prometheus text."""
+        (self.state / name).write_text(body)
+        return "file://" + str(self.state / name)
+
+    def run_sampler(self, ticks, mdbx_every=60, census_every=0, extra=None, path_first=None, metrics_url=True):
         env = {"PATH": os.pathsep.join([str(p) for p in (path_first or [])] + [str(self.bin), os.environ.get("PATH", "/usr/bin:/bin")]),
                "HOME": str(self.tmp), "FAKE_STATE": str(self.state), "PERSIST_ROOT": str(self.root),
                "PERSIST_DATA_DIR": str(self.data), "PERSIST_OUT_DIR": str(self.out), "PERSIST_HOST": "bench-validator-01",
                "PERSIST_INTERVAL_SECS": "30", "PERSIST_MDBX_EVERY_SECS": str(mdbx_every),
                "PERSIST_CENSUS_EVERY_SECS": str(census_every), "PERSIST_TICKS": str(ticks),
                "PERSIST_CENSUS": str(CENSUS)}
+        if metrics_url:  # never the host's own 127.0.0.1:9101
+            env["PERSIST_METRICS_URL"] = self.metrics_url if metrics_url is True else metrics_url
         env.update(extra or {})
+        t0 = time.monotonic()
         p = subprocess.run(["bash", str(SAMPLER)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True, timeout=120)
+        self.secs = time.monotonic() - t0
         self.assertEqual(p.returncode, 0, p.stderr)
         return p
 
@@ -241,6 +255,7 @@ class SamplerTests(SamplerCase):
             "proc_cancelled_write_bytes_total": "17",
             "mdbx_dat_size_bytes": str(32 * PS), "mdbx_dat_resident_pages": str(sum(residency(str(self.mdbx)))),
             "mdbx_dat_vma_bytes": str((262144 + 262144 + 1024) * 1024), "mdbx_dat_rr_bytes": str((262144 + 1024) * 1024),
+            PAST: "4",
         }
         for name, value in want.items():
             self.assertEqual(got[name], value, name)
@@ -299,7 +314,7 @@ class SamplerTests(SamplerCase):
             if k % 3 == 0:
                 self.assertTrue(all(cells), (k, cells))
             else:
-                self.assertEqual(cells, ["", "", "", ""], k)
+                self.assertEqual(cells, [""] * len(MDBX_COLS), k)
             self.assertNotEqual(row[COL["vm_nr_dirty_pages"]], "", k)
 
     def test_default_cadence_is_ten_ticks(self):
@@ -442,6 +457,71 @@ class SamplerTests(SamplerCase):
         self.assertEqual(p.returncode, 2)
         self.assertIn("INTERVAL", p.stderr)
         self.assertFalse(any(self.out.iterdir()))
+
+    def past_used(self, **kw):
+        self.run_sampler(1, **kw)
+        (row,) = self.rows()
+        self.assertEqual(len(row), NCOLS)
+        self.assertEqual(row[COL["mdbx_dat_resident_pages"]], "8")  # the other 300-s columns still filled
+        (self.out / "bench-validator-01.persist.csv").unlink()
+        return row[COL[PAST]]
+
+    def test_used_size_gauge_present(self):
+        self.assertEqual(self.past_used(), "4")
+        url = self.metrics('# HELP x\ntn_reth_mdbx_used_bytes_total 1\ntn_reth_mdbx_used_bytes{db="state"} 2.4576e+04\n'
+                           "tn_reth_mdbx_random_advice_bytes 0\n", "labels.txt")
+        self.assertEqual(self.past_used(metrics_url=url), "2")  # used 6 pages: pages 6-7
+        self.assertEqual(self.past_used(metrics_url=self.metrics("tn_reth_mdbx_used_bytes 1048576\n", "big.txt")), "0")
+
+    def test_used_size_gauge_absent(self):
+        body = "# an image without the gauge\ntn_reth_mdbx_random_advice_bytes 0\ntn_reth_mdbx_used_bytes NaN\n"
+        self.assertEqual(self.past_used(metrics_url=self.metrics(body, "absent.txt")), "")
+        self.assertEqual(self.past_used(metrics_url="file://" + str(self.state / "missing.txt")), "")
+
+    def test_used_size_endpoint_unreachable(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()  # nothing listens there now: connection refused
+        self.assertEqual(self.past_used(metrics_url="http://127.0.0.1:%d/metrics" % port), "")
+        self.assertLess(self.secs, 10)
+
+    def test_used_size_endpoint_that_never_answers(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        s.listen(4)  # connections complete, nothing is ever read or sent
+        try:
+            self.assertEqual(self.past_used(metrics_url="http://127.0.0.1:%d/metrics" % s.getsockname()[1]), "")
+        finally:
+            s.close()
+        self.assertLess(self.secs, 10)  # curl --max-time 3, not the 20-s timeout
+
+    def test_default_metrics_url_from_node_meta(self):
+        shim = self.tmp / "curlshim"
+        shim.mkdir()
+        (shim / "curl").write_text('#!/bin/sh\necho "$*" >> "$FAKE_STATE/curl.log"\n'
+                                   'printf "tn_reth_mdbx_used_bytes %d\\n"\n' % (6 * PS))
+        (shim / "curl").chmod(0o755)
+        meta = self.root / "etc" / "telcoin" / ".node-meta"
+        meta.parent.mkdir(parents=True)
+        log = self.state / "curl.log"
+        for content, want_url, want in (
+                (None, "http://127.0.0.1:9101/metrics", "2"),
+                ("NODE=x\nMETRICS_PORT=9555\n", "http://127.0.0.1:9555/metrics", "2"),
+                ("METRICS_PORT=\n", "http://127.0.0.1:9101/metrics", "2"),
+                ("METRICS_PORT=9555\nMETRICS_PORT=9666\n", "http://127.0.0.1:9101/metrics", "2"),
+                ("METRICS_PORT=95x5\n", None, "")):
+            with self.subTest(meta=content):
+                if content is None:
+                    if meta.exists():
+                        meta.unlink()
+                else:
+                    meta.write_text(content)
+                if log.exists():
+                    log.unlink()
+                self.assertEqual(self.past_used(metrics_url=False, path_first=[shim]), want)
+                calls = log.read_text().splitlines() if log.exists() else []
+                self.assertEqual(calls, ["-s --max-time 3 " + want_url] if want_url else [])
 
     @unittest.skipUnless(shutil.which("mawk"), "mawk not installed")
     def test_mawk_reads_the_same_row(self):
@@ -761,7 +841,8 @@ class RealFileSmokeTests(unittest.TestCase):
                "PERSIST_DATA_DIR": str(self.tmp / "data"), "PERSIST_PID": str(self.writer.pid),
                "PERSIST_OUT_DIR": str(out), "PERSIST_HOST": "smoke", "PERSIST_INTERVAL_SECS": "30",
                "PERSIST_MDBX_EVERY_SECS": "30", "PERSIST_CENSUS_EVERY_SECS": "30", "PERSIST_TICKS": "5",
-               "PERSIST_CENSUS": str(CENSUS)}
+               "PERSIST_CENSUS": str(CENSUS), "PERSIST_METRICS_URL": "file://" + str(self.tmp / "metrics.txt")}
+        (self.tmp / "metrics.txt").write_text("tn_reth_mdbx_used_bytes %d\n" % (300 * PS))
         p = subprocess.run(["bash", str(SAMPLER)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True, timeout=120)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -773,6 +854,7 @@ class RealFileSmokeTests(unittest.TestCase):
             self.assertEqual(row[COL["pid"]], str(self.writer.pid))
             self.assertEqual(row[COL["mdbx_dat_resident_pages"]], str(sum(res0)))
             self.assertEqual(row[COL["mdbx_dat_vma_bytes"]], str(768 * PS))
+            self.assertEqual(row[COL[PAST]], str(sum(res0[300:])))  # pages 384-511: 128
         folios = (out / "smoke.folios.txt").read_text().splitlines()
         self.assertEqual(len(folios), 1 + 5)
 

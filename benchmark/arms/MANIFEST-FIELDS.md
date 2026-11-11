@@ -216,6 +216,7 @@ Counters (`_total`) are cumulative as the kernel reports them; `pid` changes at 
 | `proc_*` | `/proc/<pid>/io`: `rchar`, `wchar`, `syscr`, `syscw`, `read_bytes`, `write_bytes`, `cancelled_write_bytes` |
 | `mdbx_dat_size_bytes`, `mdbx_dat_resident_pages` | every 300 s, blank on the other rows: the size of `mdbx.dat` and its fincore resident pages |
 | `mdbx_dat_vma_bytes`, `mdbx_dat_rr_bytes` | every 300 s, blank on the other rows: the summed `Size` of the node's `mdbx.dat` mappings in `/proc/<pid>/smaps`, and the part whose `VmFlags` carry `rr` |
+| `mdbx_dat_resident_past_used_pages` | every 300 s, blank on the other rows and whenever the used size cannot be read: resident pages of `mdbx.dat` past the database's used size, which the sampler reads from the node's `tn_reth_mdbx_used_bytes` gauge (last column, added after the first freeze) |
 
 No MDBX reader runs beside the node: page operations come from the node's own `persisted output` line and metrics, not from `mdbx_stat`.
 
