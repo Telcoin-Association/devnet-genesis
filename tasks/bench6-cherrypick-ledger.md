@@ -40,3 +40,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 41-44 | U5 | tracker-drain | epoch_close_task_drain, epoch_record_state_check | 9277bf947, 1f00d60a2, 115be0879, 584f86a83 | 2783dfa79..42b2a6f39 | #1806 | | |
 | (held) | U12a | pipelined-persist | (core; not integrated until last) | e74947cca, 938493304, fd81652d2 | — | — | | |
 | 45 | U4b | recovery-pool | — (bench binary) | e3f6c4ba3 | d0824a0a4 | #1805 | | |
+| 46 | U3 | mdbx-advice | mdbx_random_advice (+ per-persist storage fields, no switch) | 03eb27bda | dddccd4a6 | #1802 #1800 | | |
+| 47 | U3 | digest-dedupe | — (`sender` on the skip line) | e1f4a1b65 | 8bc341967 | #1807 | | |

@@ -400,3 +400,16 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   would stop the node. Unreachable at bench timings (persist ≈ 1.2 s); a statement for the PR.
 - D46. Go/no-go status (D7): gates 1 and 2 (differential proptest, persist faults) are being written by an independent test unit
   now; gate 3 (epoch-close barrier) and gate 4 (e2e sets, 2-on/2-off fleet) need the wiring unit, which waits for U3.
+
+## From U3 (MDBX advice and the storage fields; `tasks/checkpoint-bench6-u3.md`)
+- As built: with `mdbx_random_advice` on, right after the database is opened the node finds every mapping of its own `mdbx.dat`
+  (identified through the address of a record it reads, so it is exact on any file system) and applies `MADV_RANDOM`; one call
+  covers all future growth because libmdbx maps its whole reservation once; it re-checks after each persist with one map-size
+  comparison. No vendored edit. A failed advice warns once and never fails the open.
+- The control arm can now tell which case a node is in from its own log: prefault on ⇔ Δ`page_prefault` ≈ Δ`mdbx_last_pgno` per
+  persist; the amplification is device bytes ÷ ((`page_newly` + `page_cow`) × 4096). Reading the counters costs ≈ 115 µs per persist.
+- `freelist_pages` per persist is NOT logged (it needs a walk of the whole GC table, which with the switch off could itself
+  fault pages through read-around); reth's existing `db.freelist` gauge has it at scrape granularity.
+- D17 (prefault-off switch) is cheap to add if the GCE probe calls for it: one `mdbx_env_set_option` call beside the advice, a
+  switch that requires `mdbx_random_advice` (prefault off WITHOUT whole-map advice is the 8.7× case), plus the config field, the
+  plumbing and the harness row. Not built; decide after the VM run.
