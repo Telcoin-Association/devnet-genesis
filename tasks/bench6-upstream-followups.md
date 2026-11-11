@@ -37,7 +37,7 @@ image unless it says so. Each line: the item, where it is described, and its sta
 ## sealed-keep (#1807)
 - S6 (a seal that fails to report at the epoch boundary) and S7 (eviction of a marked transaction) e2e tests. OPEN.
 - D64 marks do not survive a restart (a resend is accepted as new, lands once). PR text. OPEN.
-- Review DONE (approve with follow-ups). M1 (walk race), M2 (pending cap under the switch), L1 (late mark after the orphan pass): fix unit U6c running. L2 (a sender's later nonces are re-sealed and skipped every cycle while an earlier batch is late), L3 (a builder walk on every wake while anything is marked), L4 (clearing a mark is a side effect of the generic re-pool method), ten Info: OPEN.
+- Review DONE (approve with follow-ups). M1 (walk race), M2 (pending cap under the switch), L1 (late mark after the orphan pass): DONE (U6c 891e2b962..c8659e2fa + wiring 80a0c76c0). L2 (a sender's later nonces are re-sealed and skipped every cycle while an earlier batch is late), L3 (a builder walk on every wake while anything is marked), L4 (clearing a mark is a side effect of the generic re-pool method), ten Info: OPEN.
 - Upstream alternative for M2: seed a TN pending-pool default in `init_reth_defaults`, or state the global cap as a residual. OPEN (decision).
 
 ## quorum-exec-block / voter-lock (#1804)

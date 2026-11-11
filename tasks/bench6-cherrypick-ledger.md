@@ -73,3 +73,9 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 72 | U9b | parent-grace | — (test: order of the round-jump end and the readiness latch) | 130513613 | f4ee92d92 | #1803 | | |
 | 73 | ST-U12b | bench6-switches | — (e2e harness: TN_E2E_PARAMETERS merges parameters.yaml entries into every node a test starts) | e6bfabef1 | d91d65d3e | — | | |
 | (held) | stack rebuilt | pipelined-persist | b6/pipe-stack-2 = d91d65d3e + 18: the 13 of b6/pipe-stack, ST-U12b's persist-delay hook and three e2e tests, and the orchestrator's 86956df51 (the hook read where the persist runs, so the standard e2e binary has it) | — | b6/pipe-stack-2 86956df51 | — | | |
+| 74 | U6c | sealed-keep | sealed_tx_keep (M2: a pool that keeps sealed transactions gets twice the pending sub-pool limits) | a74a2b3a2 | 891e2b962 | #1807 | | |
+| 75 | U6c | sealed-keep | — (M1: selection skips a candidate that left the pool after its snapshot) | 79aeea195 | d2c695797 | #1807 | | |
+| 76 | U6c | sealed-keep | — (L1: a mark that lands after its digest was orphaned is refused) | ddf17068a | cc022b4d0 | #1807 | | |
+| 77 | U6c | sealed-keep | — (a replacement that took a candidate's nonce holds back the sender's later nonces) | 75460dff9 | 8b23bb608 | #1807 | | |
+| 78 | U6c | sealed-keep | — (the orphan pass fences late marks with the ticket floor) | ead6f624b | c8659e2fa | #1807 | | |
+| 79 | orch (U6c's patch + test) | sealed-keep | — (the env builds the worker pool with its sealed_tx_keep: without it the raised limits never applied) | — | 80a0c76c0 | #1807 | | |

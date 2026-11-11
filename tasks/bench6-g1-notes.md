@@ -897,3 +897,19 @@ line missing from a run killed before its first persist — a test-assertion eff
 
 A node log of the second pass shows the `node switches` line with all eleven on (the override accepts a mistyped key
 silently, so this was checked). One epochs test starts its nodes directly and does not get the override.
+
+## From U6c (sealed-keep after its review; `tasks/checkpoint-bench6-u6c.md`) — D74 closed in code
+- **Pool limits (M2):** with `sealed_tx_keep` on, a worker pool's pending sub-pool holds twice the configured limits (at the
+  devnet's defaults 20,000 transactions and 40 MiB instead of 10,000 and 20 MiB); every other limit and the switch-off
+  limits are unchanged. At most 20 MiB more transaction data per worker pool plus reth's bookkeeping. The unit could not
+  wire it (the env builds the pool in a file it did not own): the orchestrator's commit 80a0c76c0 does, with a test that
+  builds the pool through the env in both states. Above the cap reth evicts silently, non-local senders' highest nonces
+  first, with their descendants; the signal is `reth_transaction_pool_pending_transactions_evicted` (now in the snapshot).
+- **Walk race (M1):** with the switch on, selection skips a candidate the pool no longer holds; if a replacement took its
+  nonce the sender is held back for that build, so later nonces cannot land ahead of the replacement (found by the unit's
+  own domain review, fixed). Both tests fail without the fix.
+- **Late mark (L1):** the orphan pass raises a ticket floor, so every mark whose ticket predates the pass is refused; a
+  second fix covers an orphan pass larger than the executed-digest memory. Both tests fail without the fix.
+- D80. The doubled cap is shared, not reserved for in-flight transactions, and applies to every worker pool of a switched-on
+  node. The presence skip has no counter. L2-L4 stay on the upstream list.
+- These six commits have NOT been through the topic review: a short re-review is launched before the image is cut.
