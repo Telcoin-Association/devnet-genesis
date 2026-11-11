@@ -65,3 +65,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 64 | ST-B | sealed-keep | — (e2e: an S9 kill that leaves nothing to resend is reported, not failed) | 2a0c07497 | ae62cc47a | #1807 | | |
 | 65 | orch (review follow-up) | mdbx-advice | — ("applied" logged only with advised bytes; docs: off arm is libmdbx's own advice, re-advice on limit change) | — | c88936999 | #1802 | | |
 | 66 | ST-B | sealed-keep | — (e2e: the switch-off control passes on either outcome and asserts a loss has the #1807 signature) | 47112ab84 | 341b2a269 | #1807 | | |
+| 67 | U1b | quorum-exec-block | quorum_exec_block_starved_rounds (adaptive form: the window resets only after 64 consecutive certified tip headers) | ab5cb926b | 20858d28d | #1804 | | |
+| 68 | U1b | quorum-exec-block | — (e2e: the adaptive arm must reach 0.88) | 446280250 | 56f66e160 | #1804 | | |

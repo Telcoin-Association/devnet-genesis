@@ -40,7 +40,7 @@ image unless it says so. Each line: the item, where it is described, and its sta
 - Review running.
 
 ## quorum-exec-block / voter-lock (#1804)
-- D61 the adaptive reset rule: U1b running. Review after it.
+- D61 the adaptive reset rule: DONE (U1b, 20858d28d). D70 (a vote-withholding minority can hold a node in long windows: staleness only) and D71 (latency cancels restart the streak) for the PR text. Review running.
 
 ## tracker-drain (#1806), recovery-pool (#1805), plumbing
 - Review-only passes not started yet.

@@ -685,3 +685,41 @@ transaction; "exactly once" is checked by walking every block on all four nodes.
 not have #1807's signature. Three runs: no loss; 16 of 3,655 accepted transactions lost (1 sender); 32 of 2,812 lost (2
 senders) — each time a contiguous tail behind a gap that no validator's pool knows, with `nonce_too_high` skips equal on all
 four validators to the transactions that are in no pool.
+
+## From U1b (the adaptive policy's reset rule; `tasks/checkpoint-bench6-u1b.md`) — D61 closed, D1 has both forms measured
+- The cause ST-A named is confirmed by a model of the policy (a pure state machine): with the rule as built, a regime in
+  which tip headers certify every other time loses 16.7 % of headers (0.833 certified; ST-A measured 0.81-0.82) — the probe
+  fails, the header built before its cancel arrives certifies and resets the window to 4, and with even windows every probe
+  lands on the failing round.
+- **New rule:** the window returns to its configured length only after 64 consecutive certified tip headers; every cancel
+  restarts the count; a header certified inside a window neither counts nor breaks it. Modelled loss over 4,000 rounds, 40
+  seeds, share of rounds on the tip after the slash:
+
+  | tip certifies with p = | 0 | 0.3 | 0.5 alternating | 0.6 | 0.9 | 0.95 | 0.97 | 0.99 | 1 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | rule as built, % lost | 1.75 | 10.4 | 16.7 | 16.7 | 7.4 | 4.2 | 2.7 | 1.0 | 0 |
+  | new rule (streak 64), % lost / % on tip | 1.75 / 2 | 1.5 / 2 | 0.9 / 2 | 1.2 / 3 | 0.9 / 9 | 0.9 / 18 | 1.05 / 35 | 0.9 / 88 | 0 / 100 |
+
+  When a regime ends the node is back on its tip within 130 rounds and the window is back at 4 after 63 more.
+- **Local e2e, three runs with the new rule: fast node certified 0.922 / 0.931 / 0.923** (was 0.812 / 0.806 / 0.816; control
+  0.63-0.73; always 0.99-1.00). It does not reach 0.98 in the test's 90-second window (about 100 rounds) because every lost
+  header (7-8) falls in the climb from a window of 4 to 128; of 255 headers built under the quorum rule 254 certified. At
+  the bound the model gives 2 lost per 130 rounds (0.985). A benchmark step of several minutes is ten times longer than the
+  ramp.
+- **D1, the choice between the forms, with numbers now:**
+  - Adaptive (K = 4, new rule): ≈ 0.985 certified in steady state, a ramp of 5-10 headers whenever a regime starts or the
+    node restarts; the node names its own tip about 98 % of the time while it is NOT starved (lag 0), and in windows a
+    block about 1 output stale (up to the floor of 8 when the whole fleet is in windows).
+  - Always (K = 0): 0.99-1.00 from the first round, no ramp; every header names a block ≈ 8 outputs stale (≈ 14 s at
+    bench-5 saturation), so "lag 0 at idle" fails by construction.
+  - The unit's recommendation: adaptive for the benchmark's vote-fix arm; always only if steps are short or a number must
+    hold in the first minute. Orchestrator: run 1's plan keeps the adaptive arm; adding the always arm (`v-vote-floor`, the
+    arm file exists) costs one more arm and gives the gate a measured comparison on the real fleet — proposed at G2.
+- D70. Under the new rule a set of f Byzantine voters plus one lagging honest voter can hold an honest node in long windows
+  by cancelling one tip header in 64; the node then loses about 2 headers per 130 and names stale (but always its own,
+  executed) blocks. Not a safety issue: voters check the named block against their own chain only; ordering and execution
+  never read it. For the PR text.
+- D71. The streak restarts on ANY cancel, also one caused by latency rather than execution: a node with frequent latency
+  cancels will show a high `exec_policy=starved` share. That is staleness, not lost headers; the analysis must not read it
+  as starvation.
+- Not built (optional): a faster climb (×4 per cancel) would cut the ramp from five failed returns to three.
