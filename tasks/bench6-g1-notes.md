@@ -768,3 +768,18 @@ four validators to the transactions that are in no pool.
   (the orchestrator runs those through the lane).
 - **Go/no-go status: gates 1, 2, 3, 4 PASS. Open: 5 (cycle bench on a quiet host), 6 (the switch-off suites and e2e sets on
   the stack), 7 (the security review, launching).**
+
+## From H14b (readers and the arm summary; `tasks/checkpoint-bench6-H14b.md`)
+- No reader measures a failed blast any more, and three tools take phase windows from every successful blast, not only the
+  last. Bench 5's numbers are unchanged for every existing column (self-check: 39 checks, was 21).
+- The arm summary now carries, per arm: whether prefault was on and the advice in force AS THE NODE MEASURED IT, the
+  amplification (n/a, not 0, when a field is left off the line), refault and major-fault rates, whether sealed-keep is
+  acting, admission refusals and generator drops, the parent-grace share, wait and outcomes beside the far validators'
+  certified share, the vote-fix policy shares and lag, and the commit interval on every row (pipelined and sequential arms
+  compare cycle with cycle).
+- D73. Thresholds chosen by the unit: prefault counts as on when Σ`page_prefault` ÷ the growth of `mdbx_last_pgno` ≥ 0.9.
+  The advice state is reported as columns, not as a pass/fail check (a check would also fire on evict-only arms).
+- Still n/a until the metrics snapshot lists the new series (a unit is adding them): the sealed-marks peak, the admission
+  refusal counter, the advice gauge. Their log-side fallbacks work today. `gen_pool_full` also counts pool-full refusals that
+  happen WITHOUT the bound: read it against the control arm.
+- "Votes refused: execution behind" is read from `vote path timing` lines with `outcome=behind`.
