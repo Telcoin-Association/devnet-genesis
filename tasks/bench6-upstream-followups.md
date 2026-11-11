@@ -51,7 +51,7 @@ image unless it says so. Each line: the item, where it is described, and its sta
 - Review DONE (approve with follow-ups). Unknown keys in `parameters.yaml` are ignored without a warning (pre-existing); `TN_E2E_PARAMETERS` accepts a mistyped key and does not reach one epochs test; `tn_primary_digest_wait_seconds` changed meaning without a rename. OPEN.
 
 ## tracker-drain (#1806)
-- Review-only pass running.
+- Review DONE (approve with follow-ups). F1 the e2e test must show the slow member ran the stored-record check (`vote_skipped{certified_before_close}` ≥ 1); F2 WARN vs ERROR for a critical task's failure during a drained close; F3 log levels in `join_tasks_within` changed for every TaskManager, not behind a switch; F4 the vote-skip counter cannot account for a late signer; F5 the switch doc leaves out the empty-ring skip; F6 close gauges only on the live boundary close. D42, D43 stand. OPEN.
 
 ## pipelined-persist (#1800)
 - Held stack `b6/pipe-stack-2` (19 commits on d91d65d3e). Review DONE (approve with follow-ups; nothing C/H/M). For the PR: F1 (a durable output rolled out of memory when the commit task dies and the head read fails; node halts), F2 (no test reaches the I/O-side fail-closed guards), the doc claim at `output_overlay.rs:156-158` (seeded and unseeded builds emit differently shaped trie updates; root and rows identical), D45 restated (the pinned read transaction lives for a commit plus a build), ten Info. Gates 5 and 6 open.

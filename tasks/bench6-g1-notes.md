@@ -867,3 +867,19 @@ four validators to the transactions that are in no pool.
 - For the PR: an unused `proptest` dev-dependency in the engine crate (used only once the pipelined stack's tests land); two
   doc comments that still say recovery runs on the global pool (fixed on the pipelined stack, not on the integration
   branch).
+
+### tracker-drain (#1806) — APPROVE WITH FOLLOW-UPS (code review only); nothing Critical, High or Medium; nothing to change before the image (report `tasks/bench6/review/tracker-drain-report.md`)
+- Switches off: behaviour unchanged (gauges, the drained line, a counter and some log levels run; the close, record and
+  export moved into one async block with the same order and exits). Mixed fleet: nothing another validator checks changes.
+- `track_while` ends only when the close future completes; a critical task ending, failing or panicking is logged and
+  reaped; nothing cancels the close. No false-halt path found for the final-state check: every caller reaches it with the
+  ring's newest block equal to this node's closing block; a peer's record arriving early is harmless; the epoch-0 dummy
+  record is never compared.
+- D79 (for the run): the state check turns a divergence FROM ANY OTHER CAUSE into a halt. Four halted members of ten would
+  stall the fleet until they restart: if an arm with `epoch_record_state_check` on shows the halt line on any node, stop
+  the arm and treat it as the finding it is.
+- For the PR: the e2e test does not show that the slow member actually ran the stored-record check (require its
+  `vote_skipped{certified_before_close}` ≥ 1); with the drain on a critical task's error during the close is logged at WARN
+  where the switch-off path logs ERROR; the close gauges exist only on the live boundary close, not on replay closes.
+- **All per-topic reviews are done: digest-dedupe, parent-grace (fixed), mdbx-advice, inflight-bound, sealed-keep (fixes in
+  progress), vote-starvation, pipelined-persist, recovery-pool, plumbing, tracker-drain. No Critical or High anywhere.**
