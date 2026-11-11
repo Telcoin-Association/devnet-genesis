@@ -7,15 +7,20 @@ prints REACHED, then answers from FAKE_SCENARIO: {"<key>": [response, ...]}, the
 taking the n-th response (the default response once the list is used up). Keys: pa:arm-file,
 pa:mark, pa:end-mark, pa:close-arm, pa:print-state, blast:fund, blast:run, blast:status, and the
 driver name for the rest. A response: rc, out (lines; {arm} and {ready} are filled in), ready_in
-(seconds from now for {ready}), sleep (seconds before the exit), status ({node: [root_pct, fatal_db]}),
-manifest (top-level keys a run sets), stall (an entry a run appends to commit_stalls), delta (the
-schedule's boundary_unix is --earliest-kill + 1 + delta). Blast fund and run keep the run's
-manifest.json the way the real driver does for a hand run (fund.run_index, blast.run_index, abort,
-blast_runs[]).
+(seconds from now for {ready}), sleep (seconds before the exit), after (lines printed after the sleep,
+the driver's last lines), on_term (seconds of cleanup on a TERM: it prints FAKE_TERM_CLEANUP, waits,
+exits 143), spawn (seconds a `sleep` it starts in the background lives on: a grandchild
+of the launch.sh segment in its process group, outliving the driver), status ({node: [root_pct,
+fatal_db]}), manifest (top-level keys a run sets), stall (an entry a run appends to commit_stalls),
+delta (the schedule's boundary_unix is --earliest-kill + 1 + delta). Blast fund and run keep the
+run's manifest.json the way the real driver does for a hand run (fund.run_index, blast.run_index,
+abort, blast_runs[]).
 """
 import datetime
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 
@@ -124,9 +129,22 @@ def main():
     for line in out or []:
         print(line.replace("{arm}", arg_after(argv, "--arm", "?")).replace("{ready}", ready))
     sys.stdout.flush()
+    if "on_term" in r:
+        def on_term(signum, frame):
+            print("FAKE_TERM_CLEANUP")
+            sys.stdout.flush()
+            time.sleep(float(r["on_term"]))
+            sys.exit(143)
+        signal.signal(signal.SIGTERM, on_term)
+    if "spawn" in r:
+        subprocess.Popen(["sleep", str(r["spawn"])], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
     end = time.time() + float(r.get("sleep", 0))
     while time.time() < end:
         time.sleep(0.05)
+    for line in r.get("after") or []:
+        print(line)
+    sys.stdout.flush()
     sys.exit(rc)
 
 

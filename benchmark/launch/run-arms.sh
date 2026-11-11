@@ -13,9 +13,18 @@
 #   --from-step <n>     with either: begin that arm at its step n (1 = its first step)
 #   --dry-run           print the whole walk, every driver command with its environment; call nothing
 # Needs BENCH_RUN_ID (launch.sh exports the env file). Exit: 0 ARMS_DONE (or a dry run), 1 ARMS_STOPPED
-# (the fleet is left as it is), 2 refused before anything ran (arguments, plan). From ARMS_START on,
-# everything it prints is also appended to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is
-# printed (start_walk_log).
+# (the fleet is left as it is), 2 refused before anything ran (arguments, plan), 128 + the signal's
+# number for any ARMS_STOPPED after a signal (143 TERM, 130 INT, 129 HUP). From ARMS_START on, everything
+# it prints is also appended to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is printed
+# (start_walk_log).
+#
+# TERM, INT or HUP (from ARMS_START on): nothing new starts. A driver call that is running (an apply,
+# a mark or close, a fund, a blast run, a health check) is left alone and finishes; the walk prints
+# ARMS_STOPPING when the signal comes and stops when the driver returns, reason signal-<SIG>, its arm
+# left open, with the usual ARMS_RESUME line. A wait between calls (the ready time, the pool gate,
+# the epoch boundary, the idle window) ends at once; an idle window cut short still gets its
+# --end-mark. A second signal changes nothing. Under launch.sh only TERM arrives (the detached shell
+# and its children start with INT and HUP ignored).
 #
 # Per arm (k): the recorded name is the arm file's `name`, or <name>-r<N> when the run's manifest
 # already records that name (a re-applied arm: the arm tool refuses a recorded name).
@@ -43,6 +52,7 @@
 #   ARMS_HEALTH arm=<name> after=<step> verdict=<ok|stop|unknown|off> read=<n>/<m> disk_max=<pct> (<node>) fatal_db=<n> <UTC>
 #   ARMS_STEP arm=<name> step=<n> kind=<apply|I|L|M4|M16|M16s|close> rc=<n> <UTC>
 #   ARMS_DONE arms=<n> blasts=<n> <UTC>
+#   ARMS_STOPPING arm=<name> step=<n> signal=<SIG> after=<what|none> pid=<pid|-> <UTC>
 #   ARMS_STOPPED arm=<name> step=<n> reason=<reason> <UTC>
 #   ARMS_RESUME <the exact command that resumes the walk>
 # Knobs (defaults in brackets): RUN_ARMS_MAX_QUEUED [1000; 0 = no pool gate], RUN_ARMS_POOL_WAIT_SECS
@@ -67,16 +77,59 @@ utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now() { date -u +%s; }
 iso() { jq -rn --argjson t "$1" '$t | todateiso8601'; }
 WALK_LOG="" WALK_TEES=""
+# reap <pid> — wait for a child of this shell until it has ended, through any trapped signal (a
+# signal makes `wait` return early while the child still runs); its exit status in REAPED. A pid
+# that is not this shell's child (wait: 127) ends the wait at once.
+REAPED=0
+reap() {
+    local r r2
+    while :; do
+        r=0; wait "$1" 2>/dev/null || r=$?
+        [ "${r}" -gt 128 ] && kill -0 "$1" 2>/dev/null || break
+    done
+    # The signal came as the child ended: ask once more for the child's own status.
+    if [ "${r}" -gt 128 ]; then r2=0; wait "$1" 2>/dev/null || r2=$?; [ "${r2}" = 127 ] || r="${r2}"; fi
+    REAPED="${r}"
+}
 # leave <rc> — exit <rc> once both copies of the walk's log (start_walk_log) hold every line it
 # printed: its own ends close first, then it waits for the two tees. Before the log starts (and in a
 # command substitution, whose wait finds no tee) it is a plain exit.
 leave() {
+    local p
     if [ -n "${WALK_TEES}" ]; then
         exec >/dev/null 2>&1
         # shellcheck disable=SC2086  # two pids, split on purpose
-        wait ${WALK_TEES} || true
+        for p in ${WALK_TEES}; do reap "${p}"; done
     fi
     exit "$1"
+}
+
+# --- signals ---------------------------------------------------------------------------------------
+# From ARMS_START on, TERM, INT and HUP only set SIG_NAME (on_signal): the driver that runs as
+# CHILD_PID is left alone, a wait between calls (nap) ends, and the walk stops at its next
+# sig_point with reason signal-<SIG> and exit 128 + the signal's number.
+SIG_NAME="" SIG_RC="" CHILD_PID="" CHILD_WHAT="" NAP_PID="" CUR_STEP=0
+on_signal() { # <SIG> <rc>
+    if [ -n "${SIG_NAME}" ]; then
+        echo "  run-arms: $1 again: it changes nothing; still stopping after ${CHILD_WHAT:-the wait in progress}${CHILD_PID:+ (pid ${CHILD_PID})}"
+        return 0
+    fi
+    SIG_NAME="$1" SIG_RC="$2"
+    echo "ARMS_STOPPING arm=${CUR_NAME:-?} step=${CUR_STEP} signal=$1 after=${CHILD_WHAT:-none} pid=${CHILD_PID:--} $(utc)"
+    if [ -n "${CHILD_WHAT}" ]; then
+        echo "  stopping after ${CHILD_WHAT}${CHILD_PID:+ (pid ${CHILD_PID})}: it runs to its end, nothing new starts (README.md, Stop and resume)"
+    fi
+    if [ -n "${NAP_PID}" ]; then kill "${NAP_PID}" 2>/dev/null || true; fi
+}
+# nap <secs> — sleep, cut short by a signal.
+nap() {
+    [ -z "${SIG_NAME}" ] || return 0
+    sleep "$1" &
+    NAP_PID=$!
+    # a signal between the start and the line above found no NAP_PID to end
+    if [ -n "${SIG_NAME}" ]; then kill "${NAP_PID}" 2>/dev/null || true; fi
+    reap "${NAP_PID}"
+    NAP_PID=""
 }
 die() { echo "run-arms: $*" >&2; leave 2; }
 bounded() {
@@ -233,28 +286,54 @@ resume_cmd() { # <k> <step>
         printf 'BENCH_RUN_ID=%s benchmark/launch/run-arms.sh --plan %s %s' "${RUN}" "${PLAN}" "${sel}"
     fi
 }
+# stop_rc — 1, or 128 + the signal's number once the walk was signalled (whatever the stop's reason).
+stop_rc() { if [ -n "${SIG_NAME}" ]; then echo "${SIG_RC}"; else echo 1; fi; }
 # stop <k> <step> <reason> <resume-step> — the fleet is left as it is.
 stop() {
     echo "ARMS_STOPPED arm=${CUR_NAME:-${A_NAME[$1]}} step=$2 reason=$3 $(utc)"
     echo "ARMS_RESUME $(resume_cmd "$1" "$4")"
-    leave 1
+    leave "$(stop_rc)"
+}
+# owe_close <k> <step> <reason> — stop with every step of arm k done and its close not: the next arm's
+# apply closes it, so the walk resumes there; after the last arm only the close is owed.
+owe_close() {
+    if [ "$1" -lt "${K1}" ]; then stop "$(($1 + 1))" "$2" "$3" 1; fi
+    echo "ARMS_STOPPED arm=${CUR_NAME} step=$2 reason=$3 $(utc)"
+    echo "ARMS_RESUME BENCH_RUN_ID=${RUN} ${PA} --from-config --close-arm ${CUR_NAME}"
+    leave "$(stop_rc)"
+}
+# sig_point <k> <step> <resume-step> — after a signal, stop here (reason signal-<SIG>, the arm left
+# open); else go on. A resume past the arm's last step owes the arm's close.
+sig_point() {
+    local w
+    [ -n "${SIG_NAME}" ] || return 0
+    read -r -a w <<< "${A_STEPS[$1]}"
+    if [ "$3" -gt "${#w[@]}" ] && [ -n "${CUR_NAME}" ]; then owe_close "$1" "$2" "signal-${SIG_NAME}"; fi
+    stop "$1" "$2" "signal-${SIG_NAME}" "$3"
 }
 step_line() { echo "ARMS_STEP arm=${CUR_NAME} step=$1 kind=$2 rc=$3 $(utc)"; }
 
-# call <out-file> <cmd...> — run a driver, its output to this log and to <out-file>; its rc.
+# call <what> <out-file> <cmd...> — run a driver, its output to this log and to <out-file> (a tee
+# reading a FIFO), as the walk's running child <what>: a signal leaves it alone (on_signal), and
+# call waits for its end and the tee's. Its rc.
 call() {
-    local out="$1" rc
-    shift
+    local what="$1" out="$2" tee_pid rc
+    shift 2
     echo ">>> $(utc) $*"
-    set +e
-    "$@" 2>&1 | tee "${out}"
-    rc="${PIPESTATUS[0]}"
-    set -e
+    tee "${out}" < "${TMP}/call" &
+    tee_pid=$!
+    CHILD_WHAT="${what}"
+    "$@" > "${TMP}/call" 2>&1 &
+    CHILD_PID=$!
+    reap "${CHILD_PID}"; rc="${REAPED}"
+    CHILD_PID="" CHILD_WHAT=""
+    reap "${tee_pid}"
     return "${rc}"
 }
-sleep_until() { local t="$1" d; while :; do d=$(( t - $(now) )); [ "${d}" -gt 0 ] || return 0; [ "${d}" -le 30 ] || d=30; sleep "${d}"; done; }
+sleep_until() { local t="$1" d; while [ -z "${SIG_NAME}" ]; do d=$(( t - $(now) )); [ "${d}" -gt 0 ] || return 0; [ "${d}" -le 30 ] || d=30; nap "${d}"; done; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/run-arms.XXXXXX")"
 trap 'rm -rf "${TMP}"' EXIT
+mkfifo "${TMP}/call" || die "cannot make a FIFO in ${TMP}"
 
 # start_walk_log — from ARMS_START on, everything the walk prints (its tags, each driver's output, its
 # own errors) is also appended to results/<run>/logs/run-arms-<segment>-<UTC>.log as it is printed:
@@ -290,9 +369,16 @@ expected_nodes() {
 # health <k> <after-step> — each node's newest BENCH_STATUS line (benchmark-blast.sh status, read-only
 # serial console reads, bounded). An unreadable status never stops the run.
 health() {
-    local k="$1" after="$2" out rc=0 n=0 m pct fatal fsum=0 dmax=-1 dnode="" fnode="" verdict=ok line node
+    local k="$1" after="$2" at out rc=0 n=0 m pct fatal fsum=0 dmax=-1 dnode="" fnode="" verdict=ok line node
+    at=$((after + 1)); [ "${after}" != 0 ] || at="${first}"
+    sig_point "${k}" "${after}" "${at}"
     if [ "${HEALTH_SECS}" = 0 ]; then echo "ARMS_HEALTH arm=${CUR_NAME} after=${after} verdict=off $(utc)"; return 0; fi
-    out="$(bounded "${HEALTH_SECS}" "${BLAST}" status 2>&1)" || rc=$?
+    CHILD_WHAT="health-${after}"
+    bounded "${HEALTH_SECS}" "${BLAST}" status > "${TMP}/health" 2>&1 &
+    CHILD_PID=$!
+    reap "${CHILD_PID}"; rc="${REAPED}"
+    CHILD_PID="" CHILD_WHAT=""
+    out="$(cat "${TMP}/health")"
     while IFS= read -r line; do
         node="$(printf '%s' "${line}" | sed -n 's/^[[:space:]]*\([A-Za-z0-9._-]*\): BENCH_STATUS .*/\1/p')"
         [ -n "${node}" ] || continue
@@ -309,6 +395,7 @@ health() {
     [ "${verdict}" != unknown ] || echo "  (status rc=${rc}; an unreadable node is not a stop; watch it: README.md, Monitor)"
     [ "${fsum}" = 0 ] || stop "${k}" "${after}" "fatal-db-${fnode}" "$((after + 1))"
     [ "${dmax}" -le "${MAX_DISK}" ] || stop "${k}" "${after}" "disk-${dnode}-${dmax}pct" "$((after + 1))"
+    sig_point "${k}" "${after}" "${at}"
     return 0
 }
 
@@ -326,12 +413,14 @@ pool_read() {
     elif [ -z "${top}" ] || [ "${n}" -lt "${m}" ]; then echo "unknown ${top:-? ?} ${n} ${m}"
     else echo "ok ${top} ${n} ${m}"; fi
 }
-# pool_gate <k> <step> — rc 0 go (ok, or still unknown at the deadline), 1 still high at the deadline.
+# pool_gate <k> <step> — rc 0 go (ok, or still unknown at the deadline), 1 still high at the deadline,
+# 2 a signal came (the walk stops at once).
 pool_gate() {
     local k="$1" st="$2" deadline v q node r m
     if [ "${MAXQ}" = 0 ]; then echo "ARMS_POOL arm=${CUR_NAME} step=${st} verdict=off $(utc)"; return 0; fi
     deadline=$(( $(now) + POOL_WAIT ))
     while :; do
+        [ -z "${SIG_NAME}" ] || return 2
         read -r v q node r m <<< "$(pool_read)"
         echo "ARMS_POOL arm=${CUR_NAME} step=${st} verdict=${v} queued_max=${q} (${node}) read=${r}/${m} limit=${MAXQ} $(utc)"
         [ "${v}" != ok ] || return 0
@@ -340,7 +429,7 @@ pool_gate() {
             echo "  the pools could not be read until the deadline: going on (the blast records POOL_AT_START)"
             return 0
         fi
-        sleep "${POOL_POLL}"
+        nap "${POOL_POLL}"
     done
 }
 
@@ -367,14 +456,18 @@ epoch_wait() {
 }
 
 # --- the steps -------------------------------------------------------------------------------------
-pa() { call "$1" env "${PA}" --from-config "${@:2}"; }
+pa() { call "$1" "$2" env "${PA}" --from-config "${@:3}"; }
 
 do_idle() { # <k> <step>
-    local k="$1" st="$2" rc=0
-    pa "${TMP}/mark" --mark "idle-${st}" || rc=$?
+    local k="$1" st="$2" rc=0 cut=""
+    pa "mark-idle-${st}" "${TMP}/mark" --mark "idle-${st}" || rc=$?
     if [ "${rc}" != 0 ]; then step_line "${st}" I "${rc}"; stop "${k}" "${st}" "mark-rc${rc}" "${st}"; fi
-    sleep "${IDLE_SECS}"
-    pa "${TMP}/mark" --end-mark "idle-${st}" || rc=$?
+    nap "${IDLE_SECS}"
+    # A signal cuts the idle window short. Its mark is still ended (a record write, no node), and a
+    # resume measures the window again.
+    [ -z "${SIG_NAME}" ] || cut=1
+    pa "end-mark-idle-${st}" "${TMP}/mark" --end-mark "idle-${st}" || rc=$?
+    if [ "${rc}" = 0 ] && [ -n "${cut}" ]; then step_line "${st}" I "${SIG_RC}"; sig_point "${k}" "${st}" "${st}"; fi
     step_line "${st}" I "${rc}"
     [ "${rc}" = 0 ] || stop "${k}" "${st}" "end-mark-rc${rc}" "$((st + 1))"
 }
@@ -386,15 +479,16 @@ do_blast() { # <k> <step> <type[@epoch]>
         idx="$(next_index)"; LAST_INDEX="${idx}"
         frc=0 rrc=-
         # shellcheck disable=SC2046  # type_env prints NAME=value words without spaces
-        call "${TMP}/fund" env $(type_env "${t}" "${idx}") "${BLAST}" fund --yes --run "${RUN}" || frc=$?
+        call "blast-fund-${idx}" "${TMP}/fund" env $(type_env "${t}" "${idx}") "${BLAST}" fund --yes --run "${RUN}" || frc=$?
         if [ "${frc}" = 0 ]; then
             case "${SATURATED}" in *" ${t} "*)
-                if ! pool_gate "${k}" "${st}"; then
+                reason=0; pool_gate "${k}" "${st}" || reason=$?
+                if [ "${reason}" = 1 ]; then
                     echo "ARMS_BLAST arm=${CUR_NAME} step=${st} kind=${t} index=${idx} attempt=${attempt} fund_rc=0 run_rc=- $(utc)"
                     step_line "${st}" "${t}" 1; stop "${k}" "${st}" pool-queued "${st}"
                 fi ;;
             esac
-            if [ "${epoch}" = 1 ]; then
+            if [ "${epoch}" = 1 ] && [ -z "${SIG_NAME}" ]; then
                 reason=0; epoch_wait "${k}" "${st}" "${t}" || reason=$?
                 if [ "${reason}" != 0 ]; then
                     step_line "${st}" "${t}" 1
@@ -402,10 +496,14 @@ do_blast() { # <k> <step> <type[@epoch]>
                     stop "${k}" "${st}" epoch-wait-too-long "${st}"
                 fi
             fi
+            if [ -n "${SIG_NAME}" ]; then
+                echo "ARMS_BLAST arm=${CUR_NAME} step=${st} kind=$3 index=${idx} attempt=${attempt} fund_rc=0 run_rc=- $(utc)"
+                step_line "${st}" "${t}" "${SIG_RC}"; sig_point "${k}" "${st}" "${st}"
+            fi
             before="$(mjq '(.commit_stalls // []) | length' || true)"; before="$(num_or "${before}" 0)"
             rrc=0
             # shellcheck disable=SC2046
-            call "${TMP}/run" env $(type_env "${t}" "${idx}") "${BLAST}" run --yes --run "${RUN}" || rrc=$?
+            call "blast-run-${idx}" "${TMP}/run" env $(type_env "${t}" "${idx}") "${BLAST}" run --yes --run "${RUN}" || rrc=$?
         fi
         echo "ARMS_BLAST arm=${CUR_NAME} step=${st} kind=$3 index=${idx} attempt=${attempt} fund_rc=${frc} run_rc=${rrc} $(utc)"
         if [ "${frc}" = 0 ] && [ "${rrc}" = 0 ]; then
@@ -422,6 +520,10 @@ do_blast() { # <k> <step> <type[@epoch]>
             step_line "${st}" "${t}" "${rrc}"
             stop "${k}" "${st}" "blast-abort-${reason}" "${st}" ;;
         esac
+        # After a signal a failed blast is not tried again.
+        if [ -n "${SIG_NAME}" ]; then
+            step_line "${st}" "${t}" "$([ "${frc}" = 0 ] && echo "${rrc}" || echo "${frc}")"; sig_point "${k}" "${st}" "${st}"
+        fi
         if [ "${attempt}" = 1 ]; then
             echo "ARMS_RETRY arm=${CUR_NAME} step=${st} kind=${t} index=$(next_index) reason=$([ "${frc}" = 0 ] && echo "run-rc${rrc}${reason:+-${reason}}" || echo "fund-rc${frc}")"
         fi
@@ -433,7 +535,7 @@ do_blast() { # <k> <step> <type[@epoch]>
 
 do_apply() { # <k>
     local k="$1" rc=0 out="${TMP}/apply" ready t wait
-    pa "${out}" --arm-file "${A_FILE[$k]}" --arm "${CUR_NAME}" || rc=$?
+    pa "apply-${CUR_NAME}" "${out}" --arm-file "${A_FILE[$k]}" --arm "${CUR_NAME}" || rc=$?
     step_line 0 apply "${rc}"
     if [ "$(grep -cE '^[[:space:]]*PA_GUARD_DEFER ' "${out}" || true)" -ge 2 ]; then stop "${k}" 0 guard-deferred-twice 1; fi
     if grep -qE '^[[:space:]]*(PA_FAIL|PARAMS_FAIL) ' "${out}"; then
@@ -448,6 +550,7 @@ do_apply() { # <k>
     echo "ARMS_READY arm=${CUR_NAME} ready=${ready} wait=${wait}"
     [ "${wait}" -le "${READY_MAX}" ] || stop "${k}" 0 ready-too-far 1
     sleep_until "${t}"
+    sig_point "${k}" 0 "${first}"
 }
 
 # --- the dry run: the whole walk, nothing called ------------------------------------------------------
@@ -486,36 +589,40 @@ if [ "${DRY}" = 1 ]; then dry_walk; exit 0; fi
 start_walk_log
 echo "ARMS_START plan=${PLAN} run=${RUN} arms=${K0}..${K1} from_step=${STEP0} $(utc)"
 echo ">>> run-arms: output copied to ${WALK_LOG}"
+trap 'on_signal TERM 143' TERM
+trap 'on_signal INT 130' INT
+trap 'on_signal HUP 129' HUP
 
 # Every arm file of the walk passes the arm tool's own parser (no node) before anything changes.
 for k in $(seq "${K0}" "${K1}"); do
+    sig_point "${K0}" 0 "${STEP0}"
     rc=0; "${PA}" --arm-file "${A_FILE[$k]}" --print-state > "${TMP}/state" 2>&1 || rc=$?
     if [ "${rc}" != 0 ]; then cat "${TMP}/state"; CUR_NAME="${A_NAME[$k]}"; stop "${K0}" 0 "arm-file-refused-${A_NAME[$k]}" "${STEP0}"; fi
 done
 
 [ "${DRY}" = 0 ] || exit 0
 for k in $(seq "${K0}" "${K1}"); do
+    first=1; [ "${k}" != "${K0}" ] || first="${STEP0}"
+    CUR_NAME="" CUR_STEP=0
+    sig_point "${k}" 0 "${first}"
     CUR_NAME="$(pick_name "${A_NAME[$k]}")"; USED_NAMES="${USED_NAMES}${CUR_NAME} "
     echo "ARMS_ARM k=${k} arm=${CUR_NAME} file=${A_FILE[$k]} steps=${A_STEPS[$k]// /,}"
     do_apply "${k}"
     health "${k}" 0
-    first=1; [ "${k}" != "${K0}" ] || first="${STEP0}"
     st=0
     for s in ${A_STEPS[$k]}; do
         st=$((st + 1))
         [ "${st}" -ge "${first}" ] || continue
+        CUR_STEP="${st}"
+        sig_point "${k}" "${st}" "${st}"
         if [ "${s}" = I ]; then do_idle "${k}" "${st}"; else do_blast "${k}" "${st}" "${s}"; fi
         health "${k}" "${st}"
     done
-    rc=0; pa "${TMP}/close" --close-arm "${CUR_NAME}" || rc=$?
+    CUR_STEP=$((st + 1))
+    sig_point "${k}" "$((st + 1))" "$((st + 1))"
+    rc=0; pa "close-${CUR_NAME}" "${TMP}/close" --close-arm "${CUR_NAME}" || rc=$?
     step_line "$((st + 1))" close "${rc}"
-    if [ "${rc}" != 0 ]; then
-        # The next arm's apply closes this one; after the last arm only the close is owed.
-        if [ "${k}" -lt "${K1}" ]; then stop "$((k + 1))" "$((st + 1))" "close-rc${rc}" 1; fi
-        echo "ARMS_STOPPED arm=${CUR_NAME} step=$((st + 1)) reason=close-rc${rc} $(utc)"
-        echo "ARMS_RESUME BENCH_RUN_ID=${RUN} ${PA} --from-config --close-arm ${CUR_NAME}"
-        leave 1
-    fi
+    [ "${rc}" = 0 ] || owe_close "${k}" "$((st + 1))" "close-rc${rc}"
 done
 echo "ARMS_DONE arms=$((K1 - K0 + 1)) blasts=${BLASTS} $(utc)"
 leave 0

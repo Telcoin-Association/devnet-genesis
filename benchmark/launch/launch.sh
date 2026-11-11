@@ -36,16 +36,21 @@
 #
 # A live start: `nohup setsid bash launch.sh __segment ...` with stdin from /dev/null. The detached
 # shell writes its own pid to tasks/bench6/<run>/<segment>-<UTC>.pid, logs to the .log beside it
-# (neither is ever overwritten), runs the driver as its child, passes TERM, INT and HUP on to it, and
-# always ends the log with
+# (neither is ever overwritten), runs the driver as its child and passes TERM on to it (logged as
+# `== <segment> signal TERM ...`, then `== <segment> driver pid=<p> exit=<n> after TERM ...`; INT and
+# HUP never reach it: it starts with both ignored). Once the driver has ended and nothing else of the
+# segment's process group runs, it ends the log with
 #   == <segment> rc=<n> <UTC>
-# (a SIGKILL of the detached shell itself is the one case it cannot cover: `status` then reports the
-# segment as died). launch.sh prints LAUNCHED with the pid and the log, and the line to wait for.
+# A process of the group that outlives the driver gets LAUNCH_LEFT_WAIT_SECS; still there, the log
+# lists it and ends with `== <segment> LEFT_RUNNING exit=<n> pids=<p,...> <UTC>` instead (exit 125).
+# A SIGKILL of the detached shell itself is the one case it cannot cover: `status` then reports the
+# segment as died. launch.sh prints LAUNCHED with the pid and the log, and the line to wait for.
 # --dry-run runs every check except the token, prints the environment and the command, and starts
-# nothing. `status` lists the run's segments: pid, running or not, and the last line of each log.
+# nothing. `status` lists the run's segments: pid, state (running, stopping after <what>, ended, left
+# running, died) and the last line of each log.
 #
 # Knobs (the env file's value, else the launching shell's): LAUNCH_TOKEN_SECS [30], LAUNCH_PID_WAIT_SECS
-# [10]; from the env file only: LAUNCH_PROBE_BIN, LAUNCH_PROBE_ARMS.
+# [10], LAUNCH_LEFT_WAIT_SECS [60]; from the env file only: LAUNCH_PROBE_BIN, LAUNCH_PROBE_ARMS.
 # Docs: benchmark/launch/README.md.
 
 set -euo pipefail
@@ -68,17 +73,40 @@ bounded() {
 }
 
 # ======================= the detached side (launch.sh __segment ...) =======================
-# __segment <marker> <pidfile> <segment> <harness-sha> -- <cmd...>: runs inside the new session.
+# __segment <marker> <pidfile> <segment> <harness-sha> <left-wait-secs> -- <cmd...>: runs inside the
+# new session, whose leader it is: its pid is the process group of everything the segment starts.
 if [ "${1:-}" = __segment ]; then
     set +e
-    marker="$2" pidf="$3" seg="$4" sha="$5"
-    shift 6
+    marker="$2" pidf="$3" seg="$4" sha="$5" left_wait="$6"
+    shift 7
     echo "$$" > "${pidf}"
-    child="" sig_rc=""
-    on_sig() { sig_rc="$2"; [ -z "${child}" ] || kill -"$1" "${child}" 2>/dev/null; }
+    child="" sig_rc="" sig_name=""
+    # Only TERM arrives: this shell starts with INT and HUP ignored (a background job under nohup), and
+    # bash cannot trap a signal ignored at its start; the INT and HUP traps are kept for a shell that
+    # was started otherwise.
+    on_sig() {
+        sig_rc="$2" sig_name="$1"
+        [ -n "${child}" ] || return 0
+        echo "== ${seg} signal $1 $(utc): passed to pid ${child}; the rc line follows once nothing of the segment runs"
+        kill -"$1" "${child}" 2>/dev/null
+    }
     trap 'on_sig TERM 143' TERM
     trap 'on_sig INT 130' INT
     trap 'on_sig HUP 129' HUP
+    # left_running — LEFT: one "<pid> <command>" line per process of this segment's process group
+    # other than this shell (and the ps that lists them, through <segment>-<UTC>.left beside the pid file).
+    left_running() {
+        local f="${pidf%.pid}.left" p pid pg cmd
+        LEFT=""
+        ps -A -o pid= -o pgid= -o args= > "${f}" 2>/dev/null &
+        p=$!
+        while kill -0 "${p}" 2>/dev/null; do wait "${p}"; done
+        while read -r pid pg cmd; do
+            [ "${pg}" = "$$" ] && [ "${pid}" != "$$" ] && [ "${pid}" != "${p}" ] || continue
+            LEFT="${LEFT}${pid} ${cmd}"$'\n'
+        done < "${f}"
+        rm -f "${f}"
+    }
     echo "== ${seg} start $(utc) ${marker} pid=$$ harness=${sha}"
     echo "== ${seg} command: $*"
     env | grep -E "${CLEARED_RE}" | sort
@@ -91,7 +119,28 @@ if [ "${1:-}" = __segment ]; then
     done
     # A wait cut short by a trapped signal leaves the child's status with bash: ask for it once more.
     if [ "${rc}" -gt 128 ]; then r2=0; wait "${child}" 2>/dev/null || r2=$?; [ "${r2}" = 127 ] || rc="${r2}"; fi
+    [ -z "${sig_name}" ] || echo "== ${seg} driver pid=${child} exit=${rc} after ${sig_name} $(utc)"
+    child=""
     [ -n "${sig_rc}" ] && [ "${rc}" = 0 ] && rc="${sig_rc}"
+    # The rc line claims an end, so it waits until nothing of the segment runs: a process the driver
+    # left behind (a grandchild that outlived it) gets left_wait seconds, then the log names it and
+    # the shell exits 125 without an rc line.
+    left_running
+    deadline=$(( $(date +%s) + left_wait )) said=""
+    while [ -n "${LEFT}" ] && [ "$(date +%s)" -lt "${deadline}" ]; do
+        sleep 1
+        left_running
+        if [ -n "${LEFT}" ] && [ -z "${said}" ]; then
+            said=1
+            echo "== ${seg} waiting up to ${left_wait} s for what is left of the segment:"
+            printf '%s' "${LEFT}" | sed 's/^/     /'
+        fi
+    done
+    if [ -n "${LEFT}" ]; then
+        printf '%s' "${LEFT}" | sed 's/^/     /'
+        echo "== ${seg} LEFT_RUNNING exit=${rc} pids=$(printf '%s' "${LEFT}" | awk '{ printf "%s%s", (NR > 1 ? "," : ""), $1 }') $(utc)"
+        exit 125
+    fi
     echo "== ${seg} rc=${rc} $(utc)"
     exit "${rc}"
 fi
@@ -156,6 +205,8 @@ MARK_PREFIX="bench6-launch:${RUN}:"
 TOKEN_SECS="$(env_get LAUNCH_TOKEN_SECS)" || TOKEN_SECS="${LAUNCH_TOKEN_SECS:-30}"
 PID_WAIT_SECS="$(env_get LAUNCH_PID_WAIT_SECS)" || PID_WAIT_SECS="${LAUNCH_PID_WAIT_SECS:-10}"
 case "${TOKEN_SECS}:${PID_WAIT_SECS}" in *[!0-9:]*|0*|*:0*|:*|*:) refuse "LAUNCH_TOKEN_SECS '${TOKEN_SECS}' and LAUNCH_PID_WAIT_SECS '${PID_WAIT_SECS}' must be positive integers" ;; esac
+LEFT_WAIT_SECS="$(env_get LAUNCH_LEFT_WAIT_SECS)" || LEFT_WAIT_SECS="${LAUNCH_LEFT_WAIT_SECS:-60}"
+case "${LEFT_WAIT_SECS}" in ''|*[!0-9]*) refuse "LAUNCH_LEFT_WAIT_SECS '${LEFT_WAIT_SECS}' must be a whole number of seconds" ;; esac
 
 # --- liveness of a segment's wrapper ---------------------------------------------------------
 # pid_alive <pidfile> — 0 when its pid runs AND is one of this run's wrappers (pid reuse safe).
@@ -178,8 +229,26 @@ if [ "${SEG}" = status ]; then
         found=1
         name="$(basename "${pf}" .pid)" lf="${pf%.pid}.log"
         last="$(tail -n 1 "${lf}" 2>/dev/null || true)"
-        if pid_alive "${pf}"; then state=running
-        else case "${last}" in "== "*" rc="*) state=ended ;; *) state="died (no rc line)" ;; esac; fi
+        if pid_alive "${pf}"; then
+            # After a TERM: the walk's ARMS_STOPPING line names the driver call it waits for; any
+            # other segment's wrapper line names the driver it passed the TERM to.
+            state=running
+            sl="$(grep '^ARMS_STOPPING ' "${lf}" 2>/dev/null | tail -n 1 || true)"
+            if [ -n "${sl}" ]; then
+                what="$(printf '%s\n' "${sl}" | tr ' ' '\n' | sed -n 's/^after=//p')"
+                cp="$(printf '%s\n' "${sl}" | tr ' ' '\n' | sed -n 's/^pid=//p')"
+                state=stopping
+                [ "${what:-none}" = none ] || state="stopping after ${what}"
+                case "${cp}" in ''|-) ;; *) state="${state} (pid ${cp})" ;; esac
+            else
+                sl="$(grep -E '^== [a-z0-9-]+ signal ' "${lf}" 2>/dev/null | tail -n 1 || true)"
+                if [ -n "${sl}" ]; then cp="${sl##*passed to pid }"; state="stopping after the driver (pid ${cp%%;*})"; fi
+            fi
+        else case "${last}" in
+            "== "*" rc="*) state=ended ;;
+            "== "*" LEFT_RUNNING "*) state="left running ($(printf '%s\n' "${last}" | tr ' ' '\n' | sed -n 's/^pids=//p'))" ;;
+            *) state="died (no rc line)" ;;
+        esac; fi
         echo "SEGMENT ${name} pid=$(cat "${pf}" 2>/dev/null || echo '?') state=${state} last: ${last:-<empty log>}"
     done
     [ "${found}" = 1 ] || echo "  (no segment launched yet)"
@@ -265,7 +334,7 @@ SETSID=(setsid)
 command -v setsid >/dev/null 2>&1 || SETSID=(perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 127')
 cd "${ROOT}"
 [ "${DRY}" = 0 ] || exit 0
-nohup "${SETSID[@]}" bash "${LAUNCH_SELF}" __segment "${MARK_PREFIX}${SEG}" "${PIDF}" "${SEG}" "${SHA}" -- "${CMD[@]}" \
+nohup "${SETSID[@]}" bash "${LAUNCH_SELF}" __segment "${MARK_PREFIX}${SEG}" "${PIDF}" "${SEG}" "${SHA}" "${LEFT_WAIT_SECS}" -- "${CMD[@]}" \
     >> "${LOG}" 2>&1 < /dev/null &
 waited=0 pid=""
 while [ "${waited}" -lt "$(( PID_WAIT_SECS * 10 ))" ]; do

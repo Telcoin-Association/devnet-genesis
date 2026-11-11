@@ -93,13 +93,14 @@ It refuses (rc 1, nothing started, no file written):
 - for the segments marked "yes" above, a token that `gcloud auth print-access-token` cannot print within `LAUNCH_TOKEN_SECS` (30 s).
 
 A live start runs `nohup setsid bash launch.sh __segment ...` from the repo root with stdin from `/dev/null`.
-The detached shell writes its own pid to `tasks/bench6/<run>/<segment>-<UTC>.pid`, logs to the `.log` beside it, prints a header (the harness sha and the exported environment), runs the driver as its child, passes TERM on to it, and always ends the log with `== <segment> rc=<n> <UTC>`: rc 0 on success, the driver's rc on failure, 143 after a TERM, 137 when the driver was killed.
+The detached shell writes its own pid to `tasks/bench6/<run>/<segment>-<UTC>.pid`, logs to the `.log` beside it, prints a header (the harness sha and the exported environment), runs the driver as its child, passes TERM on to it, and ends the log with `== <segment> rc=<n> <UTC>`: rc 0 on success, the driver's rc on failure, 143 after a TERM, 137 when the driver was killed.
+The rc line claims an end, so it comes only once nothing of the segment's process group runs; a process that outlives its driver is named instead (Stop and resume, below).
 A SIGKILL of the detached shell itself is the one case it cannot cover; `status` then reports the segment as `died (no rc line)`.
 Logs and pid files are never overwritten: a second launch in the same second gets a `-2` suffix.
 
 `launch.sh` prints `LAUNCHED segment=<seg> run=<run> pid=<pid> harness=<sha> log=<log>`, the line to wait for and the status command, then returns.
 `--dry-run` makes every check except the token, prints the environment and the command, and starts nothing.
-`status` prints one `SEGMENT <segment>-<UTC> pid=<pid> state=<running|ended|died (no rc line)> last: <last log line>` per segment of the run.
+`status` prints one `SEGMENT <segment>-<UTC> pid=<pid> state=<state> last: <last log line>` per segment of the run, the state one of `running`, `stopping after <what> (pid <p>)` (a TERM was passed on and the segment is finishing <what>), `ended`, `left running (<pids>)` and `died (no rc line)`.
 
 ## run-arms.sh
 
@@ -108,7 +109,7 @@ benchmark/launch/run-arms.sh [--plan <file>] [--from-arm <k|name> [--from-step <
                              [--only-arm <k|name> [--from-step <n>]] [--dry-run]
 ```
 
-Exit 0 is `ARMS_DONE` (or a dry run), 1 is `ARMS_STOPPED` with the fleet left as it is, 2 a refusal before anything ran (arguments, plan).
+Exit 0 is `ARMS_DONE` (or a dry run), 1 is `ARMS_STOPPED` with the fleet left as it is, 2 a refusal before anything ran (arguments, plan), and 128 plus the signal's number (143 for TERM) is any `ARMS_STOPPED` after a signal.
 It needs `BENCH_RUN_ID`, which `launch.sh` exports.
 
 ### The plan
@@ -176,6 +177,7 @@ ARMS_RETRY arm=<name> step=<n> kind=<type> index=<i> reason=<...>
 ARMS_HEALTH arm=<name> after=<step> verdict=<ok|stop|unknown|off> read=<n>/<m> disk_max=<pct> (<node>) fatal_db=<n> <UTC>
 ARMS_STEP arm=<name> step=<n> kind=<apply|I|L|M4|M16|M16s|close> rc=<n> <UTC>
 ARMS_DONE arms=<n> blasts=<n> <UTC>
+ARMS_STOPPING arm=<name> step=<n> signal=<SIG> after=<what|none> pid=<pid|-> <UTC>
 ARMS_STOPPED arm=<name> step=<n> reason=<reason> <UTC>
 ARMS_RESUME <the command that resumes the walk>
 ```
@@ -217,6 +219,7 @@ The walk stops, leaves the fleet as it is, and ends with `ARMS_STOPPED` and `ARM
 | `epoch-unreadable`, `epoch-wait-too-long` | the boundary could not be read, or lies too far off | the step |
 | `commit-stall` | the blast left a new `.commit_stalls[]` entry longer than `RUN_ARMS_STALL_SECS` (`BENCH_ABORT_STALL_SECS`, 120) | the next step |
 | `disk-<node>-<pct>pct`, `fatal-db-<node>` | the health check after a step | the next step |
+| `signal-TERM` (`-INT`, `-HUP`) | a signal, once the driver call it came during has returned (Stop and resume) | the step it cut short (during the apply or the ready wait: the arm), else the next one; with every step done, the next arm (or the close, after the last arm) |
 
 A resume always re-applies its arm under a new recorded name (`--from-arm k`), so an arm with `host evict-mdbx` restarts every node again (about 10 minutes) and starts from an evicted cache.
 The steps before `--from-step` stay recorded under the arm's first name; `arms-summary.py` places each blast by its time, so a resumed arm shows as two arms.
@@ -282,8 +285,8 @@ Poll each segment's log every 30 s with a deadline, never with a pattern that ca
 
 ```
 deadline=$(( $(date +%s) + 4 * 3600 )); log=tasks/bench6/<run>/<segment>-<UTC>.log
-until grep -q '^== <segment> rc=' "$log" || [ "$(date +%s)" -ge "$deadline" ]; do
-  grep -E '^== .* rc=|❌|ABORT|BENCH_DEPLOY_RESULT|PARAMS_OK|PA_FAIL|ARM_READY|== arm|ARMS_(STEP|STOPPED|RESUME|DONE|HEALTH|POOL|RETRY)|LIGHT_LOAD_(START|DONE)|BENCH_BLAST_DONE|late_secs|LOG_RATE|(FSYNC|HOST)_PROBE_SUMMARY|PROBE_ARM_DONE|DOWN_(OK|INCOMPLETE)|TEARDOWN_DONE' "$log" | tail -n 5
+until grep -qE '^== <segment> (rc=|LEFT_RUNNING )' "$log" || [ "$(date +%s)" -ge "$deadline" ]; do
+  grep -E '^== .* (rc=|signal |LEFT_RUNNING )|❌|ABORT|BENCH_DEPLOY_RESULT|PARAMS_OK|PA_FAIL|ARM_READY|== arm|ARMS_(STEP|STOPPING|STOPPED|RESUME|DONE|HEALTH|POOL|RETRY)|LIGHT_LOAD_(START|DONE)|BENCH_BLAST_DONE|late_secs|LOG_RATE|(FSYNC|HOST)_PROBE_SUMMARY|PROBE_ARM_DONE|DOWN_(OK|INCOMPLETE)|TEARDOWN_DONE' "$log" | tail -n 5
   sleep 30
 done
 ```
@@ -308,7 +311,59 @@ done
 ## Stop and resume
 
 - To stop a segment, send TERM to the pid in its pid file: `kill <pid>`.
-  The driver gets the TERM and runs its own exit cleanup (a blast stops or deletes its blasters, the probe deletes its VM), and the log ends with `== <segment> rc=143`.
+  TERM is the only signal that reaches a segment: the detached shell starts as a background job under `nohup`, with INT and HUP ignored, and every driver inherits that.
+  The shell logs `== <segment> signal TERM <UTC>: passed to pid <driver>; ...`, passes the TERM to its driver and waits for it; then `== <segment> driver pid=<p> exit=<n> after TERM <UTC>` and the rc line.
+- Every segment but `arms`: the driver gets the TERM and runs its own exit cleanup (a blast stops or deletes its blasters, the probe deletes its VM), and the log ends with `== <segment> rc=143` (the driver's own code when it exits non-zero).
+  `status` shows `state=stopping after the driver (pid <p>)` meanwhile.
+- `arms`: the walk finishes the driver call that is running and starts nothing new (below); the log ends with `== arms rc=143` after the walk's last line.
+- A process of the segment's group that outlives its driver (a background job the driver left) holds the rc line back for `LAUNCH_LEFT_WAIT_SECS` (60), listed under `== <segment> waiting up to 60 s for what is left of the segment:`.
+  Still running then, it is listed again and the log ends with `== <segment> LEFT_RUNNING exit=<n> pids=<p,...> <UTC>` instead of an rc line (the shell exits 125); `status` shows `left running (<pids>)`.
+  Treat it as a running driver: see what it is (`ps -o pid,args -p <pid>`) before launching anything.
+  A helper meant to outlive its driver starts in a session of its own, as the ssh tunnels do (`nohup setsid`); the websocket tunnel (`BENCH_TUNNEL_MODE` other than `ssh`) does not, so a deploy that starts one ends with `LEFT_RUNNING`.
+
+### A TERM to the arm walk
+
+From `ARMS_START` on, the walk takes TERM (and INT or HUP in a walk started by hand) the same way.
+A driver call that is running (an apply, a fund, a blast run, an idle mark, a close, a health check) is left alone and runs to its end.
+The walk prints at once:
+
+```
+ARMS_STOPPING arm=<name> step=<n> signal=TERM after=<what> pid=<driver pid> <UTC>
+  stopping after <what> (pid <p>): it runs to its end, nothing new starts (README.md, Stop and resume)
+```
+
+`<what>` is `apply-<arm>`, `blast-fund-<i>`, `blast-run-<i>`, `mark-idle-<n>`, `end-mark-idle-<n>`, `close-<arm>` or `health-<n>`, and `status` shows `state=stopping after <what> (pid <p>)`.
+When the call returns, the walk prints its result as usual (`ARMS_BLAST`, `ARMS_STEP`) and stops with `ARMS_STOPPED ... reason=signal-TERM` and `ARMS_RESUME`: no retry, no health check, no close, so the arm stays open, as after `blast-failed-twice`.
+A stop the call's result causes anyway (`node-failed-*` after an apply, `blast-abort-*`, `commit-stall`) keeps its own reason.
+Every stop after a signal exits 143 (130 for INT, 129 for HUP).
+A wait between calls (the ready time, the pool gate, the epoch boundary, the idle window) ends at once, with `after=none`; an idle window cut short still gets its `--end-mark` (a record, no node), and the resume measures it again.
+A second TERM changes nothing: `  run-arms: TERM again: it changes nothing; still stopping after <what> (pid <p>)`.
+Ctrl-C on a walk started by hand stops the walk the same way and does not end its driver: the drivers run as background jobs, which ignore INT (a program that sets its own INT handler, such as `gcloud compute ssh`, still gets it).
+
+How long the wait can be is the rest of the call that is running:
+
+| call | at most |
+|---|---|
+| blast run | what is left of its start delay (300 s), the generator's preamble (90), warmup, mixed phase, cooldown and tail scan (an M16 is 1,350 s in all), then the wait for its results, the copy and the blaster deletes (a few minutes) |
+| blast fund | the funder VM's run, the copy and the VM's delete |
+| apply | the rolling restart, one node at a time with each node's own waits (about 10 minutes with `host evict-mdbx`) |
+| health check | `RUN_ARMS_HEALTH_SECS` (180 s) |
+| a mark or a close | seconds (a record write, no node) |
+
+To cut the wait:
+
+- A blast run: `kill <pid>`, the pid of the `ARMS_STOPPING` line (the blast driver itself).
+  Its exit trap stops the blasters (or deletes them before their start time), waits a bounded time (`BENCH_TRAP_WAIT_SECS`, 300 s, and more for a long blast) for their results, copies them and deletes the VMs; the walk then stops as above.
+- A blast fund: the same `kill <pid>`, but `fund` has no exit cleanup of its own: its funder VM is left behind.
+- Load VMs left behind (after a fund, a driver killed with SIGKILL, or a cleanup that names a VM it could not delete): `benchmark/benchmark-blast.sh status --run <run>` lists them and `benchmark/benchmark-blast.sh delete --yes --run <run>` deletes every blaster and funder VM of the benchmark (label-guarded).
+- An apply: run-arms never signals it, and `params-apply.sh` has no TERM handling of its own (its EXIT trap only removes its work directory).
+  A TERM to its pid ends it at once: a node whose transient restart unit has started finishes that restart on the node, the nodes after it keep the old arm, and the arm's record (open since its first restart) holds the nodes done so far.
+  The walk stops (`apply-rc143`, or the failure the arm tool printed first); the resume re-applies the arm under a new name (`-r2`), which closes that record and restarts only the nodes not in the arm yet (every node again when the arm has host steps).
+- The walk itself: a second TERM to the segment does nothing more.
+  Killing run-arms with SIGKILL leaves its driver running without anyone watching it; `launch.sh` then names that driver in `LEFT_RUNNING` instead of writing an rc line.
+
+### After a stop
+
 - `ARMS_STOPPED` leaves the fleet as it is.
   Read the reason and the output above it, bring it to the user (gate G3), and resume with the printed `ARMS_RESUME` command; it goes through `launch.sh` when the walk was started by it.
 - A segment that ended non-zero is relaunched with `launch.sh` after the cause is understood; the deploy and the teardown resume from their own records (`--from <step>`, a second teardown).

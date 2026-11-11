@@ -787,6 +787,21 @@ class ArmsLogTests(ArmsBase):
                 self.arms(*args)
                 self.assertEqual(len(self.walk_logs()), 1)
 
+    def test_a_hand_walk_exits_only_once_its_log_copy_is_whole(self):
+        """run-arms waits for its own tees (leave). Under launch.sh the wrapper's wait for the segment's process group
+        covers that too; a walk run by hand has only its own wait. Its output goes nowhere here, so nothing but that wait
+        keeps the walk from exiting while a slow tee still copies its last lines."""
+        slow = self.t.write(".fake/slowbin/tee", SLOW_TEE, 0o755)
+        e = {"BENCH_RUN_ID": RUN, "RUN_ARMS_IDLE_SECS": "0", "RUN_ARMS_POOL_POLL_SECS": "1", "RUN_ARMS_POOL_WAIT_SECS": "2",
+             "RUN_ARMS_HEALTH_SECS": "20", "RUN_ARMS_READY_MAX_WAIT_SECS": "30",
+             "PATH": "%s:%s:%s" % (slow.parent, FIX / "bin", os.environ.get("PATH", "/usr/bin:/bin"))}
+        rc = subprocess.call(["bash", str(self.t.root / "benchmark/launch/run-arms.sh"), "--plan", self.plan("a0-control L\n")],
+                             cwd=str(self.t.root), env=self.t.env(**e), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             timeout=180)
+        self.assertEqual(rc, 0)
+        tags = [l for l in self.walk_logs()[0].read_text().splitlines() if l.startswith("ARMS_")]
+        self.assertRegex(tags[-1], r"^ARMS_DONE arms=1 blasts=1 ")
+
     def test_a_killed_walk_leaves_every_line_it_printed(self):
         self.t.scenario({"blast:run": [{"sleep": 60}]})
         e = {"BENCH_RUN_ID": RUN, "RUN_ARMS_IDLE_SECS": "0", "RUN_ARMS_POOL_POLL_SECS": "1", "RUN_ARMS_POOL_WAIT_SECS": "2",
@@ -842,6 +857,225 @@ class ArmsLaunchLogTests(LaunchBase):
         # results/ is ignored: the next launch's clean-tree check passes
         self.assertEqual(git(self.t.root, "status", "--porcelain", "--", "benchmark/", ":(exclude)benchmark/launch/bench5"), "")
         self.assertEqual(self.launch("--dry-run", self.envf, "reindex").returncode, 0)
+
+
+def group_gone(pgid):
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def after_another(test, text, patterns):
+    """Each pattern matches a line of text, each one later than the one before; the matches."""
+    lines, at, found = text.splitlines(), -1, []
+    for pat in patterns:
+        hits = [i for i, l in enumerate(lines) if i > at and re.search(pat, l)]
+        test.assertTrue(hits, "no line matching %r after line %d in:\n%s" % (pat, at, "\n".join(lines[-40:])))
+        at = hits[0]
+        found.append(lines[at])
+    return found
+
+
+class ArmsSignalTests(ArmsBase):
+    """H14a: a TERM (or INT) never leaves a fleet action running unobserved. A driver call that runs is left alone and
+    finishes; the walk prints ARMS_STOPPING at once and stops when the call returns (reason signal-TERM, the arm left
+    open, exit 143). A wait between calls ends at once. A second TERM changes nothing."""
+
+    ENV = {"BENCH_RUN_ID": RUN, "RUN_ARMS_IDLE_SECS": "0", "RUN_ARMS_POOL_POLL_SECS": "1", "RUN_ARMS_POOL_WAIT_SECS": "2",
+           "RUN_ARMS_HEALTH_SECS": "20", "RUN_ARMS_READY_MAX_WAIT_SECS": "300"}
+
+    def start(self, plan, **env):
+        e = dict(self.ENV)
+        e.update(env)
+        # INT as at a terminal, even when this suite runs as a background job (which starts with INT ignored)
+        proc = subprocess.Popen(["bash", str(self.t.root / "benchmark/launch/run-arms.sh"), "--plan", self.plan(plan)],
+                                cwd=str(self.t.root), env=self.t.env(**e), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, universal_newlines=True, start_new_session=True,
+                                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+        self.addCleanup(lambda: group_gone(proc.pid) or os.killpg(proc.pid, signal.SIGKILL))
+        return proc
+
+    def walk_log(self):
+        logs = sorted((self.t.root / "benchmark/results" / RUN / "logs").glob("run-arms-*.log"))
+        return logs[-1].read_text() if logs else ""
+
+    def until(self, pattern, secs=60.0):
+        self.assertTrue(wait_for(lambda: re.search(pattern, self.walk_log(), re.M), secs), self.walk_log()[-1500:])
+
+    def finish(self, proc, secs):
+        t0 = time.time()
+        try:
+            out = proc.communicate(timeout=secs)[0]
+        except subprocess.TimeoutExpired:
+            self.fail("the walk did not end within %d s of the signal:\n%s" % (secs, self.walk_log()[-1500:]))
+        return proc.returncode, out, time.time() - t0
+
+    def test_a_term_during_a_blast_lets_it_end_and_a_second_term_changes_nothing(self):
+        self.t.scenario({"blast:run": [{"sleep": 6, "rc": 1, "after": ["FAKE_RUN_END"]}]})
+        proc = self.start("p1-mdbx-advice M16 L\n")
+        run = wait_for(lambda: [c for c in self.t.calls() if c["key"] == "blast:run"], 60)
+        self.assertTrue(run, self.walk_log()[-1500:])
+        os.kill(proc.pid, signal.SIGTERM)
+        self.until(r"^ARMS_STOPPING ", 10)
+        os.kill(proc.pid, signal.SIGTERM)
+        self.until(r"TERM again", 10)
+        rc, out, _ = self.finish(proc, 60)
+        self.assertEqual(rc, 143, out)
+        idx = run[0]["env"]["BENCH_RUN_INDEX"]
+        found = after_another(self, out, [
+            r"^ARMS_STOPPING arm=p1-mdbx-advice step=1 signal=TERM after=blast-run-%s pid=%d \S+Z$" % (idx, run[0]["pid"]),
+            r"^  stopping after blast-run-%s \(pid %d\): it runs to its end, nothing new starts " % (idx, run[0]["pid"]),
+            r"^  run-arms: TERM again: it changes nothing; still stopping after blast-run-%s \(pid %d\)$" % (idx, run[0]["pid"]),
+            r"^FAKE_RUN_END$",
+            r"^ARMS_BLAST arm=p1-mdbx-advice step=1 kind=M16 index=%s attempt=1 fund_rc=0 run_rc=1 " % idx,
+            r"^ARMS_STEP arm=p1-mdbx-advice step=1 kind=M16 rc=1 ",
+            r"^ARMS_STOPPED arm=p1-mdbx-advice step=1 reason=signal-TERM \S+Z$"])
+        self.assertEqual(out.count("ARMS_STOPPING "), 1, out)
+        self.assertNotIn("ARMS_RETRY", out, "a failed blast is not tried again after a signal")
+        self.assertEqual(out.rstrip("\n").splitlines()[-1],
+                         "ARMS_RESUME BENCH_RUN_ID=%s benchmark/launch/run-arms.sh --plan tasks/test.plan --from-arm 0" % RUN)
+        # nothing started after the signal: no retry, no health check, no close (the arm stays open)
+        self.assertEqual(self.keys()[-2:], ["blast:fund", "blast:run"])
+        self.assertEqual(self.walk_log().count(found[-1]), 1)
+
+    def test_a_term_between_calls_stops_at_once(self):
+        cases = [  # name, plan, scenario, pools, env, the line to wait for, the tags at the end, calls after it
+            ("ready", "a0-control L\n", {"pa:arm-file": [{"ready_in": 120}]}, [0, 0, 0], {}, r"^ARMS_READY ",
+             ["ARMS_STOPPED arm=a0-control step=0 reason=signal-TERM"], ["pa:arm-file"]),
+            ("idle", "a0-control I L\n", {}, [0, 0, 0], {"RUN_ARMS_IDLE_SECS": "120"}, r"^REACHED params-apply.sh .*--mark idle-1",
+             ["ARMS_STEP arm=a0-control step=1 kind=I rc=143", "ARMS_STOPPED arm=a0-control step=1 reason=signal-TERM"],
+             ["pa:mark", "pa:end-mark"]),
+            ("pool", "p1-mdbx-advice M16\n", {}, [5000, 0, 0], {"RUN_ARMS_POOL_WAIT_SECS": "600", "RUN_ARMS_POOL_POLL_SECS": "60"},
+             r"^ARMS_POOL .* verdict=high ",
+             ["ARMS_BLAST arm=p1-mdbx-advice step=1 kind=M16 index=0 attempt=1 fund_rc=0 run_rc=-",
+              "ARMS_STEP arm=p1-mdbx-advice step=1 kind=M16 rc=143",
+              "ARMS_STOPPED arm=p1-mdbx-advice step=1 reason=signal-TERM"], ["blast:fund"]),
+        ]
+        for name, plan, scen, pools, env, mark, tags, last_calls in cases:
+            with self.subTest(wait=name):
+                self.reset()
+                self.t.scenario(scen)
+                self.t.curl(pools)
+                for f in (self.t.root / "benchmark/results" / RUN / "logs").glob("*.log"):
+                    f.unlink()
+                proc = self.start(plan, **env)
+                self.until(mark)
+                time.sleep(0.5)
+                os.kill(proc.pid, signal.SIGTERM)
+                rc, out, secs = self.finish(proc, 20)
+                self.assertEqual(rc, 143, out)
+                self.assertLess(secs, 15, "the wait did not end at once")
+                got = [UTC_RE.sub("", l).rstrip() for l in out.splitlines() if l.startswith("ARMS_")]
+                self.assertRegex(got[-len(tags) - 2], r"^ARMS_STOPPING arm=\S+ step=\d signal=TERM after=(none|mark-idle-1) pid=")
+                self.assertEqual(got[-len(tags) - 1:-1], tags)
+                self.assertEqual(got[-1], "ARMS_RESUME BENCH_RUN_ID=%s benchmark/launch/run-arms.sh --plan tasks/test.plan "
+                                          "--from-arm 0" % RUN)
+                self.assertEqual(self.keys()[-len(last_calls):], last_calls)
+                self.assertTrue(wait_for(lambda: group_gone(proc.pid), 5), "a sleep of the walk outlived it")
+
+    def test_an_apply_runs_to_its_end_and_its_own_stop_keeps_its_reason(self):
+        self.t.scenario({"pa:arm-file": [{"sleep": 4, "rc": 1, "out": ["PA_FAIL bench-validator-01 readback"],
+                                          "after": ["FAKE_APPLY_END"]}]})
+        proc = self.start("a0-control L\n")
+        apply = wait_for(lambda: [c for c in self.t.calls() if c["key"] == "pa:arm-file"], 60)
+        self.assertTrue(apply, self.walk_log()[-1500:])
+        os.kill(proc.pid, signal.SIGTERM)
+        rc, out, _ = self.finish(proc, 60)
+        self.assertEqual(rc, 143, "a stop after a signal exits 128 + its number, whatever its reason:\n" + out)
+        after_another(self, out, [
+            r"^ARMS_STOPPING arm=a0-control step=0 signal=TERM after=apply-a0-control pid=%d " % apply[0]["pid"],
+            r"^FAKE_APPLY_END$", r"^ARMS_STEP arm=a0-control step=0 kind=apply rc=1 ",
+            r"^ARMS_STOPPED arm=a0-control step=0 reason=node-failed-bench-validator-01 "])
+        self.assertEqual(self.keys(), ["pa:print-state", "pa:arm-file"])
+
+    def test_an_int_on_a_hand_run_does_the_same(self):
+        self.t.scenario({"pa:arm-file": [{"ready_in": 120}]})
+        proc = self.start("a0-control L\n")
+        self.until(r"^ARMS_READY ")
+        os.kill(proc.pid, signal.SIGINT)
+        rc, out, _ = self.finish(proc, 20)
+        self.assertEqual(rc, 130, out)
+        self.assertRegex(out, r"(?m)^ARMS_STOPPED arm=a0-control step=0 reason=signal-INT ")
+
+
+class LaunchSignalTests(LaunchBase):
+    """H14a through launch.sh: the rc line is written once nothing of the segment runs. A TERM to the arms segment
+    lets the running blast end, `status` says what the walk is stopping after, and the rc line follows the driver's
+    last line. Any other segment's driver gets the TERM as before. A process that outlives its driver holds the rc
+    line back, and one still running after LAUNCH_LEFT_WAIT_SECS is named instead of an end."""
+
+    def test_a_term_to_the_arms_segment_lets_the_blast_end(self):
+        self.t.write("tasks/one.plan", "p1-mdbx-advice M16 L\n")
+        self.t.scenario({"blast:run": [{"sleep": 8, "after": ["FAKE_RUN_END"]}]})
+        pid, log = self.started(self.launch(self.envf, "arms", "--plan", "tasks/one.plan"))
+        run = wait_for(lambda: [c for c in self.t.calls() if c["key"] == "blast:run"], 60)
+        self.assertTrue(run, log.read_text()[-1500:])
+        os.kill(pid, signal.SIGTERM)
+        self.assertTrue(wait_for(lambda: "ARMS_STOPPING " in log.read_text(), 10), log.read_text()[-1500:])
+        idx, dpid = run[0]["env"]["BENCH_RUN_INDEX"], run[0]["pid"]
+        self.assertRegex(self.launch(self.envf, "status").stdout,
+                         r"(?m)^SEGMENT arms-\S+ pid=%d state=stopping after blast-run-%s \(pid %d\) last: " % (pid, idx, dpid))
+        rc_line = self.the_rc_line(log, "arms", 60)
+        self.assertRegex(rc_line, r"^== arms rc=143 \S+Z$")
+        text = log.read_text()
+        self.assertEqual(text.splitlines()[-1], rc_line)
+        after_another(self, text, [
+            r"^== arms signal TERM \S+Z: passed to pid \d+; the rc line follows once nothing of the segment runs$",
+            r"^ARMS_STOPPING arm=p1-mdbx-advice step=1 signal=TERM after=blast-run-%s pid=%d " % (idx, dpid),
+            r"^FAKE_RUN_END$",
+            r"^ARMS_BLAST arm=p1-mdbx-advice step=1 kind=M16 index=%s attempt=1 fund_rc=0 run_rc=0 " % idx,
+            r"^ARMS_STOPPED arm=p1-mdbx-advice step=1 reason=signal-TERM ",
+            r"^ARMS_RESUME benchmark/launch/launch.sh tasks/test.env arms --plan tasks/one.plan --from-arm 0 --from-step 2$",
+            r"^== arms driver pid=\d+ exit=143 after TERM \S+Z$"])
+        # the walk's own log holds the stop too; nothing ran after the blast (no health check, no close)
+        copy = sorted((self.t.root / "benchmark/results" / RUN / "logs").glob("run-arms-arms-*.log"))[0].read_text()
+        after_another(self, copy, [r"^ARMS_STOPPING ", r"^FAKE_RUN_END$", r"^ARMS_STOPPED .* reason=signal-TERM ", r"^ARMS_RESUME "])
+        self.assertEqual([c["key"] for c in self.t.calls()][-2:], ["blast:fund", "blast:run"])
+        self.assertEqual([c["key"] for c in self.t.calls()].count("blast:status"), 1)
+        self.assertTrue(wait_for(lambda: "state=ended last: == arms rc=143 " in self.launch(self.envf, "status").stdout, 10))
+
+    def test_a_term_to_another_segment_reaches_its_driver_as_before(self):
+        self.t.scenario({"benchmark-deploy.sh": [{"sleep": 30, "on_term": 3}]})
+        pid, log = self.started(self.launch(self.envf, "step15"))
+        child = wait_for(lambda: self.t.calls())[0]["pid"]
+        os.kill(pid, signal.SIGTERM)
+        self.assertTrue(wait_for(lambda: "FAKE_TERM_CLEANUP" in log.read_text(), 10), log.read_text())
+        self.assertRegex(self.launch(self.envf, "status").stdout,
+                         r"(?m)^SEGMENT step15-\S+ pid=%d state=stopping after the driver \(pid %d\) last: " % (pid, child))
+        rc_line = self.the_rc_line(log, "step15")
+        self.assertRegex(rc_line, r"^== step15 rc=143 ")
+        lines = log.read_text().splitlines()
+        self.assertEqual(lines[-1], rc_line)
+        after_another(self, "\n".join(lines), [r"^== step15 signal TERM \S+Z: passed to pid %d; " % child, r"^FAKE_TERM_CLEANUP$",
+                                               r"^== step15 driver pid=%d exit=143 after TERM \S+Z$" % child])
+
+    def test_a_process_that_outlives_the_driver_holds_the_rc_line_back(self):
+        self.t.scenario({"benchmark-deploy.sh": [{"spawn": 3}]})
+        pid, log = self.started(self.launch(self.envf, "deploy12", LAUNCH_LEFT_WAIT_SECS="60"))
+        rc_line = self.the_rc_line(log, "deploy12", 30)
+        text = log.read_text()
+        m = re.search(r"(?m)^== deploy12 waiting up to 60 s for what is left of the segment:\n     (\d+) sleep 3$", text)
+        self.assertTrue(m, text)
+        self.assertRaises(OSError, os.kill, int(m.group(1)), 0)
+        self.assertEqual(text.splitlines()[-1], rc_line)
+        self.assertRegex(rc_line, r"^== deploy12 rc=0 ")
+
+    def test_a_process_left_running_is_named_instead_of_an_end(self):
+        self.t.scenario({"benchmark-teardown.sh": [{"spawn": 60}]})
+        pid, log = self.started(self.launch(self.envf, "reindex", LAUNCH_LEFT_WAIT_SECS="1"))
+        self.assertTrue(wait_for(lambda: " LEFT_RUNNING " in log.read_text(), 30), log.read_text())
+        lines = log.read_text().splitlines()
+        m = re.match(r"^== reindex LEFT_RUNNING exit=0 pids=(\d+) \S+Z$", lines[-1])
+        self.assertTrue(m, lines[-3:])
+        self.assertEqual(lines[-2], "     %s sleep 60" % m.group(1))
+        os.kill(int(m.group(1)), 0)                      # still running: the log does not claim an end
+        self.assertFalse(self.rc_line(log, "reindex", 0.5))
+        self.assertTrue(wait_for(lambda: "state=left running (%s) last: == reindex LEFT_RUNNING " % m.group(1)
+                                 in self.launch(self.envf, "status").stdout, 10))
 
 
 class EnvAndPlanTests(unittest.TestCase):
