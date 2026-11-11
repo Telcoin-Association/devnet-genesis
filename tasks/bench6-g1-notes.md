@@ -913,3 +913,18 @@ silently, so this was checked). One epochs test starts its nodes directly and do
 - D80. The doubled cap is shared, not reserved for in-flight transactions, and applies to every worker pool of a switched-on
   node. The presence skip has no counter. L2-L4 stay on the upstream list.
 - These six commits have NOT been through the topic review: a short re-review is launched before the image is cut.
+
+## From H15 and H16 (what a run keeps, and how the summary counts; `tasks/checkpoint-bench6-H15.md`, `…-H16.md`)
+- The run's metrics snapshot now collects the bench-6 node series and reth's transaction-pool series (a new kind keeps a
+  counter's exact cumulative points, so an increase can be read for any arm window). The cap-crossing signal is
+  `reth_transaction_pool_pending_transactions_evicted`. **Bench 5 already peaked at 9,741 pending transactions against reth's
+  10,000 cap** — close enough that some of bench 5's losses may have been pool evictions rather than the sealed-transaction
+  cliff alone (to check in bench 5's own snapshot if it kept the eviction counter; it did not collect it).
+- The prefilter keeps every new line a tool reads. The parent-grace author fields already reach the pulled logs with
+  today's node log filter; `worker::batch_builder` debug lines do not (not needed for a verdict).
+- A node writes an apostrophe as `\'` in its logs: two contract messages with apostrophes never match verbatim. No tool
+  matches such a message (a test guards it); the prefilter uses an apostrophe-free substring for the final-state halt.
+- The summary's counter rule now survives a node restart and a counter created inside the window; the recovery-pool arm
+  is labelled by `pool=dedicated` on the node's own lines. D81: a counter with NO series in the snapshot reads n/a, not 0
+  (an arm with the bound on and zero refusals shows n/a; the generator's `pool_full` count is the cross-check). Kept: 0
+  would also hide an image that does not export the counter.
