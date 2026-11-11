@@ -50,6 +50,12 @@ BASE_ENV = {"TN_IAP_RETRIES": "0", "TN_IAP_RETRY_SECS": "0"}
 PER_NODE_FRESH = ("ext-ip", "int-ip", "keygen", "stage", "scp")
 REPORT_RE = re.compile(r"^KEYGEN_DONE (\S+) rc=(\d+) secs=(\d+) reused=([01]) rpc_http=(\S+) rpc_ws=(\S+)$")
 RUNLOG_RE = re.compile(r"/logs/[0-9]{8}_[0-9]{6}-keygen")
+# The two waits on background keygen runs are wall-clock budgets: a loaded host stretches them, so the gate
+# (benchmark/tests/gate.sh) scales them with BENCH_TEST_TIMEOUT_SCALE (3 there; unset or invalid: 1).
+try:
+    TIMEOUT_SCALE = max(1.0, float(os.environ.get("BENCH_TEST_TIMEOUT_SCALE") or 1))
+except ValueError:
+    TIMEOUT_SCALE = 1.0
 
 
 def keyed(i, address=None, installed=False, info=True, rpc_http=None, rpc_ws=None):
@@ -176,7 +182,7 @@ class Sandbox(object):
                                 stdout=self._out, stderr=self._err)
 
     def finish(self, proc, timeout=60):
-        rc = proc.wait(timeout=timeout)
+        rc = proc.wait(timeout=timeout * TIMEOUT_SCALE)
         self._out.close()
         self._err.close()
         self.last = subprocess.CompletedProcess(proc.args, rc, (self.root / "run.out").read_text(),
@@ -185,13 +191,14 @@ class Sandbox(object):
 
     def wait_held(self, insts, timeout=60):
         """{inst: pid} of the fake keygen sessions keygen_wait_for holds, once all of <insts> are held."""
-        deadline = time.time() + timeout
+        deadline = time.time() + timeout * TIMEOUT_SCALE
         while True:
             files = {inst: self.sb / "held" / (inst + ".pid") for inst in insts}
             if all(f.exists() for f in files.values()):
                 return {inst: int(f.read_text()) for inst, f in files.items()}
             if time.time() > deadline:
-                raise AssertionError("keygen sessions not held within %ss: %s" % (timeout, sorted(files)))
+                raise AssertionError("keygen sessions not held within %ss: %s"
+                                     % (timeout * TIMEOUT_SCALE, sorted(files)))
             time.sleep(0.05)
 
     def leftovers(self):

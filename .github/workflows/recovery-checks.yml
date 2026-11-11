@@ -16,13 +16,18 @@ jobs:
   recovery:
     runs-on: ubuntu-latest
     # Bench 5, locally: 951 unit tests in 44 min on a loaded host, the 74 mutation checks in 8 min.
-    timeout-minutes: 75
+    # Bench 6, locally: about 1,400 unit tests and 311 mutation checks (the checks about 23 min one at a time
+    # on a busy host; two at a time here).
+    timeout-minutes: 120
     env:
       BENCH_SHELL_SCRIPTS: >-
         benchmark/recovery-lib.sh benchmark/benchmark-blast.sh benchmark/node-sampler.sh
         benchmark/benchmark-teardown.sh benchmark/bench-lib.sh benchmark/pull-lib.sh benchmark/obs-lib.sh
         benchmark/benchmark-deploy.sh benchmark/config.sh benchmark/benchmark-firewall.sh benchmark/blaster-startup.sh
         benchmark/tools/latency-probe.sh benchmark/tools/params-apply.sh
+        benchmark/benchmark-probe.sh benchmark/node-persist-sampler.sh benchmark/tools/archive-run.sh
+        benchmark/tools/build-probe-bin.sh benchmark/launch/launch.sh benchmark/launch/run-arms.sh
+        benchmark/tests/gate.sh
         devnet-finalize.sh devnet-network-config.sh devnet-lib.sh devnet-keygen.sh devnet-log-filter.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +64,11 @@ jobs:
           find benchmark/tests/fixtures -name '*.py' -exec env PYTHONPYCACHEPREFIX="${RUNNER_TEMP}/pycache" python3 -m py_compile {} +
           python3 -c "import ast,glob,sys; [ast.parse(open(f).read(), f, feature_version=(3,9)) for f in glob.glob('benchmark/*.py')+glob.glob('benchmark/report/*.py')+glob.glob('benchmark/tests/*.py')+glob.glob('benchmark/tools/*.py')+glob.glob('benchmark/tests/fixtures/**/*.py', recursive=True)+['devnet-network-config.py']]"
       - name: Unit tests (offline fixtures)
+        # The timing budgets of the load-sensitive tests are scaled as the local gate (tests/gate.sh) scales them.
+        env:
+          BENCH_TEST_TIMEOUT_SCALE: "3"
         run: python3 -m unittest discover -s benchmark/tests -v
       - name: Mutation checks
-        run: python3 benchmark/tests/check_mutations.py
+        env:
+          BENCH_TEST_TIMEOUT_SCALE: "3"
+        run: python3 benchmark/tests/check_mutations.py --jobs 2
