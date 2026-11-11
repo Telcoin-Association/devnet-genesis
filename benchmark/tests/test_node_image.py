@@ -2916,11 +2916,17 @@ echo "RC2=${rc}"
 '''
 
 
+def blast_bounds():
+    """benchmark-blast.sh's create bounds (its top-level CREATE_*= lines), which create_vm reads."""
+    return "".join(line + "\n" for line in (BENCH / "benchmark-blast.sh").read_text().splitlines()
+                   if line.startswith("CREATE_"))
+
+
 class BlasterFallbackTests(FakeGcloudCase):
     """benchmark-blast.sh create_vm: a stockout retries the same blaster on the next type."""
 
     def blast(self, **env):
-        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm", "blasters_json")
+        fns = blast_bounds() + shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm", "blasters_json")
         files = self.root / "blast-files"
         files.mkdir(exist_ok=True)
         p = self.bash(BLAST, self.bench, fns, files, **env)
@@ -2975,7 +2981,7 @@ class BlasterFallbackTests(FakeGcloudCase):
         self.assertEqual(self.meta("bench-blaster-02"), "n2d-standard-2")
 
     def test_dry_run_prints_the_first_type_and_the_fallback(self):
-        fns = shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm")
+        fns = blast_bounds() + shell_functions(BENCH / "benchmark-blast.sh", "is_stockout", "create_vm")
         script = BLAST.split("BENCH_APPLY=1")[0] + ("BENCH_APPLY=0\nSTARTUP=s DEPLOYMENTS_FILE=d BENCH_TXGEN_CONFIG=c\n"
                                                     "create_vm bench-blaster-03 australia-southeast1-c blast u 600 1200 1\n")
         p = self.bash(script, self.bench, fns, self.root)
@@ -2983,7 +2989,7 @@ class BlasterFallbackTests(FakeGcloudCase):
         self.assertEqual(self.calls(), [])
         argv = [l for l in p.stdout.splitlines() if l.startswith("    + perl -e")]
         self.assertEqual(len(argv), 1, p.stdout)
-        self.assertIn(" 600 gcloud compute instances create bench-blaster-03 ", argv[0])
+        self.assertIn(" 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-blaster-03 ", argv[0])
         self.assertIn(" --zone=australia-southeast1-c --machine-type=e2-standard-2 ", argv[0])
         self.assertIn(" --boot-disk-size=20GB --boot-disk-type=pd-balanced ", argv[0])
         self.assertIn("on a zone stockout: the same create with --machine-type=n2-standard-2 n2d-standard-2 (in turn)",

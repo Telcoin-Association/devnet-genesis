@@ -1,0 +1,2 @@
+ERROR: (gcloud.compute.instances.create) Could not fetch resource:
+ - Quota 'CPUS' exceeded.  Limit: 24.0 in region europe-west4.

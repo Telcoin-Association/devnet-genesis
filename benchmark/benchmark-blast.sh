@@ -171,15 +171,59 @@ preflight() {
     fi
 }
 
-# node_url <idx> — "<instance>=http://<internal-ip>:8545" (placeholder when absent, dry run).
+# Internal IP per node index, filled once before the blasters' creates (resolve_node_urls).
+NODE_IP=()
+
+# node_url <idx> — "<instance>=http://<internal-ip>:8545" (placeholder when absent, dry run): the IP
+# resolve_node_urls found, else a describe of the node (fund).
 node_url() {
-    local ip; ip="$(tn_node_int_ip "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}" 2>/dev/null || true)"
+    local ip="${NODE_IP[$1]:-}"
+    [ -n "${ip}" ] || ip="$(tn_node_int_ip "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}" 2>/dev/null || true)"
     if [ -z "${ip}" ]; then
         [ "${BENCH_APPLY}" = "1" ] && bench_die "${INSTANCE_NAMES[$1]} has no internal IP — is the fleet up?"
         ip="<internal-ip-of-${INSTANCE_NAMES[$1]}>"
     fi
     printf '%s=http://%s:8545' "${INSTANCE_NAMES[$1]}" "${ip}"
 }
+
+# resolve_node_urls — NODE_IP[k] of every validator k, once, before the blasters are created: the
+# internal IPs deploy step 2 recorded in manifest.instances[], else ONE `gcloud compute instances list`
+# for the nodes the manifest lacks (its stderr kept). Bench 5 described each node inside the create
+# loop with stderr discarded, and one slow describe started three blasters after start_at (D48).
+# A node left without an IP stops the run (--yes) before anything is recorded or created; a dry run
+# gets the placeholder.
+resolve_node_urls() {
+    local k ip missing="" names="" listed=""
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        ip="$(jq -r --arg n "${INSTANCE_NAMES[$k]}" --arg z "${ZONES[$k]}" \
+            'first((.instances // [])[] | select(.name == $n and .zone == $z) | .internal_ip // empty)' \
+            "$(bench_manifest)" 2>/dev/null)" || ip=""
+        NODE_IP[k]="${ip}"
+        [ -n "${ip}" ] || { missing="${missing} ${k}"; names="${names:+${names} }${INSTANCE_NAMES[$k]}"; }
+    done
+    [ -n "${missing}" ] || return 0
+    listed="$(perl -e 'alarm shift; exec @ARGV' "${CREATE_ALARM_SECS}" env CLOUDSDK_CORE_HTTP_TIMEOUT="${CREATE_HTTP_TIMEOUT_SECS}" \
+        gcloud compute instances list --project="${PROJECT_ID}" --filter="name=(${names})" --format=json </dev/null)" || listed=""
+    for k in ${missing}; do
+        ip="$(printf '%s' "${listed}" | jq -r --arg n "${INSTANCE_NAMES[$k]}" --arg z "${ZONES[$k]}" \
+            'first(.[]? | select(.name == $n and ((.zone // "") | split("/") | last) == $z) | .networkInterfaces[0].networkIP // empty)' \
+            2>/dev/null)" || ip=""
+        if [ -z "${ip}" ]; then
+            [ "${BENCH_APPLY}" = "1" ] && bench_die "${INSTANCE_NAMES[$k]} has no internal IP — is the fleet up?"
+            ip="<internal-ip-of-${INSTANCE_NAMES[$k]}>"
+        fi
+        NODE_IP[k]="${ip}"
+    done
+}
+
+# Bounds of a load VM's create (D36). Each create call: gcloud's HTTP read timeout
+# CREATE_HTTP_TIMEOUT_SECS (CLOUDSDK_CORE_HTTP_TIMEOUT; gcloud's own default is 300 s, which bench 5
+# hit) under a CREATE_ALARM_SECS alarm. After a call that failed with anything but a stockout, the
+# instance is described (CREATE_DESCRIBE_ALARM_SECS) before anything else is decided. A blaster's
+# create must be known by start_at - CREATE_LATE_LEAD_SECS (the late-start guard, create_blasters);
+# start_at is at least CREATE_WORST_SECS ahead, so a create that needs its one retry still fits.
+CREATE_ALARM_SECS=90; CREATE_HTTP_TIMEOUT_SECS=60; CREATE_DESCRIBE_ALARM_SECS=60; CREATE_LATE_LEAD_SECS=30
+CREATE_WORST_SECS=$(( 2 * CREATE_ALARM_SECS + 60 ))
 
 # is_stockout <gcloud output> — 0 when a create failed because the zone has run out of the machine
 # type (code ZONE_RESOURCE_POOL_EXHAUSTED[_WITH_DETAILS], reason: stockout). gcloud wraps its YAML
@@ -191,11 +235,18 @@ is_stockout() {
     return 1
 }
 
-# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> — one COS load VM on
-# the first BENCH_BLASTER_MACHINE_TYPES type the zone has in stock: a create that fails on a stockout
-# is retried at once with the next type, and the substitution is logged. The type used is written
-# to meta/<name>/MACHINE_TYPE (manifest blasters[].machine_type). Any other failure returns the
-# create's status (142: no answer within 600 s).
+# create_vm <name> <zone> <mode> <node-urls> <senders> <sender-start> <start-at> [<deadline>] — one COS
+# load VM on the first BENCH_BLASTER_MACHINE_TYPES type the zone has in stock: a create that fails on
+# a stockout is retried at once with the next type, and the substitution is logged. Any other failed
+# call is followed by a describe: a call that crashed or timed out has often created the instance
+# anyway (bench 5, D36). An instance that exists counts as created, on the type the describe reports.
+# Otherwise a transport fault (gcloud crashed, ReadTimeout, ConnectionError, or rc 142 from the alarm)
+# gets one more call, once per VM, and anything else fails. Bounds: CREATE_ALARM_SECS per create call
+# (gcloud's HTTP timeout CREATE_HTTP_TIMEOUT_SECS inside it), CREATE_DESCRIBE_ALARM_SECS per describe;
+# with <deadline> (unix) no call starts after it and none outlasts it (status late). The type used is
+# written to meta/<name>/MACHINE_TYPE (manifest blasters[].machine_type) and the outcome to
+# meta/<name>/CREATE: "<ok|failed|late> <end-unix> <seconds from the first call> <create calls> <rc>".
+# Returns 0 once created, else the last call's status (142: the alarm).
 create_vm() {
     local name="$1" zone="$2" mode="$3" urls="$4" senders="$5" start="$6" at="$7" mdir
     bench_assert_bench_name "instance" "${name}"
@@ -222,47 +273,105 @@ create_vm() {
         --labels="${BENCH_LABELS},tn-role=blaster"
         --metadata-from-file="${files}"
         --metadata="${meta}")
-    local t out rc=0 tried="" first="${BENCH_BLASTER_MACHINE_TYPES%% *}"
+    local t out rc=0 tried="" first="${BENCH_BLASTER_MACHINE_TYPES%% *}" deadline="${8:-}"
+    local status="" began end attempts=0 retried=0 transient bound left found drc dout
     if [ "${BENCH_APPLY}" != "1" ]; then
-        bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${first}" "${post[@]}"
+        bench_run perl -e 'alarm shift; exec @ARGV' "${CREATE_ALARM_SECS}" env CLOUDSDK_CORE_HTTP_TIMEOUT="${CREATE_HTTP_TIMEOUT_SECS}" \
+            gcloud "${pre[@]}" --machine-type="${first}" "${post[@]}"
         [ "${BENCH_BLASTER_MACHINE_TYPES}" = "${first}" ] \
             || echo "      on a zone stockout: the same create with --machine-type=${BENCH_BLASTER_MACHINE_TYPES#* } (in turn)"
         return 0
     fi
+    began="$(bench_now_unix)"
     for t in ${BENCH_BLASTER_MACHINE_TYPES}; do
-        rc=0
-        out="$(bench_run perl -e 'alarm shift; exec @ARGV' 600 gcloud "${pre[@]}" --machine-type="${t}" "${post[@]}" </dev/null 2>&1)" || rc=$?
-        printf '%s\n' "${out}"
-        if [ "${rc}" -eq 0 ]; then
-            printf '%s\n' "${t}" > "${mdir}/MACHINE_TYPE"
-            [ -z "${tried}" ] || bench_warn "${name}: created on ${t} in ${zone} after a stockout of${tried}"
-            return 0
-        fi
-        is_stockout "${out}" || return "${rc}"
+        while :; do
+            bound="${CREATE_ALARM_SECS}"
+            if [ -n "${deadline}" ]; then
+                left=$(( deadline - $(bench_now_unix) ))
+                if [ "${left}" -le 0 ]; then status=late; rc=142; break 2; fi
+                [ "${left}" -ge "${bound}" ] || bound="${left}"
+            fi
+            attempts=$((attempts + 1)); rc=0
+            [ "${BENCH_APPLY}" = "1" ] || return 0
+            out="$(bench_run perl -e 'alarm shift; exec @ARGV' "${bound}" env CLOUDSDK_CORE_HTTP_TIMEOUT="${CREATE_HTTP_TIMEOUT_SECS}" \
+                gcloud "${pre[@]}" --machine-type="${t}" "${post[@]}" </dev/null 2>&1)" || rc=$?
+            printf '%s\n' "${out}"
+            if [ "${rc}" -eq 0 ]; then
+                printf '%s\n' "${t}" > "${mdir}/MACHINE_TYPE"; status=ok
+                [ -z "${tried}" ] || bench_warn "${name}: created on ${t} in ${zone} after a stockout of${tried}"
+                break 2
+            fi
+            if is_stockout "${out}"; then status=stockout; break; fi
+            # Any other failure: the API has often created the instance although the call crashed or
+            # timed out. The describe's stderr stays in this create's output.
+            bound="${CREATE_DESCRIBE_ALARM_SECS}"; found=""
+            if [ -n "${deadline}" ]; then
+                left=$(( deadline - $(bench_now_unix) ))
+                [ "${left}" -ge "${bound}" ] || bound="${left}"
+            fi
+            if [ "${bound}" -gt 0 ]; then
+                drc=0
+                dout="$(perl -e 'alarm shift; exec @ARGV' "${bound}" gcloud compute instances describe "${name}" --zone="${zone}" \
+                    --project="${PROJECT_ID}" --format=json </dev/null)" || drc=$?
+                [ "${drc}" -ne 0 ] || found="$(printf '%s' "${dout}" | jq -r --arg n "${name}" --arg t "${t}" \
+                    'select(type == "object" and .name == $n) | (.machineType // $t) | split("/") | last' 2>/dev/null)" || found=""
+            fi
+            if [ -n "${found}" ]; then
+                printf '%s\n' "${found}" > "${mdir}/MACHINE_TYPE"; status=ok
+                bench_warn "${name}: create call ${attempts} ended rc ${rc}, but the instance exists (${found}): counted as created"
+                rc=0; break 2
+            fi
+            transient=0
+            case "${rc}:${out}" in 142:*|*"gcloud crashed"*|*ReadTimeout*|*ConnectionError*) transient=1 ;; esac
+            if [ "${transient}" -eq 1 ] && [ "${retried}" -eq 0 ]; then
+                retried=1
+                bench_warn "${name}: create call ${attempts} failed (rc ${rc}) and the instance does not exist: one more try"
+                continue
+            fi
+            status=failed; break 2
+        done
         tried="${tried} ${t}"
         bench_warn "${name}: ${t} is out of stock in ${zone} (stockout); trying the next blaster type"
     done
-    bench_warn "${name}: every blaster type is out of stock in ${zone} (${BENCH_BLASTER_MACHINE_TYPES})"
+    if [ "${status}" = stockout ]; then
+        status=failed
+        bench_warn "${name}: every blaster type is out of stock in ${zone} (${BENCH_BLASTER_MACHINE_TYPES})"
+    fi
+    end="$(bench_now_unix)"
+    printf '%s %s %s %s %s\n' "${status}" "${end}" "$(( end - began ))" "${attempts}" "${rc}" > "${mdir}/CREATE"
     return "${rc}"
 }
 
-# blasters_json — manifest .blasters: one entry per blaster; machine_type is the type its create used
-# (meta/<name>/MACHINE_TYPE from create_vm; null when that file is missing).
+# blasters_json [<k>] — manifest .blasters: one entry per blaster; machine_type is the type its create used
+# (meta/<name>/MACHINE_TYPE from create_vm; null when that file is missing); created_at, create_secs and
+# attempts once its create succeeded (meta/<name>/CREATE). With <k>: blaster k alone, its instance_id
+# not looked up yet (""), the entry create_blasters records as soon as that create is known.
 blasters_json() {
-    local bl="[]" k name id mt
-    for k in $(seq 0 $((VAL_COUNT - 1))); do
+    local bl="[]" k name id mt st end secs calls
+    for k in $(if [ $# -gt 0 ]; then echo "$1"; else seq 0 $((VAL_COUNT - 1)); fi); do
         name="$(blaster_name "$k")"
-        id="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" \
+        id=""
+        [ $# -gt 0 ] || id="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute instances describe "${name}" --zone="${ZONES[$k]}" \
             --project="${PROJECT_ID}" --format='value(id)' </dev/null 2>/dev/null || true)"
         mt="$(cat "${BENCH_RESULTS_DIR}/meta/${name}/MACHINE_TYPE" 2>/dev/null || true)"
+        st=""; end=""; secs=""; calls=""
+        [ ! -f "${BENCH_RESULTS_DIR}/meta/${name}/CREATE" ] || read -r st end secs calls _ < "${BENCH_RESULTS_DIR}/meta/${name}/CREATE" || true
+        [ "${st}" = ok ] || end=""
         bl="$(printf '%s' "${bl}" | jq --arg n "${name}" --arg z "${ZONES[$k]}" --arg id "${id}" --arg t "${INSTANCE_NAMES[$k]}" \
             --arg u "$(sed 's/^[^=]*=//' "${BENCH_RESULTS_DIR}/meta/${name}/NODE_URLS")" --arg mt "${mt}" \
             --arg s "$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))" --arg c "${BENCH_SENDERS}" \
+            --arg ca "${end:+$(bench_iso_from_unix "${end}")}" --arg cs "${secs}" --arg ac "${calls}" \
             '. + [{name:$n, zone:$z, machine_type:(if $mt == "" then null else $mt end), instance_id:$id, target:$t, node_url:$u,
-                   sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}]')"
+                   sender_start:($s|tonumber), senders:($c|tonumber), result:("blasters/" + $n + ".json"), rc:null}
+                  + (if $ca == "" then {} else {created_at:$ca, create_secs:($cs|tonumber), attempts:($ac|tonumber)} end)]')"
     done
     printf '%s' "${bl}"
 }
+
+# blaster_created <k> — 0 when blaster k's create succeeded (meta/<name>/MACHINE_TYPE, written only
+# then). The exit cleanup stops and waits for these alone: a blaster that was never created has no
+# container to stop and sends no done marker (bench 5 waited 5m36s for one, D36).
+blaster_created() { [ -f "${BENCH_RESULTS_DIR}/meta/$(blaster_name "$1")/MACHINE_TYPE" ]; }
 
 # assert_load_vm <name> <zone> — created VM carries tag bench-blaster + label benchmark=1.
 assert_load_vm() {
@@ -410,14 +519,17 @@ blast_items_in() {
 }
 
 # prev_attempt_unsent — 0 when the blast in the live manifest used this BENCH_RUN_INDEX but none of
-# its senders can have sent: its run exited (the EXIT trap recorded .abort "interrupted") and
-# .blast.start_at, the BENCH_START_AT its blasters sleep until, is still more than 60 s away (clock
-# skew). do_run has already checked that no bench-blaster VM exists, so none can start later.
-# Once that time has passed, a blaster left running (--keep, a failed delete) may have sent
-# before someone deleted it, and the manifest records nothing that rules it out.
+# its senders can have sent: its run exited (the EXIT trap recorded .abort "interrupted", or a create
+# stopped it: "create_failed", "late_create") and .blast.start_at, the BENCH_START_AT its blasters
+# sleep until, is still more than 60 s away (clock skew). do_run has already checked that no
+# bench-blaster VM exists, so none can start later. Once that time has passed, a blaster left running
+# (--keep, a failed delete) may have sent before someone deleted it; only a create stop that recorded
+# .abort.unsent (every blaster deleted before start_at) rules that out.
 prev_attempt_unsent() {
     jq -e --arg i "${BENCH_RUN_INDEX}" --arg t "$(bench_iso_from_unix "$(( $(bench_now_unix) + 60 ))")" \
-        '.blast.run_index == ($i|tonumber) and .abort.reason == "interrupted" and (.blast.start_at // "") > $t' \
+        '.blast.run_index == ($i|tonumber)
+         and (.abort.reason == "interrupted" or .abort.reason == "create_failed" or .abort.reason == "late_create")
+         and ((.blast.start_at // "") > $t or (.abort.reason != "interrupted" and .abort.unsent == true))' \
         "$(bench_manifest)" >/dev/null 2>&1
 }
 
@@ -581,13 +693,17 @@ STATUS_SEEN=()    # per node index: ts of the newest BENCH_STATUS sample already
 POLL_SAMPLES=""   # "<ts> <block>" of every node's BENCH_STATUS samples since the last poll
 FLAT_BLOCK=""; FLAT_SINCE=0; FLAT_UNTIL=0; FLAT_STATE=""; FLAT_ROUND=""; FLAT_ROUNDS_UP=""   # commit_flat_check
 STALL_WIN_START=0; STALL_MIXED_END=0   # planned mixed start and end
+# Why the EXIT trap runs, when a blaster create stopped the run (create_blasters): create_failed or
+# late_create, the blaster, and the first ERROR: line or the lateness. Unset, it records interrupted/operator.
+ABORT_REASON=""; ABORT_NODE=""; ABORT_DETAIL=""
+CREATE_PIDS=()    # per blaster index: the pid of its background create (create_blasters)
 
-record_abort() { # <reason> <node> <detail>
+record_abort() { # <reason> <node> <detail> [<unsent: true|false>]
     [ -n "${ABORTED}" ] && return 0
     ABORTED="$1"
-    echo "❌❌ ABORT: $1 node=$2 — $3" >&2
-    bench_manifest_jq --arg ts "$(bench_now_iso)" --arg r "$1" --arg n "$2" --arg d "$3" \
-        '.abort = {ts: $ts, reason: $r, node: $n, detail: $d}' || true
+    echo "❌❌ ABORT: $1 node=$2 — $3${4:+ (unsent=$4)}" >&2
+    bench_manifest_jq --arg ts "$(bench_now_iso)" --arg r "$1" --arg n "$2" --arg d "$3" --arg u "${4:-}" \
+        '.abort = {ts: $ts, reason: $r, node: $n, detail: $d} + (if $u == "" then {} else {unsent: ($u == "true")} end)' || true
 }
 
 # chaos_mark <BEGIN|END> <remote-output> — the node-side unix time (ms) on the action's
@@ -843,14 +959,15 @@ try_up_to() {
     done
 }
 
-# stop_blasters [tries] — docker stop txgen on every blaster, each up to <tries> times (default 1).
-# 1 (and the names, each with the command to run by hand) when a stop was not confirmed; every
-# blaster is tried either way.
+# stop_blasters [tries] — docker stop txgen on every created blaster (blaster_created), each up to
+# <tries> times (default 1). 1 (and the names, each with the command to run by hand) when a stop was
+# not confirmed; every blaster is tried either way.
 stop_blasters() {
     local k name failed=""
     RUN_STOPPED=1
     for k in $(seq 0 $((VAL_COUNT - 1))); do
         name="$(blaster_name "$k")"
+        blaster_created "$k" || continue
         try_up_to "${1:-1}" tn_iap_ssh "${name}" "${ZONES[$k]}" "sudo docker stop -t 30 txgen >/dev/null 2>&1; true" && continue
         failed="${failed} ${name}"
         echo "❌ ${name}: docker stop txgen not confirmed. Stop it by hand:" >&2
@@ -1164,10 +1281,11 @@ node_health_check() {
     return 0
 }
 
-# poll_blasters — refresh DONE_LINE[]; returns 0 iff every blaster has reported.
+# poll_blasters — refresh DONE_LINE[]; returns 0 iff every created blaster (blaster_created) has reported.
 poll_blasters() {
     local k name all=0
     for k in $(seq 0 $((VAL_COUNT - 1))); do
+        blaster_created "$k" || continue
         if [ -z "${DONE_LINE[k]:-}" ]; then
             name="$(blaster_name "$k")"
             DONE_LINE[k]="$(bench_serial_last "${name}" "${ZONES[$k]}" "BENCH_BLAST_DONE rc=" || true)"
@@ -1230,12 +1348,19 @@ exit_restart_v05() { # the owed restart; the ssh rc, with the command to run by 
 }
 
 # delete_unstarted_blasters — before BENCH_START_AT the blasters hold no results, and left alone
-# they would start blasting unwatched at that time. 1 when a delete failed.
+# they would start blasting unwatched at that time. Each blaster is described and, when it exists,
+# deleted, all at once: the deletes race start_at. 1 when a delete failed; UNSTARTED_DELETED=1 when
+# none did (on_run_exit's abort.unsent).
+UNSTARTED_DELETED=0
 delete_unstarted_blasters() {
-    local k failed=0
+    local k failed=0 pids=()
     for k in $(seq 0 $((VAL_COUNT - 1))); do
-        [ -z "$(bench_instance_json "$(blaster_name "$k")" "${ZONES[$k]}")" ] || delete_vms "${ZONES[$k]}" "$(blaster_name "$k")" || failed=1
+        [ "${BENCH_APPLY}" = "1" ] || return 0
+        ( [ -z "$(bench_instance_json "$(blaster_name "$k")" "${ZONES[$k]}")" ] || delete_vms "${ZONES[$k]}" "$(blaster_name "$k")" ) &
+        pids+=("$!")
     done
+    for k in "${!pids[@]}"; do wait "${pids[$k]}" || failed=1; done
+    [ "${failed}" -ne 0 ] || UNSTARTED_DELETED=1
     return "${failed}"
 }
 
@@ -1252,9 +1377,11 @@ wait_blasters_done() { # <secs> — poll every 30 s until each blaster reported;
 # paused, bench-validator-05 stopped or blasters unwatched. The most harmful state goes first:
 # (a) unpause, (b) restart v05, (c) stop the blasters, or delete them before their start time,
 # (d) the abort record, the wait for their results, the copy and the deletes. A failed step
-# never skips the next one.
+# never skips the next one. The record names the cause: a create that stopped the run
+# (ABORT_REASON create_failed or late_create, set by create_blasters) with abort.unsent, true when
+# every blaster was deleted before start_at so none can have sent; else interrupted/operator (D37).
 on_run_exit() {
-    local rc=$? started=1 wait_note=""
+    local rc=$? started=1 wait_note="" why="interrupted" unsent=""
     trap - EXIT
     # Nothing may cut the cleanup short. INT TERM HUP PIPE stay ignored until the exit, and each
     # ssh and gcloud it starts inherits that, except gcloud compute ssh, which installs its own INT
@@ -1273,7 +1400,8 @@ on_run_exit() {
     if [ "${RUN_FINISHED}" -eq 0 ]; then
         [ "${RUN_CREATED}" -eq 0 ] || [ "${KEEP}" -eq 1 ] || [ "${started}" -eq 0 ] \
             || wait_note=" up to ${BENCH_TRAP_WAIT_SECS}s of waiting for the blasters' results plus"
-        echo "❌ run interrupted (exit ${rc}) — restoring the fleet and securing results. This takes${wait_note} a few minutes of ssh and gcloud calls; INT, TERM and HUP are ignored until it ends (kill -9 $$ stops it and leaves the fleet as it is)" >&2
+        [ -z "${ABORT_REASON}" ] || why="stopped (${ABORT_REASON} ${ABORT_NODE})"
+        echo "❌ run ${why} (exit ${rc}) — restoring the fleet and securing results. This takes${wait_note} a few minutes of ssh and gcloud calls; INT, TERM and HUP are ignored until it ends (kill -9 $$ stops it and leaves the fleet as it is)" >&2
     fi
     # (a) the lag target: paused, it falls further behind every second
     if [ "${RUN_DID_PAUSE}" -eq 1 ] && [ "${RUN_DID_UNPAUSE}" -eq 0 ]; then
@@ -1297,7 +1425,13 @@ on_run_exit() {
         fi
     fi
     # (d) everything else
-    record_abort "interrupted" "operator" "benchmark-blast.sh run exited rc=${rc} before completing"
+    case "${ABORT_REASON}" in
+        create_failed|late_create)
+            unsent=false
+            [ "${UNSTARTED_DELETED}" -ne 1 ] || [ "$(bench_now_unix)" -ge "${RUN_START_AT}" ] || unsent=true ;;
+    esac
+    record_abort "${ABORT_REASON:-interrupted}" "${ABORT_NODE:-operator}" \
+        "${ABORT_DETAIL:-benchmark-blast.sh run exited rc=${rc} before completing}" "${unsent}"
     if [ "${RUN_CREATED}" -eq 1 ] && [ "${KEEP}" -eq 0 ] && [ "${started}" -eq 1 ]; then
         exit_step "(d) wait up to ${BENCH_TRAP_WAIT_SECS}s for every blaster's done marker" wait_blasters_done "${BENCH_TRAP_WAIT_SECS}"
         exit_step "(d) copy the results, delete each blaster whose results are safe" settle_blasters
@@ -1369,12 +1503,120 @@ log_rate_check() {
     return 0
 }
 
+# --- blaster creates: bounded, retried once, and never late (D36, D37, D39, D48) -------------------
+# start_delay_secs — seconds from now to start_at: BENCH_START_DELAY_SECS, at least CREATE_WORST_SECS
+# (two create calls and the describe between them), so a create that needs its one retry still fits.
+start_delay_secs() {
+    if [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ]; then printf '%s' "${BENCH_START_DELAY_SECS}"
+    else printf '%s' "${CREATE_WORST_SECS}"; fi
+}
+
+# create_errors <create-log> — what a failed create printed about why: each gcloud `ERROR:` line
+# with its indented continuation, else the log's last 5 lines. Bench 5 printed the last 5 only, which
+# after a crash are gcloud's "report this issue" boilerplate (D39).
+create_errors() {
+    local e
+    e="$(awk '/^ERROR:/ { on = 1; print; next } on && /^[ \t]/ && !/^    \+ / { print; next } { on = 0 }' "$1" 2>/dev/null)" || e=""
+    if [ -n "${e}" ]; then printf '%s\n' "${e}"; else tail -5 "$1" 2>/dev/null; fi
+}
+
+# create_error_detail <create-log> — the log's first `ERROR:` line, its indented continuation joined
+# on (manifest .abort.detail); nothing when there is none.
+create_error_detail() {
+    awk '/^ERROR:/ { if (s != "") exit; s = $0; next }
+         s != "" && /^[ \t]/ && !/^    \+ / { sub(/^[ \t]+/, ""); s = s " " $0; next }
+         s != "" { exit }
+         END { if (s != "") print s }' "$1" 2>/dev/null || true
+}
+
+# create_blasters <start_at> — the blasters, created in parallel (each create's output in
+# logs/create-<name>.log; a dry run prints each create). Every create is bounded by the late-start
+# limit, start_at - CREATE_LATE_LEAD_SECS (create_vm's <deadline>), and each one known to have
+# succeeded goes into manifest blasters[] at once, with created_at, create_secs and attempts. Then
+# the late-start guard: a create that failed twice or for good (create_failed) or that was not done
+# by the limit (late_create) stops the run before any blaster can send. ABORT_* carry the cause into
+# the EXIT trap, which deletes every blaster before start_at and records .abort with unsent
+# (on_run_exit). A blaster that started late would blast into a run already under way, unrecorded
+# (bench 5, D48).
+create_blasters() {
+    local start_at="$1" limit k name zone urls start log st end secs calls crc used note
+    local failed="" failed_detail="" late="" late_detail="" err
+    limit=$(( start_at - CREATE_LATE_LEAD_SECS ))
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        name="$(blaster_name "$k")"; zone="${ZONES[$k]}"
+        [ "${NODE_ROLES[$k]}" = "validator" ] || bench_die "index ${k} is not a validator"
+        urls="$(node_url "$k")"
+        start=$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))
+        echo ">>> ${name} (${zone}) -> ${urls} senders ${BENCH_SENDERS}@${start}"
+        if [ "${BENCH_APPLY}" != "1" ]; then create_vm "${name}" "${zone}" blast "${urls}" "${BENCH_SENDERS}" "${start}" "${start_at}"; continue; fi
+        create_vm "${name}" "${zone}" blast "${urls}" "${BENCH_SENDERS}" "${start}" "${start_at}" "${limit}" \
+            > "${BENCH_RESULTS_DIR}/logs/create-${name}.log" 2>&1 &
+        CREATE_PIDS[k]=$!
+    done
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        name="$(blaster_name "$k")"; log="${BENCH_RESULTS_DIR}/logs/create-${name}.log"
+        wait "${CREATE_PIDS[k]}" || true
+        st=""; end=""; secs=""; calls=""; crc=""
+        [ ! -f "${BENCH_RESULTS_DIR}/meta/${name}/CREATE" ] || read -r st end secs calls crc < "${BENCH_RESULTS_DIR}/meta/${name}/CREATE" || true
+        if [ "${st}" = ok ]; then
+            bench_manifest_jq --argjson b "$(blasters_json "$k")" '.blasters = ((.blasters // []) | map(select(.name != $b[0].name))) + $b' \
+                || bench_warn "${name}: created, but not recorded in manifest blasters[] yet"
+        fi
+        if [ "${st}" = ok ] && [ "${end}" -le "${limit}" ]; then
+            used="$(cat "${BENCH_RESULTS_DIR}/meta/${name}/MACHINE_TYPE" 2>/dev/null || true)"; note=""
+            [ -z "${used}" ] || [ "${used}" = "${BENCH_BLASTER_MACHINE_TYPES%% *}" ] || note=", fallback after a stockout"
+            [ "${calls:-1}" -le 1 ] || note="${note}, ${calls} create calls"
+            echo "    ✓ created ${name} (${used:-type not recorded}${note})"
+        elif [ "${st}" = ok ] || [ "${st}" = late ]; then
+            err="$(create_error_detail "${log}")"
+            echo "❌ create ${name} not done by the late-start limit $(bench_iso_from_unix "${limit}") (start_at - ${CREATE_LATE_LEAD_SECS} s)${end:+: it ended $(bench_iso_from_unix "${end}")}, ${calls:-0} create calls" >&2
+            [ -n "${late}" ] || { late="${name}"
+                late_detail="create not done by $(bench_iso_from_unix "${limit}") = start_at - ${CREATE_LATE_LEAD_SECS} s (${st}, ${calls:-0} create calls, ${secs:-?} s)${err:+; ${err}}"; }
+        else
+            echo "❌ create ${name} failed:" >&2
+            create_errors "${log}" >&2
+            [ -n "${failed}" ] || { failed="${name}"; failed_detail="$(create_error_detail "${log}")"
+                [ -n "${failed_detail}" ] || failed_detail="create rc=${crc:-?} with no ERROR: line (logs/create-${name}.log)"; }
+        fi
+    done
+    if [ -n "${failed}" ]; then
+        ABORT_REASON=create_failed; ABORT_NODE="${failed}"; ABORT_DETAIL="${failed_detail}"
+        bench_die "blaster creation failed (${failed}) — the exit cleanup deletes the blasters; if it cannot: benchmark/benchmark-blast.sh delete --yes"
+    fi
+    if [ -n "${late}" ]; then
+        ABORT_REASON=late_create; ABORT_NODE="${late}"; ABORT_DETAIL="${late_detail}"
+        bench_die "blaster ${late} was not created by start_at - ${CREATE_LATE_LEAD_SECS} s; no blaster may start late, so the exit cleanup deletes them all before start_at"
+    fi
+}
+
+# record_late_secs <start_at> — manifest blasters[].late_secs: each blaster's own preamble start
+# (run.phases in blasters/<name>.json) minus start_at, one decimal, with a ⚠ above 5 s. A blaster
+# whose result file holds no preamble start gets none.
+record_late_secs() {
+    local k name p late
+    for k in $(seq 0 $((VAL_COUNT - 1))); do
+        name="$(blaster_name "$k")"
+        p="$(jq -r 'first((.run.phases // [])[] | select(.name == "preamble") | .start_unix | numbers) // empty' \
+            "${BENCH_RESULTS_DIR}/blasters/${name}.json" 2>/dev/null)" || p=""
+        [ -n "${p}" ] || continue
+        late="$(awk -v p="${p}" -v s="$1" 'BEGIN { printf "%.1f", p - s }')"
+        bench_manifest_jq --arg n "${name}" --argjson l "${late}" '.blasters |= map(if .name == $n then .late_secs = $l else . end)' \
+            || bench_warn "${name}: late_secs ${late} not recorded"
+        if awk -v l="${late}" 'BEGIN { exit !(l > 5) }'; then
+            bench_warn "${name} began its preamble ${late}s after start_at $(bench_iso_from_unix "$1") (blasters[].late_secs)"
+        fi
+    done
+}
+
 do_run() {
     preflight
-    local k name zone urls start now start_at mixed_start deadline
+    local k name now start_at mixed_start deadline
     [ -n "${OBSERVER_IDX}" ] || bench_die "no observer in NODE_ROLES"
     now="$(bench_now_unix)"
-    start_at=$(( now + BENCH_START_DELAY_SECS ))
+    [ "${BENCH_START_DELAY_SECS}" -ge "${CREATE_WORST_SECS}" ] \
+        || echo "    start_at lead: ${CREATE_WORST_SECS}s, not BENCH_START_DELAY_SECS=${BENCH_START_DELAY_SECS}: two create calls and the describe between them must fit before it"
+    start_at=$(( now + $(start_delay_secs) ))
     RUN_START_AT="${start_at}"
     mixed_start=$(( start_at + BENCH_PREAMBLE_SECS + BENCH_WARMUP_SECS ))
     deadline=$(( mixed_start + BENCH_DURATION_SECS + BENCH_COOLDOWN_SECS + 600 ))
@@ -1436,12 +1678,12 @@ do_run() {
         name="$(blaster_name "$k")"
         [ -z "$(bench_instance_json "${name}" "${ZONES[$k]}")" ] || bench_die "${name} already exists — benchmark-blast.sh delete --yes first"
     done
+    resolve_node_urls
     archive_prev_blast
     record_blast "${start_at}"
 
     # --- create the blasters in parallel ---
     gcloud auth print-access-token >/dev/null
-    local pids=() names=() logs=()
     [ "${BENCH_APPLY}" = "1" ] && mkdir -p "${BENCH_RESULTS_DIR}/logs"
     if [ "${BENCH_APPLY}" = "1" ]; then
         RUN_CREATED=1                      # from here on the EXIT trap owns cleanup
@@ -1454,30 +1696,8 @@ do_run() {
         trap 'trap "" PIPE; exit 129' HUP
         trap 'trap "" PIPE; exit 141' PIPE
     fi
-    for k in $(seq 0 $((VAL_COUNT - 1))); do
-        name="$(blaster_name "$k")"; zone="${ZONES[$k]}"
-        [ "${NODE_ROLES[$k]}" = "validator" ] || bench_die "index ${k} is not a validator"
-        urls="$(node_url "$k")"
-        start=$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))
-        echo ">>> ${name} (${zone}) -> ${urls} senders ${BENCH_SENDERS}@${start}"
-        if [ "${BENCH_APPLY}" = "1" ]; then
-            create_vm "${name}" "${zone}" blast "${urls}" "${BENCH_SENDERS}" "${start}" "${start_at}" \
-                > "${BENCH_RESULTS_DIR}/logs/create-${name}.log" 2>&1 &
-            pids+=("$!"); names+=("${name}"); logs+=("${BENCH_RESULTS_DIR}/logs/create-${name}.log")
-        else
-            create_vm "${name}" "${zone}" blast "${urls}" "${BENCH_SENDERS}" "${start}" "${start_at}"
-        fi
-    done
+    create_blasters "${start_at}"
     [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN — re-run with --yes."; return 0; }
-    local failed=0 j used note
-    for j in "${!pids[@]}"; do
-        if wait "${pids[$j]}"; then
-            used="$(cat "${BENCH_RESULTS_DIR}/meta/${names[$j]}/MACHINE_TYPE" 2>/dev/null || true)"; note=""
-            [ -z "${used}" ] || [ "${used}" = "${BENCH_BLASTER_MACHINE_TYPES%% *}" ] || note=", fallback after a stockout"
-            echo "    ✓ created ${names[$j]} (${used:-type not recorded}${note})"
-        else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
-    done
-    [ "${failed}" -eq 0 ] || bench_die "blaster creation failed — clean up with: benchmark/benchmark-blast.sh delete --yes"
     for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
 
     # --- manifest: planned phases + blasters ---
@@ -1617,6 +1837,7 @@ do_run() {
             '.blasters |= map(if .name == $n then .rc = ($rc|tonumber) else . end)'
     done
     settle_blasters
+    record_late_secs "${start_at}"     # reads the result files settle_blasters copied in
     [ "${RUN_DID_PAUSE}" -eq 0 ] || [ "${RUN_DID_UNPAUSE}" -eq 1 ] || lag_unpause "last try before the run exits" || true
     [ "${RUN_DID_KILL}" -eq 0 ] || [ "${RUN_DID_BACK}" -eq 1 ] || chaos_restart_v05 "last try before the run exits" || true
     RUN_FINISHED=1

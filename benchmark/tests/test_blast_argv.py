@@ -1,10 +1,14 @@
-"""benchmark-blast.sh's blasts: the light-load arm (BENCH_LIGHT_LOAD), BENCH_WINDOW and the LOG_RATE check.
+"""benchmark-blast.sh's blasts: the light-load arm (BENCH_LIGHT_LOAD), BENCH_WINDOW, the LOG_RATE check and
+the bench-6 create path (bounded creates, one retry, the late-start guard, node URLs read once, late_secs).
 
 The scripts run in a sandbox copy of the tree with a fake gcloud (it logs its argv and answers only
 `auth print-access-token`) and a fake `date` (a fixed clock), so a plan-only run (no --yes) is
 byte-for-byte reproducible. fixtures/blast/golden-*.txt were captured from the bench-4 driver and
 startup script (main @ 8bc75e1), before the light-load arm existed: with every bench-5 knob at its
-default, the plan, the gcloud argv and the rendered generator argv must still equal them.
+default, the plan, the gcloud argv and the rendered generator argv must still equal them, apart from
+the two bench-6 changes bench6() spells out. The create path with --yes runs do_run's create section
+against a fake gcloud with state (fixtures/blast/fake-gcloud-live.sh); fixtures/blast/golden-live-create.json
+is what the bench-5 driver (85fb888) sent and recorded there (`--capture-bench5-create <ref>` rewrites it).
 """
 import json
 import os
@@ -13,7 +17,9 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 BENCH = Path(__file__).resolve().parents[1]
@@ -121,6 +127,33 @@ def golden_text(rc, out, calls):
     return "rc=%d\n--- output\n%s--- gcloud\n%s" % (rc, out, calls)
 
 
+# Bench 6 changes two things in a plan and nothing else (D36, D48). Every load VM create runs under a 90-s alarm
+# with gcloud's own HTTP timeout at 60 s (bench 4 and 5: a 600-s alarm around gcloud's 300-s default). `run`
+# reads the node IPs once, before its creates, from manifest.instances[] or else ONE instances list (the sandbox
+# has no manifest), where bench 5 described one node per create, inside the create loop.
+ALARM_BENCH5 = "@ARGV 600 gcloud compute instances create "
+ALARM_BENCH6 = "@ARGV 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create "
+VALIDATORS = ["bench-validator-%02d" % i for i in range(1, 11)]
+NODE_LIST = ("gcloud compute instances list --project=<PROJECT> --filter=name=\\(%s\\) --format=json\n"
+             % "\\ ".join(VALIDATORS))
+
+
+def bench6(golden, creates, run=False):
+    """<golden>, a bench-4 plan with <creates> load VM creates, as bench 6 prints it; with <run>, its ten node
+    describes become the one node list, made before the token check."""
+    assert golden.count(ALARM_BENCH5) == creates, golden
+    text = golden.replace(ALARM_BENCH5, ALARM_BENCH6)
+    if not run:
+        return text
+    lines = text.splitlines(True)
+    nodes = [line for line in lines
+             if line.startswith("gcloud compute instances describe bench-validator-") and "networkIP" in line]
+    assert len(nodes) == 10, nodes
+    lines = [line for line in lines if line not in nodes]
+    lines.insert(lines.index("gcloud auth print-access-token\n"), NODE_LIST)
+    return "".join(lines)
+
+
 def create_lines(out, name=None):
     """The `+ … gcloud compute instances create <name> …` argv lines of a plan, as argv lists."""
     argvs = []
@@ -202,7 +235,7 @@ class UnsetKnobTests(SandboxCase):
 
     def test_run_plan_and_generator_argv_equal_the_bench4_golden(self):
         rc, out, calls = self.sb.blast("run")
-        self.assertEqual(golden_text(rc, out, calls), (FIX / "golden-run-plan.txt").read_text())
+        self.assertEqual(golden_text(rc, out, calls), bench6((FIX / "golden-run-plan.txt").read_text(), 10, run=True))
         argvs = create_lines(out)
         self.assertEqual(len(argvs), 10)
         self.assertTrue(all("WINDOW" not in metadata_of(a) for a in argvs))
@@ -212,12 +245,12 @@ class UnsetKnobTests(SandboxCase):
         self.assertIn(" --window 16 ", render)
 
     def test_fund_plan_equals_the_bench4_golden(self):
-        self.assertEqual(golden_text(*self.sb.blast("fund")), (FIX / "golden-fund-plan.txt").read_text())
+        self.assertEqual(golden_text(*self.sb.blast("fund")), bench6((FIX / "golden-fund-plan.txt").read_text(), 1))
 
     def test_light_load_off_is_the_single_blast_even_with_the_other_light_knobs_set(self):
         rc, out, calls = self.sb.blast("run", BENCH_LIGHT_LOAD="0", BENCH_LIGHT_LOAD_AFTER="1",
                                        BENCH_LIGHT_SENDERS="4 5 6")
-        self.assertEqual(golden_text(rc, out, calls), (FIX / "golden-run-plan.txt").read_text())
+        self.assertEqual(golden_text(rc, out, calls), bench6((FIX / "golden-run-plan.txt").read_text(), 10, run=True))
 
 
 class WindowTests(SandboxCase):
@@ -232,7 +265,7 @@ class WindowTests(SandboxCase):
         self.assertIn(" --window 4 ", render)
         # the funder has no window: its plan is the bench-4 one
         self.assertEqual(golden_text(*self.sb.blast("fund", BENCH_WINDOW="4")),
-                         (FIX / "golden-fund-plan.txt").read_text())
+                         bench6((FIX / "golden-fund-plan.txt").read_text(), 1))
 
     def test_a_bad_window_fails_the_vm_before_the_generator(self):
         _, out, _ = self.sb.blast("run")
@@ -265,7 +298,7 @@ class LandingsTests(SandboxCase):
                       render)
         # the funder never samples landings
         self.assertEqual(golden_text(*self.sb.blast("fund", BENCH_LANDINGS_SAMPLE="100")),
-                         (FIX / "golden-fund-plan.txt").read_text())
+                         bench6((FIX / "golden-fund-plan.txt").read_text(), 1))
 
     def test_a_bad_landings_sample_fails_the_vm_before_the_generator(self):
         _, out, _ = self.sb.blast("run")
@@ -679,5 +712,468 @@ head -c 60 /dev/zero > "$WORK/node/telcoin.log.2.gz"
         self.assertEqual(source.count("BENCH_LOG_RATE_CHECK=1"), 1)    # set by light_run, for every blast
 
 
+# ---- bench6 create path (H1a: D36, D37, D39, D48) ----
+# do_run's create section with --yes: its functions come from the sandbox's benchmark-blast.sh and run against
+# fixtures/blast/fake-gcloud-live.sh. The manifest holds manifest.instances[] as deploy step 2 records it (node k at
+# 192.0.2.<k+1>) unless a test drops nodes from it. The clock stands at FAKE_NOW, so start_at is FAKE_NOW + 300 and
+# the late-start limit FAKE_NOW + 270 (2026-01-01T00:04:30Z).
+BLASTERS = ["bench-blaster-%02d" % i for i in range(1, 11)]
+LIVE_FNS = ("blaster_name", "node_url", "resolve_node_urls", "is_stockout", "create_vm", "blasters_json", "blaster_created",
+            "assert_load_vm", "delete_vms", "marker_rc", "marker_reason", "settle_load_vm", "bucket_prefix", "copy_prefix",
+            "record_abort", "try_up_to", "stop_blasters", "poll_blasters", "settle_blasters", "exit_relay", "exit_step",
+            "delete_unstarted_blasters", "wait_blasters_done", "on_run_exit", "start_delay_secs", "create_errors",
+            "create_error_detail", "create_blasters", "record_late_secs", "prev_attempt_unsent")
+LIVE_TOP = re.compile(r"^(NODE_IP|CREATE_[A-Z_]+|ABORT_REASON|UNSTARTED_DELETED)=")
+LIVE_PREAMBLE = r"""
+set -euo pipefail
+source "$TREE/benchmark/bench-lib.sh"
+source "$WORK/functions.sh"
+BENCH_APPLY=1; KEEP=0; BLAST_LOG=""; ACTION=run
+STARTUP="$TREE/benchmark/blaster-startup.sh"; DEPLOYMENTS_FILE="$WORK/deployments.json"; BENCH_TXGEN_CONFIG="$WORK/config.toml"
+VAL_COUNT=0; for r in "${NODE_ROLES[@]}"; do [ "$r" = validator ] && VAL_COUNT=$((VAL_COUNT + 1)); done
+ABORTED=""; RUN_CREATED=0; RUN_FINISHED=0; RUN_STOPPED=0; RUN_START_AT=0; DONE_LINE=()
+RUN_DID_KILL=0; RUN_DID_BACK=0; RUN_DID_OBS=0; RUN_DID_PAUSE=0; RUN_DID_UNPAUSE=0
+mkdir -p "$BENCH_RESULTS_DIR/logs" "$BENCH_RESULTS_DIR/meta"
+[ -f "$(bench_manifest)" ] || echo '{"notes": [], "timestamps": {}, "instances": [], "blasters": [], "chaos": [], "abort": null, "phases": []}' > "$(bench_manifest)"
+for k in "${!INSTANCE_NAMES[@]}"; do
+    echo "192.0.2.$((k + 1))" > "$STUB/ip-${INSTANCE_NAMES[$k]}"
+    case " ${DROP_INSTANCES:-} " in *" ${INSTANCE_NAMES[$k]} "*) continue ;; esac
+    bench_manifest_jq --arg n "${INSTANCE_NAMES[$k]}" --arg z "${ZONES[$k]}" --arg ip "192.0.2.$((k + 1))" \
+        '.instances += [{name: $n, zone: $z, internal_ip: $ip}]'
+done
+"""
+# do_run from the node URLs to manifest blasters[] (benchmark-blast.sh, bench 6).
+NEW_GLUE = r"""
+start_at=$(( $(bench_now_unix) + $(start_delay_secs) ))
+RUN_START_AT="${start_at}"
+resolve_node_urls
+gcloud auth print-access-token >/dev/null
+RUN_CREATED=1
+trap on_run_exit EXIT
+create_blasters "${start_at}"
+for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
+bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
+trap - EXIT
+echo "CREATES DONE"
+"""
+# The same section of the bench-5 driver (85fb888 do_run, the create loop through `.blasters = $b`), for the capture.
+BENCH5_FNS = ("blaster_name", "node_url", "is_stockout", "create_vm", "blasters_json", "assert_load_vm")
+BENCH5_GLUE = r"""
+start_at=$(( $(bench_now_unix) + BENCH_START_DELAY_SECS ))
+gcloud auth print-access-token >/dev/null
+pids=(); names=(); logs=()
+for k in $(seq 0 $((VAL_COUNT - 1))); do
+    name="$(blaster_name "$k")"; zone="${ZONES[$k]}"
+    [ "${NODE_ROLES[$k]}" = "validator" ] || bench_die "index ${k} is not a validator"
+    urls="$(node_url "$k")"
+    start=$(( k * BENCH_SENDERS + BENCH_RUN_INDEX * 100000 ))
+    echo ">>> ${name} (${zone}) -> ${urls} senders ${BENCH_SENDERS}@${start}"
+    create_vm "${name}" "${zone}" blast "${urls}" "${BENCH_SENDERS}" "${start}" "${start_at}" \
+        > "${BENCH_RESULTS_DIR}/logs/create-${name}.log" 2>&1 &
+    pids+=("$!"); names+=("${name}"); logs+=("${BENCH_RESULTS_DIR}/logs/create-${name}.log")
+done
+failed=0
+for j in "${!pids[@]}"; do
+    if wait "${pids[$j]}"; then
+        used="$(cat "${BENCH_RESULTS_DIR}/meta/${names[$j]}/MACHINE_TYPE" 2>/dev/null || true)"; note=""
+        [ -z "${used}" ] || [ "${used}" = "${BENCH_BLASTER_MACHINE_TYPES%% *}" ] || note=", fallback after a stockout"
+        echo "    ✓ created ${names[$j]} (${used:-type not recorded}${note})"
+    else echo "❌ create ${names[$j]} failed:" >&2; tail -5 "${logs[$j]}" >&2; failed=1; fi
+done
+[ "${failed}" -eq 0 ] || bench_die "blaster creation failed — clean up with: benchmark/benchmark-blast.sh delete --yes"
+for k in $(seq 0 $((VAL_COUNT - 1))); do assert_load_vm "$(blaster_name "$k")" "${ZONES[$k]}"; done
+bench_manifest_jq --argjson b "$(blasters_json)" '.blasters = $b'
+echo "CREATES DONE"
+"""
+CRASH_LINE = ("ERROR: gcloud crashed (ReadTimeout): HTTPSConnectionPool(host='compute.googleapis.com', port=443): "
+              "Read timed out. (read timeout=300)")
+
+
+class LiveCase(unittest.TestCase):
+    def setUp(self):
+        self.sb = Sandbox()
+        gcloud = self.sb.bin / "gcloud"
+        gcloud.write_text((FIX / "fake-gcloud-live.sh").read_text())
+        gcloud.chmod(0o755)
+        self.stub = self.sb.root / "stub"
+        self.stub.mkdir()
+        self.results = self.sb.tree / "benchmark" / "results" / RUN_ID
+
+    def tearDown(self):
+        self.sb.close()
+
+    def live(self, glue=NEW_GLUE, fns=LIVE_FNS, outcomes=None, wait_creates=0, manifest=None, **env):
+        """The preamble, then <glue>; <outcomes> maps a blaster to its create calls' outcomes (fake-gcloud-live.sh).
+        A dict: rc, out (stdout and stderr), calls, manifest, deleted [(name, fake time)], timeouts, vms (left)."""
+        for name, outcome in (outcomes or {}).items():
+            (self.stub / ("create-" + name)).write_text("".join(o + "\n" for o in outcome))
+        script = self.sb.tree / "benchmark" / "benchmark-blast.sh"
+        top = "".join(line + "\n" for line in script.read_text().splitlines() if LIVE_TOP.match(line))
+        (self.sb.root / "functions.sh").write_text(top + shell_functions(script, *fns))
+        for name in ("deployments.json", "config.toml"):
+            (self.sb.root / name).write_text("{}\n")
+        if manifest is not None:
+            self.results.mkdir(parents=True, exist_ok=True)
+            (self.results / "manifest.json").write_text(json.dumps(manifest))
+        e = self.sb.env(TREE=str(self.sb.tree), WORK=str(self.sb.root), STUB=str(self.stub), STUB_FIX=str(FIX),
+                        STUB_META=str(self.results / "meta"), STUB_WAIT_CREATES=str(wait_creates), BENCH_RUN_ID=RUN_ID,
+                        **env)
+        # $0 is the driver's name: benchmark/config.sh refuses any other caller.
+        p = subprocess.run(["bash", "-c", LIVE_PREAMBLE + glue, "benchmark-blast.sh"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT,
+                           env=e, cwd=str(self.sb.root), universal_newlines=True, timeout=180)
+
+        def read(name):
+            f = self.stub / name
+            return f.read_text() if f.exists() else ""
+        calls = self.sb.calls.read_text() if self.sb.calls.exists() else ""
+        return dict(rc=p.returncode, out=self.sb.normalize(p.stdout), calls=self.sb.normalize(calls).splitlines(),
+                    manifest=json.loads((self.results / "manifest.json").read_text()),
+                    deleted=sorted((n, int(t)) for n, t in (line.split() for line in read("deleted").splitlines())),
+                    timeouts=sorted(read("http-timeout").splitlines()),
+                    vms=sorted(f.name[len("vm-"):] for f in self.stub.glob("vm-*")))
+
+    def creates(self, run, name):
+        return [c for c in run["calls"] if c.startswith("gcloud compute instances create %s " % name)]
+
+    def log(self, name):
+        return (self.results / "logs" / ("create-%s.log" % name)).read_text()
+
+    def entry(self, run, name):
+        return next(b for b in run["manifest"]["blasters"] if b["name"] == name)
+
+
+class CreatePathTests(LiveCase):
+    """D36 (+D37, D39): a failed or timed-out create is described before anything is decided, retried once, and a
+    create that failed or was not done by start_at - 30 s stops the run before any blaster sends."""
+
+    def test_a_create_on_time_sends_and_records_what_bench5_did(self):
+        run = self.live()
+        self.assertEqual(run["rc"], 0, run["out"])
+        ref = json.loads((FIX / "golden-live-create.json").read_text())
+        # D48: bench 5 described each node inside the loop; bench 6 reads manifest.instances[] and asks gcloud nothing.
+        nodes = [c for c in ref["calls"] if c.startswith("gcloud compute instances describe bench-validator-")]
+        self.assertEqual(len(nodes), 10)
+        self.assertEqual(sorted(run["calls"]), sorted(c for c in ref["calls"] if c not in nodes))
+        self.assertEqual(run["out"], ref["output"])
+        # blasters[]: bench 5's entries, key for key and in its order, then the three new keys.
+        self.assertEqual([b["name"] for b in run["manifest"]["blasters"]], [b["name"] for b in ref["blasters"]])
+        for got, want in zip(run["manifest"]["blasters"], ref["blasters"]):
+            self.assertEqual(list(got)[:len(want)], list(want))
+            self.assertEqual({k: got[k] for k in want}, want)
+            self.assertEqual(list(got)[len(want):], ["created_at", "create_secs", "attempts"])
+            self.assertEqual((got["created_at"], got["create_secs"], got["attempts"]), ("2026-01-01T00:00:00Z", 0, 1))
+        self.assertIsNone(run["manifest"]["abort"])
+        self.assertEqual(run["timeouts"], sorted("%s 60" % b for b in BLASTERS))
+        self.assertIn(" @ARGV 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-blaster-01 ",
+                      self.log("bench-blaster-01"))
+        self.assertEqual(run["deleted"], [])
+
+    def check_created_anyway(self, outcome, rc):
+        run = self.live(outcomes={"bench-blaster-06": [outcome]})
+        self.assertEqual(run["rc"], 0, run["out"])
+        self.assertEqual(len(self.creates(run, "bench-blaster-06")), 1)      # no second create
+        self.assertIn("gcloud compute instances describe bench-blaster-06 --zone=europe-west4-a --project=<PROJECT> "
+                      "--format=json", run["calls"])
+        self.assertIn("bench-blaster-06: create call 1 ended rc %d, but the instance exists (e2-standard-2): counted as "
+                      "created" % rc, self.log("bench-blaster-06"))
+        self.assertIn("    ✓ created bench-blaster-06 (e2-standard-2)\n", run["out"])
+        self.assertEqual(self.entry(run, "bench-blaster-06")["attempts"], 1)
+        self.assertEqual(self.entry(run, "bench-blaster-06")["machine_type"], "e2-standard-2")
+        self.assertIsNone(run["manifest"]["abort"])
+        self.assertEqual(run["vms"], BLASTERS)
+
+    def test_a_crashed_create_whose_instance_exists_is_used(self):
+        self.check_created_anyway("crash-created", 1)
+
+    def test_a_timed_out_create_whose_instance_exists_is_used(self):
+        self.check_created_anyway("alarm-created", 142)
+
+    def test_a_crashed_create_is_retried_once(self):
+        run = self.live(outcomes={"bench-blaster-06": ["crash", "ok"]})
+        self.assertEqual(run["rc"], 0, run["out"])
+        first, second = self.creates(run, "bench-blaster-06")
+        self.assertEqual(first, second)
+        self.assertIn("    ✓ created bench-blaster-06 (e2-standard-2, 2 create calls)\n", run["out"])
+        self.assertIn("bench-blaster-06: create call 1 failed (rc 1) and the instance does not exist: one more try",
+                      self.log("bench-blaster-06"))
+        self.assertEqual((self.entry(run, "bench-blaster-06")["attempts"], self.entry(run, "bench-blaster-01")["attempts"]),
+                         (2, 1))
+        self.assertIsNone(run["manifest"]["abort"])
+
+    def test_two_failures_stop_the_run_and_delete_every_blaster_before_start_at(self):
+        run = self.live(outcomes={"bench-blaster-06": ["crash", "crash"]})
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertEqual(len(self.creates(run, "bench-blaster-06")), 2)
+        # D39: the cause is printed, not gcloud's boilerplate after it.
+        failure = run["out"][run["out"].index("❌ create bench-blaster-06 failed:\n"):]
+        self.assertTrue(failure.startswith("❌ create bench-blaster-06 failed:\n" + CRASH_LINE + "\n"), failure)
+        self.assertNotIn("If you would like to report this issue", run["out"])
+        self.assertIn("❌ blaster creation failed (bench-blaster-06)", run["out"])
+        # D37: the record names the create, not the operator; every blaster was deleted before start_at.
+        abort = run["manifest"]["abort"]
+        self.assertEqual({k: abort[k] for k in ("reason", "node", "detail", "unsent")},
+                         {"reason": "create_failed", "node": "bench-blaster-06", "detail": CRASH_LINE, "unsent": True})
+        self.assertIn("❌❌ ABORT: create_failed node=bench-blaster-06 — " + CRASH_LINE + " (unsent=true)", run["out"])
+        self.assertIn("❌ run stopped (create_failed bench-blaster-06) (exit 1)", run["out"])
+        self.assertNotIn("operator", run["out"])
+        self.assertEqual(run["deleted"], [(b, FAKE_NOW) for b in BLASTERS if b != "bench-blaster-06"])
+        self.assertEqual(run["vms"], [])
+        self.assertFalse(any(c.startswith("gcloud compute ssh ") for c in run["calls"]))
+        # each create that succeeded was recorded as soon as it was known
+        self.assertEqual(sorted(b["name"] for b in run["manifest"]["blasters"]),
+                         [b for b in BLASTERS if b != "bench-blaster-06"])
+
+    def test_a_quota_failure_is_not_retried_and_its_detail_is_the_whole_error(self):
+        run = self.live(outcomes={"bench-blaster-06": ["quota"]})
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertEqual(len(self.creates(run, "bench-blaster-06")), 1)
+        self.assertEqual(run["manifest"]["abort"]["detail"],
+                         "ERROR: (gcloud.compute.instances.create) Could not fetch resource: - Quota 'CPUS' exceeded.  "
+                         "Limit: 24.0 in region europe-west4.")
+        self.assertIn("❌ create bench-blaster-06 failed:\nERROR: (gcloud.compute.instances.create) Could not fetch "
+                      "resource:\n - Quota 'CPUS' exceeded.", run["out"])
+        self.assertEqual(run["manifest"]["abort"]["unsent"], True)
+
+    def test_a_blaster_whose_delete_failed_may_have_sent(self):
+        (self.stub / "delete-fail").write_text("")
+        run = self.live(outcomes={"bench-blaster-06": ["quota"]})
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertEqual((run["manifest"]["abort"]["reason"], run["manifest"]["abort"]["unsent"]), ("create_failed", False))
+        self.assertIn("❌ exit cleanup (c) delete the blasters before their start time: FAILED (rc=1)", run["out"])
+        self.assertEqual(len(run["vms"]), 9)
+
+    def test_deletes_that_return_after_start_at_may_have_let_a_blaster_send(self):
+        # The run stops 285 s in, and its deletes take 20 s: they return after start_at, so nothing proves no blaster sent.
+        (self.stub / "delete-secs").write_text("20\n")
+        run = self.live(outcomes={"bench-blaster-06": ["ok@285"]}, wait_creates=9)
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertEqual((run["manifest"]["abort"]["reason"], run["manifest"]["abort"]["unsent"]), ("late_create", False))
+        self.assertEqual(run["vms"], [])
+        self.assertIn("✓ exit cleanup (c) delete the blasters before their start time: done", run["out"])
+
+    def test_a_create_done_after_the_late_start_limit_stops_the_run_unsent(self):
+        # bench-blaster-06's create answers 285 s in, after start_at - 30 s and before start_at.
+        run = self.live(outcomes={"bench-blaster-06": ["ok@285"]}, wait_creates=9)
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertIn("❌ create bench-blaster-06 not done by the late-start limit 2026-01-01T00:04:30Z (start_at - 30 s): "
+                      "it ended 2026-01-01T00:04:45Z, 1 create calls", run["out"])
+        abort = run["manifest"]["abort"]
+        self.assertEqual((abort["reason"], abort["node"], abort["unsent"]), ("late_create", "bench-blaster-06", True))
+        self.assertEqual(abort["detail"], "create not done by 2026-01-01T00:04:30Z = start_at - 30 s (ok, 1 create calls, 285 s)")
+        self.assertEqual(run["deleted"], [(b, FAKE_NOW + 285) for b in BLASTERS])
+        self.assertEqual(run["vms"], [])
+        self.assertEqual(self.entry(run, "bench-blaster-06")["created_at"], "2026-01-01T00:04:45Z")
+
+    def test_no_call_outlasts_the_late_start_limit(self):
+        # The crash answers 250 s in: the describe and the retry get the 20 s left before the limit, not 60 and 90.
+        run = self.live(outcomes={"bench-blaster-06": ["crash@250", "ok"]}, wait_creates=9)
+        self.assertEqual(run["rc"], 0, run["out"])
+        log = self.log("bench-blaster-06")
+        self.assertIn(" @ARGV 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-blaster-06 ", log)
+        self.assertIn(" @ARGV 20 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-blaster-06 ", log)
+        self.assertEqual(self.entry(run, "bench-blaster-06")["create_secs"], 250)
+
+    def test_a_create_past_the_limit_makes_no_further_call(self):
+        # The crash answers 280 s in, past the limit: no describe, no retry, and the run stops.
+        run = self.live(outcomes={"bench-blaster-06": ["crash@280"]}, wait_creates=9)
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertEqual(len(self.creates(run, "bench-blaster-06")), 1)
+        self.assertNotIn("instances.describe", self.log("bench-blaster-06"))
+        # its one describe is the exit cleanup's, which deletes whatever exists
+        self.assertEqual(len([c for c in run["calls"] if c.startswith("gcloud compute instances describe bench-blaster-06 ")]), 1)
+        self.assertEqual(run["manifest"]["abort"]["reason"], "late_create")
+        self.assertTrue(run["manifest"]["abort"]["detail"].startswith(
+            "create not done by 2026-01-01T00:04:30Z = start_at - 30 s (late, 1 create calls, 280 s); " + CRASH_LINE),
+            run["manifest"]["abort"])
+
+    def test_a_failure_after_start_at_stops_only_the_blasters_that_exist(self):
+        # The create fails 310 s in: the others have started, so nothing is unsent; bench-blaster-06 never existed, so
+        # the exit cleanup neither stops it nor waits for its marker (bench 5 tried it 3 times and waited 5m36s).
+        run = self.live(outcomes={"bench-blaster-06": ["quota@310"]}, wait_creates=9, BENCH_TRAP_WAIT_SECS="0")
+        self.assertEqual(run["rc"], 1, run["out"])
+        abort = run["manifest"]["abort"]
+        self.assertEqual((abort["reason"], abort["node"], abort["unsent"]), ("create_failed", "bench-blaster-06", False))
+        stopped = sorted(c.split()[3] for c in run["calls"] if c.startswith("gcloud compute ssh "))
+        self.assertEqual(stopped, [b for b in BLASTERS if b != "bench-blaster-06"])
+        serial = [c.split()[4] for c in run["calls"] if c.startswith("gcloud compute instances get-serial-port-output ")]
+        self.assertNotIn("bench-blaster-06", serial)
+        self.assertEqual(len(serial), 9)
+
+    def test_the_lead_fits_two_create_calls_and_a_describe(self):
+        rc, out, _ = self.sb.blast("run", BENCH_START_DELAY_SECS="100")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("    start_at lead: 240s, not BENCH_START_DELAY_SECS=100: two create calls and the describe between "
+                      "them must fit before it\n", out)
+        self.assertIn(", start_at 2026-01-01T00:04:00Z\n", out)
+        rc, out, _ = self.sb.blast("run", BENCH_START_DELAY_SECS="600")
+        self.assertIn(", start_at 2026-01-01T00:10:00Z\n", out)
+        self.assertNotIn("start_at lead", out)
+
+
+class NodeUrlTests(LiveCase):
+    """D48: node URLs are read once, before the creates, and each blaster's late start is recorded."""
+
+    def node_urls(self, run):
+        return {b["name"]: b["node_url"] for b in run["manifest"]["blasters"]}
+
+    def test_node_urls_come_from_the_manifest_without_a_call(self):
+        run = self.live()
+        self.assertEqual(run["rc"], 0, run["out"])
+        self.assertFalse([c for c in run["calls"] if " bench-validator-" in c or "instances list" in c], run["calls"])
+        self.assertEqual(self.node_urls(run), {b: "http://192.0.2.%d:8545" % (i + 1) for i, b in enumerate(BLASTERS)})
+
+    def test_nodes_the_manifest_lacks_cost_one_list(self):
+        listed = [{"name": "bench-validator-03", "zone": "https://x/zones/australia-southeast1-c",
+                   "networkInterfaces": [{"networkIP": "198.51.100.3"}]},
+                  {"name": "bench-validator-07", "zone": "https://x/zones/elsewhere-1a",
+                   "networkInterfaces": [{"networkIP": "198.51.100.99"}]},
+                  {"name": "bench-validator-07", "zone": "https://x/zones/asia-southeast1-b",
+                   "networkInterfaces": [{"networkIP": "198.51.100.7"}]}]
+        (self.stub / "list.json").write_text(json.dumps(listed))
+        run = self.live(DROP_INSTANCES="bench-validator-03 bench-validator-07")
+        self.assertEqual(run["rc"], 0, run["out"])
+        lists = [c for c in run["calls"] if c.startswith("gcloud compute instances list ")]
+        self.assertEqual(lists, ["gcloud compute instances list --project=<PROJECT> "
+                                 "--filter=name=\\(bench-validator-03\\ bench-validator-07\\) --format=json"])
+        self.assertIn("list 60", run["timeouts"])
+        urls = self.node_urls(run)
+        self.assertEqual((urls["bench-blaster-03"], urls["bench-blaster-07"], urls["bench-blaster-04"]),
+                         ("http://198.51.100.3:8545", "http://198.51.100.7:8545", "http://192.0.2.4:8545"))
+        self.assertFalse([c for c in run["calls"] if c.startswith("gcloud compute instances describe bench-validator-")])
+
+    def test_a_node_without_an_ip_stops_the_run_before_any_create(self):
+        run = self.live(DROP_INSTANCES="bench-validator-03")
+        self.assertEqual(run["rc"], 1, run["out"])
+        self.assertIn("❌ bench-validator-03 has no internal IP — is the fleet up?", run["out"])
+        self.assertFalse([c for c in run["calls"] if " instances create " in c])
+
+    LATE = r"""
+bench_manifest_jq '.blasters = [{name: "bench-blaster-01"}, {name: "bench-blaster-02"}, {name: "bench-blaster-03"}]'
+mkdir -p "$BENCH_RESULTS_DIR/blasters"
+phases() { printf '{"run": {"phases": [{"name": "preamble", "start_unix": %s, "end_unix": %s}]}}' "$1" "$(( $1 + 9 ))"; }
+phases $(( 1767225600 + 302 )) > "$BENCH_RESULTS_DIR/blasters/bench-blaster-01.json"
+phases $(( 1767225600 + 401 )) > "$BENCH_RESULTS_DIR/blasters/bench-blaster-02.json"
+echo '{"run": {"phases": []}}' > "$BENCH_RESULTS_DIR/blasters/bench-blaster-04.json"
+record_late_secs $(( 1767225600 + 300 ))
+"""
+
+    def test_late_secs_from_each_blasters_own_preamble(self):
+        run = self.live(glue=self.LATE)
+        self.assertEqual(run["rc"], 0, run["out"])
+        blasters = run["manifest"]["blasters"]
+        self.assertEqual([b.get("late_secs") for b in blasters], [2.0, 101.0, None])
+        self.assertNotIn("late_secs", blasters[2])
+        self.assertEqual([line for line in run["out"].splitlines() if line.startswith("⚠")],
+                         ["⚠ bench-blaster-02 began its preamble 101.0s after start_at 2026-01-01T00:05:00Z "
+                          "(blasters[].late_secs)"])
+
+
+class UnsentRetryTests(LiveCase):
+    """prev_attempt_unsent: an attempt a create stopped may be retried under its index once nothing can have sent."""
+
+    def unsent(self, abort, start_at_offset, run_index=0):
+        manifest = {"notes": [], "blasters": [], "abort": abort,
+                    "blast": {"run_index": run_index, "start_at": time_iso(FAKE_NOW + start_at_offset)}}
+        run = self.live(glue='prev_attempt_unsent && echo UNSENT=yes || echo UNSENT=no\n', manifest=manifest,
+                        BENCH_RUN_INDEX="0")
+        self.assertEqual(run["rc"], 0, run["out"])
+        return "UNSENT=yes" in run["out"]
+
+    def test_the_reasons_and_unsent(self):
+        cases = [({"reason": "interrupted"}, 300, True), ({"reason": "interrupted", "unsent": True}, -10, False),
+                 ({"reason": "create_failed", "unsent": True}, -10, True),
+                 ({"reason": "late_create", "unsent": True}, 20, True),
+                 ({"reason": "late_create", "unsent": False}, -10, False),
+                 ({"reason": "create_failed", "unsent": False}, 300, True),
+                 ({"reason": "late_create"}, -10, False), ({"reason": "disk-full", "unsent": True}, 300, False)]
+        for abort, offset, want in cases:
+            with self.subTest(abort=abort, offset=offset):
+                self.assertEqual(self.unsent(abort, offset), want)
+        self.assertFalse(self.unsent({"reason": "create_failed", "unsent": True}, -10, run_index=1))
+
+
+def time_iso(unix):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(unix))
+
+
+class DryRunShimTests(SandboxCase):
+    """A dry run makes no live call: every gcloud verb that is not a read, and every docker, curl or credential
+    helper call of the startup script, prints REACHED and exits 9 here."""
+
+    READS = ("auth print-access-token", "compute instances describe", "compute instances list",
+             "compute instances get-serial-port-output")
+    SHIM = r"""#!/usr/bin/env bash
+{ printf '%s'; printf ' %q' "$@"; printf '\n'; } >> "$CALLS"
+case "$1 $2 ${3:-}" in
+    "auth print-access-token ") echo fake-token; exit 0 ;;
+@READS@
+esac
+echo REACHED; exit 9
+"""
+
+    def setUp(self):
+        super(DryRunShimTests, self).setUp()
+        reads = "".join('    "%s"*) exit 1 ;;\n' % r for r in self.READS[1:])
+        for name in ("gcloud", "docker", "curl", "docker-credential-gcr"):
+            shim = self.sb.bin / name
+            shim.write_text(self.SHIM.replace("@READS@", reads if name == "gcloud" else "").replace("'%s'", "'%s'" % name))
+            shim.chmod(0o755)
+
+    def test_driver_dry_runs_reach_nothing(self):
+        for args, env in ((("run",), {}), (("fund",), {}), (("delete",), {}), (("run",), {"BENCH_START_DELAY_SECS": "100"}),
+                          (("run",), {"BENCH_LIGHT_LOAD": "1"}), (("fund",), {"BENCH_LIGHT_LOAD": "1"})):
+            with self.subTest(args=args, env=env):
+                rc, out, calls = self.sb.blast(*args, **env)
+                self.assertEqual(rc, 0, out)
+                self.assertNotIn("REACHED", out)
+                live = [c for c in calls.splitlines() if not any(c.startswith("gcloud " + r) for r in self.READS)]
+                self.assertEqual(live, [])
+                if args != ("delete",):            # a delete with no load VM listed prints no argv
+                    self.assertIn("(dry run — not executed)", out)
+
+    def test_startup_render_reaches_nothing(self):
+        _, out, _ = self.sb.blast("run")
+        self.sb.calls.unlink()
+        rc, render = self.sb.render(startup_metadata(create_lines(out)[0]), out_files=("bench-blaster-01.json",))
+        self.assertEqual(rc, 0, render)
+        self.assertNotIn("REACHED", render)
+        self.assertFalse(self.sb.calls.exists() and self.sb.calls.read_text())
+        self.assertIn("DRY_RUN: docker run ", render)
+
+    def test_each_live_create_and_delete_sits_behind_a_dry_run_guard(self):
+        lines = (BENCH / "benchmark-blast.sh").read_text().splitlines()
+        guard = '[ "${BENCH_APPLY}" = "1" ] || return 0'
+        live = [i for i, line in enumerate(lines)
+                if 'gcloud "${pre[@]}" --machine-type="${t}"' in line or '|| delete_vms "${ZONES[$k]}"' in line]
+        self.assertEqual(len(live), 2)
+        for i in live:
+            before = lines[i - 1] if 'machine-type="${t}"' not in lines[i] else lines[i - 2]
+            self.assertEqual(before.strip(), guard, lines[i])
+        spawn = next(i for i, line in enumerate(lines) if '"${start_at}" "${limit}" \\' in line)
+        self.assertTrue(lines[spawn - 1].strip().startswith('if [ "${BENCH_APPLY}" != "1" ]; then create_vm ')
+                        and lines[spawn - 1].rstrip().endswith("; continue; fi"), lines[spawn - 1])
+
+
+def capture_bench5_create(ref):
+    """Rewrite fixtures/blast/golden-live-create.json: <ref>'s benchmark-blast.sh (git show) through BENCH5_GLUE, every
+    create on time."""
+    text = subprocess.run(["git", "-C", str(REPO), "show", "%s:benchmark/benchmark-blast.sh" % ref], check=True,
+                          stdout=subprocess.PIPE, universal_newlines=True).stdout
+    case = LiveCase("setUp")   # any existing method name: the case is driven by hand
+    case.setUp()
+    try:
+        (case.sb.tree / "benchmark" / "benchmark-blast.sh").write_text(text)
+        run = case.live(glue=BENCH5_GLUE, fns=BENCH5_FNS)
+        assert run["rc"] == 0, run["out"]
+        out = {"ref": ref, "output": run["out"], "calls": sorted(run["calls"]), "blasters": run["manifest"]["blasters"]}
+    finally:
+        case.tearDown()
+    (FIX / "golden-live-create.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if sys.argv[1:2] == ["--capture-bench5-create"] and len(sys.argv) == 3:
+        capture_bench5_create(sys.argv[2])
+    else:
+        unittest.main()
