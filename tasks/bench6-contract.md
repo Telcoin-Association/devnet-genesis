@@ -27,15 +27,16 @@ All twelve switch fields LANDED: U0a, integration commits 3696d49f3..5b9f13b25 (
 |---|---|---|---|
 | switches | message `node switches`, level info, target `node::switches`, logged once at node start AFTER `parameters.yaml` is loaded; one field per switch named exactly as its YAML key, in the table order above, values as YAML scalars (`true`/`false`, integers, durations in humantime form: `150ms`, and `0s` for zero — compare durations BY VALUE, never as strings); a key the image does not know is simply absent. A switch at its default is NOT written to `parameters.yaml` (the arm tool must add an absent key), but the line always lists every switch. Parsers take `key=value` tokens after the message text. | log | |
 | switches | `tn_node_switch{name}` | gauge | |
-| quorum-exec-block | `header proposed` + `exec_block`, `exec_tip`, `exec_basis` (`quorum`/`tip`/`floor`) | log fields | |
-| quorum-exec-block | `tn_primary_parent_exec_block_mismatch_total` (optional) | counter | |
+| quorum-exec-block | target `consensus::metrics`, message `header proposed` (unchanged) gains `exec_block`, `exec_tip`, `exec_basis` = `tip` \| `quorum` \| `floor`, `exec_policy` = `off` \| `always` \| `tip` \| `starved`. Constants: floor N = 8 ring entries; K doubles up to 128. Under `always`, `exec_basis=floor` is the steady state at every load; under the adaptive policy lag is 0 in step. No new metric. | log fields | U1 e823da217 |
+| quorum-exec-block | (`tn_primary_parent_exec_block_mismatch_total` was optional and is NOT built) | — | — |
 | voter-lock | `VoteStage::PreLockWait`, outcome `superseded`, `prelock_wait_ms` on `vote path timing`; `SupersededRequest` | stage/log/error | |
 | voter-lock / tracker-drain | `tn_primary_epoch_entry_rounds_behind` | gauge | |
 | mdbx-advice | `tn_reth_mdbx_random_advice_bytes`, `tn_reth_mdbx_used_bytes` | gauges | |
 | mdbx-advice | message `persisted output` (existing line) gains, as deltas over that one persist: `page_newly`, `page_cow`, `page_spill`, `page_unspill`, `page_prefault`, `page_wops`, `page_msync` (libmdbx `page_ops` counters) and `proc_write_bytes` (`/proc/self/io` `write_bytes`). Amplification = device write bytes ÷ ((`page_newly` + `page_cow`) × 4096). Also on the same line, as current values (not deltas): `mdbx_used_bytes` (the database's used size) and `mdbx_advised_bytes` (bytes of `mdbx.dat` mappings carrying the random-access advice; 0 when the switch is off), so the log alone shows whether the advised range covers the used range. FROZEN by the orchestrator 2026-11-11: U3 emits exactly these names; H7b and the analysis units parse them. | log fields | |
 | mdbx-advice | `tn_reth_mdbx_page_ops_total{op}` with `op` ∈ `newly`, `cow`, `spill`, `unspill`, `prefault`, `wops`, `msync` (FROZEN) | counter | |
 | sealed-keep | (per hand-back) | | |
-| digest-dedupe | `tn_worker_duplicate_digest_suppressed_total`; proposer-side counter; `skipping invalid transaction` + `sender` | counter/log | |
+| digest-dedupe (worker) | counter `tn_worker_duplicate_digest_suppressed_total` (label `worker`); log target `consensus::metrics`, message `batch digest already reported`, fields `worker_id`, `digest`, `num_txs`. "Already reported" = the digest was reported successfully by this worker instance AND still has its `OurNodeBatchesCache` row. | counter/log | U7 93e9d7c21 |
+| digest-dedupe (proposer, U10; `sender` field, U3) | proposer-side counter; `skipping invalid transaction` + `sender` | counter/log | |
 | recovery-pool | `signers recovered` + `pool=dedicated|global` | log field | |
 | tracker-drain | backlog outputs, detect lag, drain seconds, entry lag gauges; `epoch_record_vote_skipped_total{reason}` | gauges/counter | |
 | parent-grace | `parent_grace_wait_seconds`, `parent_grace_total{outcome}`, `late_parents_total{origin}` | histogram/counters | |
@@ -105,6 +106,12 @@ All twelve switch fields LANDED: U0a, integration commits 3696d49f3..5b9f13b25 (
 - Harness must (H1b): pass `BENCH_TAIL_SCAN_SECS` as `--tail-scan-secs` (only when non-zero), collect the `unlanded-*` file with the
   landings file, and extend every done-wait deadline by the tail plus up to 30 s of unlanded lookups (they run whenever the landings
   export is on, even at N = 0, before the results are written).
+- **H9c rule (generator commit on top of d3be21a, see the ledger line below)**: with the tail scan on, every field that existed
+  before it keeps its tail-off value; late blocks and late landings count only under `run.tail_scan`, which also carries
+  `blocks_late`, `landed_late_acknowledged` and `hist_land_late` (bounds as `latency.hist_seen_tail`); `unlanded_after` =
+  `totals.unlanded_own − landed_late_acknowledged`; `totals.unlanded_own` keeps bench 5's meaning (= `unlanded_own_at_cooldown_end`).
+  Only `run.ended_unix` and the cool-down's end move. Proof: `the_tail_scan_changes_no_existing_field` + fixtures
+  `bench/fixtures/blast-v2-tail-{off,on}.json`.
 - Not taken: `resends` / `first_resend_ms` on landings rows (would need a shared-ledger write on the per-tx resend path); `senders.stalls`.
 
 ## Analysis outputs (H7b, landed 2026-11-11)

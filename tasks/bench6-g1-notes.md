@@ -180,7 +180,7 @@ The orchestrator collects every decision for the G1 gate here as hand-backs arri
 - The one-VM GCE probe itself is covered by the user's U3 answer (announced, not gated).
 
 ## From the harness units (H0, H4, H7a, H7b, H9a/b)
-- D20. **Tail scan and KPI comparability** (H7a): as first built, landings booked during the tail scan counted in the generator's
+- D20. (RESOLVED 2026-11-11, generator 2b51b2c: tail landings count only under `run.tail_scan`.) **Tail scan and KPI comparability** (H7a): as first built, landings booked during the tail scan counted in the generator's
   landed totals and latency fields, so run 2's published KPIs would have included landings that bench 5's could not. Orchestrator
   action (follows the plan's rule that the headline keeps bench 5's profile and only adds measurements): a generator follow-up
   (H9c) makes every pre-existing field keep its tail-off value and reports the tail only in new fields. No decision needed unless
@@ -202,3 +202,55 @@ The orchestrator collects every decision for the G1 gate here as hand-backs arri
 - D27. `unsent` after a late blaster create (H1a): true only when every delete returned before the common start time; GCE deletes
   often take 20-60 s against a 30-s margin, so a slow create on a light blast (150-s lead) may cost a re-fund. A stronger fix (a
   cancel object the blaster checks before it starts) is not built.
+
+## From the local probe (I-1r; run 2026-11-11T15:43:55Z-16:08:31Z on an idle machine; `mdbx-writeback-probe/results/i1-20261111T154355Z/`)
+Read off the run log by the orchestrator; the analysis unit I-1r verifies and extends (`benchmark/private/bench6-prep/I-1r/`).
+
+| arm | device ÷ MDBX-dirtied (median) |
+|---|---:|
+| 7-default: re-opened DB, growth in the unadvised range, node defaults (prefault on) | 1.000 |
+| 7-ovf: + two-page overflow values | 1.008 |
+| 7-pfoff: prefault off (positive control) | 8.686 |
+| 7-pfoff-mrand: prefault off + whole-map `MADV_RANDOM` | 1.000 |
+| 7-ovf-mrand / 7-ovf-pfoff-mrand | 1.008 / 1.000 |
+| 7-noreopen-pfoff (negative control) | 1.000 |
+| 8-readused-nopressure: used range read through the page cache | 5.37 (wide band) |
+| 8-readused: the same, 40 MiB of reclaim before every output from output 20 | 5.10 before, 1.34 from output 20 |
+| 8-cold-normal: cold cache, `MADV_NORMAL`, same pressure | 1.14 before, 1.15 after |
+
+### What it establishes
+- Whole-map `MADV_RANDOM` (the U3 fix) closes the read-around route completely where it occurs (8.69 → 1.000).
+- **I-1's falsifier fired**: under the node's defaults (prefault on) the re-open condition alone stays at 1.000 on this kernel. The
+  ranked trigger #1 is therefore NOT sufficient as stated. What gives a real node its large folios is open again.
+- The multi-page prefault route (R2) was barely exercised (two-page allocations only).
+- Reclaim pressure does break up a resident large-folio cache (5.1 → 1.34 within the run): supports "memory pressure took bench 4
+  out" and bench 5's late drop.
+- Caveats: swap was 8 GB in use at the start; arm 8 has a wide band; one summary line carries an arithmetic overflow in `grown`.
+
+### Decisions
+- D28. **The first persist arm of run 1 may not show the planned recovery.** Until the GCE probe or run 1's control arm identifies
+  what builds the folios on a node, "commit 178 → 25-38 µs/tx" is a hope, not an expectation. Candidates I-1r is checking:
+  prefault effectively off on the node (another process enabling libmdbx's read-ahead edge through the shared lock file; then the
+  8.7× arm IS the node's case and U3 fixes it); multi-page GC/freelist records (bench 5's freelist reached 58-59 k entries, rewritten
+  every commit in `pwritev` runs of up to 64 pages — would also fit the +0.031 s/min commit drift); output and database size; the
+  GCE kernel and filesystem.
+- D17 (prefault-off switch) stays undecided: with whole-map advice, prefault off measured 1.000 locally (safe), but no evidence yet
+  that the prefault route matters. Decide after I-1r and the GCE probe.
+- The GCE probe's arm list is being revised by I-1r (`I-1r/gce-arms.md`) with realistic multi-page arms; the probe driver takes its
+  arms from a table.
+
+## From U1 (proposer fix, both variants built; `tasks/checkpoint-bench6-u1.md`)
+- Self-feeding model, ten in-step nodes over 20 rounds: under "always" (K = 0) the lag reaches exactly 8 outputs by round 9 and
+  stays there with `exec_basis=floor`; under the adaptive policy (K = 4) the lag is 0 on every header; three nodes cancelled after
+  round 5 trail by one output for four rounds and return to 0; the whole fleet cancelled at once climbs 1, 2, 3, 4 and returns to 0.
+- With the switch off the proposed header's bytes and digest equal today's.
+- D29. **When K resets** (deviation from the brief, kept; the domain reviewer agrees): K returns to its configured value only when
+  an own header proposed OUTSIDE a starved window certifies. Under the literal reading ("any certified own header") K would reset
+  every window, since headers inside a window certify by construction, and a node that stays ahead would lose about 2 headers in
+  every K + 2 rounds. Confirm this reading.
+- D30. **Leader rounds** (not built; reviewer's suggestion): a failed return to the tip can land on the node's own leader round and
+  cost that leader slot; staying in the window when this node is the round's leader would avoid it. Build it, or measure first?
+  Orchestrator: measure in run 1 (leader rounds lost per validator in the V arm), build only if it shows.
+- For the analysis: under the rule a leader's named block is older than its tip, so the subscriber's wait floor
+  (`subscriber.rs:1385`) is up to 8 outputs lower and up to 8 more outputs can be assembled ahead of execution;
+  `base_execution_block` (`state.rs:786`) is the named block, not the leader's tip.

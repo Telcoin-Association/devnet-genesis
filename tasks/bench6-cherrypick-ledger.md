@@ -23,3 +23,10 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 13 | U0a | inflight-bound | (adds the switch field) | b14ae1ddd | 5ef5152a9 | | | |
 | 14 | U0a | tracker-drain | (adds the switch field) | 7a3732253 | 43158b0d0 | | | |
 | 15 | U0a | bench6-switches | (adds the switch field) | da9dc0ff3 | 5b9f13b25 | | | |
+| 16 | U7 | digest-dedupe | digest_dedupe | 93e9d7c21 | 93e9d7c21 | #1807 | | |
+| 17 | U1 | quorum-exec-block | (ring helpers) | 73b8a0d24 | d4be3a435 | #1804 | | |
+| 18 | U1 | quorum-exec-block | quorum_exec_block, quorum_exec_block_starved_rounds | e823da217 | 5d7821dfb | #1804 | | |
+| 19 | U0b | bench6-e2e-scaffold | — (test harness) | d1b3e91ef | 38b65ff7b | | | |
+| 20 | U0b | bench6-e2e-scaffold | — | 56f50b1a4 | 4c7e5f032 | | | |
+| 21 | U0b | bench6-e2e-scaffold | — | 9208e4d30 | d1b6b0ac3 | | | |
+| 22 | U0b | bench6-e2e-scaffold | — | a045aaebc | b09d65945 | | | |
