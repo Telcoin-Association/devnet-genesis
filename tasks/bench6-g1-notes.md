@@ -178,3 +178,27 @@ The orchestrator collects every decision for the G1 gate here as hand-backs arri
 - D19. Sampler additions (H4): smaps `rr` coverage, resident pages past `used`, and prefault / `last_pgno` deltas from the node's own
   counters (no `mdbx_stat`).
 - The one-VM GCE probe itself is covered by the user's U3 answer (announced, not gated).
+
+## From the harness units (H0, H4, H7a, H7b, H9a/b)
+- D20. **Tail scan and KPI comparability** (H7a): as first built, landings booked during the tail scan counted in the generator's
+  landed totals and latency fields, so run 2's published KPIs would have included landings that bench 5's could not. Orchestrator
+  action (follows the plan's rule that the headline keeps bench 5's profile and only adds measurements): a generator follow-up
+  (H9c) makes every pre-existing field keep its tail-off value and reports the tail only in new fields. No decision needed unless
+  the user wants the KPIs redefined.
+- D21. Tail-scan length: the plan says 180 s; the I-2 measurement spec recommends 120 s for load blasts. Env files carry 180.
+- D22. The unlanded export does up to 30 s of `eth_getTransactionByHash` lookups (≤ 20,000, 64 at a time) against the nodes after
+  each blast whenever the landings export is on. It is after the load, outside every measured window.
+- D23. Boot image: `BENCH_NODE_BOOT_IMAGE` defaults to `ubuntu-2404-noble-amd64-v20261105` (bench 5's by the earlier gcloud read:
+  bench 5 = image v20261105, kernel 7.0.0-1017-gcp). The run artifacts themselves hold no record of the source image; deploy
+  step 0 will `images describe` it. Confirm the pin (and that a deprecated image is acceptable if Google has since deprecated it).
+- D24. arms-summary corrects the commit-cost drift only for blast types that both control arms ran (M16 in the planned schedule);
+  L and M4 rows carry raw values. Add an L and an M4 to A0′ (+ ≈ 23 min), or accept?
+- D25. Persist CSV: one column added after the freeze, `mdbx_dat_resident_past_used_pages` (H4 follow-up), read from the node's
+  `tn_reth_mdbx_used_bytes` gauge; the folio census needs root on the node for folio orders (the sampler service runs as root).
+- D26. **Archive before or after the fleet is deleted** (H6a): the teardown now uploads and verifies the run's results BEFORE it
+  deletes anything, so the eleven VMs stay up for the upload (bench 5's 2.5 GB ≈ 5-14 min at this uplink; a run with debug logs is
+  far larger). `BENCH_TEARDOWN_SKIP_ARCHIVE=1` skips that gate; the local gate still protects the results. Orchestrator's proposal for
+  both bench-6 runs: skip the gate in the teardown and run `tools/archive-run.sh --run <R>` right after it (verify included).
+- D27. `unsent` after a late blaster create (H1a): true only when every delete returned before the common start time; GCE deletes
+  often take 20-60 s against a 30-s margin, so a slow create on a light blast (150-s lead) may cost a re-fund. A stronger fix (a
+  cancel object the blaster checks before it starts) is not built.

@@ -20,17 +20,19 @@ from here, never from the design text.
 | `rpc_admission_backlog_outputs` | usize | 0 | 2 | inflight-bound | |
 | `pipelined_persist` | bool | false | true | pipelined-persist (may be absent from the image) | |
 
+All twelve switch fields LANDED: U0a, integration commits 3696d49f3..5b9f13b25 (2026-11-11); `Parameters::switches()` + `SwitchValue` (`gauge()`: bool 0/1, count, duration in ms); `tn_types::ExecutionBacklog` + `AdmissionGate` (closes at backlog ≥ K, reopens below K−1: at K = 2 only at 0).
+
 ## Node log lines and metrics (design names; to be confirmed by hand-backs)
 | topic | name | kind | landed (unit, sha, verbatim) |
 |---|---|---|---|
-| switches | message `node switches`, level info, target `node::switches`, logged once at node start AFTER `parameters.yaml` is loaded; one field per switch named exactly as its YAML key, in the table order above, values as YAML scalars (`true`/`false`, integers, durations like `150ms`, `0ms`); a key the image does not know is simply absent. Parsers take `key=value` tokens after the message text. | log | |
+| switches | message `node switches`, level info, target `node::switches`, logged once at node start AFTER `parameters.yaml` is loaded; one field per switch named exactly as its YAML key, in the table order above, values as YAML scalars (`true`/`false`, integers, durations in humantime form: `150ms`, and `0s` for zero — compare durations BY VALUE, never as strings); a key the image does not know is simply absent. A switch at its default is NOT written to `parameters.yaml` (the arm tool must add an absent key), but the line always lists every switch. Parsers take `key=value` tokens after the message text. | log | |
 | switches | `tn_node_switch{name}` | gauge | |
 | quorum-exec-block | `header proposed` + `exec_block`, `exec_tip`, `exec_basis` (`quorum`/`tip`/`floor`) | log fields | |
 | quorum-exec-block | `tn_primary_parent_exec_block_mismatch_total` (optional) | counter | |
 | voter-lock | `VoteStage::PreLockWait`, outcome `superseded`, `prelock_wait_ms` on `vote path timing`; `SupersededRequest` | stage/log/error | |
 | voter-lock / tracker-drain | `tn_primary_epoch_entry_rounds_behind` | gauge | |
 | mdbx-advice | `tn_reth_mdbx_random_advice_bytes`, `tn_reth_mdbx_used_bytes` | gauges | |
-| mdbx-advice | message `persisted output` (existing line) gains, as deltas over that one persist: `page_newly`, `page_cow`, `page_spill`, `page_unspill`, `page_prefault`, `page_wops`, `page_msync` (libmdbx `page_ops` counters) and `proc_write_bytes` (`/proc/self/io` `write_bytes`). Amplification = device write bytes ÷ ((`page_newly` + `page_cow`) × 4096). FROZEN by the orchestrator 2026-11-11: U3 emits exactly these names; H7b and the analysis units parse them. | log fields | |
+| mdbx-advice | message `persisted output` (existing line) gains, as deltas over that one persist: `page_newly`, `page_cow`, `page_spill`, `page_unspill`, `page_prefault`, `page_wops`, `page_msync` (libmdbx `page_ops` counters) and `proc_write_bytes` (`/proc/self/io` `write_bytes`). Amplification = device write bytes ÷ ((`page_newly` + `page_cow`) × 4096). Also on the same line, as current values (not deltas): `mdbx_used_bytes` (the database's used size) and `mdbx_advised_bytes` (bytes of `mdbx.dat` mappings carrying the random-access advice; 0 when the switch is off), so the log alone shows whether the advised range covers the used range. FROZEN by the orchestrator 2026-11-11: U3 emits exactly these names; H7b and the analysis units parse them. | log fields | |
 | mdbx-advice | `tn_reth_mdbx_page_ops_total{op}` with `op` ∈ `newly`, `cow`, `spill`, `unspill`, `prefault`, `wops`, `msync` (FROZEN) | counter | |
 | sealed-keep | (per hand-back) | | |
 | digest-dedupe | `tn_worker_duplicate_digest_suppressed_total`; proposer-side counter; `skipping invalid transaction` + `sender` | counter/log | |
@@ -50,8 +52,10 @@ from here, never from the design text.
   tsv as `<type>:<key>`, appended to `BENCH_NODE_PARAM_KEYS`).
 - `benchmark/arms/switches.tsv` (key, type, default, arm_values, topic, optional) and the arm-file format `benchmark/arms/README.md`
   (`name`, `param <key> <value>`, `host evict-mdbx`, `host read-ahead-kb <n>`; the file is the FULL state; unknown anything = refuse).
-- Persist CSV `results/<run>/persist/<inst>.csv`: header in `benchmark/tools/persist-csv-header.txt` (30-s rows; the four
-  `mdbx_dat_*` columns every 300 s). Folio census `persist/<inst>.folios.txt`: `benchmark/tools/folio-census-header.txt`.
+- Persist CSV `results/<run>/persist/<inst>.csv`: header in `benchmark/tools/persist-csv-header.txt` (41 columns; 30-s rows; the five
+  `mdbx_dat_*` columns every 300 s; the last, `mdbx_dat_resident_past_used_pages`, was added after the first freeze and is
+  blank on an image without the `tn_reth_mdbx_used_bytes` gauge). Sampler env `PERSIST_*` (see `node-persist-sampler.sh`);
+  metrics URL default `http://127.0.0.1:<METRICS_PORT from /etc/telcoin/.node-meta, else 9101>/metrics`. Folio census `persist/<inst>.folios.txt`: `benchmark/tools/folio-census-header.txt`.
 - Manifest: `benchmark/arms/MANIFEST-FIELDS.md`. `param_arms[]` keeps `name`, `begin`, `end`, `nodes`, `no_restart`, `failed` and gains
   `via`, `file`, `sha256`, `switches`, `host`, `ready`, `restart_secs`, `guard`, `marks`; an arm's window is `ready` (else `begin`) → `end`.
   `node_startup[inst].host` + `host_steps`; lines `HOST_PROBE <inst> <json>` and `HOST_PROBE_SUMMARY kernel=… image=… ra_kb=… uniform=yes|no …`.
@@ -76,6 +80,45 @@ from here, never from the design text.
   `transient + other + gap_txs` = Σ `resent`; `resign_nonce + resign_fee` = Σ `resigned`.
 - Send path proven unchanged by `blast::sender::tests::send_path_matches_the_golden` (golden
   `src/blast/testdata/send-path-golden.json`, sha256 a52c3022cda7627f097bc017a6808a266f0068cc35217e67c3fa3ed268a359f3).
-### H9b (pending hand-back)
-(`--tail-scan-secs`, `run.tail_scan`, `late` on landings rows, unlanded count after the tail, gap resends split by answer,
-stalled-sender columns, per-transaction unlanded export, finer tail histogram, `bench/aggregate.py` merge)
+### H9b (landed; generator commit d3be21a on local main, not pushed)
+- CLI `--tail-scan-secs N` (default 0 = nothing runs, `run.args` has no `tail_scan_secs` key). After the cool-down the senders stay
+  stopped and the scanner books landings for up to N s; ends early when every acknowledged tx landed. `run.phases` keeps four phases;
+  `run.ended_unix` includes the tail.
+- `run.tail_scan` = {`secs`, `start_ms`, `end_ms`, `end_reason` (`elapsed`|`all_landed`|`signal`|`scanner_stopped`|`skipped`|null),
+  `boundary_block`, `landed_late`, `by_type`, `unlanded_after`}. `totals.unlanded_own_at_cooldown_end` keeps bench 5's meaning;
+  `totals.unlanded_own` and `types.*.unlanded_own` now mean "after the tail" (equal at N = 0).
+- `nodes[].resends` / `totals.resends` also carry `gap_txs_ok`, `gap_txs_known`, `gap_txs_err` (sum = `gap_txs`), `gap_checks`
+  (= `gap_checks_head_known` + `gap_lookup_failed` + `gap_hole_no_bytes` + `gap_episodes`).
+- `series.send_per_second_columns` has 20 columns: the eight above, then `calls`, `retries`, `resent_ok`, `resent_known`,
+  `resent_err`, `rpc_err_known`, `rpc_err_other`, `rpc_err_transient`, `rpc_err_nonce_low`, `rpc_err_fee`, `stalled_30s`,
+  `stalled_300s`. Identities: `calls = submitted + retries + resigned + resent_ok + resent_known + resent_err`;
+  `resent = retries + resent_*`; Σ `rpc_err_*` = `rpc_errors`.
+- `latency.hist_seen_tail` and `latency.by_phase.*.hist_seen_tail`: bounds_ms 30000, 60000, 120000, 250000, 290000, 300000, 310000,
+  330000, 400000, 600000 (11 counts).
+- Landings rows gain `late` (bool; present only when the tail ran).
+- New file `unlanded-<label>.ndjson.gz` beside the landings export (harness path `/out/unlanded-${LABEL}.ndjson.gz`): keys `hash`,
+  `type`, `node`, `sender`, `nonce`, `phase`, `submit_ms`, `accept_ms`, `resends`, `last_resend_ms`, `last_answer`, `pos`,
+  `node_knows`; caps 100,000 rows and 20,000 `eth_getTransactionByHash` lookups (64 at a time, all within 30 s).
+- Log lines: `blast: unlanded export written` (`rows`, `unlanded`, `sample`, `lookup_sample`, `node_knows`, `node_unknown`,
+  `lookup_failed`), `blast: unlanded export failed`, `blast: tail scan finished` (`secs`, `end`, `boundary_block`, `took_ms`, `pending`).
+- `bench/aggregate.py` merges all of it across blasters; old inputs aggregate byte-for-byte as before.
+- Harness must (H1b): pass `BENCH_TAIL_SCAN_SECS` as `--tail-scan-secs` (only when non-zero), collect the `unlanded-*` file with the
+  landings file, and extend every done-wait deadline by the tail plus up to 30 s of unlanded lookups (they run whenever the landings
+  export is on, even at N = 0, before the results are written).
+- Not taken: `resends` / `first_resend_ms` on landings rows (would need a shared-ledger write on the per-tx resend path); `senders.stalls`.
+
+## Analysis outputs (H7b, landed 2026-11-11)
+- `benchmark/tools/arms-summary.py [--run-dir D] [--self-check] [--results-root R] [--out-dir O] [--prefiltered P] [--cache-dir C]
+  [--types T] [--drift-axis {chain-mtx,wall-min}] [--no-stages] [--jobs N]` → `<run>/analysis/arms.{md,json}`; exit 0 written,
+  1 bad input, 2 no row, 3 self-check mismatch. Row ids `<arm>/<type>` (`L` 8×16, `M4` 600×4, `M16` 600×16 with planned mixed ≥ 400 s,
+  `M16s` shorter, `I` idle mark); a run without `param_arms` is one arm `implicit`.
+- `arms.json`: top level `tool, run_name, generated_utc, drift_axis, notes, drift, arm_list, summary_rows, log_files`;
+  `summary_rows[]` keys include `row_id, arm_name, blast_type, utc_from, utc_to, seconds, switch_set, chain_txps, landed_txps,
+  land_p50_s, land_p95_s, gen_seen_p50_s, gen_seen_p95_s, engine_by_node, execute_us_tx, persist_us_tx, commit_us_tx,
+  commit_ms_output, task_us_tx, txs_per_output, amp_fleet_median, rr_vma_min, cert_by_validator, cert_min_pct, vote_lock_p95_ms,
+  behind_per_header_max, tracker_errors, landings_ge300, resends_by_cause, resends_total, tail_landed_late, tail_unlanded_after,
+  late_secs_max, gen_silent_max_s, stage_seen_p50_s, stages, commit_us_tx_corrected, drift_moved_pct_abs, verdict[]`.
+  Missing inputs are the string `n/a (missing: <what>)`. Every parsed field name sits in the tool's `F` table.
+- Not computed (no input exists yet): duplicate digests, parents per header, grace `expired`, the `finish` overlap, a used-size
+  column (to add from `mdbx_used_bytes` on the `persisted output` line once U3 lands: small H7b follow-up).
+- stage-latency window names for bench-6 blasts: `[<arm>/]<kind><senders>x<window>` (e.g. `v/load600x16`); `--only GLOB`.

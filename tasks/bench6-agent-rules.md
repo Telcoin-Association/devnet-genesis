@@ -78,6 +78,9 @@ HARD RULES:
     `cargo +$(cat rust-nightly) clippy --locked --all-targets --all-features -p <crate>… -- -D warnings`;
     `cargo nextest run --locked -p <crate>…` for every package you touched (whole package, not a name filter), plus each new test by
     name three times if it has timing in it. Never the whole workspace, never `-p e2e-tests`, never `make attest`.
+  - known build quirk (pre-existing): `cargo nextest run -p tn-config` or `-p tn-types` ALONE fails to compile `tn-network-types`
+    (a serde feature that only appears with tn-reth in the graph). Keep a node-side crate in the graph and filter instead:
+    `cargo nextest run --locked -p tn-config -p tn-types -p tn-node -E 'package(tn-config) | package(tn-types)'`.
   - capture the real exit code: `<cmd> > "$LOG" 2>&1; echo "EXIT=$?" >> "$LOG"`, then read the tail. Logs under `<worktree>/target/tmp/`.
   - a test that fails in a package you did not change: run it alone twice, check `git diff 165e3fe01 -- <file>`, report it as
     pre-existing or flaky with the evidence; do not edit unrelated tests.

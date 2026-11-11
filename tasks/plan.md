@@ -48,12 +48,12 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 - [x] I-4 design answers — DONE: design D as written always settles on the floor (8 outputs stale); a twelfth switch `quorum_exec_block_starved_rounds` makes both variants buildable; U2 also owns `network/message.rs` + `error/network.rs`; G1 items in `tasks/bench6-g1-notes.md`
 - [x] I-5 pipelined persist design — DONE (`I-5/design.md`): go for implementation; three ownership gaps settled (U0c adds `OutputBuildScope::seeded` + `pub mod persister;`; U12a owns `engine/src/error.rs`; ST-U12a owns the `mod` line in `engine/tests/it/main.rs`)
 - [x] I-6 bench-5 report repair — DONE: 12 defects corrected (16-entry corrections list), backfill caveats updated, local re-bundle + site gates green (115 tests, scrub 0/0); nothing committed
-- [ ] I-6b second pass (folds I-1, I-2, I-3, I-4 results into the report and backfill, re-bundles; launched 2026-11-11 ≈ 00:10Z); republish after G1
+- [x] I-6b second pass — DONE: 28 statements corrected from I-1, I-2, I-3, I-4 ("## Corrections (2026-11-11)", 22 entries), backfill summary + caveats 2, 5, 7, re-bundle 719 s, site gates green (115 tests, scrub 0/0); report + backfill + tn-benchmarks run files uncommitted until the user's G1 review
 
 ## W2a — node topics (base 165e3fe01; switches default to bench-5 behaviour)
-- [ ] wave 0: U0a switches · U0b e2e scaffold — launched ≈ 23:35Z (worktrees tn-b6-u0a, tn-b6-u0b); U8 DONE f3d34932e, integrated (ledger row 1)
-- [ ] wave 0b: U0c plumbing (after U0a)
-- [ ] wave 1: U1 quorum-exec-block · U2 voter-lock · U3 mdbx-advice · U4a recovery-pool · U4b contention bench · U5 tracker-drain ·
+- [ ] wave 0: **U0a DONE** (14 commits, tip da9dc0ff3, integrated 3696d49f3..5b9f13b25; twelve switches + `ExecutionBacklog`; a switch at its default is not written to `parameters.yaml`) · U0b e2e scaffold (4 commits; its e2e check waits behind a foreign attest); U8 DONE f3d34932e, integrated (ledger row 1)
+- [ ] wave 0b: U0c plumbing — launched 2026-11-11 ≈ 01:22Z from 5b9f13b25 (brief `tasks/bench6/briefs/u0c.md`)
+- [ ] wave 1: U1, U2, U7 launched ≈ 01:22Z from 5b9f13b25 (they need only U0a) — U1 quorum-exec-block · U2 voter-lock · U3 mdbx-advice · U4a recovery-pool · U4b contention bench · U5 tracker-drain ·
       U6a sealed-keep store · U7 digest-dedupe (worker) · U8 bench6-obs · U12a pipelined-persist core (after I-5)
 - [ ] wave 2: U9 parent-grace · U11 inflight-bound · U12b pipelined wiring · U6b sealed-keep batch marks · U1v voter cases · ST-U12a
 - [ ] wave 3: U10 digest-dedupe (proposer) · ST-U1 · ST-U5 · ST-U6 · ST-U11 · ST-U12b
@@ -61,8 +61,8 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 - [ ] pipelined persist go/no-go recorded
 
 ## W2b — harness and generator units
-- [x] H0 knobs and frozen names — DONE (config.sh +85/−5, `arms/switches.tsv` 12 keys, arm-file format, persist CSV + folio headers, `MANIFEST-FIELDS.md`; 9 new tests, 11/11 mutation anchors killed); H9a DONE (per-second send series, window waits, resends by cause; 211 tests; send path byte-identical to a golden recorded before the change; uncommitted in the generator repo); H9b launched 2026-11-11 ≈ 00:15Z (tail scan + I-2's extras + `bench/aggregate.py`)
-- [ ] H1a → H1b · H2 → H3 · H4 · H5a → H5b · H6a · H7a ∥ H7b · H9a → H9b · H10 · H11
+- [x] H0 knobs and frozen names — DONE (config.sh +85/−5, `arms/switches.tsv` 12 keys, arm-file format, persist CSV + folio headers, `MANIFEST-FIELDS.md`; 9 new tests, 11/11 mutation anchors killed); H9a DONE (per-second send series, window waits, resends by cause; 211 tests; send path byte-identical to a golden recorded before the change; uncommitted in the generator repo); H9b DONE (tail scan, gap resends by answer, stalled columns, unlanded export, tail histogram, `aggregate.py`; 229 tests; golden untouched); generator commit d3be21a on its local main (ahead 1, not pushed); H9c launched 2026-11-11 ≈ 01:20Z (tail landings must not change any pre-existing field)
+- [ ] H1a → H1b · H2 → H3 · H4 · H5a → H5b · H6a · H7a ∥ H7b · H10 · H11 — **H1a DONE** (38aa93a) · **H2 DONE** (451d090) · **H6a DONE** (a99566b: prefilter pass ≈ 1 min for 64 logs, readers 600 s → 55 s; archive-run + archive-verify) · H5a running · H1b and H10 launched ≈ 01:27Z · **H4 DONE** (persist sampler + folio census, 36 tests; follow-up running: one more CSV column) · **H7a DONE** (switch provenance, kind-based windows, 5 modules green, bench-5 bundle reproduces) · **H7b DONE** (arms-summary.py + arm windows; bench-5 self-check reproduces the recut), committed
 - [ ] H6b (README) and H8 (gate) last, no cargo job running
 
 ## W3 — verify, image, GCE probe
