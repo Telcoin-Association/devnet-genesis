@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# curl for the run-1 rehearsal: bench-obs Prometheus through its local forward. The transaction pool
+# query (benchmark-blast.sh pool_at_start) gets a pending and a queued sample for every node of
+# $REHEARSAL_NODES; any other query an empty success. Every call is logged to $STUB/curl.
+{ printf 'curl'; printf ' %q' "$@"; printf '\n'; } >> "${STUB:?}/curl"
+q=""
+while [ $# -gt 0 ]; do
+    case "$1" in --data-urlencode) q="$2"; shift ;; esac
+    shift
+done
+case "${q}" in
+    *reth_transaction_pool_*)
+        rows="" i=0
+        for n in ${REHEARSAL_NODES:?}; do
+            i=$((i + 1))
+            for k in pending queued; do
+                v=$([ "${k}" = pending ] && echo $((i * 10)) || echo $((i * 3)))
+                rows="${rows}${rows:+,}{\"metric\":{\"__name__\":\"reth_transaction_pool_${k}_pool_transactions\",\"node\":\"${n}\",\"network\":\"bench\"},\"value\":[0,\"${v}\"]}"
+            done
+        done
+        printf '{"status":"success","data":{"resultType":"vector","result":[%s]}}\n' "${rows}" ;;
+    *) printf '{"status":"success","data":{"resultType":"vector","result":[]}}\n' ;;
+esac

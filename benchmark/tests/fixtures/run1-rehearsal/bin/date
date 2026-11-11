@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# date on the rehearsal's clock (tests/test_run1_rehearsal.py): $CLOCK holds the time in Unix seconds,
+# shared by the drivers, the fake nodes and the fakes. A form that names its own time (-d, -r, -s, -f)
+# is the real date; every other form reads the clock.
+for a in "$@"; do
+    case "$a" in -d|-d*|--date*|-r|-r*|--reference*|-s|-s*|--set*|-f|-f*|--file*) exec /bin/date "$@" ;; esac
+done
+exec /bin/date -d "@$(cat "${CLOCK:?}")" "$@"

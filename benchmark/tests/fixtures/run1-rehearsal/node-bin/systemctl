@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# systemctl on a rehearsal node: the arm tool's fake (fixtures/params-apply/node-systemctl.sh), and at
+# each start the node's startup line in its own log (node-start.py: the `node switches` line of its
+# parameters.yaml, stamped with the rehearsal's clock) and one more in state/starts (this directory's
+# docker moves the node's progress on with it).
+bash "${PA_FIX:?}/node-systemctl.sh" "$@" || exit $?
+case "$*" in
+    "restart telcoin"|"start telcoin")
+        n="$(cat "${STUB_NODE_DIR:?}/state/starts" 2>/dev/null || echo 0)"
+        echo "$((n + 1))" > "${STUB_NODE_DIR}/state/starts"
+        "${PA_REAL_PYTHON3:?}" "${REHEARSAL_FIX:?}/node-start.py" "${STUB_NODE_DIR}" ;;
+esac
+exit 0

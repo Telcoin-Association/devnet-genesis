@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# docker on a rehearsal node: the arm tool's fake (fixtures/params-apply/node-docker.py), whose log after
+# a start always reaches the same consensus progress. A rehearsal node restarts once per arm, so each
+# start moves that progress on by 10 (state/starts, counted by this directory's systemctl): the arm
+# tool's readback then sees progress past the log it saved before the restart, as on a real node.
+n="$(cat "${STUB_NODE_DIR:?}/state/starts" 2>/dev/null || echo 0)"
+"${PA_REAL_PYTHON3:?}" "${PA_FIX:?}/node-docker.py" "$@" | sed \
+    -e "s/last_consensus_height=60\$/last_consensus_height=$((60 + 10 * n))/" \
+    -e "s/message=\"header proposed\" round=3 /message=\"header proposed\" round=$((3 + 10 * n)) /" \
+    -e "s/message=\"quorum reached\" round=4 /message=\"quorum reached\" round=$((4 + 10 * n)) /"
+exit "${PIPESTATUS[0]}"

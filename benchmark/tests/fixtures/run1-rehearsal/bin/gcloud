@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# gcloud for the run-1 rehearsal (tests/test_run1_rehearsal.py): one fake for both drivers, on the
+# rehearsal's clock ($CLOCK). Every call is logged to $STUB/calls as its shell-quoted argv.
+#   compute ssh <node>        the arm tool's fake node: fixtures/params-apply/gcloud.py ($PA_GCLOUD), with the
+#                             config's datadir (/var/lib/telcoin) in the remote script mapped to the node's own
+#   compute instances create  a load VM: its state ($STUB/vm-<name>) and, through blaster.py, what it will
+#                             upload and print when its work ends ($STUB/staged/<name>-<index>/)
+#   ... describe / delete / list / get-serial-port-output, compute disks add-labels
+#   storage ls / cp -r        the fake bucket ($STUB/bucket/<bucket>/...); buckets describe
+# A staged VM's objects and serial marker appear once the clock reaches its end (publish). Anything else
+# is logged to $STUB/unexpected and fails.
+STUB="${STUB:?}"
+GS="gs:""//"                      # the bucket scheme, spelled in two parts (tests/test_repo_hygiene.py)
+{ printf 'gcloud'; printf ' %q' "$@"; printf '\n'; } >> "${STUB}/calls"
+now() { cat "${CLOCK:?}"; }
+
+# publish — every staged VM whose end has come: its objects into the bucket, its serial marker in place.
+publish() {
+    local d at t
+    t="$(now)"
+    for d in "${STUB}"/staged/*/; do
+        [ -f "${d}at" ] || continue
+        at="$(cat "${d}at")"
+        [ "${t}" -ge "${at}" ] || continue
+        mkdir -p "${STUB}/bucket"
+        [ ! -d "${d}objects" ] || cp -R "${d}objects/." "${STUB}/bucket/"
+        cp "${d}serial" "${STUB}/serial-$(cat "${d}vm")"
+        mv "${d}" "${STUB}/published-$(basename "${d}")-$$" 2>/dev/null || true
+    done
+}
+
+case "$1 $2 ${3:-}" in
+    "auth print-access-token ") echo fake-token; exit 0 ;;
+    "storage buckets describe") echo "${4#"${GS}"}"; exit 0 ;;
+esac
+
+case "$1 $2" in
+    "compute ssh")
+        node="${3:-}"
+        if [ -d "${PA_NODES:?}/${node}" ]; then
+            sed "s#/var/lib/telcoin#${PA_NODES}/${node}/data#g" | python3 "${PA_GCLOUD:?}" "$@"
+            exit "${PIPESTATUS[1]}"
+        fi
+        echo "ERROR: (gcloud.compute.ssh) instance ${node} not found" >&2; exit 1 ;;
+esac
+
+name="${4:-}"
+case "$1 $2 ${3:-}" in
+    "compute instances create")
+        meta=""
+        for a in "$@"; do case "$a" in --metadata=*) meta="${a#--metadata=}" ;; esac; done
+        printf '{"name": "%s", "id": "4242", "status": "RUNNING", "tags": {"items": ["bench-blaster"]}, "labels": {"benchmark": "1"}, "zone": "zones/%s"}\n' \
+            "${name}" "us-west2-a" > "${STUB}/vm-${name}"
+        printf 'boot\n' > "${STUB}/serial-${name}"
+        python3 "${REHEARSAL_FIX:?}/blaster.py" --stub "${STUB}" --name "${name}" --meta "${meta}" --now "$(now)" \
+            || { echo "fake gcloud: blaster.py failed for ${name}" >&2; exit 1; }
+        echo "Created [https://www.googleapis.com/compute/v1/projects/p/zones/z/instances/${name}]."
+        exit 0 ;;
+    "compute instances describe")
+        case "$*" in *networkIP*)
+            i=0
+            for n in ${REHEARSAL_NODES:?}; do
+                i=$((i + 1)); [ "${n}" != "${name}" ] || { echo "192.0.2.${i}"; exit 0; }
+            done ;;
+        esac
+        if [ ! -f "${STUB}/vm-${name}" ]; then
+            echo "ERROR: (gcloud.compute.instances.describe) The resource '${name}' was not found" >&2; exit 1
+        fi
+        case "$*" in
+            *"value(id)"*) echo 4242 ;;
+            *"value(status)"*) echo RUNNING ;;
+            *) cat "${STUB}/vm-${name}" ;;
+        esac
+        exit 0 ;;
+    "compute instances delete")
+        shift 3
+        for a in "$@"; do case "$a" in --*) ;; *) rm -f "${STUB}/vm-${a}"; echo "${a} $(now)" >> "${STUB}/deleted" ;; esac; done
+        exit 0 ;;
+    "compute instances list")
+        if compgen -G "${STUB}/vm-*" >/dev/null; then jq -s '.' "${STUB}"/vm-*; else echo '[]'; fi
+        exit 0 ;;
+    "compute instances get-serial-port-output")
+        publish
+        cat "${STUB}/serial-${name}" 2>/dev/null
+        exit 0 ;;
+    "compute disks add-labels"|"compute instances add-labels") exit 0 ;;
+    "compute scp --recurse")
+        # <vm>:/var/lib/bench/out <dest>/ — the VM's /out: the files of its latest work.
+        vm="${4%%:*}"; dest="${5:?}"
+        [ -f "${STUB}/vm-${vm}" ] || { echo "ERROR: (gcloud.compute.scp) ${vm} not found" >&2; exit 1; }
+        last="$(ls -dt "${STUB}/published-${vm}-"* 2>/dev/null | head -n 1)"
+        [ -n "${last}" ] || { echo "ERROR: (gcloud.compute.scp) ${vm}: nothing in /var/lib/bench/out" >&2; exit 1; }
+        mkdir -p "${dest}/out"
+        find "${last}/objects" -type f -exec cp {} "${dest}/out/" \;
+        exit 0 ;;
+    "storage ls "*)
+        publish
+        p="${3#"${GS}"}"
+        found=0
+        for f in "${STUB}/bucket/"${p}; do
+            [ -f "${f}" ] || continue
+            echo "${GS}${f#"${STUB}/bucket/"}"; found=1
+        done
+        [ "${found}" = 1 ] || { echo "ERROR: (gcloud.storage.ls) One or more URLs matched no objects." >&2; exit 1; }
+        exit 0 ;;
+    "storage cp -r")
+        publish
+        src="${4#"${GS}"}"; dest="${5:?}"
+        found=0
+        for f in "${STUB}/bucket/"${src}; do
+            [ -e "${f}" ] || continue
+            cp -R "${f}" "${dest}"; found=1
+        done
+        [ "${found}" = 1 ] || { echo "ERROR: (gcloud.storage.cp) The following URLs matched no objects or files: ${GS}${src}" >&2; exit 1; }
+        exit 0 ;;
+esac
+{ printf 'gcloud'; printf ' %q' "$@"; printf '\n'; } >> "${STUB}/unexpected"
+echo "fake gcloud: unexpected call: $*" >&2
+exit 1

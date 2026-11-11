@@ -73,8 +73,11 @@ def arm(name, b, e, sw=None, **extra):
     return d
 
 
-def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True):
-    """The synthetic run under <root>/r20261112-0000; returns its path."""
+def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, hand=False):
+    """The synthetic run under <root>/r20261112-0000; returns its path. hand=True: every blast run by hand,
+    as run-arms runs them in bench 6 run 1 (benchmark-blast.sh fund/run): no blasts[], a blast_runs[] `run`
+    entry per index (and one more, index 6, rc 1, that left no blasters/ directory), and each archived
+    manifest copy holding its own .blast."""
     S = shapes()
     run = Path(root) / "r20261112-0000"
     (run / "logs").mkdir(parents=True)
@@ -95,6 +98,13 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True):
                            for i, a, s, f, t, rc, _, _ in BLASTS]}
     if arms:
         manifest["param_arms"] = pa
+    if hand:
+        del manifest["blasts"]
+        manifest["blast_runs"] = [{"action": act, "index": i, "started": iso(f - 300), "ended": iso(t + 200),
+                                   "rc": rc if act == "run" else 0, "log": None}
+                                  for i, a, s, f, t, rc, _, _ in BLASTS for act in ("fund", "run")]
+        manifest["blast_runs"].append({"action": "run", "index": 6, "started": iso(6600), "ended": iso(6700), "rc": 1,
+                                       "log": None})
     number = 1000
     for i, a, s, f, t, rc, txb, _ in BLASTS:
         d = run / "blasters" if i == 5 else run / ("blast-%d-20261112T%02d0000Z" % (i, i)) / "blasters"
@@ -128,6 +138,16 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True):
                 gzip.compress("".join(json.dumps(x) + "\n" for x in land).encode()))
         bm = {"blasters": [{"name": "bench-blaster-01", "late_secs": 2.5}, {"name": "bench-blaster-02", "late_secs": 7.0}]} \
             if a == "p1" else {"blasters": [{"name": "bench-blaster-01"}]}
+        if hand:
+            # its own .blast; index 0's generators lost run.phases (the copy's real phases stand in), and a
+            # kill landed inside index 4's mixed phase (its copy's chaos[])
+            bm["blast"] = {"run_index": i, "chaos": 0, "start_at": iso(f - 30)}
+            if i == 0:
+                del doc["run"]["phases"]
+                (d / "bench-blaster-01.json").write_text(json.dumps(doc))
+                bm["phases"] = bm["phases_planned"] = [{"name": "mixed", "start": iso(f), "end": iso(t)}]
+            if i == 4:
+                bm["chaos"] = [{"ts": iso(4600), "action": "kill", "node": "bench-validator-05"}]
         if i != 5:
             (d.parent / "manifest.json").write_text(json.dumps(bm))
     (run / "manifest.json").write_text(json.dumps(manifest))
@@ -223,6 +243,50 @@ class ArmsSummaryTests(unittest.TestCase):
         self.assertEqual(rows["a0/M16"]["landed_txps"], 100.0)
         self.assertEqual([a["roles"] for a in doc["arm_list"]], [["control"], ["persist"], ["vote"], ["control", "drift"]])
         self.assertIn("| a0/M16 | 00:10:00 → 00:18:00 | 480 | all defaults | 1,000.0 |", md)
+
+    def test_blasts_run_by_hand(self):
+        """Run 1 records no blasts[]: blast_runs[] and the archived directories give the same rows, the failed
+        index is listed from its rc, and a run that left no directory is listed too."""
+        ref, _ = self.summary(make_run(self.tmp), "--no-stages")
+        hand_root = self.tmp / "hand"
+        hand_root.mkdir()
+        doc, _ = self.summary(make_run(hand_root, hand=True), "--no-stages")
+        cols = ("row_id", "arm_name", "blast_type", "blast_idx", "utc_from", "utc_to", "chain_txps", "commit_us_tx")
+        cut = dict(ref=None)
+        for r in ref["summary_rows"]:
+            if r["row_id"] == "v/M16":
+                r["utc_to"], cut["ref"] = iso(4600), r["window_basis"]     # the kill in index 4's manifest copy
+        self.assertEqual([[r[c] for c in cols] for r in doc["summary_rows"]],
+                         [[r[c] for c in cols] for r in ref["summary_rows"]])
+        rows = self.rows(doc)
+        self.assertEqual(rows["v/M16"]["window_basis"], cut["ref"] + ", cut at chaos kill bench-validator-05")
+        self.assertEqual(rows["a0/M16"]["window_basis"], "blasts[].phases mixed (real)")
+        # without its blast_runs[] entry, the failed blast's outcome comes from its manifest copy's blasters[]
+        run = hand_root / "r20261112-0000"
+        man = json.loads((run / "manifest.json").read_text())
+        man["blast_runs"] = [r for r in man["blast_runs"] if (r["action"], r["index"]) != ("run", 2)]
+        (run / "manifest.json").write_text(json.dumps(man))
+        copy = next(run.glob("blast-2-*")) / "manifest.json"
+        bm = json.loads(copy.read_text())
+        bm["blasters"][0]["rc"] = 1
+        copy.write_text(json.dumps(bm))
+        doc, _ = self.summary(run, "--no-stages")
+        self.assertIn("not measured: blast index 2: rc 1, not measured", doc["notes"])
+        self.assertNotIn(2, [r["blast_idx"] for r in doc["summary_rows"]])
+        self.assertIn("not measured: blast index 2: rc 1, not measured", doc["notes"])
+        self.assertIn("not measured: blast index 6: rc 1, not measured", doc["notes"])
+        self.assertEqual(self.rows(doc)["v/L"]["blast_type"], "L")
+
+    def test_a_resumed_arm_keeps_its_roles(self):
+        mod = load("arms_summary_resume", TOOL)
+        sw = mod.switch_table(str(TOOLS.parent / "arms" / "switches.tsv"))
+        vote = {"quorum_exec_block": "true", "vote_queue_fix": "true"}
+        host = [{"step": "evict-mdbx", "value": None, "nodes": {}}]
+        man = {"param_arms": [arm("a0", 0, 100), arm("v", 100, 200, vote, host=host), arm("v-r2", 200, 300, vote, host=host),
+                              arm("a0p", 300, 400, host=host)]}
+        self.assertEqual([(a["arm_name"], a["roles"], a["control"]) for a in mod.arm_list(man, sw)],
+                         [("a0", ["control"], True), ("v", ["vote"], False), ("v-r2", ["vote"], False),
+                          ("a0p", ["control", "drift"], True)])
 
     def test_engine_and_amplification_arithmetic(self):
         doc, _ = self.summary(make_run(self.tmp), "--no-stages")

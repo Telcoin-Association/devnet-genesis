@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# sleep on the rehearsal's clock: moves $CLOCK ahead by the whole seconds of its argument and returns at
+# once, so a seven-hour walk takes no wall-clock time. A fraction below one second (a lock's spin) is a
+# real short sleep and leaves the clock alone. Parallel sleepers take a mkdir lock; the new value is
+# renamed into place, so a reader never sees a half-written clock.
+s="${1:-0}"; s="${s%s}"
+whole="${s%%.*}"
+case "${whole}" in ''|*[!0-9]*) whole=0 ;; esac
+if [ "${whole}" -eq 0 ]; then exec /bin/sleep "${1:-0}"; fi
+i=0
+until mkdir "${CLOCK:?}.lock" 2>/dev/null; do
+    i=$((i + 1)); [ "${i}" -le 1000 ] || break
+    /bin/sleep 0.005
+done
+echo "$(( $(cat "${CLOCK}") + whole ))" > "${CLOCK}.new.$$" && mv -f "${CLOCK}.new.$$" "${CLOCK}"
+rmdir "${CLOCK}.lock" 2>/dev/null || true
+exit 0

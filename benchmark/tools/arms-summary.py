@@ -10,12 +10,17 @@ Writes <out-dir>/arms.md and <out-dir>/arms.json (default out-dir: <run-dir>/ana
 
 Rows. An arm is a manifest param_arms[] entry; its window runs from `ready` (else `begin`) to `end`.
 A run without param_arms[] (bench 5 and older) is one implicit arm, `implicit`, over the whole run.
-Each blast (manifest blasts[], plus the main blasters/ directory, whose index is blast.run_index) is
-one row, under its blasts[].arm or else the arm in force when its window starts; each arm's
-marks[] (the idle windows) are rows of type I. A blast's window is the span in which every one of
-its generators was in its mixed phase (the blasters' own run.phases), else its recorded real mixed
-phase, clipped to the arm's window and cut at the first chaos action inside it. Blasts whose rc is
-not 0 are listed, not measured. The type is the first row of TYPES that matches the blast.
+Each blast (every blast-<i>-<UTC>/blasters/ and the main blasters/ directory, whose index is
+blast.run_index) is one row, under its blasts[].arm or else the arm in force when its window starts;
+each arm's marks[] (the idle windows) are rows of type I. A blast blasts[] does not list (run by
+hand: fund and run, as tools/../launch/run-arms.sh runs every blast of run 1) takes its senders and
+window from its generators' run.args and its rc from manifest blast_runs[] (else from the manifest
+copy archived with it); a blast_runs[] run that left no blasters/ directory is listed too. A blast's
+window is the span in which every one of its generators was in its mixed phase (the blasters' own
+run.phases), else its recorded real mixed phase, clipped to the arm's window and cut at the first
+chaos action inside it (an archived blast's from its manifest copy). Blasts whose rc is not 0 are
+listed, not measured. The type is the first row of TYPES that matches the blast. An arm that repeats
+the switch state of the arm before it (a resumed arm, <name>-r2) keeps that arm's roles.
 
 Columns (each "n/a (missing: <what>)" when its input is absent; never a silent zero):
   chain tx/s     sum of tx_count over the blocks timestamped in the window (every generator's block
@@ -113,6 +118,7 @@ F = {
     "m_start": "start", "m_ts": "ts", "m_action": "action", "m_node": "node", "m_blasters": "blasters",
     "m_late": "late_secs", "m_blast": "blast", "m_run_index": "run_index", "m_instances": "instances",
     "m_role": "role", "m_run_id": "run_id", "v_validator": "validator", "v_observer": "observer",
+    "m_blast_runs": "blast_runs", "v_run_action": "run", "m_abort": "abort", "m_start_at": "start_at",
     # blaster JSON (tn-blast/v2; send_per_second, resends: H9a; tail_scan: H9b)
     "b_schema": "schema", "b_run": "run", "b_start_unix": "start_unix", "b_end_unix": "end_unix",
     "b_args": "args", "b_senders": "senders", "b_window": "window", "b_duration": "duration_secs", "b_sample": "landings_sample", "b_label": "label",
@@ -289,7 +295,12 @@ def arm_list(manifest, switches):
         sw = a.get(F["m_switches"])
         host = [h for h in (a.get(F["m_host"]) or []) if isinstance(h, dict)]
         roles = set()
-        if isinstance(sw, dict):
+        # An arm that repeats the switch state of the arm before it (a resumed arm under its second name,
+        # run-arms --from-arm: <name>-r2) turns nothing on against it: it is the same arm, with its roles.
+        if isinstance(sw, dict) and arms and arms[-1]["switch_set"] is not None \
+                and dict((k, str(v)) for k, v in sw.items()) == prev:
+            roles, control = set(arms[-1]["roles"]) - {CONTROL}, arms[-1]["control"]
+        elif isinstance(sw, dict):
             for k, v in sorted(sw.items()):
                 if str(v) != str(prev.get(k, defaults.get(k))) and str(v) != str(defaults.get(k)):
                     role = TOPIC_ROLES.get(topic.get(k))
@@ -302,12 +313,13 @@ def arm_list(manifest, switches):
         if host and not roles and not control:
             roles.add(HOST_ROLE)
         arms.append({"arm_name": str(a.get(F["m_name"]) or "?"), "from": parse_iso(start),
+                     "arm_t0": parse_iso(a.get(F["m_begin"]) or start),
                      "to": parse_iso(a[F["m_end"]]) if a.get(F["m_end"]) else float("inf"),
                      "switch_set": sw if isinstance(sw, dict) else None, "defaults": defaults, "host_steps": host,
                      "mark_list": [m for m in (a.get(F["m_marks"]) or []) if isinstance(m, dict)],
                      "roles": sorted(roles) or ([CONTROL] if control else []), "control": control})
     if not arms:
-        arms.append({"arm_name": IMPLICIT_ARM, "from": float("-inf"), "to": float("inf"), "switch_set": None,
+        arms.append({"arm_name": IMPLICIT_ARM, "from": float("-inf"), "arm_t0": float("-inf"), "to": float("inf"), "switch_set": None,
                      "defaults": defaults, "host_steps": [], "mark_list": [], "roles": [CONTROL], "control": True})
     controls = [a for a in arms if a["control"]]
     if len(controls) > 1:
@@ -337,10 +349,51 @@ def doc_mixed(doc):
     return None
 
 
+def hand_runs(manifest):
+    """{index: rc} of the blasts run by hand (manifest blast_runs[] `run` entries, the last one per index)."""
+    out = {}
+    for r in manifest.get(F["m_blast_runs"]) or []:
+        if isinstance(r, dict) and r.get(F["m_action"]) == F["v_run_action"] and isinstance(r.get(F["m_index"]), int):
+            out[r[F["m_index"]]] = r.get(F["m_rc"])
+    return out
+
+
+def own_entry(g, runs):
+    """The entry of a blast that blasts[] does not list (a blast run by hand, as every blast of bench 6
+    run 1 is), from its own records: senders and window from its generators' run.args (senders else from
+    the blasters[] of its manifest copy), chaos from that copy's .blast, its real phases (with
+    phases_planned) when the copy holds them, and rc from the live blast_runs[] `run` of its index, else
+    from the copy: the first blaster rc that is not 0, 1 for a recorded abort, else not recorded (None).
+    Sets g["blast_t0"], the blast's start (.blast.start_at), when the copy records it."""
+    bm = g["bm"] or {}
+    blast = bm.get(F["m_blast"]) or {}
+    own = blast.get(F["m_run_index"]) == g["idx"]
+    args = ((g["docs"][0].get(F["b_run"]) or {}).get(F["b_args"]) or {}) if g["docs"] else {}
+    blasters = [b for b in bm.get(F["m_blasters"]) or [] if isinstance(b, dict)] if own else []
+    senders = args.get(F["b_senders"])
+    if senders is None and blasters:
+        senders = blasters[0].get(F["m_senders"])
+    entry = {F["m_senders"]: senders, F["m_window"]: args.get(F["b_window"]),
+             F["m_chaos"]: blast.get(F["m_chaos"]) if own else None}
+    if own and bm.get(F["m_planned"]):
+        entry[F["m_phases"]], entry[F["m_planned"]] = bm.get(F["m_phases"]), bm[F["m_planned"]]
+    if own and blast.get(F["m_start_at"]):
+        g["blast_t0"] = parse_iso(blast[F["m_start_at"]])
+    if g["idx"] in runs:
+        entry[F["m_rc"]] = runs[g["idx"]]
+    else:
+        bad = [b.get(F["m_rc"]) for b in blasters if b.get(F["m_rc"]) not in (None, 0)]
+        entry[F["m_rc"]] = bad[0] if bad else (1 if own and bm.get(F["m_abort"]) else None)
+    return entry
+
+
 def blast_groups(run_dir, manifest):
-    """[{idx, dir, docs, entry, blast_manifest}] for blasters/ and every blast-<i>-<UTC>/blasters."""
+    """[{idx, dir, docs, entry, bm}] for blasters/ and every blast-<i>-<UTC>/blasters (bm: the manifest of
+    the group, the live one for blasters/, else the copy archived beside it). entry is the blast's blasts[]
+    entry, else own_entry()."""
     entries = dict((int(b[F["m_index"]]), b) for b in manifest.get(F["m_blasts"]) or []
                    if isinstance(b, dict) and b.get(F["m_index"]) is not None)
+    runs = hand_runs(manifest)
     top = manifest.get(F["m_blast"]) or {}
     groups = []
     for f in sorted(os.listdir(run_dir)):
@@ -359,9 +412,7 @@ def blast_groups(run_dir, manifest):
         g["docs"] = load_docs(g["dir"])
         entry = dict(entries.get(g["idx"]) or {})
         if not entry and g["docs"]:
-            args = (g["docs"][0].get(F["b_run"]) or {}).get(F["b_args"]) or {}
-            entry = {F["m_senders"]: args.get(F["b_senders"]), F["m_window"]: args.get(F["b_window"]),
-                     F["m_chaos"]: top.get(F["m_chaos"]) if g["idx"] == top.get(F["m_run_index"]) else None}
+            entry = own_entry(g, runs)
         g["entry"] = entry
         if g["docs"] or entry:
             out.append(g)
@@ -405,14 +456,21 @@ def build_rows(run_dir, manifest, arms, types):
     chaos = chaos_times(manifest)
 
     def arm_at(t, name=None):
+        """The arm <name>, else the arm in force at <t>: the latest whose begin is at or before it."""
         if name is not None:
             for a in arms:
                 if a["arm_name"] == name:
                     return a
-        cands = [a for a in arms if a["from"] <= t]
+        cands = [a for a in arms if a["arm_t0"] <= t]
         return cands[-1] if cands else arms[0]
 
-    for g in blast_groups(run_dir, manifest):
+    groups = blast_groups(run_dir, manifest)
+    listed = set(g["idx"] for g in groups)
+    for idx, rc in sorted(hand_runs(manifest).items()):
+        if idx not in listed:      # a blast run by hand that left no blasters/ directory
+            skipped.append("blast index %s: %s" % (idx, "rc %s, not measured" % rc if rc not in (None, 0)
+                                                    else na("its %s/ directory" % F["m_blasters"])))
+    for g in groups:
         e, docs = g["entry"], g["docs"]
         label = "blast index %s" % g["idx"]
         rc = e.get(F["m_rc"])
@@ -427,9 +485,11 @@ def build_rows(run_dir, manifest, arms, types):
         else:
             skipped.append("%s: %s" % (label, na("generator files and a real mixed phase")))
             continue
-        arm = arm_at(a, e.get(F["m_arm"]))
+        arm = arm_at(g.get("blast_t0", a), e.get(F["m_arm"]))
         a, b = max(a, arm["from"]), min(b, arm["to"])
-        cut = next(((t, what) for t, what in chaos if a < t < b), None)
+        # an archived blast's chaos actions are in its manifest copy: the live chaos[] is reset by the archive
+        events = chaos if g["bm"] is manifest else sorted(set(chaos) | set(chaos_times(g["bm"] or {})))
+        cut = next(((t, what) for t, what in events if a < t < b), None)
         if cut:
             b = cut[0]
             basis += ", cut at chaos %s" % cut[1]

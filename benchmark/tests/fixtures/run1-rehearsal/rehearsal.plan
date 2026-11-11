@@ -1,0 +1,7 @@
+# The run-1 rehearsal's walk (tests/test_run1_rehearsal.py), in benchmark/launch/run-arms.sh's plan format.
+# Every shape run 1 can leave: an arm that restarts nothing with an idle mark, a light and a saturated blast,
+# a blast retried under the next index, a restarted arm whose blast fails twice (the walk stops; run-arms
+# --from-arm 1 resumes it as v-vote-r2), and the closing control with the same blast type as the first.
+a0-control  I L M16
+v-vote      M16s
+a0-prime    M16
