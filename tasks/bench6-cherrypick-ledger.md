@@ -64,3 +64,4 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 63 | ST-B | inflight-bound | — (e2e: the bound refuses then readmits; bound-0 control; observer forward survives closed gates) | 376a3ebc1 | 1e563ad4c | — | | |
 | 64 | ST-B | sealed-keep | — (e2e: an S9 kill that leaves nothing to resend is reported, not failed) | 2a0c07497 | ae62cc47a | #1807 | | |
 | 65 | orch (review follow-up) | mdbx-advice | — ("applied" logged only with advised bytes; docs: off arm is libmdbx's own advice, re-advice on limit change) | — | c88936999 | #1802 | | |
+| 66 | ST-B | sealed-keep | — (e2e: the switch-off control passes on either outcome and asserts a loss has the #1807 signature) | 47112ab84 | 341b2a269 | #1807 | | |

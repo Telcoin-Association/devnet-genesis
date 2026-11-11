@@ -661,3 +661,27 @@ transaction; "exactly once" is checked by walking every block on all four nodes.
   probe): to be checked against the persist root-cause list.
 - Nine Info items for the upstream PR (probe cost inside two lap fields, the non-Linux stub, weak assertions, an unused
   open-time lookup with the switch off, and others) are in the report.
+
+### inflight-bound (the RPC admission bound) — APPROVE WITH FOLLOW-UPS; no Critical or High; nothing to change before the image (report `tasks/bench6/review/inflight-bound-report.md`)
+- The approval had one condition, now confirmed from the driver: the benchmark's load goes straight to active validators
+  (each blaster targets its own validator and refuses a non-validator index; the funder uses validator 01). No arm sends
+  load through the observer or a forwarding node.
+- Switch off: behaviour unchanged (a gauge is exported and a gate is built and dropped per RPC server; nothing else).
+  Mixed fleet: no fork, no rejection, no stall — only a validator's own pool admission changes.
+- No way found for the gate to stay closed forever: every forward is recorded after the send with no await between, an
+  engine exit ends the process, and output numbers are global, so the backlog cannot wrap at an epoch boundary.
+- One Medium for the upstream PR only (observers): with honest gates closed, a single validator's rejection of an
+  observer-forwarded transaction becomes final and the transaction is dropped without a requeue. Four Low (docs and the
+  forwarding path). All in `tasks/bench6-upstream-followups.md`.
+- D69. **An arm file that sets `pipelined_persist: true` on an image WITHOUT the pipelined stack runs sequentially with no
+  warning** (the switch is plumbed and logged, nothing reads it). If pipelined persist is left out of the image, the arm
+  files `pipe`, `bound`, `gr150`, `gr100` must drop the switch (and the bound goes back to 2); the image-cut checklist has
+  this line.
+- For the arm's analysis: keep K equal on every node and leave the rolling-restart window out of the statistics (ungated
+  validators' load can hold a gated one closed while the fleet is mixed).
+
+### The switch-off control for sealed-keep is deterministic now (ST-B follow-up, integrated)
+`sealed_txs::test_without_sealed_keep_any_loss_is_the_known_cliff` passes on either outcome and fails on any loss that does
+not have #1807's signature. Three runs: no loss; 16 of 3,655 accepted transactions lost (1 sender); 32 of 2,812 lost (2
+senders) — each time a contiguous tail behind a gap that no validator's pool knows, with `nonce_too_high` skips equal on all
+four validators to the transactions that are in no pool.

@@ -1,0 +1,49 @@
+# Bench 6 — what each topic still owes before its upstream PR (W8)
+
+Collected from the topic reviews (`tasks/bench6/review/<topic>-report.md`) and the e2e units. Nothing here blocks the benchmark
+image unless it says so. Each line: the item, where it is described, and its state.
+
+## digest-dedupe (#1807)
+- D59 commit-notice window (Low): document as a residual, or send each sub-dag's own committed rounds inside the sequencing
+  loop. Report §Low 1. OPEN.
+- D60 two proposer tests with the real worker against the real proposer (sketched in the report). OPEN.
+- Config doc on when the worker suppresses a seal. DONE b89ad570f.
+
+## parent-grace (#1803)
+- M1 re-entry of a late author, M2 no grace for the round's leader: the fix unit (U9b) is running. IN PROGRESS.
+- M3 / D63 cost under load: issue and PR text ("about 0 under load" is wrong). OPEN (text).
+- L2 validation of `parent_grace` against `max_header_delay` (the review suggests rejecting above half of it; the bench
+  build only warns). L3 D38 wording. L5 two far validators waiting on each other (measure with the new author field). OPEN.
+- Idea, not built: a node-wide grace budget (a burst of G refilled per round) to cap a sustained delayer. OPEN (design).
+
+## mdbx-advice (#1802)
+- Nine Info items (probe cost inside two lap fields, the non-Linux stub reports success, weak test assertions, an unused
+  open-time lookup with the switch off, ungated test helpers, an uncapped retry loop, two unreachable gaps). Report §4-11. OPEN.
+- "Applied" logged only with advised bytes; docs. DONE c88936999.
+- D68 a pre-existing race: a Prometheus scrape can run libmdbx's stat on the persist's live write transaction. OWN ISSUE. OPEN.
+
+## inflight-bound (no issue yet)
+- M1 (Medium; before upstream, and before the image ONLY if load went through an observer — it does not: each blaster
+  targets its own validator, `benchmark-blast.sh:1759`): while honest gates are closed, one validator's −32000 rejection of
+  an observer-forwarded transaction becomes final, because the other hops answer −32003 and the walk treats that as
+  try-next; the transaction is removed without a requeue. Fix: when any hop answered try-next, an unconfirmed rejection is
+  no verdict: requeue. `forward.rs`. OPEN.
+- L1 a requeue the observer's pool refuses is lost and not counted. L3 a `--forward-txs` node relays −32003 without trying
+  another target (the docs say the opposite). L2 before the first output finishes the backlog reads only the engine's held
+  count (doc describes a seeding nothing does). L4 admission ignores fees; junk bytes reveal the gate state (doc). OPEN.
+- I7 during a rolling restart, load admitted by ungated validators can keep a gated one closed: same K on every node, and
+  the flip window stays out of the arm's statistics (the harness already measures from `ready`). NOTED.
+
+## sealed-keep (#1807)
+- S6 (a seal that fails to report at the epoch boundary) and S7 (eviction of a marked transaction) e2e tests. OPEN.
+- D64 marks do not survive a restart (a resend is accepted as new, lands once). PR text. OPEN.
+- Review running.
+
+## quorum-exec-block / voter-lock (#1804)
+- D61 the adaptive reset rule: U1b running. Review after it.
+
+## tracker-drain (#1806), recovery-pool (#1805), plumbing
+- Review-only passes not started yet.
+
+## pipelined-persist (#1800)
+- Held stack `b6/pipe-stack`; gates 4 (e2e) and 5 (cycle bench on a quiet host) open; review after gate 4.
