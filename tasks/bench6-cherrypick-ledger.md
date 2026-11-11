@@ -42,3 +42,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 45 | U4b | recovery-pool | — (bench binary) | e3f6c4ba3 | d0824a0a4 | #1805 | | |
 | 46 | U3 | mdbx-advice | mdbx_random_advice (+ per-persist storage fields, no switch) | 03eb27bda | dddccd4a6 | #1802 #1800 | | |
 | 47 | U3 | digest-dedupe | — (`sender` on the skip line) | e1f4a1b65 | 8bc341967 | #1807 | | |
+| 48 | U10 | digest-dedupe | digest_dedupe (proposer half) | b6f415761 | 7fdcb9ff5 | #1807 | | |
+| 49 | U10 | bench6-obs | — (digest wait from first receipt; review note on #1819) | af793ae56 | c8e5ae7be | #1819 note | | |
