@@ -65,9 +65,14 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
                  majfault_per_min, memcg_refault_per_min per node (persist CSV counters, per minute between the first
                  and last sample in the window) and their medians. A field left off a 'persisted output' line makes
                  the sum it feeds (amplification, proc_written_bytes, page_*) n/a, never 0.
+    recovery     recovery arms: recovery_pool_by_node (true when every 'signers recovered' line in the window says
+                 pool=dedicated and no 'signer recovery pool failed to build' warning since the arm's begin; the
+                 switch line and gauge read the threads even then), recovery_pool_note naming a node not on it
     sealed keep  sealed_keep: "acting" when every validator's 'batch builder started' since the arm's begin says
                  keeps_sealed=true, else "switch not acting (...)"; sealed_marked_peak (metrics.json gauge)
-    bound        admission_refused (the node counter's increase, metrics.json), gen_pool_full (nodes[].errors, whole
+    bound        admission_refused (the node counter's increase, metrics.json, by the collector's window_count rule:
+                 a drop is a restart and adds the new value; a series first seen inside the window on a node
+                 sampled before counts from 0), gen_pool_full (nodes[].errors, whole
                  blast), gen_dropped (totals.resends.dropped); the admitted transactions' latency is land p50 / p95
     grace        grace_share_pct, grace_wait_p50_ms / _p90_ms (grace_ms > 0 on the validators' 'header proposed'),
                  grace_outcomes ('parent grace ended'), grace_nodes_certified_min_pct beside the committed share
@@ -131,6 +136,8 @@ F = {
     "msg_grace_ended": "parent grace ended", "f_waited_ms": "waited_ms",
     "msg_builder": "batch builder started", "f_keeps_sealed": "keeps_sealed", "v_true": "true",
     "msg_advice_refused": "mdbx random-access advice not applied; the database works without it",
+    "msg_recovered": "signers recovered", "f_pool": "pool", "v_dedicated": "dedicated",
+    "msg_pool_failed": "signer recovery pool failed to build - recovering on the global pool",
     # metrics.json (deploy step 15) prometheus.series and the generator's error classes (tn-blast nodes[].errors)
     "m_prom": "prometheus", "m_series": "series", "m_by_node": "by_node",
     "p_sealed_marked": "tn_reth_sealed_txs_marked", "p_refused": "tn_reth_rpc_admission_refused_total",
@@ -139,6 +146,7 @@ F = {
     # switches.tsv keys whose arms read the columns below
     "sw_advice": "mdbx_random_advice", "sw_sealed": "sealed_tx_keep", "sw_bound": "rpc_admission_backlog_outputs",
     "sw_grace": "parent_grace", "sw_vote": "quorum_exec_block", "sw_pipelined": "pipelined_persist",
+    "sw_recovery": "recovery_threads",
     # persist CSV (benchmark/tools/persist-csv-header.txt)
     "c_ts": "ts_unix", "c_disk_wr": "disk_wr_bytes_total", "c_vma": "mdbx_dat_vma_bytes", "c_rr": "mdbx_dat_rr_bytes",
     "c_size": "mdbx_dat_size_bytes", "c_refault": "vm_workingset_refault_file_pages_total",
@@ -572,7 +580,7 @@ def node_names(manifest, logs_dir):
 def literals(sl, cr):
     """Every substring a line must hold for this tool, stage-latency.py or cert-rate.py to read it."""
     lits = [F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["lit_tracker"], F["msg_proposed"],
-            F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"]]
+            F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"], F["msg_pool_failed"]]
     lits += list(sl.MSGS)
     for part in cr.EVENT_RE.pattern.split("|"):
         if re.search(r"[\\.^$*+?{}\[\]()]", part):
@@ -651,6 +659,8 @@ class NodeData(object):
         # parent grace; (t, keeps_sealed) per batch builder start, kept at any time (a builder starts before `ready`)
         self.proposed, self.grace_ended, self.builders = [], [], []
         self.advice_refused = []        # times of the 'advice not applied' warning, kept at any time (it is at open)
+        # (t, pool) per recovered output; times of the recovery pool's build failure, kept at any time (once a process)
+        self.recovered, self.pool_failed = [], []
         self.task = {}
         self.page_fields = False
         self.files = []
@@ -662,8 +672,9 @@ class NodeData(object):
 
     def read(self, path, dedupe):
         want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["msg_proposed"],
-                F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"])
-        anytime = (F["msg_builder"], F["msg_advice_refused"])
+                F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"],
+                F["msg_pool_failed"])
+        anytime = (F["msg_builder"], F["msg_advice_refused"], F["msg_pool_failed"])
         with open_bin(path) as fh:
             for raw in fh:
                 line = raw.decode("utf-8", "replace")
@@ -710,11 +721,15 @@ class NodeData(object):
                     self.builders.append((t, f.get(F["f_keeps_sealed"])))
                 elif msg == F["msg_advice_refused"]:
                     self.advice_refused.append(t)
+                elif msg == F["msg_recovered"]:
+                    self.recovered.append((t, f.get(F["f_pool"])))
+                elif msg == F["msg_pool_failed"]:
+                    self.pool_failed.append(t)
         self.files.append(os.path.basename(path))
 
     def finish(self):
         for xs in (self.executed, self.persisted, self.votes, self.tracker, self.proposed, self.grace_ended,
-                   self.builders, self.advice_refused):
+                   self.builders, self.advice_refused, self.recovered, self.pool_failed):
             xs.sort(key=lambda x: x[0] if isinstance(x, tuple) else x)
         self._seen = set()
 
@@ -956,21 +971,60 @@ def switch_on(arm_rec, key):
 
 
 def read_series(run_dir, names):
-    """{name: {node: [(t, v)]}} from <run>/metrics.json prometheus.series, for the names it holds (each node's first
-    query, sorted by name); {} without the file."""
+    """({name: {node: [(t, v)]}}, {node: t}) from <run>/metrics.json prometheus.series: the points of the names it
+    holds (each node's first query, sorted by name), and each node's first sample in any series (the collector
+    writes every query's points in time order); ({}, {}) without the file."""
     path = os.path.join(run_dir, "metrics.json")
     try:
         doc = read_json(path) if os.path.isfile(path) else {}
     except (OSError, ValueError):
         doc = {}
     series = ((doc.get(F["m_prom"]) or {}) if isinstance(doc, dict) else {}).get(F["m_series"]) or {}
-    out = {}
+    out, first = {}, {}
     for name in names:
         for node, queries in ((series.get(name) or {}).get(F["m_by_node"]) or {}).items():
             if isinstance(queries, dict) and queries:
                 pts = [(float(t), float(v)) for t, v in queries[sorted(queries)[0]] or [] if v is not None]
                 out.setdefault(name, {})[node] = sorted(p for p in pts if p[1] == p[1])      # NaN dropped
-    return out
+    for ent in series.values():
+        for node, queries in ((ent.get(F["m_by_node"]) or {}) if isinstance(ent, dict) else {}).items():
+            for pts in (queries.values() if isinstance(queries, dict) else ()):
+                if pts and isinstance(pts[0], list) and pts[0]:
+                    first[node] = min(first.get(node, float(pts[0][0])), float(pts[0][0]))
+    return out, first
+
+
+def counter_rise(pts, a, b, since):
+    """A cumulative counter's increase over [a, b] from all of one node's points [(t, v)] (in time order), by the
+    collector's rule (tn-transaction-generator bench/collect-gcp-metrics.py window_count): a value below its
+    predecessor is a restart, so the new value is all gained since; the first point inside the window is the base,
+    unless it is the series' first point and the node was sampled before (`since`, its first sample in any series),
+    when the node created the counter at first use inside the window and it counts from 0. None when nothing in the
+    window measures an increase (one point that is neither). A restart in the step that straddles `a` counts the
+    whole new value; a restart whose first value is not below the last before it counts only the difference (the
+    collector's lower bound)."""
+    idx = [k for k, p in enumerate(pts) if a <= p[0] <= b]
+    if not idx:
+        return None
+    k = idx[0]
+    if k == 0:
+        n = pts[0][1] if since is not None and since < pts[0][0] else None
+    else:
+        n = pts[k][1] if pts[k][1] < pts[k - 1][1] else None
+    if n is None and len(idx) < 2:
+        return None
+    n = n or 0.0
+    for k in idx[1:]:
+        x, y = pts[k - 1][1], pts[k][1]
+        n += y - x if y >= x else y
+    return n
+
+
+def counter_total(prom, first, name, a, b):
+    """The sum over nodes of counter_rise; None when no node's increase is measurable."""
+    rises = [counter_rise(pts, a, b, first.get(n)) for n, pts in sorted((prom.get(name) or {}).items())]
+    rises = [x for x in rises if x is not None]
+    return sum(rises) if rises else None
 
 
 def series_in(prom, name, a, b):
@@ -980,7 +1034,7 @@ def series_in(prom, name, a, b):
     return [(n, [p for p in pts if a <= p[0] <= b]) for n, pts in sorted(prom[name].items())]
 
 
-def bench6_cols(nds, validators, a, b, r, prom):
+def bench6_cols(nds, validators, a, b, r, prom, first):
     """One row's bench-6 arm inputs (each n/a with what is missing, None where the arm's switch is off): storage,
     sealed keep, the admission bound, parent grace, the vote fix and the cycle time (commit interval)."""
     arm, m = r["arm_rec"], collections.OrderedDict()
@@ -1036,6 +1090,30 @@ def bench6_cols(nds, validators, a, b, r, prom):
                              "measurement for that node" % "; ".join(why)) if why else None
     else:
         m["mdbx_advised_min_bytes"] = m["advice_on_by_node"] = m["mdbx_advised_all_nodes"] = m["storage_note"] = None
+    # recovery pool: a node recovers on the dedicated pool only when its 'signers recovered' lines in the window all
+    # say pool=dedicated and it logged no build failure since the arm's begin (the switch line and gauge still read
+    # the configured threads after a failure, and the node recovers on the global pool for the rest of the process)
+    if switch_on(arm, F["sw_recovery"]):
+        state, why = collections.OrderedDict(), []
+        for n in sorted(nds):
+            failed = [t for t in nds[n].pool_failed if arm["arm_t0"] <= t < b]
+            pools = [x[1] for x in between(nds[n].recovered, a, b)]
+            other = [p for p in pools if p != F["v_dedicated"]]
+            if failed:
+                state[n] = False
+                why.append("%s ('%s' at %s)" % (n, F["msg_pool_failed"], iso(failed[0])))
+            elif not pools:
+                state[n] = na("'%s' lines in the window" % F["msg_recovered"])
+            else:
+                state[n] = not other
+                if other:
+                    why.append("%s (%s=%s on %d of %d '%s' lines)" % (n, F["f_pool"], other[0], len(other),
+                                                                    len(pools), F["msg_recovered"]))
+        m["recovery_pool_by_node"] = state
+        m["recovery_pool_note"] = ("dedicated recovery pool not in use on %s: this arm does not measure the pool on "
+                                   "that node" % "; ".join(why)) if why else None
+    else:
+        m["recovery_pool_by_node"] = m["recovery_pool_note"] = None
     # sealed keep: keeps_sealed=true on every validator's builder start since the arm's begin, else not acting
     if switch_on(arm, F["sw_sealed"]):
         seen = dict((n, [x[1] for x in (nds[n].builders if n in nds else []) if arm["arm_t0"] <= x[0] < b])
@@ -1052,9 +1130,8 @@ def bench6_cols(nds, validators, a, b, r, prom):
     m["sealed_marked_peak"] = max(peak) if peak else na("metrics.json %s samples in the window" % F["p_sealed_marked"])
     # admission bound: refused requests (node counter, else the generator's pool_full class), what the generator
     # dropped after refusals; the confirmation latency of what was admitted is land_p50_s / land_p95_s
-    pts = series_in(prom, F["p_refused"], a, b)
-    inc = [max(0.0, y[1] - x[1]) for _, xs in pts or [] for x, y in zip(xs, xs[1:])]
-    m["admission_refused"] = (int(sum(inc)) if pts and any(len(xs) > 1 for _, xs in pts) else
+    rise = counter_total(prom, first, F["p_refused"], a, b)
+    m["admission_refused"] = (int(rise) if rise is not None else
                               na("metrics.json %s samples in the window" % F["p_refused"]))
     pool_full = dropped = None
     for d in r["docs"]:
@@ -1115,7 +1192,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         acc += x
         cum.append(acc)
     btimes = [t for t, _ in blocks]
-    prom = read_series(run_dir, (F["p_sealed_marked"], F["p_refused"], F["p_advice_bytes"]))
+    prom, first = read_series(run_dir, (F["p_sealed_marked"], F["p_refused"], F["p_advice_bytes"]))
     csv_cache = {}
     for name in nds:
         p = os.path.join(persist_dir, "%s.csv" % name)
@@ -1256,7 +1333,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["stage_seen_p95_s"] = sw_["h"].get(F["t_seen95"])
             m["stages"] = collections.OrderedDict((s, {"median_ms": v.get(F["t_p50ms"]), "n": v.get(F["t_count"])})
                                                   for s, v in sw_["p"].items())
-        m.update(bench6_cols(nds, validators, a, b, r, prom))
+        m.update(bench6_cols(nds, validators, a, b, r, prom, first))
         # drift axis position
         mid = (a + b) / 2.0
         if axis == "wall-min":
@@ -1419,8 +1496,9 @@ def to_markdown(doc, rows, drift, axis):
                        dict_cell(m["grace_outcomes"]), cell(m["grace_nodes_certified_min_pct"]),
                        cell(m["grace_nodes_committed_min_pct"]), dict_cell(m["exec_policy_pct"]),
                        cell(m["exec_lag_p50"]), cell(m["commit_interval_ms"]), " (pipelined)" if m["pipelined"] else ""))
-        if m.get("storage_note"):
-            storage_notes.append("- %s: %s." % (r["row_id"], m["storage_note"]))
+        for k in ("storage_note", "recovery_pool_note"):
+            if m.get(k):
+                storage_notes.append("- %s: %s." % (r["row_id"], m[k]))
     out += ([""] + storage_notes if storage_notes else []) + [""]
     for r in rows:
         m = r["m"]

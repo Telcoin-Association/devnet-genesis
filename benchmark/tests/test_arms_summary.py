@@ -171,6 +171,10 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                 if bench6:
                     lines.append(S["persisted6"].format(ts=stamp(ts + 0.001), cn=cn, txs=1000, commit_ms=cm,
                                                         pages=bench6_pages(node, ts, cn)))
+                    # a0b's recovery pool: v03 recovers on the global pool from 6200, v04's pool failed to build
+                    off = (vi == 2 and ts >= 6200) or (vi == 3 and ts >= 5450)
+                    lines.append(S["recovered"].format(ts=stamp(ts - 0.5), cn=cn, txs=1000,
+                                                       pool="global" if off else "dedicated"))
                 else:
                     lines.append(S["persisted" if page_fields else "persisted_bench5"].format(
                         ts=stamp(ts + 0.001), cn=cn, txs=1000, commit_ms=cm, newly=200, cow=100, pw=2000000))
@@ -202,6 +206,9 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
             lines.append(S["builder"].format(ts=stamp(5460), keep="false" if vi == 3 else "true"))   # a0b: v04 not
             if vi == 3:
                 lines.append(S["advice_refused"].format(ts=stamp(1850)))                  # p1: v04's advice refused
+                lines.append(S["pool_failed"].format(ts=stamp(5450)))                     # a0b: v04's pool failed
+            if vi == 0:
+                lines.append(S["pool_failed"].format(ts=stamp(100)))                      # a0: before a0b's begin
         lines.sort()
         (run / "logs" / (node + "-unit-stdout.log.gz")).write_bytes(gzip.compress(("\n".join(lines) + "\n").encode()))
     if persist:
@@ -225,16 +232,18 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
     if bench6:
         (run / "metrics.json").write_text(json.dumps({"prometheus": {"series": {
             "tn_reth_sealed_txs_marked": {"by_node": {"bench-validator-01": {
-                "max": [[T0 + 6000, 5], [T0 + 6200, 77], [T0 + 6400, 12]]}}},
+                "max": [[T0 + 6000, 5], [T0 + 6200, 77], [T0 + 6400, 12]]},
+                "bench-validator-02": {"max": [[T0 + 5000, 3]]}}},
+            # v02 was sampled at 5000, so its counter, first seen at 6100, was created there and counts from 0
             "tn_reth_rpc_admission_refused_total": {"by_node": {
                 "bench-validator-01": {"max": [[T0 + 6000, 100], [T0 + 6200, 110], [T0 + 6480, 125]]},
-                "bench-validator-02": {"max": [[T0 + 6100, 0], [T0 + 6300, 4]]}}}}}}))
+                "bench-validator-02": {"max": [[T0 + 6100, 1], [T0 + 6300, 4]]}}}}}}))
     return run
 
 
-# bench6=True: arm a0b turns on sealed keep, parent grace, the admission bound and pipelined persist.
+# bench6=True: arm a0b turns on sealed keep, parent grace, the admission bound, pipelined persist and the recovery pool.
 A0B_BENCH6 = {"sealed_tx_keep": "true", "parent_grace": "150ms", "rpc_admission_backlog_outputs": "2",
-              "pipelined_persist": "true"}
+              "pipelined_persist": "true", "recovery_threads": "3"}
 
 
 def bench6_pages(node, ts, cn):
@@ -501,11 +510,20 @@ class ArmsSummaryTests(unittest.TestCase):
             "n/a (missing: two persist samples with memcg_workingset_refault_file_pages_total"))
         self.assertTrue(str(e["bench-validator-04"]["refault_per_min"]).startswith("n/a (missing: persist/bench-validator-04.csv"))
         self.assertEqual((a0["refault_per_min_median"], a0["majfault_per_min_median"]), (20.0, 6.0))
+        # recovery pool: on it only with every line pool=dedicated and no build failure since the arm's begin (v01's
+        # failure in a0 is an earlier process); the switch is off in a0
+        self.assertEqual(a0b["recovery_pool_by_node"], {"bench-validator-01": True, "bench-validator-02": True,
+                                                        "bench-validator-03": False, "bench-validator-04": False})
+        self.assertEqual(a0b["recovery_pool_note"], (
+            "dedicated recovery pool not in use on bench-validator-03 (pool=global on 28 of 48 'signers recovered' "
+            "lines); bench-validator-04 ('signer recovery pool failed to build - recovering on the global pool' at %s): "
+            "this arm does not measure the pool on that node" % iso(5450)))
+        self.assertEqual((a0["recovery_pool_by_node"], a0["recovery_pool_note"]), (None, None))
         # sealed keep: v04's builder says keeps_sealed=false; the marked gauge's peak from metrics.json
         self.assertEqual(a0b["sealed_keep"], "switch not acting (keeps_sealed not true on bench-validator-04)")
         self.assertEqual((a0b["sealed_marked_peak"], a0["sealed_keep"]), (77, None))
         self.assertTrue(str(a0["sealed_marked_peak"]).startswith("n/a (missing: metrics.json tn_reth_sealed_txs_marked"))
-        # admission bound: the node counter's increase (25 + 4), the generator's pool_full class and its drops
+        # admission bound: the node counter's increase (25 + 1 + 3), the generator's pool_full class and its drops
         self.assertEqual((a0b["admission_refused"], a0b["gen_pool_full"], a0b["gen_dropped"]), (29, 12, 3))
         self.assertTrue(str(a0["admission_refused"]).startswith("n/a (missing: metrics.json tn_reth_rpc_admission_refused_total"))
         self.assertTrue(str(a0["gen_pool_full"]).startswith("n/a (missing: nodes[].errors.pool_full"))
@@ -526,13 +544,46 @@ class ArmsSummaryTests(unittest.TestCase):
             self.assertTrue(any(k in n and n.startswith("arm a0b: ") for n in doc["notes"]), k)
         for want in ("| a0b/M16 | n/a (missing: the prefault ratio of bench-validator-04) (0.000) | – (–) | 20.0 / 6.000 / ",
                      "| 29 / 12 / 3 | 40.0 (40 / 100) | complete 192, expired 192 | 100.0 / ",
-                     "\n- p1/M16: advice not in force on bench-validator-04 ("):
+                     "\n- p1/M16: advice not in force on bench-validator-04 (",
+                     "\n- a0b/M16: dedicated recovery pool not in use on bench-validator-03 ("):
             self.assertTrue(want in md, want)
         # without the node units' fields every new column is n/a (bench 5's shape), never 0
         plain, _ = self.summary(make_run(self.tmp / "plain"), "--no-stages")
         for k in ("prefault_on_all", "grace_share_pct", "exec_policy_pct", "exec_lag_p50", "sealed_marked_peak",
                   "admission_refused", "refault_per_min_median"):
             self.assertTrue(str(self.rows(plain)["a0/M16"][k]).startswith("n/a (missing: "), k)
+
+    def test_a_counter_restart_and_first_use_inside_the_window(self):
+        """H16: a counter's increase follows the collector's window_count: a drop is a restart and adds the new
+        value, and a series first seen inside the window on a node sampled before counts from 0."""
+        mod = load("arms_summary_counter", TOOL)
+        # the collector's own WindowCount cases (60-s steps, the window [0, 300], the node sampled from step 0)
+        for pts, want in (({3: 1, 4: 1, 5: 1}, 1), ({3: 2, 4: 5}, 5), ({0: 5, 1: 5, 2: 5}, 0), ({0: 5, 1: 7}, 2),
+                          ({0: 5, 1: 6, 4: 6, 5: 7}, 2), ({0: 5, 1: 9, 4: 2, 5: 3}, 7), ({2: 1, 5: 1}, 1)):
+            got = mod.counter_rise([(60.0 * k, float(v)) for k, v in sorted(pts.items())], 0, 300, 0.0)
+            self.assertEqual(got, want, pts)
+        name = "tn_reth_rpc_admission_refused_total"
+        (self.tmp / "metrics.json").write_text(json.dumps({"prometheus": {"series": {
+            "tn_node_switch": {"by_node": dict((n, {"max": [[5000, 1], [6480, 1]]}) for n in VALIDATORS[1:])},
+            name: {"by_node": {
+                # a restart inside the window: 60 is the base, +10, the restart adds 3, +5
+                "bench-validator-01": {"max": [[5900, 50], [6000, 60], [6200, 70], [6300, 3], [6480, 8]]},
+                # created at its first use inside the window on a node sampled since 5000: from 0
+                "bench-validator-02": {"max": [[6300, 2], [6480, 6]]},
+                # a restart in the step that straddles the window's start, then +4
+                "bench-validator-03": {"max": [[5990, 40], [6010, 5], [6200, 9]]},
+                # one point, created inside the window
+                "bench-validator-04": {"max": [[6400, 7]]},
+                # one point, the node never sampled before it: not measurable
+                "bench-observer-05": {"max": [[6400, 9]]}}}}}}))
+        prom, first = mod.read_series(str(self.tmp), (name,))
+        self.assertEqual((first["bench-validator-01"], first["bench-validator-02"]), (5900.0, 5000.0))
+        a, b = 6000.0, 6480.0
+        self.assertEqual([mod.counter_rise(prom[name][n], a, b, first.get(n)) for n in VALIDATORS + ["bench-observer-05"]],
+                         [18.0, 6.0, 9.0, 7.0, None])
+        self.assertEqual(mod.counter_total(prom, first, name, a, b), 40.0)
+        self.assertIsNone(mod.counter_total(prom, first, name, 7000.0, 8000.0))
+        self.assertIsNone(mod.counter_total(prom, first, "tn_absent_total", a, b))
 
     def test_field_names_live_only_in_the_table(self):
         src = TOOL.read_text()
@@ -547,9 +598,13 @@ class ArmsSummaryTests(unittest.TestCase):
             if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body and \
                     isinstance(node.body[0], ast.Expr) and isinstance(getattr(node.body[0], "value", None), ast.Constant):
                 docstrings.add(id(node.body[0].value))
+        # the role column of CHECKS is the plan's own vocabulary (the "pool" role is not the node's `pool` field)
+        roles = set(id(row.elts[0]) for node in tree.body if isinstance(node, ast.Assign)
+                    and [getattr(t, "id", None) for t in node.targets] == ["CHECKS"] for row in node.value.elts)
+        self.assertTrue(roles)
         found = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings | roles:
                 if not (lo <= node.lineno <= hi) and node.value in names:
                     found.append((node.lineno, node.value))
         self.assertEqual(found, [])

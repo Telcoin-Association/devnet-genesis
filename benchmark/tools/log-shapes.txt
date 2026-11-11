@@ -37,6 +37,10 @@ waited for execution before assembling the output
 parent grace ended
 batch builder started
 mdbx random-access advice not applied
+# (one line per recovered output on every node, the engine's debug, like 'output executed'; then the pool's
+# build failure, once a process)
+signers recovered
+signer recovery pool failed to build
 # bench 6 node lines no tool reads yet, kept for the arm reviews: once per node start, epoch or halt
 # (the node writes an apostrophe as \' so the halt's shape stops before one), then per header or batch
 # with the switch on (the last is debug on worker::batch_builder, which the default filter keeps at info):

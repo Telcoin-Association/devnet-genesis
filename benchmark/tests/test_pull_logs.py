@@ -1402,6 +1402,8 @@ BENCH6_MESSAGES = (
     ("primary::proposer", "debug", "batch digest already queued"),
     ("consensus::metrics", "info", "batch digest already reported"),
     ("worker::batch_builder", "debug", "kept sealed transactions in the pool"),
+    ("engine", "debug", "signers recovered"),
+    ("engine", "warn", "signer recovery pool failed to build - recovering on the global pool"),
 )
 
 
@@ -1426,7 +1428,9 @@ class Bench6ShapeTests(unittest.TestCase):
     def test_the_arm_summary_can_read_the_prefiltered_copy(self):
         asum = _load("arms_summary_shapes", ARMS_SUMMARY)
         lits = asum.literals(_load("stage_latency_shapes", STAGE_LATENCY), _load("cert_rate_shapes6", CERT_RATE))
-        self.assertEqual([asum.F[k] for k in ("msg_grace_ended", "msg_builder", "msg_advice_refused")
-                          if asum.F[k] not in lits], [])
+        self.assertEqual([asum.F[k] for k in ("msg_grace_ended", "msg_builder", "msg_advice_refused", "msg_recovered",
+                                              "msg_pool_failed") if asum.F[k] not in lits], [])
+        # the node escapes ' " and \ in a message: a literal holding one never matches a line (H16: none does)
+        self.assertEqual([x for x in lits if "'" in x or '"' in x or "\\" in x], [])
         with tempfile.TemporaryDirectory(prefix="shapes-") as d:
             self.assertIsNone(asum.prefilter_usable(d, lits))

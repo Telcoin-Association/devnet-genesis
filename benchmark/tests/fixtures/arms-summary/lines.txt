@@ -11,3 +11,5 @@ proposed6	ts={ts} level=info target=primary::proposer message="header proposed" 
 grace_ended	ts={ts} level=debug target=primary::proposer message="parent grace ended" author={author} parent_round={round} outcome={outcome} waited_ms={grace}
 builder	ts={ts} level=info target=worker::batch_builder message="batch builder started" worker_id=0 epoch=3 sealed_tx_keep={keep} seals_via_quorum=true keeps_sealed={keep}
 advice_refused	ts={ts} level=warn target=tn::reth message="mdbx random-access advice not applied; the database works without it" error="EINVAL"
+recovered	ts={ts} level=debug target=engine message="signers recovered" consensus_number={cn} txs={txs} recover_ms=3 pool={pool}
+pool_failed	ts={ts} level=warn target=engine message="signer recovery pool failed to build - recovering on the global pool" threads=3 error="Resource temporarily unavailable (os error 11)"
