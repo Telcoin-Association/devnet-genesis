@@ -434,3 +434,23 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   while the gate (which reads the live value) may already have reopened. Read the gate from the refusal counter, not the gauge.
 - D9 stands (2 or 3 with pipelining): with pipelined persist "executed" must still mean durable — the wiring unit decides and
   documents it.
+
+## From U6b (sealed-keep, the batch builder; `tasks/checkpoint-bench6-u6b.md`)
+- As built: with `sealed_tx_keep` on, a quorum-sealing worker's builder takes a ticket before it seals, marks the batch's
+  transactions on the quorum ack and leaves them in the pool; selection skips a marked transaction (and counts it); a failed,
+  refused or unreported seal never marks. An epoch close clears the marks of every orphaned digest on every pool before the
+  orphan recovery runs. A failure of the mark itself falls back to today's prune for that one batch and logs an error.
+- **The switch needed a node wiring commit the unit could not make** (the builder cannot see whether its worker seals through a
+  quorum). It is on the integration branch (3ee6b629f) with a unit test; the live proof is `batch builder started …
+  keeps_sealed=true` on every validator and `tn_reth_sealed_txs_marked > 0` under load. The run-1 checklist gets this line.
+- I-2's cases at builder level, each with a switch-off pin that reproduces bench 5: S1 (a batch executed out of order is
+  re-sealed and lands exactly once, no client resend), S2 (a resend of a sealed batch is `already known`), S3 (a resend of a
+  subset is `already known`; off: it seals a NEW digest — the double execution).
+- D51. Residuals, not fixed: a marked transaction can still be replaced by a fee bump (the replacement is unmarked); a batch
+  whose header never certifies holds its marks until the epoch's orphan pass and a resend cannot free them; on the
+  non-validator orphan branch a disbursed orphan's transactions are forwarded a second time (execution skips the copy); marks
+  are in memory, so after a restart the orphan pass is the only recovery (S9, e2e).
+- With the switch on, "pending" on the builder's lines and gauge includes in-flight sealed transactions, and every kept batch
+  is followed by one build that walks only sealed transactions: the analysis must not read either as a regression.
+- Still to show end to end (the next e2e unit): S1 on a running fleet, S6 (failed report at the boundary), S9 (restart), a real
+  queued-limit eviction (S7), and the effective mode on a live validator.

@@ -48,3 +48,6 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 51 | U11 | inflight-bound | rpc_admission_backlog_outputs | e61d4eeda | 256422898 | — | | |
 | 52 | orch | tracker-drain | — (config doc: the check is on a STORED record; D44) | — | 2c9b43209 | #1806 | | |
 | 53 | orch | inflight-bound | — (config doc: who is gated, bounds above 73 never close; D49) | — | 74662a889 | — | | |
+| 54 | U6b | sealed-keep | sealed_tx_keep (builder side: ticket, mark on quorum ack, selection skip) | 760813fa0 | c08d78c33 | #1807 | | |
+| 55 | U6b | sealed-keep | — (orphan pass clears sealed marks on every pool; conflict with U5's tests in close_epoch.rs resolved by keeping both test sections) | 11c813596 | 3bbcbe226 | #1807 | | |
+| 56 | orch (U6b's patch, reworked) | sealed-keep | — (node wiring: the worker's sealing mode reaches the builder; without it the switch marks nothing) | — | 3ee6b629f | #1807 | | |

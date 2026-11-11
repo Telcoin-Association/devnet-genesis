@@ -63,6 +63,7 @@ integ)
     tag="integ-$(git rev-parse --short=9 HEAD)"
     run "${tag}-fmt" "${SLOT}" cargo "+${NIGHTLY}" fmt --all -- --check
     run "${tag}-check" "${SLOT}" cargo check --locked --all-targets --workspace
+    run "${tag}-clippy" "${SLOT}" cargo "+${NIGHTLY}" clippy --locked --all-targets --all-features --workspace -- -D warnings
     run "${tag}-nextest" "${SLOT}" cargo nextest run --locked --no-fail-fast --workspace --exclude e2e-tests
     unit="integ ${rev}"
     ;;
