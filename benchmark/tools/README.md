@@ -211,6 +211,7 @@ params-apply.sh (--nodes <file> | --from-config) --set <all|node>:<key>=<value>[
 params-apply.sh (--nodes <file> | --from-config) --stage-test <node> [--set ...]
 params-apply.sh (--nodes <file> | --from-config) --close-arm <name>
 params-apply.sh (--nodes <file> | --from-config) --mark <label> | --end-mark <label>
+params-apply.sh --arm-file <file> --print-state
 ```
 
 `--help` lists every option and every `PARAMS_APPLY_*` knob. `--dry-run` prints the per-node plan
@@ -264,6 +265,9 @@ arm adds and what it must show; every arm from `p1-mdbx-advice` on, `a0-prime` i
 
    The tool only reads the launch file; it never edits it. Each node's phase A summary names the
    launch file found and where its datadir came from. If any node fails here, nothing is changed.
+   With an arm file, phase A also runs bench-lib.sh's host probe (`bench_host_probe_script`,
+   read-only) for the `read_ahead_kb` of the disk under the datadir; the summary prints it, or why
+   it is unread.
 2. **Validation, local.** Each node's resulting timing values (its current file plus the `--set`
    values) must pass the rules the node checks at startup: `min_header_delay <= max_header_delay`;
    `1 <= header_num_of_batches_threshold <= max_header_num_of_batches`; `vote_timeout` (5 s when
@@ -274,10 +278,19 @@ arm adds and what it must show; every arm from `p1-mdbx-advice` on, `a0-prime` i
    optional switch, `pipelined_persist`, may be missing while the arm leaves it at its default. A
    node that restarts needs the v2 library and `systemd-run`.
 
-   Then the plan prints, per node, `key old -> new` and whether it restarts, with the reasons:
-   `params` (a key is rewritten), `live` (its running switches are not the arm's), `unread` (it has
-   no `node switches` line to compare, for example a stopped container) and `host` (the arm has host
-   steps). A node with none of these is not restarted.
+   Then the plan prints, per node, `key old -> new` and whether it restarts, with its reasons in
+   this order (a node with none is not restarted):
+
+   | reason | the node restarts because |
+   |---|---|
+   | `params` | a key of its `parameters.yaml` is rewritten |
+   | `live` | its running switches (phase A's `node switches` line) are not the arm's |
+   | `unread` | it has no `node switches` line to compare, for example a stopped container |
+   | `read-ahead` | its `read_ahead_kb` is not the arm's `host read-ahead-kb`, or, for an arm without that step, not its deploy value (Host steps, below); the plan shows `read-ahead <now> -> <target> KiB` |
+   | `host` | the arm lists `evict-mdbx`, which restarts every node |
+
+   A node that restarts also shows its host steps (`host steps: read-ahead-kb 16, evict-mdbx`).
+   `--set` arms and stage tests have no host steps and no read-ahead state.
 3. **Phase B, serial, observers first.** Per node, in one session:
    1. the committee guard, v2's `tn_committee_down_guard` against the node's own RPC (see the
       safety rules below);
@@ -350,6 +363,7 @@ With `--set`, only the switches `--set` names are compared; with timing keys alo
 | `PA_GUARD_SUMMARY <node> samples=<n> refused=<n>` | before the stop (or the failure) |
 | `PA_EPOCH_WAIT <node> ...` / `PA_EPOCH <node> secs_left=<n> since_boundary=<n> waited=<n>` | the epoch check |
 | `PA_UNIT_LAUNCHED <unit> <UTC>`, `PA_UNIT <line of the unit's output>` | the stop/start unit |
+| `PA_UNIT HOST_RESULT <step> <value\|-> <result JSON>` | one host step in the unit (Host steps, below) |
 | `PA_PROGRESS_AT <UTC>`, `PA_RESTART_SECS <n>` | back in consensus; seconds from the stop |
 | `PA_SWITCH_LINE <line>` | the `node switches` line read back |
 | `SWITCHES_OK <node> <key>=<value> ...` | the node's switches read back, in `switches.tsv` order |
@@ -445,8 +459,10 @@ With `<results-dir>/manifest.json` present (`--results-dir`, or `results/<run>` 
 - `nodes` holds, for an arm file, the keys rewritten on each restarted node (`{}` for a node
   restarted with nothing to rewrite). For `--set`, as before: every node the values reach, with the
   values as written, including a node that already had them and was not restarted.
-- `host` lists the host steps per node, `restart_secs` the seconds from the stop to consensus
-  progress, `guard` the samples taken before the node's stop and how many refused.
+- `host` lists the host steps in run order, each with its per-node results (a read-ahead put back
+  to the deploy value is recorded as a `read-ahead-kb` step with that value), `restart_secs` the
+  seconds from the stop to consensus progress, `guard` the samples taken before the node's stop and
+  how many refused.
 - `ready` is the last node's consensus progress plus 120 s (`PARAMS_APPLY_SETTLE_SECS`); an arm's
   measurement window is `ready` to `end`. `ARM_READY` prints it as soon as the last node read back,
   so it can be up to 120 s ahead: a caller that starts a blast waits until then.
@@ -482,13 +498,65 @@ the committee or the epoch allows it.
 
 ### Host steps
 
-The arm file's `host read-ahead-kb <n>` and `host evict-mdbx` run in the unit, between the stop and
-the start (read-ahead first, the eviction last). The function that writes them is
-`host_steps_hook` in `params-apply.sh`, between the `HOOK` marker lines; its comment is the
-contract. Until it is filled in, an arm that lists a host step is refused with
-`host steps not available` before any node is contacted (a dry run prints its plan first), and
-every arm file from `p1-mdbx-advice` on is refused that way. An arm with a host step restarts every
-node.
+An arm file's `host read-ahead-kb <n>` and `host evict-mdbx` run in the unit, between the stop and
+the start, read-ahead first and the eviction last (`benchmark/arms/README.md`, Host steps). The
+step scripts are bench-lib.sh's own `bench_host_step_script`, the same text deploy step 7 runs
+before the first start. The tool cannot source bench-lib.sh (that loads `benchmark/config.sh`,
+which admits only the harness and needs a run), so it reads the functions the probe and the steps
+need out of the file by name and runs them in a fresh `bash` that has only those functions. Each
+script is built with the datadir `/params-apply-host-datadir`, and its one `D=` line becomes
+`D="$D"`, the datadir of the unit (the one that holds `parameters.yaml`). If bench-lib.sh lacks one
+of the functions, or the text cannot be built, an arm file is refused before any node is contacted
+(a dry run prints its plan first). `--set` arms do not need them.
+
+`host_steps_hook` in `params-apply.sh`, between the `HOOK` marker lines, writes the unit's
+`host_steps`; its comment is the contract. Each step prints one `HOST_STEP <node> <step> <value|->`
+line, which the unit turns into one `HOST_RESULT <step> <value|-> <JSON>` line with the result of
+`benchmark/arms/MANIFEST-FIELDS.md`: `{"read_ahead_kb_before": n, "read_ahead_kb_after": n}`,
+`{"resident_pages_before": n, "resident_pages_after": n}`, or `{"failed": "<reason>"}` (the step's
+reason, or what was wrong with its line). The first step that fails ends the host steps, so a
+failed read-ahead skips the eviction. The unit starts telcoin anyway, the tool prints `PA_FAIL`,
+records the result and `failed` on the arm, and leaves the later nodes untouched.
+
+`evict-mdbx` is an action: it runs at every restart of an arm that lists it, and such an arm
+restarts every node, so each persist arm starts from an evicted cache.
+
+Read-ahead is state. The target is the arm's `host read-ahead-kb <n>`; for an arm without that
+step, it is the value the node booted with at deploy step 7, `node_startup[<node>].host.read_ahead_kb`
+in the manifest. A node restarts for read-ahead (`read-ahead`) only where phase A read another
+value. An arm that lists the step runs it on every node it restarts; a deploy value is put back only
+on a node that drifted. A node with no deploy value on record (an older manifest, a failed host
+probe at deploy, a `--nodes` run without a manifest) is left as it is, and one warning line names
+every such node. A target with no current value to compare (its probe failed) refuses the arm
+before any change. A dry run reads no node: it takes as a node's current value the last
+`read_ahead_kb_after` an arm in the record left on it, else its deploy value, else `?` (which
+counts as different).
+
+### Print state
+
+```
+params-apply.sh --arm-file benchmark/arms/v-vote.arm --print-state
+```
+
+Deploy step 7 (`BENCH_ARM_FILE`) reads an arm through this mode instead of parsing the file itself.
+It needs no nodes file, contacts nothing and records nothing. It checks the file exactly as a run
+does and prints, on stdout:
+
+```
+ARM_NAME v-vote
+ARM_SHA256 <sha256 of the file's bytes>
+ARM_SWITCH quorum_exec_block bool true
+ARM_SWITCH quorum_exec_block_starved_rounds int 4
+...                                   (one line per row of switches.tsv, in its order)
+ARM_SWITCH pipelined_persist bool false
+ARM_HOST evict-mdbx -
+```
+
+Every switch is printed, at its default when the file leaves it out, with the tsv's type and the
+value as the file or the tsv spells it. `ARM_HOST <step> <value|->` lines follow in run order
+(`read-ahead-kb` before `evict-mdbx`); there are none for an arm without host steps. Exit 0. A file
+the parser refuses exits 1 with the reason on stderr and nothing on stdout, and so does any other
+option beside `--arm-file`. The note about a `name` line that is not the file name goes to stderr.
 
 ## propose-latency
 

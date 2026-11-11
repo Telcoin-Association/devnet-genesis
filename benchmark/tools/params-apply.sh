@@ -54,6 +54,7 @@
 #        params-apply.sh (--nodes <file> | --from-config) --set <all|node>:<key>=<value>[,...] ... --arm <name>
 #        params-apply.sh (--nodes <file> | --from-config) --stage-test <node> [--set ...]
 #        params-apply.sh (--nodes <file> | --from-config) --close-arm <name> | --mark <label> | --end-mark <label>
+#        params-apply.sh --arm-file <file> --print-state   (the arm's parsed state; no node)
 #        (--help for every option)
 # Docs:  benchmark/tools/README.md, section "params-apply".
 #
@@ -88,6 +89,7 @@ Usage:
   params-apply.sh (--nodes <file> | --from-config) --stage-test <node> [--set ...]
   params-apply.sh (--nodes <file> | --from-config) --close-arm <name>
   params-apply.sh (--nodes <file> | --from-config) --mark <label> | --end-mark <label>
+  params-apply.sh --arm-file <file> --print-state
 
 Puts running nodes into an arm, one node at a time: read every node (read-only), validate, then
 per node take the committee guard (sampled), save its container log, wait out an epoch boundary,
@@ -136,6 +138,10 @@ What to change:
                         --end-mark <label>, the next --mark or the arm's end
   --end-mark <label>    set the open mark <label>'s end to now
                         (--close-arm, --mark and --end-mark contact no node)
+  --print-state         with --arm-file only: check the file as a run would and print its
+                        state (ARM_NAME, ARM_SHA256, ARM_SWITCH <key> <type> <value> per
+                        switches.tsv row, ARM_HOST <step> <value|-> per host step); no node, no
+                        record. A refused file: rc 1, the reason on stderr, nothing on stdout
 
 Other:
   --results-dir <dir>   where manifest.json is (default with --from-config: results/<run>)
@@ -154,13 +160,16 @@ PARAMS_APPLY_GUARD_PUBLIC_RPC [config BENCH_GUARD_PUBLIC_RPC, else http://127.0.
 EOF
 }
 
-die() { echo "params-apply: $*" >&2; exit 2; }
+# --print-state exits 1 on any refusal (its callers read rc 1 as "refused"); every other mode 2.
+DIE_RC=2
+for a in "$@"; do [ "${a}" != --print-state ] || DIE_RC=1; done
+die() { echo "params-apply: $*" >&2; exit "${DIE_RC}"; }
 fatal() { echo "params-apply: $*" >&2; exit 1; }
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
 # --- arguments -------------------------------------------------------------------------
 NODES_FILE="" FROM_CONFIG=0 ARM="" ARM_FILE="" STAGE="" CLOSE="" MARK="" END_MARK="" VALIDATORS_ONLY=0 DRY=0
-PROJECT="" RESULTS_DIR=""
+PROJECT="" RESULTS_DIR="" PRINT_STATE=0
 SETS=()
 HEALTH_SECS="${PARAMS_APPLY_HEALTH_SECS:-180}"
 RETRY_SECS="${PARAMS_APPLY_RETRY_SECS:-10}"
@@ -179,6 +188,7 @@ while [ $# -gt 0 ]; do
     case "${opt}" in
         -h|--help) usage; exit 0 ;;
         --dry-run) DRY=1; shift; continue ;;
+        --print-state) PRINT_STATE=1; shift; continue ;;
         --from-config) FROM_CONFIG=1; shift; continue ;;
         --validators-only) VALIDATORS_ONLY=1; shift; continue ;;
         --*=*) val="${opt#*=}"; opt="${opt%%=*}"; shift ;;
@@ -200,12 +210,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ "${FROM_CONFIG}" = 1 ]; then
+if [ "${PRINT_STATE}" = 1 ]; then
+    [ -n "${ARM_FILE}" ] || die "--print-state needs --arm-file <file>"
+    [ -z "${NODES_FILE}${ARM}${STAGE}${CLOSE}${MARK}${END_MARK}${PROJECT}${RESULTS_DIR}" ] && [ "${#SETS[@]}" -eq 0 ] \
+        && [ "${FROM_CONFIG}${VALIDATORS_ONLY}${DRY}" = 000 ] || die "--print-state takes --arm-file <file> and nothing else"
+elif [ "${FROM_CONFIG}" = 1 ]; then
     [ -z "${NODES_FILE}" ] || die "give --nodes or --from-config, not both"
 else
     [ -n "${NODES_FILE}" ] || die "--nodes <file> or --from-config is required"
 fi
-if [ -n "${CLOSE}${MARK}${END_MARK}" ]; then
+if [ "${PRINT_STATE}" = 1 ]; then
+    MODE=print-state
+elif [ -n "${CLOSE}${MARK}${END_MARK}" ]; then
     for pair in "close-arm:${CLOSE}" "mark:${MARK}" "end-mark:${END_MARK}"; do
         [ -n "${pair#*:}" ] || continue
         [ "${#SETS[@]}" -eq 0 ] && [ -z "${STAGE}${ARM}${ARM_FILE}" ] && [ "${CLOSE}${MARK}${END_MARK}" = "${pair#*:}" ] \
@@ -242,8 +258,8 @@ for pair in "GUARD_SECS:${GUARD_SECS}" "GUARD_DEFER_SECS:${GUARD_DEFER_SECS}" "E
     case "${pair#*:}" in ''|*[!0-9]*) die "PARAMS_APPLY_${pair%%:*}='${pair#*:}' must be a whole number of seconds" ;; esac
 done
 case "${UNIT_SECS}" in ''|*[!0-9]*|0*) die "PARAMS_APPLY_UNIT_SECS='${UNIT_SECS}' must be a positive integer" ;; esac
-command -v perl >/dev/null 2>&1 || die "perl is required (gcloud runs under its alarm)"
-if [ "${DRY}" = 0 ] && [ "${MODE}" != stage ]; then
+[ "${MODE}" = print-state ] || command -v perl >/dev/null 2>&1 || die "perl is required (gcloud runs under its alarm)"
+if [ "${DRY}" = 0 ] && [ "${MODE}" != stage ] && [ "${MODE}" != print-state ]; then
     command -v jq >/dev/null 2>&1 || die "jq is required (it records the arm)"
 fi
 
@@ -404,10 +420,32 @@ if [ -n "${ARM_FILE}" ]; then
     case "${abs}" in "${root}"/*) ARM_FILE_REL="${abs#"${root}"/}" ;; *) ARM_FILE_REL="${abs}" ;; esac
     if [ -z "${ARM}" ]; then
         ARM="${ARM_FILE_NAME}"
-        case "${ARM}" in *-) die "${ARM_FILE}: arm name '${ARM}' ends with '-' (a log and unit name part); give --arm <name>" ;; esac
+        case "${ARM}" in *-) die "${ARM_FILE}: arm name '${ARM}' ends with '-' (a log and unit name part); give --arm <name> (a run) or rename it" ;; esac
     fi
-    [ "$(basename "${ARM_FILE}" .arm)" = "${ARM_FILE_NAME}" ] \
-        || log "note: ${ARM_FILE}'s name line says '${ARM_FILE_NAME}', not the file name"
+    if [ "$(basename "${ARM_FILE}" .arm)" != "${ARM_FILE_NAME}" ]; then
+        if [ "${MODE}" = print-state ]; then
+            log "note: ${ARM_FILE}'s name line says '${ARM_FILE_NAME}', not the file name" >&2
+        else
+            log "note: ${ARM_FILE}'s name line says '${ARM_FILE_NAME}', not the file name"
+        fi
+    fi
+fi
+
+# --print-state: the arm's full state from the parse a run makes (deploy step 7 reads it for
+# BENCH_ARM_FILE), on stdout and nothing else: ARM_NAME, ARM_SHA256, one ARM_SWITCH <key> <type>
+# <value> per row of switches.tsv in its order (a switch the file leaves out at its default), then
+# ARM_HOST <step> <value|-> per host step in run order. A refused file has exited 1 above, printing
+# nothing here. No node, no record, no remote call.
+if [ "${MODE}" = print-state ]; then
+    out="ARM_NAME ${ARM}${NL}ARM_SHA256 ${ARM_FILE_SHA}"
+    for i in "${!SW_K[@]}"; do
+        out="${out}${NL}ARM_SWITCH ${SW_K[$i]} ${SW_T[$i]} $(sed -n "s/^${SW_K[$i]}=//p" "${WORK}/arm.target")"
+    done
+    while read -r s v; do
+        [ -z "${s}" ] || out="${out}${NL}ARM_HOST ${s} ${v:--}"
+    done <<< "${ARM_HOST_STEPS}"
+    printf '%s\n' "${out}"
+    exit 0
 fi
 
 # --- the node list ---------------------------------------------------------------------
@@ -845,31 +883,128 @@ if [ "${MODE}" = apply ] && [ "${DRY}" = 0 ] && [ "$(rec_count "${ARM}" 'select(
     fatal "arm '${ARM}' is already recorded in ${REC_FILE}; give this arm a new name (--arm <name>)"
 fi
 
-# ===== HOOK: host steps (benchmark/arms/README.md "Host steps"; filled by unit H5b) ===============
+# --- host steps and the host probe: bench-lib.sh's own scripts ------------------------------------
+# The host steps (bench_host_step_script) and the host probe (bench_host_probe_script) are
+# bench-lib.sh's, never a copy. Sourcing bench-lib.sh would load benchmark/config.sh, which admits
+# only the harness and needs a run, so host_lib reads the functions the two need out of the file by
+# name (each from its `<name>() {` line to the first line that is `}`), and host_text runs one of
+# them in a fresh bash that has only those functions plus this tool's node-scripts dir and guard RPC
+# (bench_remote_lib_preamble reads TN_NODE_SCRIPTS_DIR and BENCH_GUARD_PUBLIC_RPC). A non-zero exit
+# or anything on stderr refuses the text.
+readonly BENCH_LIB="${SCRIPT_DIR}/../bench-lib.sh"
+readonly HOST_LIB_FNS="bench_remote_lib_preamble _bench_host_py _bench_host_name_ok _bench_host_step_wrappers _bench_host_step_body bench_host_step_script bench_host_probe_script"
+# The datadir the scripts are built with: their one line D=<this> becomes D="$D", the datadir of the
+# remote shell that runs them (phase A's, the unit's), the one that holds parameters.yaml.
+readonly HOST_D_MARK=/params-apply-host-datadir
+
+# host_lib — ${WORK}/hostlib.sh, once; rc 1 and the reason on stderr when a function is not there.
+host_lib() {
+    local fn
+    [ ! -s "${WORK}/hostlib.sh" ] || return 0
+    [ -f "${BENCH_LIB}" ] && [ -r "${BENCH_LIB}" ] \
+        || { echo "cannot read ${BENCH_LIB} (the host steps and the host probe are its scripts)" >&2; return 1; }
+    awk -v want=" ${HOST_LIB_FNS} " '
+        !f && /^[A-Za-z_][A-Za-z0-9_]*\(\) \{$/ && index(want, " " substr($0, 1, index($0, "(") - 1) " ") { f = 1 }
+        f { print }
+        f && $0 == "}" { f = 0 }' "${BENCH_LIB}" > "${WORK}/hostlib.tmp"
+    for fn in ${HOST_LIB_FNS}; do
+        [ "$(grep -cx "${fn}() {" "${WORK}/hostlib.tmp" || true)" = 1 ] \
+            || { echo "${BENCH_LIB} has no single ${fn}() (the host steps and the host probe need it)" >&2; return 1; }
+    done
+    mv "${WORK}/hostlib.tmp" "${WORK}/hostlib.sh"
+}
+
+# host_text <node> probe | <node> evict-mdbx | <node> read-ahead-kb <KiB> — the remote text of the
+# host probe, or of one host step, for <node>, its datadir line made D="$D"; rc 1 and the reason on
+# stderr when it cannot be had.
+host_text() {
+    local n="$1" what="$2" rc=0
+    shift 2
+    host_lib || return 1
+    if [ "${what}" = probe ]; then
+        set -- bench_host_probe_script "${n}" "${HOST_D_MARK}"
+    else
+        set -- bench_host_step_script "${n}" "${what}" "$@" "${HOST_D_MARK}"
+    fi
+    env BASH_ENV= TN_NODE_SCRIPTS_DIR="${NODE_SCRIPTS_DIR}" BENCH_GUARD_PUBLIC_RPC="${GUARD_RPC}" \
+        "${BASH}" -c 'set -euo pipefail; . "$0"; "$@"' "${WORK}/hostlib.sh" "$@" > "${WORK}/host.out" 2> "${WORK}/host.err" || rc=$?
+    if [ "${rc}" != 0 ] || [ -s "${WORK}/host.err" ]; then
+        echo "bench-lib.sh $1 for ${n} failed (rc ${rc}): $(tail -n 3 "${WORK}/host.err" | tr '\n' ' ')" >&2
+        return 1
+    fi
+    awk -v m="D=${HOST_D_MARK}" '$0 == m { n++; print "D=\"$D\""; next } { print } END { exit (n == 1 ? 0 : 3) }' "${WORK}/host.out" \
+        || { echo "bench-lib.sh $1 for ${n}: its text has no single line D=${HOST_D_MARK}" >&2; return 1; }
+}
+
+# ===== HOOK: host steps (benchmark/arms/README.md "Host steps") ==================================
 # host_steps_hook <node-index> — prints the shell text that defines host_steps(), the function the
 # arm's systemd-run unit (unit_script_text) calls on that node after `systemctl stop telcoin`
 # returned 0 and before `systemctl start telcoin`.
-#   Here: ARM_HOST_STEPS holds the arm's steps in run order, one per line ("read-ahead-kb <n>",
-#   then "evict-mdbx"; empty: none); N_*[<node-index>] the node.
+#   Here: N_HS[<node-index>] holds the node's host steps in run order, one per line ("read-ahead-kb
+#   <n>", then "evict-mdbx"; empty or unset: none); the plan sets it (restart reasons, below).
 #   In the unit (bash, root, telcoin stopped, no `set -e`): $D the node's host datadir (db/mdbx.dat
-#   is under it), $NODE, $UNIT. host_steps prints, per step it ran, one line
+#   is under it), $NODE, $UNIT. Each step is bench-lib.sh's text (host_text), which prints one line
+#   `HOST_STEP <node> <step> <value|-> <key>=<n> <key>=<n>` or `... failed <reason>`; pa_host_result
+#   turns it into
 #       HOST_RESULT <step> <value, or - for none> <result object as one-line JSON>
 #   with the per-node result of benchmark/arms/MANIFEST-FIELDS.md ({"resident_pages_before": n,
 #   "resident_pages_after": n}, {"read_ahead_kb_before": n, "read_ahead_kb_after": n}, or
-#   {"failed": "<reason>"}), and returns non-zero when a step failed. The unit then starts telcoin
+#   {"failed": "<reason>"}, the step's own reason or what is wrong with its line). The first step
+#   that fails ends host_steps with rc 1, and no later step runs. The unit then starts telcoin
 #   anyway; the tool stops the arm at that node (PA_FAIL, `failed`) and records the results in the
 #   entry's `host`.
-#   rc 1 with the reason on stderr: the arm's host steps cannot run, and the tool refuses the arm
-#   before contacting any node (a dry run prints its plan first).
-# Restarts: the planner restarts every node of an arm that lists any host step (evict-mdbx always
-# needs it; a read-ahead the node already has would not, which needs phase A to read it).
-# Until H5b fills it, no host step can run: an arm that lists one is refused.
+#   rc 1 with the reason on stderr: the step text cannot be had; the tool refuses the arm before it
+#   changes anything.
 host_steps_hook() {
-    if [ -n "${ARM_HOST_STEPS}" ]; then
-        echo "host steps not available: this params-apply.sh cannot run ${ARM_HOST_DESC} yet (benchmark/arms/README.md, Host steps); arm ${ARM} is refused" >&2
-        return 1
+    local s v
+    if [ -z "${N_HS[$1]:-}" ]; then
+        echo 'host_steps() { return 0; }'
+        return 0
     fi
-    echo 'host_steps() { return 0; }'
+    cat <<'HOOK'
+# pa_host_result <step> <value|-> — the step's output on stdin (its HOST_STEP line, then
+# HOST_STEP_RC <rc>) as one HOST_RESULT line; rc 0 when the step held.
+pa_host_result() {
+    awk -v p="HOST_STEP $NODE $1 $2 " -v s="$1" -v v="$2" '
+        function str(x,   o, c, i) {
+            o = ""
+            for (i = 1; i <= length(x); i++) {
+                c = substr(x, i, 1)
+                if (c == "\\" || c == "\"") o = o "\\" c; else if (c == "\t" || c == "\r") o = o " "; else o = o c
+            }
+            return "\"" o "\""
+        }
+        index($0, p) == 1 { n++; l = substr($0, length(p) + 1); next }
+        /^HOST_STEP_RC / { rc = $2 }
+        END {
+            ok = 0; j = ""
+            if (n == 1 && rc == "0" && l !~ /^failed( |$)/) {
+                k = split(l, f, " "); ok = (k > 0)
+                for (i = 1; i <= k && ok; i++) {
+                    e = index(f[i], "="); x = substr(f[i], e + 1)
+                    if (e < 2 || substr(f[i], 1, e - 1) ~ /[^a-z_]/ || x !~ /^(0|[1-9][0-9]*)$/ || length(x) > 18) ok = 0
+                    else j = j (i > 1 ? ", " : "") str(substr(f[i], 1, e - 1)) ": " x
+                }
+            }
+            if (ok) r = "{" j "}"
+            else if (n == 1 && l ~ /^failed( |$)/) r = "{\"failed\": " str(l == "failed" ? "(no reason given)" : substr(l, 8)) "}"
+            else if (n == 1) r = "{\"failed\": " str("unparsed (rc " rc "): " l) "}"
+            else r = "{\"failed\": " str(n ? n " HOST_STEP lines" : "no HOST_STEP line (rc " rc ")") "}"
+            print "HOST_RESULT " s " " v " " r
+            exit (ok ? 0 : 1)
+        }'
+}
+HOOK
+    echo 'host_steps() {'
+    while read -r s v; do
+        [ -n "${s}" ] || continue
+        echo '{'
+        host_text "${N_NAME[$1]}" "${s}" ${v:+"${v}"} || return 1
+        echo 'echo "HOST_STEP_RC $HOST_STEP_RC"'
+        printf '} | pa_host_result %s %s || return 1\n' "${s}" "${v:--}"
+    done <<< "${N_HS[$1]}"
+    echo 'return 0'
+    echo '}'
 }
 # ===== end of HOOK ===============================================================================
 
@@ -901,20 +1036,37 @@ echo "START_RC $r"
 UNIT
 }
 
-# The hook's text and the unit script, per node, before any node is contacted: a live run refuses
-# an arm whose host steps cannot run, a dry run says so after its plan.
-HOOK_ERR=""
-for i in "${!N_NAME[@]}"; do
-    n="${N_NAME[$i]}"
-    if ! host_steps_hook "${i}" > "${WORK}/hook.${n}" 2> "${WORK}/hook.err"; then
-        HOOK_ERR="$(cat "${WORK}/hook.err")"
-        HOOK_ERR="${HOOK_ERR:-the host-steps hook failed}"
-        break
+# make_unit <node-index> — the node's hook text and unit script (${WORK}/unit.<node>.sh), once the
+# plan has set its host steps. Nothing has changed yet when one cannot be made.
+make_unit() {
+    local n="${N_NAME[$1]}" err
+    if ! host_steps_hook "$1" > "${WORK}/hook.${n}" 2> "${WORK}/hook.err"; then
+        err="$(cat "${WORK}/hook.err")"
+        die "${err:-the host-steps hook failed for ${n}}; nothing was changed"
     fi
-    unit_script_text "${i}" > "${WORK}/unit.${n}.sh"
+    unit_script_text "$1" > "${WORK}/unit.${n}.sh"
     ! grep -qx 'PA_UNIT_SCRIPT' "${WORK}/unit.${n}.sh" || die "the unit script for ${n} holds the line PA_UNIT_SCRIPT"
     bash -n "${WORK}/unit.${n}.sh" 2> "${WORK}/hook.err" || die "the unit script for ${n} does not parse: $(cat "${WORK}/hook.err")"
-done
+}
+
+# An arm file: before any node is contacted, the host probe's text per node (phase A reads each
+# node's read_ahead_kb with it) and a trial of both steps' text. A live run refuses an arm whose
+# probe or steps cannot be had; a dry run says so after its plan.
+HOOK_ERR=""
+N_HS=()
+if [ -n "${ARM_FILE}" ] && [ "${MODE}" = apply ]; then
+    for i in "${!N_NAME[@]}"; do
+        if ! host_text "${N_NAME[$i]}" probe > "${WORK}/probe.${N_NAME[$i]}" 2> "${WORK}/hook.err"; then
+            HOOK_ERR="$(cat "${WORK}/hook.err")"
+            break
+        fi
+    done
+    if [ -z "${HOOK_ERR}" ] && ! { host_text "${N_NAME[0]}" read-ahead-kb 0 && host_text "${N_NAME[0]}" evict-mdbx; } \
+            > /dev/null 2> "${WORK}/hook.err"; then
+        HOOK_ERR="$(cat "${WORK}/hook.err")"
+    fi
+    [ -z "${HOOK_ERR}" ] || HOOK_ERR="the host probe and the host steps cannot be had: ${HOOK_ERR}; arm ${ARM} is refused"
+fi
 if [ -n "${HOOK_ERR}" ] && [ "${DRY}" = 0 ]; then die "${HOOK_ERR}"; fi
 
 # --- gcloud (helpers copied from tools/latency-probe.sh: show_argv, ssh_once, iap_ssh, pool;
@@ -1064,6 +1216,12 @@ fi
 echo "PA_SWITCH_LINE ${sw:--}"
 if [ -r "$SD/lib/common.sh" ]; then echo "PA_LIB 1"; else echo "PA_LIB 0"; fi
 if command -v systemd-run >/dev/null 2>&1; then echo "PA_SYSTEMD_RUN 1"; else echo "PA_SYSTEMD_RUN 0"; fi
+REMOTE
+    # An arm file: the host probe (bench-lib.sh, read-only), for the read_ahead_kb the node runs with.
+    if [ -n "${ARM_FILE}" ]; then
+        cat "${WORK}/probe.${N_NAME[$1]}" 2>/dev/null || echo "# no host probe: it could not be built (see the refusal after the plan)"
+    fi
+    cat <<'REMOTE'
 echo "PA_YAML_BEGIN"
 awk 1 "$P"
 echo "PA_YAML_END"
@@ -1345,6 +1503,23 @@ phase_a_job() {
 # a_field <node> <KEY> — the value of the node's phase-A line "PA_<KEY> <value>".
 a_field() { sed -n "s/^PA_$2 //p" "${WORK}/a.$1.out" | head -1; }
 
+# a_probe <node> — its phase-A HOST_PROBE line without the tag and name (the probe runs before the
+# file's dump, so no line of parameters.yaml is read as one). ra_cur <node> — the read_ahead_kb of
+# its data disk from it; "" when the probe could not read it. ra_why <node> — why not.
+a_probe() { sed -n "/^PA_YAML_BEGIN\$/q; s/^HOST_PROBE $1 //p" "${WORK}/a.$1.out" | tail -n 1; }
+ra_cur() {
+    a_probe "$1" | jq -r 'select(type == "object") | .read_ahead_kb | select(type == "number" and . >= 0 and . == floor) | tostring' 2>/dev/null || true
+}
+ra_why() {
+    local l
+    l="$(a_probe "$1")"
+    case "${l}" in
+        '') echo "no HOST_PROBE line in phase A" ;;
+        probe_failed*) echo "its host probe: ${l}" ;;
+        *) echo "its host probe has no read_ahead_kb" ;;
+    esac
+}
+
 log "phase A: reading ${#TARGETS[@]} node(s), up to ${SSH_PARALLEL} at once$([ "${DRY}" = 0 ] || echo ' (dry run)')"
 pool "${SSH_PARALLEL}" phase_a_job "${TARGETS[@]}"
 
@@ -1362,6 +1537,11 @@ if [ "${DRY}" = 0 ]; then
             "$(a_field "${n}" PARAMS)" "$([ "$(a_field "${n}" RUNNING)" = 1 ] && echo running || echo 'NOT running')" \
             "$(a_field "${n}" CHAIN)" "$(a_field "${n}" MARKERS)" "$([ "$(a_field "${n}" BAK)" = 1 ] && echo yes || echo no)"
         printf '  %-24s launch file %s; datadir %s\n' "" "$(a_field "${n}" LAUNCH)" "$(a_field "${n}" DATADIR)"
+        if [ -n "${ARM_FILE}" ]; then
+            c="$(ra_cur "${n}")"
+            [ -n "${c}" ] || c="unread ($(ra_why "${n}"))"
+            printf '  %-24s read_ahead_kb %s\n' "" "${c}"
+        fi
     done
     [ "${bad}" = 0 ] || fatal "phase A failed on the node(s) above; nothing was changed"
 fi
@@ -1387,10 +1567,39 @@ assumed_of() {
     printf '%s\n' "${v}"
 }
 
+# Read-ahead is state (benchmark/arms/README.md "Host steps"): the arm's `host read-ahead-kb <n>`,
+# else the value the node booted with at deploy step 7, node_startup[<node>].host.read_ahead_kb of
+# the manifest (${WORK}/ra.rec: "<node> <KiB>"). A dry run takes as each node's current value the
+# last read_ahead_kb_after an arm in the record left on it (${WORK}/ra.assumed), else that one.
+ARM_RA="$(printf '%s\n' "${ARM_HOST_STEPS}" | sed -n 's/^read-ahead-kb //p')"
+ARM_EVICT=0
+if has_line "${ARM_HOST_STEPS}" evict-mdbx; then ARM_EVICT=1; fi
+: > "${WORK}/ra.rec"; : > "${WORK}/ra.assumed"
+if [ -n "${ARM_FILE}" ] && [ -f "${REC_FILE}" ] && command -v jq >/dev/null 2>&1; then
+    jq -r '(.node_startup // {}) | to_entries[] | select((.value | type) == "object" and (.value.host | type) == "object")
+           | select(.value.host.read_ahead_kb | type == "number" and . >= 0 and . == floor) | "\(.key) \(.value.host.read_ahead_kb)"' \
+        "${REC_FILE}" > "${WORK}/ra.rec" 2>/dev/null || : > "${WORK}/ra.rec"
+    if [ "${DRY}" = 1 ]; then
+        jq -r '(.param_arms // [])[] | (.host // [])[] | select(.step == "read-ahead-kb") | (.nodes // {}) | to_entries[]
+               | select((.value | type) == "object") | select(.value.read_ahead_kb_after | type == "number")
+               | "\(.key) \(.value.read_ahead_kb_after)"' "${REC_FILE}" > "${WORK}/ra.assumed" 2>/dev/null || : > "${WORK}/ra.assumed"
+    fi
+fi
+ra_rec() { awk -v n="$1" '$1 == n { v = $2 } END { print v }' "${WORK}/ra.rec"; }
+ra_assumed() { awk -v n="$1" '$1 == n { v = $2 } END { print v }' "${WORK}/ra.assumed"; }
+
 # Per node: ${WORK}/w.<node> = the setp lines phase B runs; ${WORK}/chg.<node> = "key old new";
-# ${WORK}/why.<node> = why it restarts (params: a key rewritten; live: its running switches are not
-# the arm's; unread: they could not be read; host: the arm's host steps), empty when it does not.
-problems="" PLAN=() UNCHANGED=()
+# ${WORK}/why.<node> = why it restarts, empty when it does not; N_HS[<index>] = its host steps.
+# Restart reasons, in this order:
+#   params      a key of parameters.yaml is rewritten
+#   live        its running switches (phase A's `node switches` line) are not the arm's
+#   unread      its running switches could not be read (no line since its start)
+#   read-ahead  its read_ahead_kb is not the arm's (or, an arm without the step, not its deploy
+#               value); its host steps then start with read-ahead-kb <that value>
+#   host        the arm lists evict-mdbx, an action that runs at every restart: every node
+# An arm that lists read-ahead-kb runs it on every node it restarts. A node with no deploy value
+# on record is left as it is, named in one warning line.
+problems="" PLAN=() UNCHANGED=() RA_NOREC=""
 for i in "${TARGETS[@]}"; do
     n="${N_NAME[$i]}"
     : > "${WORK}/w.${n}"; : > "${WORK}/chg.${n}"; : > "${WORK}/why.${n}"
@@ -1478,7 +1687,25 @@ for i in "${TARGETS[@]}"; do
             if has_line "${cmp}" "differs "; then why="${why:+${why},}live"; fi
         fi
     fi
-    [ -z "${ARM_HOST_STEPS}" ] || why="${why:+${why},}host"
+    if [ -n "${ARM_FILE}" ]; then
+        rec="$(ra_rec "${n}")" want="" hs=""
+        if [ "${DRY}" = 1 ]; then cur="$(ra_assumed "${n}")"; cur="${cur:-${rec}}"; else cur="$(ra_cur "${n}")"; fi
+        if [ -n "${ARM_RA}" ]; then
+            want="${ARM_RA}" hs="read-ahead-kb ${ARM_RA}"
+        elif [ -n "${rec}" ]; then
+            want="${rec}"
+        else
+            RA_NOREC="${RA_NOREC} ${n}"
+        fi
+        if [ -n "${want}" ] && [ "${DRY}" = 0 ] && [ -z "${cur}" ]; then
+            problems="${problems}${n}: its read_ahead_kb could not be read ($(ra_why "${n}")); the arm puts it at ${want}"$'\n'
+        elif [ -n "${want}" ] && [ "${cur}" != "${want}" ]; then
+            why="${why:+${why},}read-ahead" hs="read-ahead-kb ${want}"
+            printf '%s -> %s KiB\n' "${cur:-?}" "${want}" > "${WORK}/ra.${n}"
+        fi
+        if [ "${ARM_EVICT}" = 1 ]; then why="${why:+${why},}host" hs="${hs:+${hs}${NL}}evict-mdbx"; fi
+        N_HS[$i]="${hs}"
+    fi
     printf '%s\n' "${why}" > "${WORK}/why.${n}"
     if [ -n "${why}" ]; then PLAN+=("${i}"); else UNCHANGED+=("${i}"); fi
     [ "${DRY}" = 1 ] || problems="${problems}$(res_problems "${n}" 1)"$'\n'
@@ -1508,7 +1735,14 @@ fi
 if [ -n "${ARM_FILE}" ]; then
     echo "  arm file ${ARM_FILE_REL} (sha256 ${ARM_FILE_SHA}); switches: $(awk '{ printf "%s%s", (NR > 1 ? " " : ""), $0 }' "${WORK}/arm.target")"
     echo "  host steps: ${ARM_HOST_DESC:-none}"
+    if [ -n "${ARM_RA}" ]; then
+        echo "  read-ahead: the arm's ${ARM_RA} KiB; a node restarts for it only where its read_ahead_kb differs"
+    else
+        echo "  read-ahead: not in the arm; each node's deploy value (node_startup.<node>.host.read_ahead_kb) is put back where it differs"
+    fi
+    [ -z "${RA_NOREC}" ] || echo "  warning: no read_ahead_kb recorded at deploy for${RA_NOREC} (in ${REC_FILE}); their read-ahead is left as it is"
     [ "${DRY}" = 0 ] || echo "  dry run: each node starts from ${ASSUMED_FROM}; a live run reads every node and also restarts one whose running switches differ or cannot be read"
+    [ "${DRY}" = 0 ] || echo "  dry run: each node's read_ahead_kb is taken as the last one an arm in the record left on it, else its deploy value (? when neither); a live run reads it"
 fi
 for i in ${ORDER[@]+"${ORDER[@]}"} ${UNCHANGED[@]+"${UNCHANGED[@]}"}; do
     n="${N_NAME[$i]}"
@@ -1516,7 +1750,9 @@ for i in ${ORDER[@]+"${ORDER[@]}"} ${UNCHANGED[@]+"${UNCHANGED[@]}"}; do
     extra=""
     case "${why}" in ''|params|stage) ;; *) extra="; restart (${why})" ;; esac
     [ -z "${ARM_FILE}" ] || [ -z "${why}" ] || extra="; restart (${why})"
-    [ -z "${ARM_HOST_STEPS}" ] || [ -z "${why}" ] || extra="${extra}; host steps: ${ARM_HOST_DESC}"
+    [ ! -f "${WORK}/ra.${n}" ] || extra="${extra}; read-ahead $(cat "${WORK}/ra.${n}")"
+    hsd="$(printf '%s\n' "${N_HS[$i]:-}" | awk 'NF { printf "%s%s", (n++ ? ", " : ""), $0 }')"
+    [ -z "${hsd}" ] || [ -z "${why}" ] || extra="${extra}; host steps: ${hsd}"
     if [ -s "${WORK}/chg.${n}" ]; then
         printf '  %-24s %-9s %s%s\n' "${n}" "${N_ROLE[$i]}" "$(awk '{ printf "%s%s %s -> %s", (NR > 1 ? ", " : ""), $1, $2, $3 }' "${WORK}/chg.${n}")" "${extra}"
     elif [ "${MODE}" = stage ] && [ "${DRY}" = 1 ]; then
@@ -1528,6 +1764,7 @@ for i in ${ORDER[@]+"${ORDER[@]}"} ${UNCHANGED[@]+"${UNCHANGED[@]}"}; do
     fi
 done
 if [ -n "${HOOK_ERR}" ]; then die "${HOOK_ERR} (dry run: a live run refuses this arm before contacting any node)"; fi
+for i in ${ORDER[@]+"${ORDER[@]}"}; do make_unit "${i}"; done
 
 # --- phase B: one node at a time -------------------------------------------------------------
 LABEL="pre-arm-${ARM}"

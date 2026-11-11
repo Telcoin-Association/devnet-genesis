@@ -28,6 +28,8 @@ import sys
 import tempfile
 import unittest
 
+import test_host_probe as thp
+
 TESTS = Path(__file__).resolve().parent
 BENCH = TESTS.parent
 DEPLOYMENT = BENCH.parent / "tn-node-deployment"   # the pinned submodule (absent in a plain CI checkout)
@@ -130,7 +132,7 @@ class ParamsApplyCase(unittest.TestCase):
             d.mkdir(parents=True)
         _install(FIX / "gcloud.py", self.bin / "gcloud")
         _install(FIX / "node-docker.py", self.nodebin / "docker")
-        for name in ("systemctl", "systemd-run", "curl", "date", "sleep"):
+        for name in ("systemctl", "systemd-run", "curl", "date", "sleep", "python3"):
             _install(FIX / ("node-%s.sh" % name), self.nodebin / name)
         shutil.copyfile(str(FIX / "node-lib-common.sh"), str(self.scripts / "lib" / "common.sh"))
         self.log = self.tmp / "gcloud-calls.jsonl"
@@ -210,24 +212,22 @@ class ParamsApplyCase(unittest.TestCase):
                   "PA_SHIM_LOG": str(self.log), "PA_NODES": str(self.nodes), "PA_NODE_BIN": str(self.nodebin),
                   "PA_SWITCHES_TSV": str(TSV), "PARAMS_APPLY_NODE_SCRIPTS_DIR": str(self.scripts),
                   "PARAMS_APPLY_HEALTH_SECS": "30", "PARAMS_APPLY_RETRY_SECS": "0", "PARAMS_APPLY_GUARD_SECS": "0",
-                  "PARAMS_APPLY_GUARD_DEFER_SECS": "0", "TMPDIR": str(self.scratch)})
+                  "PARAMS_APPLY_GUARD_DEFER_SECS": "0", "TMPDIR": str(self.scratch),
+                  "PA_REAL_PYTHON3": sys.executable})
         e.update(env)
         return subprocess.run(["bash", str(tool)] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               env=e, cwd=str(self.tmp), timeout=300, universal_newlines=True)
 
-    def tree(self, tsv=None, hook=None):
+    def tree(self, tsv=None, lib=None):
         """A copy of the tool in <tmp>/tree/benchmark/tools beside its own arms/switches.tsv (<tsv>,
-        else the real one), so the copy's repo root is <tmp>/tree. <hook>: the text that replaces the
-        host-steps hook function (from `host_steps_hook() {` to the end-of-hook marker)."""
+        else the real one) and bench-lib.sh (<lib>, else the real one), so the copy's repo root is
+        <tmp>/tree."""
         root = self.tmp / "tree"
         (root / "benchmark" / "tools").mkdir(parents=True, exist_ok=True)
         (root / "benchmark" / "arms").mkdir(parents=True, exist_ok=True)
-        text = TOOL.read_text()
-        if hook is not None:
-            text, n = re.subn(r"(?ms)^host_steps_hook\(\) \{.*?^(# ===== end of HOOK)", lambda m: hook + m.group(1), text)
-            self.assertEqual(n, 1)
-        (root / "benchmark" / "tools" / "params-apply.sh").write_text(text)
+        (root / "benchmark" / "tools" / "params-apply.sh").write_text(TOOL.read_text())
         (root / "benchmark" / "arms" / "switches.tsv").write_text(tsv if tsv is not None else TSV.read_text())
+        (root / "benchmark" / "bench-lib.sh").write_text(lib if lib is not None else (BENCH / "bench-lib.sh").read_text())
         return root
 
     def calls(self):
@@ -775,36 +775,7 @@ class ArmFileParseTests(ParamsApplyCase):
         self.assertEqual(self.calls(), [], text)
 
     def test_every_refusal_of_the_readme(self):
-        cases = [
-            ("name a\nfoo bar\n", 2, "unknown directive 'foo' (name, param, host; '#' starts a comment)"),
-            ("name a\nparam nope true\n", 2, "unknown switch 'nope' (benchmark/arms/switches.tsv: quorum_exec_block "),
-            ("name a\nhost drop-caches\n", 2, "unknown host step 'drop-caches' (evict-mdbx, read-ahead-kb <n>)"),
-            ("name a\nparam vote_queue_fix yes\n", 2, "vote_queue_fix yes: not one of its arm values (true)"),
-            ("name a\nparam vote_queue_fix false\n", 2, "vote_queue_fix false: not one of its arm values (true)"),
-            ("name a\nparam recovery_threads 03\n", 2, "recovery_threads 03: not one of its arm values (3)"),
-            ("name a\nparam parent_grace 150\n", 2, "parent_grace 150: not one of its arm values (150ms,100ms)"),
-            ("name a\nparam vote_queue_fix true\nparam vote_queue_fix true\n", 3, "switch 'vote_queue_fix' is given twice"),
-            ("name a\nhost evict-mdbx\nhost evict-mdbx\n", 3, "'host evict-mdbx' is given twice"),
-            ("name a\nhost read-ahead-kb 16\nhost read-ahead-kb 32\n", 3, "'host read-ahead-kb' is given twice"),
-            ("name a\nname b\n", 2, "a second 'name' line"),
-            ("param vote_queue_fix true\n", None, "no 'name' line"),
-            ("# only a comment\n\n", None, "no 'name' line"),
-            ("name a\nparam vote_queue_fix\n", 2, "'param' takes <key> <value>, got 1 field(s)"),
-            ("name a\nparam vote_queue_fix true # on\n", 2, "'param' takes <key> <value>, got 4 field(s) (a directive has no trailing comment)"),
-            ("name a b\n", 1, "'name' takes one value, got 2"),
-            ("name\n", 1, "'name' takes one value, got 0"),
-            ("name a\nhost\n", 2, "'host' takes a step"),
-            ("name a\nhost evict-mdbx now\n", 2, "'host evict-mdbx' takes no value, got 1"),
-            ("name a\nhost read-ahead-kb\n", 2, "'host read-ahead-kb' takes one value (KiB), got 0"),
-            ("name a\nhost read-ahead-kb 016\n", 2, "read-ahead-kb '016' is not a non-negative integer without leading zeros"),
-            ("name a\nhost read-ahead-kb 1x\n", 2, "read-ahead-kb '1x' is not a non-negative integer without leading zeros"),
-            ("name Arm\n", 1, "'Arm' is not an arm name ([a-z0-9][a-z0-9-]{0,39})"),
-            ("name %s\n" % ("a" * 41), 1, "'%s' is not an arm name" % ("a" * 41)),
-            ("name a\r\nparam vote_queue_fix true\n", 1, "a carriage return (the file must have LF line ends)"),
-            ("name a\nparam vote_queue_fix true\n# caf\xe9\n", 3, "a byte outside printable ASCII, space and tab"),
-            ("name a\nparam vote_queue_fix\x0btrue\n", 2, "a byte outside printable ASCII, space and tab"),
-        ]
-        for text, line, needle in cases:
+        for text, line, needle in ARM_REFUSALS:
             self.refused(text, line, needle)
 
     def test_a_file_that_is_not_an_arm_file_is_refused(self):
@@ -823,14 +794,132 @@ class ArmFileParseTests(ParamsApplyCase):
         f = self.arm_file("# a comment\n\n  name\tok-1\n\tparam  parent_grace\t150ms\n   # indented comment\n"
                           "param quorum_exec_block_starved_rounds 0\nhost read-ahead-kb 0\n", name="other.arm")
         p = self.run_tool("--nodes", str(self.nf), "--arm-file", str(f), "--dry-run")
-        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)   # read-ahead-kb: host steps are not available yet
-        self.assertIn("host steps not available: this params-apply.sh cannot run read-ahead-kb 0 yet", p.stderr)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         want = dict(DEFAULTS, parent_grace="150ms")
         self.assertIn("switches: " + " ".join("%s=%s" % (r["key"], want[r["key"]]) for r in SWITCHES), p.stdout)
         self.assertIn("note: %s's name line says 'ok-1', not the file name" % f, p.stdout)
         self.assertIn("plan for arm ok-1:", p.stdout)
-        self.assertIn("parent_grace 0ms -> 150ms; restart (params,host); host steps: read-ahead-kb 0", p.stdout)
+        self.assertIn("parent_grace 0ms -> 150ms; restart (params,read-ahead); read-ahead ? -> 0 KiB; host steps: read-ahead-kb 0",
+                      p.stdout)
         self.assertEqual(self.calls(), [])
+
+
+# Every refusal of benchmark/arms/README.md "What a parser refuses": (text, line or None, the reason).
+ARM_REFUSALS = [
+    ("name a\nfoo bar\n", 2, "unknown directive 'foo' (name, param, host; '#' starts a comment)"),
+    ("name a\nparam nope true\n", 2, "unknown switch 'nope' (benchmark/arms/switches.tsv: quorum_exec_block "),
+    ("name a\nhost drop-caches\n", 2, "unknown host step 'drop-caches' (evict-mdbx, read-ahead-kb <n>)"),
+    ("name a\nparam vote_queue_fix yes\n", 2, "vote_queue_fix yes: not one of its arm values (true)"),
+    ("name a\nparam vote_queue_fix false\n", 2, "vote_queue_fix false: not one of its arm values (true)"),
+    ("name a\nparam recovery_threads 03\n", 2, "recovery_threads 03: not one of its arm values (3)"),
+    ("name a\nparam parent_grace 150\n", 2, "parent_grace 150: not one of its arm values (150ms,100ms)"),
+    ("name a\nparam vote_queue_fix true\nparam vote_queue_fix true\n", 3, "switch 'vote_queue_fix' is given twice"),
+    ("name a\nhost evict-mdbx\nhost evict-mdbx\n", 3, "'host evict-mdbx' is given twice"),
+    ("name a\nhost read-ahead-kb 16\nhost read-ahead-kb 32\n", 3, "'host read-ahead-kb' is given twice"),
+    ("name a\nname b\n", 2, "a second 'name' line"),
+    ("param vote_queue_fix true\n", None, "no 'name' line"),
+    ("# only a comment\n\n", None, "no 'name' line"),
+    ("name a\nparam vote_queue_fix\n", 2, "'param' takes <key> <value>, got 1 field(s)"),
+    ("name a\nparam vote_queue_fix true # on\n", 2, "'param' takes <key> <value>, got 4 field(s) (a directive has no trailing comment)"),
+    ("name a b\n", 1, "'name' takes one value, got 2"),
+    ("name\n", 1, "'name' takes one value, got 0"),
+    ("name a\nhost\n", 2, "'host' takes a step"),
+    ("name a\nhost evict-mdbx now\n", 2, "'host evict-mdbx' takes no value, got 1"),
+    ("name a\nhost read-ahead-kb\n", 2, "'host read-ahead-kb' takes one value (KiB), got 0"),
+    ("name a\nhost read-ahead-kb 016\n", 2, "read-ahead-kb '016' is not a non-negative integer without leading zeros"),
+    ("name a\nhost read-ahead-kb 1x\n", 2, "read-ahead-kb '1x' is not a non-negative integer without leading zeros"),
+    ("name Arm\n", 1, "'Arm' is not an arm name ([a-z0-9][a-z0-9-]{0,39})"),
+    ("name %s\n" % ("a" * 41), 1, "'%s' is not an arm name" % ("a" * 41)),
+    ("name a\r\nparam vote_queue_fix true\n", 1, "a carriage return (the file must have LF line ends)"),
+    ("name a\nparam vote_queue_fix true\n# caf\xe9\n", 3, "a byte outside printable ASCII, space and tab"),
+    ("name a\nparam vote_queue_fix\x0btrue\n", 2, "a byte outside printable ASCII, space and tab"),
+]
+
+
+def expected_state(path):
+    """--print-state's output for an arm file, from this module's own reading of the grammar."""
+    text = path.read_bytes()
+    name, params, host = None, {}, {}
+    for line in text.decode("ascii").splitlines():
+        f = line.split()
+        if not f or f[0].startswith("#"):
+            continue
+        if f[0] == "name":
+            name = f[1]
+        elif f[0] == "param":
+            params[f[1]] = f[2]
+        else:
+            host[f[1]] = f[2] if len(f) > 2 else "-"
+    out = ["ARM_NAME %s" % name, "ARM_SHA256 %s" % hashlib.sha256(text).hexdigest()]
+    out += ["ARM_SWITCH %s %s %s" % (r["key"], r["type"], params.get(r["key"], r["default"])) for r in SWITCHES]
+    out += ["ARM_HOST %s %s" % (s, host[s]) for s in ("read-ahead-kb", "evict-mdbx") if s in host]
+    return "\n".join(out) + "\n"
+
+
+class PrintStateTests(ParamsApplyCase):
+    """--arm-file <file> --print-state (deploy step 7 reads an arm through it): the parse of a run, the
+    fixed output on stdout, no node and no remote call; a refused file is rc 1, the reason on stderr
+    and nothing on stdout."""
+
+    def state(self, *args):
+        p = self.run_tool(*args)
+        self.assertEqual(self.calls(), [], args)
+        self.assertEqual(list(self.scratch.iterdir()), [], args)   # its scratch dir is gone
+        return p
+
+    def test_the_golden_arm(self):
+        f = FIX / "print-state" / "golden.arm"
+        p = self.state("--arm-file", str(f), "--print-state")
+        self.assertEqual((p.returncode, p.stderr), (0, ""))
+        self.assertEqual(p.stdout, (FIX / "print-state" / "golden.txt").read_text())
+        self.assertEqual(p.stdout, expected_state(f))
+        p = self.state("--print-state", "--arm-file", str(f))   # either order
+        self.assertEqual((p.returncode, p.stdout), (0, expected_state(f)))
+
+    def test_every_committed_arm_file(self):
+        files = sorted(ARMS.glob("*.arm"))
+        self.assertGreaterEqual(len(files), 11)
+        for f in files:
+            p = self.state("--arm-file", str(f), "--print-state")
+            self.assertEqual((p.returncode, p.stderr), (0, ""), f.name)
+            self.assertEqual(p.stdout, expected_state(f), f.name)
+            lines = p.stdout.splitlines()
+            self.assertEqual([l.split()[0] for l in lines[:2 + len(SWITCHES)]],
+                             ["ARM_NAME", "ARM_SHA256"] + ["ARM_SWITCH"] * len(SWITCHES), f.name)
+            self.assertTrue(all(l.startswith("ARM_HOST ") for l in lines[2 + len(SWITCHES):]), f.name)
+        self.assertIn("ARM_HOST evict-mdbx -\n", self.state("--arm-file", str(ARMS / "v-vote.arm"), "--print-state").stdout)
+
+    def test_a_name_line_other_than_the_file_name_is_a_note_on_stderr(self):
+        f = self.arm_file("name other\nparam vote_queue_fix true\n", name="this.arm")
+        p = self.state("--arm-file", str(f), "--print-state")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout, expected_state(f))
+        self.assertIn("note: %s's name line says 'other', not the file name" % f, p.stderr)
+
+    def test_every_refusal_is_rc_1_with_nothing_on_stdout(self):
+        for text, line, needle in ARM_REFUSALS:
+            f = self.arm_file(text, name="bad.arm")
+            p = self.state("--arm-file", str(f), "--print-state")
+            self.assertEqual((p.returncode, p.stdout), (1, ""), (text, p.stderr))
+            self.assertIn(("%s:%s: " % (f, line) if line else "%s: " % f) + needle, p.stderr, text)
+            self.assertIn("the arm file is refused, nothing was contacted", p.stderr)
+        good = self.arm_file("name good\n", name="good.arm")
+        cases = [
+            (("--arm-file", str(self.arm_file("name a\n", name="a.txt"))), "is not an arm file (<name>.arm"),
+            (("--arm-file", str(self.tmp / "absent.arm")), "is not a readable file"),
+            (("--arm-file", str(self.arm_file("name trailing-\n", name="trailing-.arm"))),
+             "arm name 'trailing-' ends with '-'"),
+            ((), "--print-state needs --arm-file <file>"),
+        ]
+        for extra in (("--nodes", str(self.nodes_file(self.line("bench-validator-01")))), ("--from-config",),
+                      ("--set", "all:vote_queue_fix=true"), ("--arm", "x"), ("--dry-run",), ("--validators-only",),
+                      ("--stage-test", "bench-validator-01"), ("--mark", "idle"), ("--results-dir", str(self.results)),
+                      ("--project", PROJECT)):
+            cases.append((("--arm-file", str(good)) + extra, "--print-state takes --arm-file <file> and nothing else"))
+        for args, needle in cases:
+            p = self.state(*(args + ("--print-state",)))
+            self.assertEqual((p.returncode, p.stdout), (1, ""), (args, p.stderr))
+            self.assertIn(needle, p.stderr, args)
 
 
 class TargetStateTests(ParamsApplyCase):
@@ -1022,25 +1111,15 @@ class ReadbackTests(ParamsApplyCase):
 
 
 class ManifestAndHookTests(ParamsApplyCase):
-    """The param_arms entry an arm file writes, and the host-step hook's contract (H5b), on a copy
-    of the tool whose hook runs fake steps."""
+    """The param_arms entry an arm file writes, and the host steps end to end: the real hook, the step
+    text of bench-lib.sh and the fake node's python3 (fixtures/params-apply/node-python3.sh) answering
+    for the host program, on a copy of the tool whose repo root holds the arm file."""
 
-    HOOK = r'''host_steps_hook() {
-    [ -n "${ARM_HOST_STEPS}" ] || { echo 'host_steps() { return 0; }'; return 0; }
-    cat <<'HOOK'
-host_steps() {
-    echo 'HOST_RESULT read-ahead-kb 16 {"read_ahead_kb_before": 128, "read_ahead_kb_after": 16}'
-    if [ -f "$D/../hook-fails" ]; then echo 'HOST_RESULT evict-mdbx - {"failed": "fincore reads 7 pages"}'; return 1; fi
-    echo 'HOST_RESULT evict-mdbx - {"resident_pages_before": 812345, "resident_pages_after": 0}'
-}
-HOOK
-}
-'''
     ARM = "# m1\nname m1\nhost evict-mdbx\nparam vote_queue_fix true\nhost read-ahead-kb 16\n"
 
     def setUp(self):
         super().setUp()
-        self.root = self.tree(hook=self.HOOK)
+        self.root = self.tree()
         self.tool = self.root / "benchmark" / "tools" / "params-apply.sh"
         self.armf = self.arm_file(self.ARM, name="m1.arm", where=self.root / "benchmark" / "arms")
         self.node("bench-validator-01")
@@ -1129,7 +1208,7 @@ HOOK
         self.assertIn("no open arm in", p.stderr)
 
     def test_a_host_step_that_fails_starts_the_node_and_stops_the_run(self):
-        (self.nodes / "bench-validator-01" / "hook-fails").write_text("")
+        (self.nodes / "bench-validator-01" / "evict-fails").write_text("fincore reads 7 pages")
         p = self.run_arm("--arm-file", str(self.armf))
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertRegex(p.stdout, r"(?m)^PA_FAIL bench-validator-01 the host steps failed in bench-arm-m1-\S+ \(rc 1\): "
@@ -1144,12 +1223,302 @@ HOOK
             "bench-observer-11": {"resident_pages_before": 812345, "resident_pages_after": 0},
             "bench-validator-01": {"failed": "fincore reads 7 pages"}}})
 
-    def test_the_stub_hook_refuses_host_steps_before_any_node_is_contacted(self):
-        armf = self.arm_file(self.ARM, name="m1.arm")
-        p = self.run_tool("--nodes", str(self.nf), "--results-dir", str(self.results), "--arm-file", str(armf))
-        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
-        self.assertIn("host steps not available: this params-apply.sh cannot run read-ahead-kb 16, evict-mdbx yet", p.stderr)
+    def test_host_steps_run_between_the_stop_and_the_start_in_run_order(self):
+        p = self.run_arm("--arm-file", str(self.armf))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for n in ("bench-validator-01", "bench-validator-02", "bench-observer-11"):
+            calls = [c for c in self.node_calls(n) if c.startswith(("python3 ", "systemctl stop", "systemctl start"))]
+            d = self.nodes / n / "data"
+            self.assertEqual(calls, ["python3 probe %s %s %s/%s" % (n, d, self.nodes / n, V2_START),
+                                     "systemctl stop telcoin", "python3 read-ahead-kb %s 16" % d,
+                                     "python3 evict-mdbx %s" % d, "systemctl start telcoin"], n)
+            self.assertEqual((self.nodes / n / "read-ahead-kb").read_text(), "16\n")
+        out = [l[len("      PA_UNIT "):] for l in p.stdout.splitlines() if l.startswith("      PA_UNIT HOST_")]
+        self.assertEqual(out, ['HOST_RESULT read-ahead-kb 16 {"read_ahead_kb_before": 128, "read_ahead_kb_after": 16}',
+                               'HOST_RESULT evict-mdbx - {"resident_pages_before": 812345, "resident_pages_after": 0}'] * 3)
+        self.assertIn("vote_queue_fix (absent) -> true; restart (params,live,read-ahead,host); read-ahead 128 -> 16 KiB; "
+                      "host steps: read-ahead-kb 16, evict-mdbx",
+                      p.stdout)
+
+    def test_a_failing_first_step_skips_the_eviction(self):
+        (self.nodes / "bench-observer-11" / "read-ahead-fails").write_text('cannot write 16 to "q": \\denied')
+        p = self.run_arm("--arm-file", str(self.armf))
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r'(?m)^PA_FAIL bench-observer-11 the host steps failed in bench-arm-m1-\S+ \(rc 1\): '
+                                   r'HOST_RESULT read-ahead-kb 16 \{"failed": "cannot write 16 to \\"q\\": \\\\denied"\}; '
+                                   r"telcoin was started again \(rc 0\)$")
+        calls = self.node_calls("bench-observer-11")
+        self.assertNotIn("python3 evict-mdbx %s" % (self.nodes / "bench-observer-11" / "data"), calls)
+        self.assertEqual(calls[-1], "systemctl start telcoin")
+        self.assertEqual(self.arms(self.mpath)[0]["host"], [{"step": "read-ahead-kb", "value": "16", "nodes": {
+            "bench-observer-11": {"failed": 'cannot write 16 to "q": \\denied'}}}])
+        self.assertNotIn("systemctl stop telcoin", self.node_calls("bench-validator-01"))
+
+    def test_without_bench_lib_s_host_functions_an_arm_file_is_refused_before_any_node_is_contacted(self):
+        for lib, needle in (("# no functions here\n", "has no single bench_remote_lib_preamble() (the host steps"),
+                            ((BENCH / "bench-lib.sh").read_text().replace("\nbench_host_step_script() {\n", "\nrenamed() {\n"),
+                             "has no single bench_host_step_script()"),
+                            ((BENCH / "bench-lib.sh").read_text().replace("    printf 'D=%q\\n' \"${d}\"\n", "    printf 'DD=%q\\n' \"${d}\"\n"),
+                             "its text has no single line D=/params-apply-host-datadir")):
+            self.assertNotEqual(lib, (BENCH / "bench-lib.sh").read_text())
+            root = self.tree(lib=lib)
+            armf = self.arm_file("name plain\n", name="plain.arm", where=root / "benchmark" / "arms")
+            for dry in ((), ("--dry-run",)):
+                p = self.run_tool("--nodes", str(self.nf), "--arm-file", str(armf), *dry, tool=root / "benchmark" / "tools" / "params-apply.sh")
+                self.assertEqual(p.returncode, 2, (needle, dry, p.stdout + p.stderr))
+                self.assertIn("the host probe and the host steps cannot be had: ", p.stderr)
+                self.assertIn(needle, p.stderr)
+                self.assertEqual(self.calls(), [], dry)
+                self.assertEqual("plan for arm plain:" in p.stdout, bool(dry))   # a dry run prints its plan first
+        # An arm given with --set needs neither: its scripts are what they were.
+        root = self.tree(lib="# no functions here\n")
+        p = self.run_tool("--nodes", str(self.nf), "--set", "all:vote_queue_fix=true", "--arm", "s1", "--dry-run",
+                          tool=root / "benchmark" / "tools" / "params-apply.sh")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("HOST_PROBE", p.stdout)
+
+
+class ReadAheadTests(ParamsApplyCase):
+    """Read-ahead is state (benchmark/arms/README.md "Host steps"): phase A reads each node's
+    read_ahead_kb through bench-lib.sh's host probe (the fake python3 answers from <node>/read-ahead-kb);
+    the arm's value, else the deploy value node_startup[<node>].host.read_ahead_kb, is the target."""
+
+    def setUp(self):
+        super().setUp()
+        self.node("bench-validator-01")
+        self.node("bench-validator-02")
+        self.nf = self.nodes_file(self.line("bench-validator-01"), self.line("bench-validator-02"))
+
+    def startup(self, **ra):
+        """A manifest whose node_startup records <ra>[node] as the node's deploy read_ahead_kb (None:
+        a failed host probe)."""
+        return self.manifest({"node_startup": {n: {"host": ({"read_ahead_kb": v, "disk": "sda"} if v is not None else
+                                                            {"probe_failed": True, "reason": "no python3 on the node"})}
+                                               for n, v in ra.items()}})
+
+    def ra(self, node, value=None):
+        f = self.nodes / node / "read-ahead-kb"
+        if value is not None:
+            f.write_text("%s\n" % value)
+        return f.read_text().strip() if f.exists() else "128"
+
+    def run_arm(self, text, name, *extra):
+        f = self.arm_file(text, name="%s.arm" % name)
+        return self.run_tool("--nodes", str(self.nf), "--results-dir", str(self.results), "--arm-file", str(f), *extra)
+
+    def plan_line(self, p, node):
+        return [l for l in p.stdout.splitlines() if l.startswith("  %s " % node)][-1].split(None, 2)[2]
+
+    def stops(self, node):
+        return self.node_calls(node).count("systemctl stop telcoin")
+
+    def test_listed_and_equal_restarts_nothing(self):
+        mpath = self.startup(**{"bench-validator-01": 128, "bench-validator-02": 128})
+        p = self.run_arm("name ra-eq\nhost read-ahead-kb 128\n", "ra-eq")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for n in ("bench-validator-01", "bench-validator-02"):
+            self.assertEqual(self.plan_line(p, n), "no change; not restarted")
+            self.assertEqual(self.stops(n), 0)
+            self.assertIn("python3 probe %s %s" % (n, self.nodes / n / "data"), " ".join(self.node_calls(n)))
+        self.assertIn("  read-ahead: the arm's 128 KiB; a node restarts for it only where its read_ahead_kb differs\n", p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^  {26}read_ahead_kb 128$")
+        arm = self.arms(mpath)[0]
+        self.assertEqual((arm["no_restart"], arm["host"]), (True, []))
+        self.assertEqual(self.tagged(p, "ARM_READY")[0].split()[3:], ["restarted=0", "nodes=2"])
+
+    def test_listed_and_different_restarts_only_that_node(self):
+        mpath = self.startup(**{"bench-validator-01": 128, "bench-validator-02": 128})
+        self.ra("bench-validator-02", 256)
+        p = self.run_arm("name ra-set\nhost read-ahead-kb 128\n", "ra-set")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.plan_line(p, "bench-validator-02"),
+                         "no key to rewrite; restart (read-ahead); read-ahead 256 -> 128 KiB; host steps: read-ahead-kb 128")
+        self.assertEqual(self.plan_line(p, "bench-validator-01"), "no change; not restarted")
+        self.assertEqual((self.stops("bench-validator-01"), self.stops("bench-validator-02")), (0, 1))
+        self.assertEqual(self.ra("bench-validator-02"), "128")
+        arm = self.arms(mpath)[0]
+        self.assertEqual(arm["host"], [{"step": "read-ahead-kb", "value": "128", "nodes": {
+            "bench-validator-02": {"read_ahead_kb_before": 256, "read_ahead_kb_after": 128}}}])
+        self.assertEqual(list(arm["nodes"]), ["bench-validator-02"])
+        self.assertNotIn("no_restart", arm)
+
+    def test_not_listed_and_drifted_is_restored_with_a_restart(self):
+        mpath = self.startup(**{"bench-validator-01": 128, "bench-validator-02": 128})
+        self.ra("bench-validator-01", 16)
+        p = self.run_arm("name ctl\n", "ctl")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("  read-ahead: not in the arm; each node's deploy value (node_startup.<node>.host.read_ahead_kb) "
+                      "is put back where it differs\n", p.stdout)
+        self.assertNotIn("warning", p.stdout)
+        self.assertEqual(self.plan_line(p, "bench-validator-01"),
+                         "no key to rewrite; restart (read-ahead); read-ahead 16 -> 128 KiB; host steps: read-ahead-kb 128")
+        self.assertEqual((self.stops("bench-validator-01"), self.stops("bench-validator-02")), (1, 0))
+        self.assertEqual(self.ra("bench-validator-01"), "128")
+        self.assertEqual(self.arms(mpath)[0]["host"], [{"step": "read-ahead-kb", "value": "128", "nodes": {
+            "bench-validator-01": {"read_ahead_kb_before": 16, "read_ahead_kb_after": 128}}}])
+        # The dry run of the next arm takes the record's last value for the node: nothing drifted now.
+        p = self.run_arm("name ctl2\n", "ctl2", "--dry-run")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.plan_line(p, "bench-validator-01"), "no change; not restarted")
+
+    def test_a_dry_run_takes_the_value_the_record_last_left(self):
+        prev = {"name": "p16", "begin": "2026-11-12T03:10:05Z", "end": None, "switches": dict(DEFAULTS),
+                "host": [{"step": "read-ahead-kb", "value": "16", "nodes": {
+                    "bench-validator-01": {"read_ahead_kb_before": 128, "read_ahead_kb_after": 16},
+                    "bench-validator-02": {"failed": "cannot write"}}}]}
+        self.manifest({"param_arms": [prev], "node_startup": {"bench-validator-01": {"host": {"read_ahead_kb": 128}},
+                                                              "bench-validator-02": {"host": {"read_ahead_kb": 128}}}})
+        p = self.run_arm("name ctl\n", "ctl", "--dry-run")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.plan_line(p, "bench-validator-01"),
+                         "no key to rewrite; restart (read-ahead); read-ahead 16 -> 128 KiB; host steps: read-ahead-kb 128")
+        self.assertEqual(self.plan_line(p, "bench-validator-02"), "no change; not restarted")
+        self.assertIn("  dry run: each node's read_ahead_kb is taken as the last one an arm in the record left on it, "
+                      "else its deploy value (? when neither); a live run reads it\n", p.stdout)
         self.assertEqual(self.calls(), [])
+
+    def test_a_node_without_a_recorded_value_is_left_alone_with_one_warning(self):
+        mpath = self.startup(**{"bench-validator-01": None, "bench-validator-02": 128})
+        self.ra("bench-validator-01", 16)
+        p = self.run_arm("name ctl\n", "ctl")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        warn = [l for l in p.stdout.splitlines() if "warning" in l]
+        self.assertEqual(warn, ["  warning: no read_ahead_kb recorded at deploy for bench-validator-01 (in %s); "
+                                "their read-ahead is left as it is" % mpath])
+        self.assertEqual(self.plan_line(p, "bench-validator-01"), "no change; not restarted")
+        self.assertEqual((self.stops("bench-validator-01"), self.ra("bench-validator-01")), (0, "16"))
+        self.assertTrue(self.arms(mpath)[0]["no_restart"])
+
+    def test_an_unreadable_read_ahead_refuses_the_arm_only_when_it_is_needed(self):
+        (self.nodes / "bench-validator-02" / "probe-fails").write_text("no python3 on the node")
+        p = self.run_arm("name ra-set\nhost read-ahead-kb 128\n", "ra-set")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("refused before any change", p.stderr)
+        self.assertIn("  bench-validator-02: its read_ahead_kb could not be read (its host probe: probe_failed no python3 on "
+                      "the node); the arm puts it at 128", p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^  {26}read_ahead_kb unread \(its host probe: probe_failed no python3 on the node\)$")
+        self.assertEqual((self.stops("bench-validator-01"), self.stops("bench-validator-02")), (0, 0))
+        # Nothing to put back (no deploy value on record): the probe's failure does not matter.
+        p = self.run_arm("name ctl\nparam vote_queue_fix true\n", "ctl")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.stops("bench-validator-01"), self.stops("bench-validator-02")), (1, 1))
+
+
+class HostStepTextTests(thp.HostCase):
+    """The host probe and the step texts the tool sends are bench-lib.sh's own (the bytes bench-lib.sh
+    prints when the harness sources it, the datadir line made D="$D"), and they run: on
+    test_host_probe's fake host root (/sys and /proc moved under a temp dir, stub findmnt, lsblk and
+    fincore, the real python3) a dry run's unit stops telcoin, sets the read-ahead, evicts mdbx.dat
+    and starts telcoin, printing HOST_RESULT lines in the shapes of arms/MANIFEST-FIELDS.md."""
+
+    NODE = thp.INST
+    MARK = "D=/params-apply-host-datadir"
+
+    def dry(self, arm="name h\nhost evict-mdbx\nhost read-ahead-kb 16\n"):
+        d = self.root / "pa"
+        (d / "shim").mkdir(parents=True, exist_ok=True)
+        (d / "h.arm").write_text(arm)
+        (d / "nodes.txt").write_text("%s us-west2-a example-proj validator\n" % self.NODE)
+        (d / "shim" / "gcloud").write_text("#!/bin/sh\necho REACHED\nexit 9\n")
+        (d / "shim" / "gcloud").chmod(0o755)
+        env = {"PATH": str(d / "shim") + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.root),
+               "TMPDIR": str(d)}
+        p = subprocess.run(["bash", str(TOOL), "--nodes", str(d / "nodes.txt"), "--arm-file", str(d / "h.arm"), "--dry-run"],
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("REACHED", p.stdout + p.stderr)
+        phase_a = re.search(r"(?s)----- phase A script for %s [^\n]*\n(.*?)\n----- end -----" % self.NODE, p.stdout).group(1)
+        unit = re.search(r"(?s)<<'PA_UNIT_SCRIPT' \|\| rfail \"cannot write \$US\"\n(.*?)\nPA_UNIT_SCRIPT\n", p.stdout).group(1)
+        return phase_a, unit
+
+    def run_unit(self, host, unit):
+        thp.install_stub(host.root / "bin", "systemctl")
+        host.put("systemctl", "")
+        os.symlink(shutil.which("date"), str(host.root / "tools" / "date"))
+        out = host.root / "unit.out"
+        p = host.run("set -- %s %s %s bench-arm-h-x\n%s\n" % (out, host.datadir, self.NODE, unit))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return [l for l in out.read_text().splitlines() if l.strip()]
+
+    def test_the_texts_are_bench_lib_s_own(self):
+        phase_a, unit = self.dry()
+        for argv, where in ((("bench_host_probe_script", self.NODE, self.MARK[2:]), phase_a),
+                            (("bench_host_step_script", self.NODE, "read-ahead-kb", "16", self.MARK[2:]), unit),
+                            (("bench_host_step_script", self.NODE, "evict-mdbx", self.MARK[2:]), unit)):
+            text = self.text_of(*argv)
+            self.assertEqual(text.count("\n%s\n" % self.MARK), 1, argv)
+            self.assertIn(text.replace("\n%s\n" % self.MARK, '\nD="$D"\n'), where, argv)
+        self.assertLess(unit.index("python3 - read-ahead-kb "), unit.index("python3 - evict-mdbx "))
+        self.assertLess(unit.index("systemctl stop telcoin"), unit.index("host_steps || h=$?"))
+
+    def test_the_unit_runs_both_steps_between_the_stop_and_the_start(self):
+        _, unit = self.dry()
+        host = self.host()
+        thp.sparse_file(host.datadir / "db" / "mdbx.dat", 64, range(8))
+        host.put("fincore.1", "40")
+        host.put("fincore.2", "0")
+        out = self.run_unit(host, unit)
+        self.assertEqual([l.split()[0] for l in out],
+                         ["STOP_AT", "STOP_RC", "HOST_RESULT", "HOST_RESULT", "HOOK_RC", "START_AT", "START_RC"], out)
+        res = [l for l in out if l.startswith("HOST_RESULT ")]
+        self.assertEqual(res, ['HOST_RESULT read-ahead-kb 16 {"read_ahead_kb_before": 128, "read_ahead_kb_after": 16}',
+                               'HOST_RESULT evict-mdbx - {"resident_pages_before": 40, "resident_pages_after": 0}'])
+        shapes = {"read-ahead-kb": ["read_ahead_kb_before", "read_ahead_kb_after"],
+                  "evict-mdbx": ["resident_pages_before", "resident_pages_after"]}
+        for l in res:
+            step, _v, obj = l.split(" ", 3)[1:]
+            self.assertEqual(list(json.loads(obj)), shapes[step])
+            self.assertTrue(all(type(x) is int for x in json.loads(obj).values()))
+        self.assertEqual([l for l in out if l.endswith("_RC 0")], ["STOP_RC 0", "HOOK_RC 0", "START_RC 0"])
+        self.assertEqual((host.root / "sys/block/nvme0n1/queue/read_ahead_kb").read_text(), "16\n")
+        calls = [c.split()[0] + ("" if not c.startswith("systemctl") else " " + c.split()[1]) for c in host.calls()]
+        self.assertEqual(calls[0], "systemctl stop")
+        self.assertEqual(calls[-1], "systemctl start")
+        self.assertLess(max(i for i, c in enumerate(calls) if c in ("findmnt", "lsblk")), calls.index("fincore"))
+
+    def test_a_failed_read_ahead_skips_the_eviction_and_the_node_still_starts(self):
+        _, unit = self.dry()
+        host = self.host()
+        for name in ("findmnt", "lsblk"):
+            (host.root / "state" / name).unlink()
+        out = self.run_unit(host, unit)
+        self.assertEqual([l for l in out if l.startswith(("HOST_RESULT", "HOOK_RC", "START_RC"))], [
+            'HOST_RESULT read-ahead-kb 16 {"failed": "no block device found under %s"}' % host.datadir,
+            "HOOK_RC 1", "START_RC 0"])
+        self.assertEqual(host.calls("fincore"), [])
+        self.assertEqual(host.calls("systemctl"), ["systemctl stop telcoin", "systemctl start telcoin"])
+
+    def test_every_step_line_becomes_one_result(self):
+        _, unit = self.dry()
+        fn = re.search(r"(?ms)^pa_host_result\(\) \{\n.*?^\}\n", unit).group(0)
+        n, ok = self.NODE, "resident_pages_before=5 resident_pages_after=0"
+        cases = [
+            (["HOST_STEP %s evict-mdbx - %s" % (n, ok), "HOST_STEP_RC 0"], 0, {"resident_pages_before": 5, "resident_pages_after": 0}),
+            (["noise", "HOST_STEP %s evict-mdbx - failed a \"b\" \\c\td  e" % n, "HOST_STEP_RC 1"], 1, {"failed": 'a "b" \\c d  e'}),
+            (["HOST_STEP %s evict-mdbx - failed" % n, "HOST_STEP_RC 1"], 1, {"failed": "(no reason given)"}),
+            (["HOST_STEP %s evict-mdbx - %s" % (n, ok), "HOST_STEP_RC 1"], 1, {"failed": "unparsed (rc 1): " + ok}),
+            (["HOST_STEP %s evict-mdbx - resident_pages_before=05 resident_pages_after=0" % n, "HOST_STEP_RC 0"], 1,
+             {"failed": "unparsed (rc 0): resident_pages_before=05 resident_pages_after=0"}),
+            (["HOST_STEP %s evict-mdbx - resident_pages_before=%s" % (n, "9" * 19), "HOST_STEP_RC 0"], 1,
+             {"failed": "unparsed (rc 0): resident_pages_before=" + "9" * 19}),
+            (["HOST_STEP %s evict-mdbx - Pages=1" % n, "HOST_STEP_RC 0"], 1, {"failed": "unparsed (rc 0): Pages=1"}),
+            (["HOST_STEP_RC 1"], 1, {"failed": "no HOST_STEP line (rc 1)"}),
+            (["HOST_STEP other-node evict-mdbx - %s" % ok, "HOST_STEP %s read-ahead-kb 16 %s" % (n, ok), "HOST_STEP_RC 0"], 1,
+             {"failed": "no HOST_STEP line (rc 0)"}),
+            (["HOST_STEP %s evict-mdbx - %s" % (n, ok)] * 2 + ["HOST_STEP_RC 0"], 1, {"failed": "2 HOST_STEP lines"}),
+        ]
+        for lines, rc, want in cases:
+            p = subprocess.run(["bash", "-c", fn + 'NODE=%s\npa_host_result evict-mdbx -; echo "rc=$?"\n' % n],
+                               input="\n".join(lines) + "\n", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               universal_newlines=True, timeout=30)
+            got = p.stdout.splitlines()
+            self.assertEqual(len(got), 2, (lines, got))
+            self.assertTrue(got[0].startswith("HOST_RESULT evict-mdbx - "), got)
+            try:
+                obj = json.loads(got[0][len("HOST_RESULT evict-mdbx - "):])
+            except ValueError as e:
+                self.fail("not one-line JSON (%s): %s" % (e, got[0]))
+            self.assertEqual((obj, got[1]), (want, "rc=%d" % rc), lines)
 
 
 class StageTestTests(ParamsApplyCase):
@@ -1499,8 +1868,8 @@ class DryRunTests(ParamsApplyCase):
 
     def test_no_arm_file_reaches_gcloud_in_a_dry_run(self):
         """A gcloud that prints REACHED and exits 9 is first on PATH: no dry run of any arm file in
-        benchmark/arms calls it. An arm with host steps is refused after its plan (rc 2) while the
-        hook is a stub; every other arm prints its plan and ends rc 0."""
+        benchmark/arms calls it. Each prints its plan, the phase A script with the host probe and
+        the phase B scripts with the host steps it lists, and ends rc 0."""
         shim, hits = self.tmp / "shim", self.tmp / "shim-hits"
         shim.mkdir()
         # The tool sends a call's output to its own files, so the shim also leaves a mark of its own.
@@ -1523,11 +1892,17 @@ class DryRunTests(ParamsApplyCase):
             self.assertFalse(hits.exists(), f.name)
             name = re.search(r"(?m)^name (\S+)$", f.read_text()).group(1)
             self.assertIn("plan for arm %s:" % name, p.stdout, f.name)
-            if re.search(r"(?m)^host ", f.read_text()):
-                self.assertEqual(p.returncode, 2, (f.name, p.stderr))
-                self.assertIn("host steps not available", p.stderr)
-            else:
-                self.assertEqual(p.returncode, 0, (f.name, p.stderr))
+            self.assertEqual(p.returncode, 0, (f.name, p.stderr))
+            self.assertEqual(len(re.findall(r"(?m)^r=0; python3 - probe ", p.stdout)), 3, f.name)   # one per phase A script
+            units = re.findall(r"(?s)<<'PA_UNIT_SCRIPT' \|\| rfail \"cannot write \$US\"\n(.*?)\nPA_UNIT_SCRIPT\n", p.stdout)
+            evict = bool(re.search(r"(?m)^host evict-mdbx$", f.read_text()))
+            self.assertEqual(len(units), 3 if evict else 0, f.name)   # the eviction restarts every node
+            for u in units:
+                self.assertEqual(u.count("python3 - evict-mdbx "), 1, f.name)
+                self.assertNotIn("python3 - read-ahead-kb ", u, f.name)   # nothing recorded: read-ahead left alone
+            self.assertIn("  warning: no read_ahead_kb recorded at deploy for bench-validator-01 bench-validator-02 "
+                          "bench-observer-11 (in %s); their read-ahead is left as it is" % (self.tmp / "param-arms.json"),
+                          p.stdout, f.name)
         self.assertFalse(self.log.exists())
 
 
@@ -1538,7 +1913,7 @@ class ArmFilesTests(ParamsApplyCase):
     def parsed(self, f):
         nf = self.nodes_file(self.line("bench-validator-01"))
         p = self.run_tool("--nodes", str(nf), "--arm-file", str(f), "--dry-run")
-        self.assertIn(p.returncode, (0, 2), (f.name, p.stderr))
+        self.assertEqual(p.returncode, 0, (f.name, p.stderr))
         self.assertNotIn("the arm file is refused", p.stderr, f.name)
         sw = re.search(r"switches: (.*)$", p.stdout, re.M).group(1)
         host = re.search(r"^  host steps: (.*)$", p.stdout, re.M).group(1)

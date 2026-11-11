@@ -1,0 +1,16 @@
+ARM_NAME golden
+ARM_SHA256 fb2bc4bf914702d7b6acbbdcd62bd25ac17e5bcbe6be4a497d2d74ce616610d8
+ARM_SWITCH quorum_exec_block bool false
+ARM_SWITCH quorum_exec_block_starved_rounds int 0
+ARM_SWITCH vote_queue_fix bool true
+ARM_SWITCH mdbx_random_advice bool false
+ARM_SWITCH sealed_tx_keep bool false
+ARM_SWITCH digest_dedupe bool false
+ARM_SWITCH recovery_threads int 3
+ARM_SWITCH epoch_close_task_drain bool false
+ARM_SWITCH epoch_record_state_check bool false
+ARM_SWITCH parent_grace dur 150ms
+ARM_SWITCH rpc_admission_backlog_outputs int 0
+ARM_SWITCH pipelined_persist bool false
+ARM_HOST read-ahead-kb 16
+ARM_HOST evict-mdbx -

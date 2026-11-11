@@ -1,0 +1,11 @@
+# The golden arm of --print-state (tests/test_params_apply.py PrintStateTests): blank lines, tabs, a
+# default written out, parameters out of row order and the host steps out of run order.
+  name golden
+
+	param parent_grace 150ms
+param   vote_queue_fix	true
+host evict-mdbx
+param quorum_exec_block_starved_rounds 0
+   # an indented comment
+param recovery_threads 3
+host read-ahead-kb 16
