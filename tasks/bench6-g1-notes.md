@@ -723,3 +723,48 @@ four validators to the transactions that are in no pool.
   cancels will show a high `exec_policy=starved` share. That is staleness, not lost headers; the analysis must not read it
   as starvation.
 - Not built (optional): a faster climb (×4 per cancel) would cut the ramp from five failed returns to three.
+
+## From U9b (parent grace after its review; `tasks/checkpoint-bench6-u9b.md`) — M1 and M2 closed
+- **M1 fixed:** the grace now waits for every committee member (other than this node) whose previous-round certificate
+  reached the proposer, late ones included, so a far validator that misses once is waited for again. The re-entry test
+  fails on the old code (3 parents instead of 4). An author that lags by more than about a round is not followed.
+- **M2 fixed (D62 stands):** a node that leads the round it is about to propose in never arms a grace; a grace armed before a
+  leader-table swap made the node leader ends `preempted`. The round-jump test fails on the old code.
+- D72. **Changed with M1, reversible:** a node never waits for its OWN certificate (before, it did when its last header
+  carried it). Reason: on a far node that wait mostly expires and makes its next certificate later for everyone. Cost: its
+  previous header no longer gets up to G more to certify before the certifier cancels it. The earlier note "`missing` can
+  include the proposer's own authority" is superseded.
+- L1 fixed (a leader-table swap can no longer stretch a hold past G), L2 (one warn per epoch when G is capped at the maximum
+  header delay), L4 (the debug lines name the authors waited for: `waiting_for`, `still_missing`).
+- D38 is superseded by the documented bounds: under load the grace arms on almost every round and costs up to G; one author
+  just inside G costs about G every round (`complete`); an author always past G now ALSO costs G every round (`expired`),
+  because its late certificate puts it back — and it pays for it: its certificates miss the headers of the nodes that
+  waited. f colluders cost no more than one author. A per-author cap is not warranted (it cannot tell a far validator from
+  an attacker); a node-wide budget is the lever if one is ever needed. Not built.
+- Left open, documented: if a swap during a grace names this node leader of the CURRENT even round, the header sent when the
+  grace ends can make the certifier cancel the own leader header (same outcome as G = 0, a narrow window).
+- **What the grace arm must read:** cost = `tn_primary_parent_grace_wait_seconds`, `tn_primary_parent_grace_total{outcome}`,
+  `grace_ms` on `header proposed`, against round time and throughput; benefit = the far validators' committed share and
+  `tn_primary_late_parents_total{origin}`; attribution = `waiting_for` / `still_missing`, which are on DEBUG lines of target
+  `primary::proposer` — the fleet's log filter must let that target through at debug for the grace arms (check
+  `devnet-log-filter` / the bench's RUST_LOG before run 1).
+
+## From ST-U12b (e2e of pipelined persist; `tasks/checkpoint-bench6-st-u12b.md`) — go/no-go gate 4: PASS
+- No fork, no block or state-root mismatch, no `PipelineInvariant`, no failed persist and no replay or consistency error in
+  any run. Every test fails by design if the pipeline did not really overlap build and persist (a 400-ms persist delay on
+  the nodes; each pipelined node must log outputs with `persist_wait_ms > 0`).
+- Mixed fleet (validators 1-2 pipelined, 3-4 sequential), two epoch boundaries under load, a restart of one of each kind:
+  3 of 3, 340-461 blocks identical on all four, 25-39 overlapped outputs per pipelined node.
+- Epoch close under load, all four pipelined: 3 of 3; every node certifies the same epoch record; the closing-barrier counter
+  read 0 on every node, as designed.
+- SIGKILL of a pipelined node five times, at points read from its own log: 3 of 3; in every run two kills landed with one
+  output committing and the next already built (shown from the blocks between the node's finalized and latest heads just
+  before the kill); after each restart it replays and all four chains are identical (1,140-1,297 blocks).
+- The harness gained `TN_E2E_PARAMETERS` (integrated, d91d65d3e): any existing e2e set can be run with switches on.
+- Build finding, fixed by the orchestrator on the stack (86956df51): the persist-delay hook existed only with tn-reth's own
+  `test-utils` feature, which the repo's e2e build does not enable; it is now read where the persist runs, as the execution
+  delay is, so the standard e2e binary has it. The three tests are being re-run on that binary.
+- Not reached: the slow-executor case with the switch on; the repo's restarts / epochs / sigkill sets with the switch on
+  (the orchestrator runs those through the lane).
+- **Go/no-go status: gates 1, 2, 3, 4 PASS. Open: 5 (cycle bench on a quiet host), 6 (the switch-off suites and e2e sets on
+  the stack), 7 (the security review, launching).**

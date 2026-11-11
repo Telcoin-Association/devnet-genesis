@@ -10,7 +10,7 @@ image unless it says so. Each line: the item, where it is described, and its sta
 - Config doc on when the worker suppresses a seal. DONE b89ad570f.
 
 ## parent-grace (#1803)
-- M1 re-entry of a late author, M2 no grace for the round's leader: the fix unit (U9b) is running. IN PROGRESS.
+- M1 re-entry of a late author, M2 no grace for the round's leader, L1, L2 (warn), L4 (authors on the lines): DONE (U9b, d83f8f79b..f4ee92d92). D72 (a node never waits for its own certificate) for the PR text. One narrow window left open (a swap naming this node leader of the current round during a grace).
 - M3 / D63 cost under load: issue and PR text ("about 0 under load" is wrong). OPEN (text).
 - L2 validation of `parent_grace` against `max_header_delay` (the review suggests rejecting above half of it; the bench
   build only warns). L3 D38 wording. L5 two far validators waiting on each other (measure with the new author field). OPEN.

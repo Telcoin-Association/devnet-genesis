@@ -67,3 +67,9 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 66 | ST-B | sealed-keep | — (e2e: the switch-off control passes on either outcome and asserts a loss has the #1807 signature) | 47112ab84 | 341b2a269 | #1807 | | |
 | 67 | U1b | quorum-exec-block | quorum_exec_block_starved_rounds (adaptive form: the window resets only after 64 consecutive certified tip headers) | ab5cb926b | 20858d28d | #1804 | | |
 | 68 | U1b | quorum-exec-block | — (e2e: the adaptive arm must reach 0.88) | 446280250 | 56f66e160 | #1804 | | |
+| 69 | U9b | parent-grace | parent_grace (M1: a late certificate of the previous round puts its author back in the wait set) | 2c6fb42e7 | d83f8f79b | #1803 | | |
+| 70 | U9b | parent-grace | — (M2: the next round's leader never arms a grace) | eb9ffe725 | 79a355f82 | #1803 | | |
+| 71 | U9b | parent-grace | — (L1 a grace stays within G; L2 warn when capped; L4 authors on the grace lines; cost docs) | 903cdc693 | 4a9c61886 | #1803 | | |
+| 72 | U9b | parent-grace | — (test: order of the round-jump end and the readiness latch) | 130513613 | f4ee92d92 | #1803 | | |
+| 73 | ST-U12b | bench6-switches | — (e2e harness: TN_E2E_PARAMETERS merges parameters.yaml entries into every node a test starts) | e6bfabef1 | d91d65d3e | — | | |
+| (held) | stack rebuilt | pipelined-persist | b6/pipe-stack-2 = d91d65d3e + 18: the 13 of b6/pipe-stack, ST-U12b's persist-delay hook and three e2e tests, and the orchestrator's 86956df51 (the hook read where the persist runs, so the standard e2e binary has it) | — | b6/pipe-stack-2 86956df51 | — | | |
