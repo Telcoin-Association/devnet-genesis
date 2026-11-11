@@ -73,6 +73,8 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 ## W3 — verify, image, GCE probe
 - [ ] one-VM GCE probe — READY (driver committed, binary built sha256 513f42ba…, plan rendered `tasks/bench6/r20261111-1659/plan.txt`) but BLOCKED: gcloud credentials expired, needs the user's `gcloud auth login`
 - [ ] **G1** (investigations, probe, design defaults, persist arms P2/P3, boot image pin, corrected bench-5 report, prune question)
+- [ ] per-topic reviews (code review + security evaluation, verified; brief `tasks/bench6/briefs/review.md`, scopes and reports under `tasks/bench6/review/`), staged: parent-grace and digest-dedupe launched 2026-11-11 ≈ 19:15Z; next mdbx-advice, inflight-bound; after ST-A: quorum-exec-block + voter-lock (#1804); after ST-B: sealed-keep; after ST-U12b: the pipelined stack; review only: recovery-pool, tracker-drain, obs/switches/e2e-scaffold
+- [ ] interim workspace gates on the integration head after each batch of cherry-picks (`tasks/bench6/orch-gates.sh integ <worktree> <commit>`): 256422898 green, 3ee6b629f green (4,331 tests), 27de9976e (stack) one clock-dependent test failed → fixed dc7855cc6 (proof: forced 1.1-s gap passes with the fix, fails without)
 - [ ] node branch gates: per-commit strict check, fmt, clippy ×2, nextest --workspace, public-tests, restarts/epochs/sigkill e2e,
       mixed-switch 2-on/2-off fleet, tn-review per topic, tn-security-eval for U1, U2, U3, U6, U7/U10, U9, U11, U12, final_state check
 - [ ] base re-check (origin tips unchanged or rebase explained hunk by hunk)
