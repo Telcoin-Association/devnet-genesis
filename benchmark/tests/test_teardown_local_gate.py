@@ -1,8 +1,9 @@
 """The local gate: bench-lib.sh's local-results helpers and benchmark-teardown.sh's gate, offline.
 
-results/<run>/ is the only copy of a run (no persistent bucket keeps another), so before its first
-delete the teardown proves every node's logs and the manifest are there, then writes INDEX.md and
-CHECKSUMS.sha256 and records manifest.archive.
+Before its first delete the teardown proves every node's logs and the manifest are in results/<run>/,
+writes INDEX.md and CHECKSUMS.sha256 and records manifest.archive; then it copies results/<run>/ to the
+archive bucket (the canonical copy of a run since 2026-10-08) and verifies it by size and MD5
+(tools/archive-run.sh, tools/archive-verify.py), recording manifest.archive.remote.
 
 The helpers are cut out of bench-lib.sh by name (as test_recovery.py cuts out its watcher) and run
 under bash. The teardown runs for real, in a temporary copy of the scripts (its results root is
@@ -47,7 +48,8 @@ CERT_RATE_STUB = FIX / "stub-cert-rate.py"    # logs its argv to $FAKE_ROOT/cert
 
 GS = "gs" + "://"
 PROJECT = "tn-" + "devnet"
-OLD_ARCHIVE = PROJECT + "-benchmark-archive"   # the retired persistent bucket: never touched again
+ARCHIVE = PROJECT + "-benchmark-archive"   # the archive bucket: objects added under runs/<run>/results/, never deleted
+OLD_RUN_OBJECT = "runs/r20261006-0458/results/manifest.json"   # an earlier run's, already archived
 RUN = "r20991231-0101"
 RUN_BUCKET = PROJECT + "-bench-" + RUN
 INST, ZONE, INST_ID = "bench-validator-01", "us-west2-a", "4242"
@@ -65,7 +67,8 @@ MUTATIONS = DELETES + (("storage", "rsync"), ("storage", "cp"), ("storage", "buc
 OBS_LIB = "benchmark/obs-lib.sh"
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/benchmark-teardown.sh", "benchmark/recovery-lib.sh",
-        "benchmark/tools/cert-rate.py", "benchmark/tools/block-rate.py") + ((OBS_LIB,) if (REPO / OBS_LIB).exists() else ())
+        "benchmark/tools/cert-rate.py", "benchmark/tools/block-rate.py", "benchmark/tools/log-shapes.txt",
+        "benchmark/tools/archive-run.sh", "benchmark/tools/archive-verify.py") + ((OBS_LIB,) if (REPO / OBS_LIB).exists() else ())
 
 
 def shell_function(source, name):
@@ -455,7 +458,7 @@ class LocalHelperTests(unittest.TestCase):
         self.assertEqual(tree_files(self.results), before)
 
     def test_bucket_list_is_the_run_buckets_only(self):
-        self.cloud.bucket(OLD_ARCHIVE, labels={"purpose": "bench-archive", "retain": "true"})
+        self.cloud.bucket(ARCHIVE, labels={"purpose": "bench-archive", "retain": "true"})
         self.cloud.bucket(RUN_BUCKET)
         self.cloud.bucket("acme-labelled", labels={"benchmark": "1"})
         self.cloud.bucket("acme-unrelated", labels={})
@@ -716,11 +719,26 @@ class TeardownSourceOrderTests(unittest.TestCase):
         self.assertLess(prov, final)
         self.assertLess(final, checks)
 
-    def test_no_persistent_archive_left(self):
-        for text in (TEARDOWN, LIB, (BENCH / "config.sh").read_text(), (BENCH / "benchmark-deploy.sh").read_text()):
-            self.assertNotIn("BENCH_ARCHIVE", text)
+    def test_the_archive_is_reached_only_through_its_tools_and_never_deleted_from(self):
+        # The archive is back (the canonical copy since 2026-10-08): what stays wrong is a second way
+        # to it, a literal bucket or project name, a sync that deletes, and a gate that overwrites the
+        # remote record. Only tools/archive-run.sh syncs and only tools/archive-verify.py names the bucket.
+        tools = BENCH / "tools"
+        run_sh, verify_py = (tools / "archive-run.sh").read_text(), (tools / "archive-verify.py").read_text()
+        for text in (TEARDOWN, LIB, (BENCH / "config.sh").read_text(), (BENCH / "benchmark-deploy.sh").read_text(),
+                     (BENCH / "pull-lib.sh").read_text()):
             self.assertNotIn("benchmark-archive", text)
-            self.assertNotIn("storage rsync", text)
+            self.assertNotIn("gcloud storage rsync", text)
+        for text in (TEARDOWN, LIB, run_sh, verify_py, (BENCH / "benchmark-blast.sh").read_text()):
+            self.assertNotIn("--delete-unmatched-destination-objects", text)
+        for text in (run_sh, verify_py):
+            self.assertNotIn(PROJECT, text)
+            self.assertNotIn(GS, text)
+        self.assertEqual(verify_py.count('"-benchmark-archive"'), 1)
+        self.assertIn('"${DIR}/tools/archive-run.sh" --run "${BENCH_RUN_ID}"', TEARDOWN)
+        # The local gate merges into manifest.archive: archive.remote survives a re-run.
+        self.assertEqual(re.findall(r"'\.archive = \{", TEARDOWN), [])
+        self.assertEqual(len(re.findall(r"\.archive = \(if \(\.archive \| type\) == \"object\" then \.archive else \{\} end\) \+ ", TEARDOWN)), 3)
 
 
 class GcloudArgvInventoryTests(unittest.TestCase):
@@ -741,7 +759,9 @@ class GcloudArgvInventoryTests(unittest.TestCase):
 
     def test_one_line_per_command_and_no_async_on_the_delete(self):
         inv = gcloud_inventory()
-        self.assertEqual(len(inv), 19)
+        self.assertEqual(len(inv), 21)
+        self.assertEqual(inv[("storage", "rsync")], {"-r", "--dry-run", "--exclude", "--project"})
+        self.assertEqual(inv[("storage", "objects", "list")], {"--project", "--format"})
         self.assertEqual(inv[("compute", "instances", "delete")], {"--zone", "--project", "--quiet"})
         self.assertEqual(inv[("compute", "ssh")], {"--zone", "--project", "--command", "--tunnel-through-iap", "--ssh-flag"})
         self.assertEqual(inv[("storage", "rm")], {"-r", "--project"})
@@ -806,9 +826,9 @@ class TeardownLocalGateTests(unittest.TestCase):
         (self.cloud.state / "instances.json").write_text(json.dumps(instances))
         self.cloud.bucket(RUN_BUCKET, labels={"benchmark": "1", "bench-run": RUN},
                           files={"blasters/bench-blaster-01.json": b"{\"rc\": 0}\n"})
-        # The retired persistent archive still exists until it is deleted by hand: never touched.
-        self.cloud.bucket(OLD_ARCHIVE, labels={"purpose": "bench-archive", "retain": "true"},
-                          files={"runs/r20261006-0458/results/manifest.json": b"{}"})
+        # The archive bucket, holding an earlier run: the teardown adds this run beside it, never deletes.
+        self.cloud.bucket(ARCHIVE, labels={"purpose": "bench-archive", "retain": "true"},
+                          files={OLD_RUN_OBJECT: b"{}"})
 
     def tearDown(self):
         try:
@@ -902,11 +922,23 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertIn(INST, self.instance_names())
         self.assertTrue(self.cloud.objects(RUN_BUCKET))
 
-    def assert_old_archive_untouched(self):
+    def archived(self):
+        """{rel: bytes} of this run's objects in the archive bucket (runs/<run>/results/<rel>)."""
+        prefix = "runs/%s/results/" % RUN
+        return {n[len(prefix):]: b for n, b in self.cloud.objects(ARCHIVE).items() if n.startswith(prefix)}
+
+    def assert_archive_holds_the_tree(self):
+        """The archive gained this run, byte for byte, without the files the rule keeps out, and lost
+        nothing: no call deleted from it or synced with deletes."""
         for c in self.cloud.calls():
-            self.assertNotIn(OLD_ARCHIVE, " ".join(c["argv"]))
-            self.assertFalse(is_call(c, ("storage", "rsync")), c["argv"])
-        self.assertEqual(set(self.cloud.objects(OLD_ARCHIVE)), {"runs/r20261006-0458/results/manifest.json"})
+            argv = " ".join(c["argv"])
+            self.assertNotIn("--delete-unmatched-destination-objects", argv)
+            if ARCHIVE in argv:
+                self.assertTrue(is_call(c, ("storage", "rsync")) or is_call(c, ("storage", "objects", "list")), argv)
+        self.assertEqual(self.cloud.objects(ARCHIVE)[OLD_RUN_OBJECT], b"{}")
+        local = {rel: data for rel, data in tree_files(self.results).items()
+                 if not (rel.startswith("genesis") or rel == "tunnel.pid" or rel.split("/")[-1].startswith("."))}
+        self.assertEqual(self.archived(), local)
 
     def obs_vm(self, run=RUN, zone=ZONE):
         """Add bench-obs to the project as bench_obs_create leaves it (labelled for <run>, in <zone>)."""
@@ -1128,7 +1160,7 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertNotIn(INST, self.instance_names())
         self.assertEqual(set(self.devnet), set(self.instance_names()))
         self.assertEqual(self.cloud.objects(RUN_BUCKET), {})
-        self.assert_old_archive_untouched()
+        self.assert_archive_holds_the_tree()
         # The final CHECKSUMS.sha256 covers every file, the run bucket's copy and the moved-in
         # evidence included, at its SHA-256.
         files = tree_files(self.results)
@@ -1148,7 +1180,21 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertEqual(a["files"], len(sums))
         self.assertEqual(a["bytes"], sum(len(files[rel]) for rel in sums))
         self.assertNotIn("skipped_gate", a)
-        self.assertIn("· results/%s/ kept, the only copy" % RUN, out)
+        # The archive: verified before the first delete, then once more over the final tree; the record
+        # sits inside manifest.archive beside the local one.
+        self.assertLess(out.index(">>> local gate"), out.index(">>> archive: "))
+        self.assertLess(out.index(">>> archive: "), out.index(">>> plan / execution"))
+        self.assertLess(out.index(">>> final local index"), out.index(">>> final archive"))
+        self.assertLess(out.index(">>> final archive"), out.index(">>> left-nothing checks"))
+        self.assertEqual(out.count("ARCHIVE_VERIFY ok=1 "), 4)
+        r = a["remote"]
+        self.assertEqual(r["uri"], "%s%s/runs/%s/results/" % (GS, ARCHIVE, RUN))
+        self.assertRegex(r["verified_at"], ISO_RE)
+        self.assertEqual(set(r), {"uri", "verified_at", "files", "bytes"})
+        self.assertGreater(r["files"], 10)
+        self.assert_archive_holds_the_tree()
+        self.assertIn("· results/%s/ kept, a working copy: " % RUN, out)
+        self.assertIn("archive: %s%s/runs/%s/results/ (verified " % (GS, ARCHIVE, RUN), out)
         self.assertEqual(self.done_line(p), (RUN, 1, 0, False))
 
     def test_coverage_short_log_stops_before_any_delete(self):
@@ -1877,7 +1923,7 @@ class TeardownLocalGateTests(unittest.TestCase):
                                                            "[--async] [--no-graceful-shutdown] [--zone=ZONE]"))
         p = self.teardown(FAKE_GCLOUD_HELP=str(with_async))
         self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
-        self.assertIn("\nGCLOUD_ARGV_OK 19 commands, 43 flags\n", p.stdout)
+        self.assertIn("\nGCLOUD_ARGV_OK 21 commands, 49 flags\n", p.stdout)
 
     def test_the_dry_run_reports_a_command_the_sdk_does_not_have(self):
         self.give_every_node_its_logs()
@@ -1898,6 +1944,106 @@ class TeardownLocalGateTests(unittest.TestCase):
         self.assertEqual(self.cloud.help_calls(), [])
         self.assertTrue(self.done_line(p)[3])
 
+
+    # ---- bench6 archive, prefilter, D43 and persist files (H6a) ----
+    def test_a_failed_archive_verify_stops_before_any_delete(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", FAKE_TRUNCATE="-unit-stdout.log.gz")
+        self.assertEqual(p.returncode, 1, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✗ size ", p.stdout)
+        self.assertIn("❌ the archive copy of %s is not uploaded and verified (above) — NOTHING was deleted." % self.results,
+                      p.stderr)
+        self.assertIn("BENCH_TEARDOWN_SKIP_ARCHIVE=1 benchmark/benchmark-teardown.sh --yes --run %s" % RUN, p.stderr)
+        self.assert_nothing_deleted(p)
+        self.assertNotIn("remote", self.manifest()["archive"])
+        self.assertEqual(self.manifest()["archive"]["kind"], "local")
+        self.assertNotIn(">>> plan / execution", p.stdout)
+
+    def test_skip_archive_deletes_without_it_and_says_so(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_ARCHIVE="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("BENCH_TEARDOWN_SKIP_ARCHIVE=1 — deleting without a verified archive copy", p.stderr)
+        self.assertNotIn(INST, self.instance_names())
+        self.assertEqual(indices(self.cloud.calls(), ("storage", "rsync")), [])
+        self.assertTrue(any("deleted without the archive (BENCH_TEARDOWN_SKIP_ARCHIVE=1)" in n
+                            for n in self.manifest().get("notes", [])), self.manifest().get("notes"))
+        self.assertIn("· results/%s/ kept, a working copy: " % RUN, p.stdout)
+        self.assertIn("; archive: none verified", p.stdout)
+        p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_ARCHIVE="2")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("BENCH_TEARDOWN_SKIP_ARCHIVE must be 0 or 1 (got '2')", p.stderr)
+
+    def test_a_rerun_gate_merges_into_the_archive_record_and_keeps_remote(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        first = self.manifest()["archive"]
+        self.assertIn("remote", first)
+        p = self.teardown("--yes", BENCH_TEARDOWN_SKIP_ARCHIVE="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        again = self.manifest()["archive"]
+        self.assertEqual(again.get("remote"), first["remote"])
+        self.assertEqual(again["kind"], "local")
+        self.assertGreaterEqual(again["verified_at"], first["verified_at"])
+
+    def test_certification_and_cert_rate_md_read_the_prefiltered_copy(self):
+        self.give_every_node_its_logs()
+        shutil.copyfile(str(CERT_RATE_STUB), str(self.tree / "benchmark" / "tools" / "cert-rate.py"))
+        (self.tree / "benchmark" / "report").mkdir()
+        shutil.copyfile(str(BENCH / "report" / "provenance.py"), str(self.tree / "benchmark" / "report" / "provenance.py"))
+        (self.results / "manifest.json").write_bytes(manifest_bytes(phases=[{"name": "mixed", "begin": DUE_ISO,
+                                                                              "end": END_ISO}]))
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        copy = self.tree / "benchmark" / "work" / "prefilter" / RUN / "logs"
+        self.assertRegex(p.stdout, r"PREFILTER logs=\d+ read=\d+ reused=0 in_bytes=\d+ out_bytes=\d+ secs=\d+ failed=0\n")
+        self.assertRegex(p.stdout, r"PREFILTER logs=\d+ read=0 reused=\d+ ")   # provenance's pass: all reused
+        self.assertEqual(sorted(x.name for x in copy.iterdir()),
+                         sorted(x.name for x in (self.results / "logs").iterdir() if x.name.endswith(".log.gz")))
+        calls = [json.loads(line) for line in (self.cloud.state / "cert-rate.calls").read_text().splitlines()]
+        self.assertEqual(len(calls), 2, calls)
+        self.assertEqual(calls[0][:2], ["--logs", str(copy)])
+        self.assertIn("--format", calls[0])
+        self.assertEqual(calls[1], ["--from-json", str(self.results / "analysis" / "certification.json")])
+        self.assertIn("· cert-rate.md from analysis/certification.json (no log read)", p.stdout)
+        self.assertTrue((self.results / "analysis" / "cert-rate.md").exists())
+        self.assertFalse(any(rel.startswith("work/") for rel in tree_files(self.results)))
+        # The provenance ran on the copy (beside a copy of the manifest) and its record is in the run's manifest.
+        self.assertIn("node startup check: %s" % copy.parent, p.stdout)
+        self.assertEqual(self.manifest()["node_startup_check"],
+                         json.loads((copy.parent / "manifest.json").read_text())["node_startup_check"])
+
+    def test_a_tunnel_pid_already_stopped_is_not_killed_again(self):
+        # D43: bench 5 printed `kill: (1931735) - No such process` for a pid bench_tunnel_down had stopped.
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        (self.cloud.bin / "pgrep").write_text("#!/bin/sh\necho %d\n" % gone.pid)
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertIn(">>> plan / execution", p.stdout, p.stderr[-3000:])
+        self.assertNotIn("+ kill ", p.stdout)
+        self.assertNotIn("No such process", p.stderr)
+        self.assertNotIn(INST, self.instance_names())
+
+    def test_persist_files_are_pulled_under_the_knob_and_archived(self):
+        host = subprocess.run(["hostname", "-s"], stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
+        self.cloud.node(INST, {"/var/lib/bench-sampler/%s.persist.csv" % host: b"ts_unix,pid\n1,2\n",
+                               "/var/lib/bench-sampler/%s.folios.txt" % host: b"ts_unix,folio_order\n1,0\n"})
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes", BENCH_PERSIST_SAMPLER="1")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertIn("✓ persist files: %s.csv %s.folios.txt" % (INST, INST), p.stdout)
+        self.assertEqual((self.results / "persist" / (INST + ".csv")).read_bytes(), b"ts_unix,pid\n1,2\n")
+        self.assertEqual(self.archived()["persist/%s.folios.txt" % INST], b"ts_unix,folio_order\n1,0\n")
+
+    def test_without_the_knob_no_persist_session_is_opened(self):
+        self.give_every_node_its_logs()
+        p = self.teardown("--yes")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr[-3000:])
+        self.assertNotIn(">>> persist sampler files", p.stdout)
+        self.assertFalse([c for c in self.cloud.calls() if c["stdin"].startswith("# bench-pull: persist")])
+        self.assertFalse((self.results / "persist").exists())
 
 class FakeGcloudTests(unittest.TestCase):
     """The fake's answers the teardown's pull relies on: the two `# bench-pull:` sessions (told apart

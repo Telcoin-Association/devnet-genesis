@@ -844,3 +844,158 @@ _bench_bucket_rm_dir() {
     esac
     return 0
 }
+
+# --- the log prefilter (D44) --------------------------------------------------------------------
+# Three teardown readers look at a handful of line shapes in the pulled node logs: the certification
+# record and cert-rate (tools/cert-rate.py's events), and the node startup provenance
+# (report/provenance.py's _CANDIDATE_MARKERS). Bench 5 decompressed its 2 GB of logs once for each,
+# one Python process at a time (D44: about 23 of the teardown's 35 min). One pass now keeps the lines
+# that carry a shape, one job per log, and every reader reads that small copy instead.
+#
+# bench_logs_prefilter <logs dir> <out dir> [<shapes file>] — for every regular *.log.gz and *.log
+# file in <logs dir> (dot-named files skipped), <out dir>/logs/<same name> holds the lines that
+# contain any line of <shapes file> (default ${BENCH_DIR}/tools/log-shapes.txt: fixed strings, one
+# per line, matched as bytes; lines starting with "#" are comments, kept out of the patterns in
+# <out dir>/.shapes.txt): gzip -dcf <log> | LC_ALL=C grep -F -f <shapes>, then gzip -1 -n again
+# when the name ends in .gz, so each reader opens the copy exactly as it opens the original and the
+# file names, and so the instance and node grouping, stay the same. BENCH_PREFILTER_JOBS logs at a
+# time (1-64, default 8). A log whose copy is newer than it is not read again (a second call after
+# new snapshots reads only those) unless the shapes changed since the copies were made (then every log
+# is read again); a copy whose log is gone is removed. One line per log read, then
+#   PREFILTER logs=<n> read=<n> reused=<n> in_bytes=<b> out_bytes=<b> secs=<s> failed=<n>
+# rc 0 when every log was read whole and every copy written; 1 otherwise (its copy is removed: a cut
+# gzip, a grep error, a full disk): the caller then reads the full logs, as before. The one way a copy
+# reads differently: a log whose last line has no newline gets one. Dry run (BENCH_APPLY != 1): says
+# what it would do and writes nothing.
+bench_logs_prefilter() {
+    local logs="${1:-}" out="${2:-}" shapes="${3:-${BENCH_DIR:-.}/tools/log-shapes.txt}"
+    local jobs="${BENCH_PREFILTER_JOBS:-8}" f name n=0 todo=0 reused=0 t0 res line failed=0 inb=0 outb=0
+    local pats same=1
+    local -a work
+    if [ -z "${logs}" ] || [ -z "${out}" ]; then
+        echo "❌ bench_logs_prefilter <logs dir> <out dir> [<shapes file>]: missing argument" >&2
+        return 1
+    fi
+    case "${jobs}" in [1-9]|[1-5][0-9]|6[0-4]) ;; *) echo "⚠ BENCH_PREFILTER_JOBS='${jobs}' is not 1-64 — using 8" >&2; jobs=8 ;; esac
+    if [ ! -d "${logs}" ]; then echo "    ✗ prefilter: ${logs} is not a directory" >&2; return 1; fi
+    # An empty line in a grep -f file matches every line: the shapes must be non-empty lines, and
+    # at least one must not be a comment.
+    if [ ! -s "${shapes}" ] || grep -q '^$' "${shapes}" || ! grep -qv '^#' "${shapes}"; then
+        echo "    ✗ prefilter: ${shapes} is missing, empty, all comments or has an empty line" >&2
+        return 1
+    fi
+    pats="$(grep -v '^#' "${shapes}")"
+    # Copies made with other shapes are not reused.
+    [ -f "${out}/.shapes.txt" ] && [ "$(cat "${out}/.shapes.txt")" = "${pats}" ] || same=0
+    work=()
+    for f in "${logs}"/*.log.gz "${logs}"/*.log; do
+        [ -f "${f}" ] || continue
+        n=$((n + 1))
+        if [ "${same}" = "1" ] && [ -e "${out}/logs/${f##*/}" ] && [ "${out}/logs/${f##*/}" -nt "${f}" ]; then
+            reused=$((reused + 1))
+        else
+            work+=("${f}")
+        fi
+    done
+    todo="${#work[@]}"
+    if [ "${BENCH_APPLY:-0}" != "1" ]; then
+        echo "    + prefilter ${n} log(s) of ${logs} -> ${out}/logs/ (${jobs} at a time): gzip -dcf <log> | LC_ALL=C grep -F -f <the non-comment lines of ${shapes}> | gzip -1 -n"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    mkdir -p "${out}/logs" || { echo "    ✗ prefilter: could not create ${out}/logs" >&2; return 1; }
+    # The patterns the jobs read; they become .shapes.txt (what the copies were made with) once the jobs
+    # are done, so a pass cut short leaves copies the next pass does not trust.
+    [ "${same}" = "1" ] || rm -f -- "${out}/.shapes.txt"
+    printf '%s\n' "${pats}" > "${out}/.shapes.txt.new" || { echo "    ✗ prefilter: could not write ${out}/.shapes.txt.new" >&2; return 1; }
+    # Temp files of an interrupted call, and copies whose log is gone.
+    rm -f -- "${out}/logs"/.*.prefilter.?????? 2>/dev/null || true
+    for f in "${out}/logs"/*; do
+        [ -f "${f}" ] || continue
+        [ -f "${logs}/${f##*/}" ] || rm -f -- "${f}"
+    done
+    t0="$(date -u +%s)"
+    res=""
+    # One bash per log: $1 the out dir, $2 the shapes, $3 the log. It prints
+    # "PREFILTER_FILE <name> rc=<0|1> in=<bytes> out=<bytes>"; a copy that is not whole is removed.
+    # shellcheck disable=SC2016  # expanded by the job's own bash
+    [ "${todo}" -eq 0 ] || res="$(printf '%s\0' "${work[@]}" | LC_ALL=C xargs -0 -n 1 -P "${jobs}" bash -c '
+        src="$3"; name="${src##*/}"; dst="$1/logs/${name}"
+        tmp="$(mktemp "$1/logs/.${name}.prefilter.XXXXXX")" || { echo "PREFILTER_FILE ${name} rc=1 in=0 out=0"; exit 0; }
+        case "${name}" in
+            *.gz) gzip -dcf -- "${src}" | LC_ALL=C grep -F -f "$2" | gzip -1 -n > "${tmp}"; s=("${PIPESTATUS[@]}") ;;
+            *) gzip -dcf -- "${src}" | LC_ALL=C grep -F -f "$2" > "${tmp}"; s=("${PIPESTATUS[@]}" 0) ;;
+        esac
+        rc=0
+        [ "${s[0]}" -eq 0 ] && [ "${s[1]}" -le 1 ] && [ "${s[2]}" -eq 0 ] && mv -f -- "${tmp}" "${dst}" || rc=1
+        [ "${rc}" -eq 0 ] || rm -f -- "${tmp}" "${dst}"
+        i="$(wc -c < "${src}" | tr -d " ")"; o=0; [ ! -f "${dst}" ] || o="$(wc -c < "${dst}" | tr -d " ")"
+        echo "PREFILTER_FILE ${name} rc=${rc} in=${i:-0} out=${o:-0}"
+    ' _ "${out}" "${out}/.shapes.txt.new")" || true
+    mv -f -- "${out}/.shapes.txt.new" "${out}/.shapes.txt" || failed=$((failed + 1))
+    while IFS= read -r line; do
+        case "${line}" in
+            "PREFILTER_FILE "*" rc=0 "*)
+                echo "      ${line#PREFILTER_FILE }" ;;
+            "PREFILTER_FILE "*)
+                failed=$((failed + 1)); echo "      ✗ ${line#PREFILTER_FILE } (not whole: its copy is not kept)" >&2 ;;
+            *) continue ;;
+        esac
+        f="${line##* in=}"; inb=$((inb + ${f%% *}))
+        outb=$((outb + ${line##* out=}))
+    done <<< "${res}"
+    # A job that printed no line (killed) counts as failed too.
+    f="$(printf '%s\n' "${res}" | grep -c '^PREFILTER_FILE ')" || f=0
+    [ "${f}" -ge "${todo}" ] || failed=$((failed + todo - f))
+    echo "    PREFILTER logs=${n} read=${todo} reused=${reused} in_bytes=${inb} out_bytes=${outb} secs=$(( $(date -u +%s) - t0 )) failed=${failed}"
+    [ "${failed}" -eq 0 ]
+}
+
+# --- persist sampler files (BENCH_PERSIST_SAMPLER=1) ----------------------------------------------
+# The persist sampler (node-persist-sampler.sh) writes <host>.persist.csv and <host>.folios.txt beside
+# the node sampler's files on each node; results/<run>/persist/ keeps them as <inst>.csv and
+# <inst>.folios.txt (arms/MANIFEST-FIELDS.md "Persist files"). BENCH_PERSIST_REMOTE_DIR is that
+# directory on the node (default /var/lib/bench-sampler, the node sampler's).
+#
+# bench_persist_script — the remote script (`# bench-pull: persist`, for `sudo bash -s`): a tar of
+# persist.csv and folios.txt, each only when the node has it non-empty (an empty tar otherwise).
+bench_persist_script() {
+    printf '%s\n' "# bench-pull: persist" "set -e -o pipefail" \
+        "d=$(printf '%q' "${BENCH_PERSIST_REMOTE_DIR:-/var/lib/bench-sampler}"); h=\$(hostname -s); t=\$(mktemp -d)" \
+        "trap 'rm -rf \"\$t\"' EXIT" \
+        "for k in persist.csv folios.txt; do [ ! -s \"\$d/\$h.\$k\" ] || cp \"\$d/\$h.\$k\" \"\$t/\$k\"; done" \
+        "tar -cf - -C \"\$t\" ."
+}
+
+# bench_pull_persist_files <inst> <zone> <results dir> — one session (bench_pull_stream, tar) that
+# lands <results dir>/persist/<inst>.csv and <inst>.folios.txt, each replaced only by a non-empty
+# copy. rc 0 landed (or the node has neither file: a line says so); 1 not pulled (a line on stderr
+# says why). Never deletes a local copy. Dry run: one plan line.
+bench_pull_persist_files() {
+    local inst="${1:-}" zone="${2:-}" dest="${3:-}" tar rc=0 k m got=""
+    if [ -z "${inst}" ] || [ -z "${zone}" ] || [ -z "${dest}" ]; then
+        echo "❌ bench_pull_persist_files <inst> <zone> <results dir>: missing argument" >&2
+        return 1
+    fi
+    if [ "${BENCH_APPLY:-0}" != "1" ]; then
+        echo "    + persist files: ${inst} ${BENCH_PERSIST_REMOTE_DIR:-/var/lib/bench-sampler}/<host>.{persist.csv,folios.txt} -> ${dest}/persist/${inst}.{csv,folios.txt}"
+        return 0
+    fi
+    mkdir -p "${dest}/persist" || { echo "      ✗ ${inst}: could not create ${dest}/persist" >&2; return 1; }
+    tar="$(mktemp "${dest}/persist/.${inst}.persist.XXXXXX")" || { echo "      ✗ ${inst}: no temp file in ${dest}/persist" >&2; return 1; }
+    bench_pull_stream "${inst}" "${zone}" tar "${tar}" stdin "$(bench_persist_script)" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        rm -f -- "${tar}"
+        echo "      ✗ ${inst}: persist files not pulled (bench_pull_stream rc ${rc})" >&2
+        return 1
+    fi
+    for k in csv:persist.csv folios.txt:folios.txt; do
+        m="${k#*:}"; k="${k%%:*}"
+        if tar -xOf "${tar}" "./${m}" > "${dest}/persist/.${inst}.${k}.tmp" 2>/dev/null && [ -s "${dest}/persist/.${inst}.${k}.tmp" ]; then
+            mv -f -- "${dest}/persist/.${inst}.${k}.tmp" "${dest}/persist/${inst}.${k}" && got="${got} ${inst}.${k}"
+        fi
+        rm -f -- "${dest}/persist/.${inst}.${k}.tmp"
+    done
+    rm -f -- "${tar}"
+    if [ -n "${got}" ]; then echo "    ✓ persist files:${got}"; else echo "    - ${inst}: no persist sampler file on the node"; fi
+}

@@ -19,6 +19,10 @@ Knobs (environment):
   FAKE_FAIL=<word>[,<word>...]  fail any call whose argv, joined by spaces, contains a word
   FAKE_DESCRIBE_ERR=<text>      `storage buckets describe` fails with <text> on stderr
   FAKE_TRUNCATE=<suffix>        rsync/cp write an object whose name ends with <suffix> one byte short
+  FAKE_CORRUPT=<suffix>         rsync/cp write an object whose name ends with <suffix> with its first
+                                byte changed (same size, another MD5)
+  FAKE_NO_MD5=<suffix>          `storage objects list` gives an object whose name ends with <suffix> no
+                                md5_hash (as a composite upload has none)
   FAKE_SCP=<outcome>[,...]      compute scp outcome per attempt: ok | 4003 | 4033 | 4047 | fail
                                 (the last one repeats); a failing attempt leaves a partial file
   FAKE_AUTH=fail                `auth print-access-token` fails as an expired session does
@@ -49,11 +53,17 @@ other than `sudo bash -s` run there for real (bash -c <command>, the script on s
 stubs) is first on PATH, and the span's LOGSPAN lines name the node paths, not the sandbox's.
 The recovery-evidence script keeps its canned answer.
 
-Storage semantics follow gcloud where the harness depends on them: rsync's --exclude is a
-Python regex matched with re.match against the path relative to the source; rsync only adds
-or replaces objects; `ls` of a URL that matches nothing fails after listing the rest.
+Storage semantics follow gcloud where the harness depends on them: rsync's --exclude is a list
+flag (its value split at commas) of Python regexes matched with re.match against the path relative
+to the source, and a value that starts with "^" is a delimiter spec gcloud then ignores the rule
+for (nothing is excluded); rsync only adds or replaces objects; rsync --dry-run copies nothing and
+prints "Would copy <source> to <destination>" per file on stderr, as SDK 588 does; `ls` and
+`objects list` of a URL that matches nothing fail after listing the rest; `objects list
+--format=json(...)` prints [{name, size, md5_hash}] with the base64 MD5 of each object.
 """
+import base64
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -112,6 +122,9 @@ def put(bucket, name, src):
     suffix = os.environ.get("FAKE_TRUNCATE", "")
     if suffix and name.endswith(suffix) and data:
         data = data[:-1]
+    suffix = os.environ.get("FAKE_CORRUPT", "")
+    if suffix and name.endswith(suffix) and data:
+        data = bytes([data[0] ^ 1]) + data[1:]
     with open(dst, "wb") as fh:
         fh.write(data)
 
@@ -161,6 +174,10 @@ def storage(args, pos):
             die("fake gcloud: rsync would delete archived objects", 99)
         src, dst = pos[2], pos[3]
         exclude = flag(args, "--exclude")
+        if exclude is not None and exclude.startswith("^"):
+            exclude = None          # gcloud reads it as a delimiter spec: the rule is gone
+        rules = [re.compile(x) for x in exclude.split(",")] if exclude else []
+        dry = "--dry-run" in args
         recursive = "-r" in args or "-R" in args or "--recursive" in args
         if src.startswith(SCHEME):
             sb, sp = split_url(src)
@@ -179,7 +196,11 @@ def storage(args, pos):
         for rel, p in sorted(items.items()):
             if not recursive and "/" in rel:
                 continue
-            if exclude and re.match(exclude, rel):
+            if any(r.match(rel) for r in rules):
+                continue
+            if dry:
+                src_url = p if src.startswith(SCHEME) else "file://" + p
+                sys.stderr.write("Would copy %s to %s%s/%s\n" % (src_url, SCHEME, db, (dp + "/" if dp else "") + rel))
                 continue
             put(db, (dp + "/" if dp else "") + rel, p)
     elif verb == "cp":
@@ -227,6 +248,24 @@ def storage(args, pos):
             print("TOTAL: %d objects, %d bytes" % (total, nbytes))
         if missing:
             die("ERROR: (gcloud.storage.ls) One or more URLs matched no objects.")
+    elif verb == "objects" and len(pos) > 3 and pos[2] == "list":
+        out, missing = [], False
+        for url in pos[3:]:
+            b, name = split_url(url)
+            found = objects(b, name[:-2]) if name.endswith("**") else {n: p for n, p in objects(b, name).items() if n == name}
+            if not found:
+                missing = True
+            nomd5 = os.environ.get("FAKE_NO_MD5", "")
+            for n, p in sorted(found.items()):
+                with open(p, "rb") as fh:
+                    digest = base64.b64encode(hashlib.md5(fh.read()).digest()).decode()
+                o = {"name": n, "size": os.path.getsize(p)}
+                if not (nomd5 and n.endswith(nomd5)):
+                    o["md5_hash"] = digest
+                out.append(o)
+        print(json.dumps(out))
+        if missing:
+            die("ERROR: (gcloud.storage.objects.list) One or more URLs matched no objects.")
     else:
         die("fake gcloud: unexpected storage %s" % verb)
 

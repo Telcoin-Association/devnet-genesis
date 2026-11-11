@@ -1,0 +1,56 @@
+# Certification rate
+
+Logs: bench-validator-01 (bench-validator-01-telcoin.log.gz), bench-validator-02 (bench-validator-02-telcoin.log.gz).
+
+- own cert % / own leader %: fair share is 100 / committee size; "not committed %" is own certificates formed in the window that the node never logged as committed (the default-filter proxy for orphans; see tools/ANALYSIS.md).
+
+## arm delay-250ms: 2026-10-06T06:00:00Z → 2026-10-06T06:05:00Z (300 s)
+
+| node | authority | proposed | quorum | rate % | re-proposals | vote errors | canceled | could not form | subdags | certs committed | own cert % | own leader % | not committed % |
+|------|-----------|---------:|-------:|-------:|-------------:|------------:|---------:|---------------:|--------:|----------------:|-----------:|-------------:|----------------:|
+| bench-validator-01 | A1aaaaaa | 2 | 2 | 100.0 | 1 | 2 | 1 | 0 | 1 | 3 | 66.7 | 100.0 | 0.0 |
+| bench-validator-02 | B2bbbbbb | 3 | 0 | 0.0 | 0 | 0 | 0 | 2 | 1 | 3 | 33.3 | 0.0 | – |
+| **fleet** | | 5 | 2 | 40.0 | 1 | 2 | 1 | 2 | 2 | 3 | – | – | – |
+
+Committee seen committing in this window: 2 authorities (fair share 50.0 %).
+
+## arm b: 2026-10-06T06:05:00Z → 2026-10-06T06:20:00Z (900 s)
+
+| node | authority | proposed | quorum | rate % | re-proposals | vote errors | canceled | could not form | subdags | certs committed | own cert % | own leader % | not committed % |
+|------|-----------|---------:|-------:|-------:|-------------:|------------:|---------:|---------------:|--------:|----------------:|-----------:|-------------:|----------------:|
+| bench-validator-01 | A1aaaaaa | 2 | 1 | 50.0 | 0 | 0 | 0 | 0 | 1 | 3 | 0.0 | 0.0 | 100.0 |
+| bench-validator-02 | B2bbbbbb | 1 | 1 | 100.0 | 0 | 0 | 0 | 0 | 1 | 3 | 100.0 | 100.0 | 0.0 |
+| **fleet** | | 3 | 2 | 66.7 | 0 | 0 | 0 | 0 | 2 | 3 | – | – | – |
+
+Committee seen committing in this window: 1 authorities (fair share 100.0 %).
+
+## phase warmup: 2026-10-06T06:00:00Z → 2026-10-06T06:10:00Z (600 s)
+
+| node | authority | proposed | quorum | rate % | re-proposals | vote errors | canceled | could not form | subdags | certs committed | own cert % | own leader % | not committed % |
+|------|-----------|---------:|-------:|-------:|-------------:|------------:|---------:|---------------:|--------:|----------------:|-----------:|-------------:|----------------:|
+| bench-validator-01 | A1aaaaaa | 2 | 2 | 100.0 | 1 | 2 | 1 | 0 | 1 | 3 | 66.7 | 100.0 | 0.0 |
+| bench-validator-02 | B2bbbbbb | 3 | 0 | 0.0 | 0 | 0 | 0 | 2 | 1 | 3 | 33.3 | 0.0 | – |
+| **fleet** | | 5 | 2 | 40.0 | 1 | 2 | 1 | 2 | 2 | 3 | – | – | – |
+
+Committee seen committing in this window: 2 authorities (fair share 50.0 %).
+
+## phase mixed: 2026-10-06T06:10:00Z → 2026-10-06T06:20:00Z (600 s)
+
+| node | authority | proposed | quorum | rate % | re-proposals | vote errors | canceled | could not form | subdags | certs committed | own cert % | own leader % | not committed % |
+|------|-----------|---------:|-------:|-------:|-------------:|------------:|---------:|---------------:|--------:|----------------:|-----------:|-------------:|----------------:|
+| bench-validator-01 | A1aaaaaa | 2 | 1 | 50.0 | 0 | 0 | 0 | 0 | 1 | 3 | 0.0 | 0.0 | 100.0 |
+| bench-validator-02 | B2bbbbbb | 1 | 1 | 100.0 | 0 | 0 | 0 | 0 | 1 | 3 | 100.0 | 100.0 | 0.0 |
+| **fleet** | | 3 | 2 | 66.7 | 0 | 0 | 0 | 0 | 2 | 3 | – | – | – |
+
+Committee seen committing in this window: 1 authorities (fair share 100.0 %).
+
+## run: 2026-10-06T06:00:00Z → 2026-10-06T06:20:00Z (1200 s)
+
+| node | authority | proposed | quorum | rate % | re-proposals | vote errors | canceled | could not form | subdags | certs committed | own cert % | own leader % | not committed % |
+|------|-----------|---------:|-------:|-------:|-------------:|------------:|---------:|---------------:|--------:|----------------:|-----------:|-------------:|----------------:|
+| bench-validator-01 | A1aaaaaa | 4 | 3 | 75.0 | 1 | 2 | 1 | 0 | 2 | 6 | 33.3 | 50.0 | 33.3 |
+| bench-validator-02 | B2bbbbbb | 4 | 1 | 25.0 | 0 | 0 | 0 | 2 | 2 | 6 | 66.7 | 50.0 | 0.0 |
+| **fleet** | | 8 | 4 | 50.0 | 1 | 2 | 1 | 2 | 4 | 6 | – | – | – |
+
+Committee seen committing in this window: 2 authorities (fair share 50.0 %).
+

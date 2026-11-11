@@ -1,0 +1,291 @@
+{
+ "windows": [
+  {
+   "name": "arm delay-250ms",
+   "start": "2026-10-06T06:00:00Z",
+   "end": "2026-10-06T06:05:00Z",
+   "secs": 300,
+   "nodes": {
+    "bench-validator-01": {
+     "proposed": 2,
+     "quorum": 2,
+     "repropose": 1,
+     "vote_errors": 2,
+     "canceled": 1,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 100.0,
+     "committed_certs": 3,
+     "committee_seen": 2,
+     "own_cert_pct": 66.7,
+     "own_leader_pct": 100.0,
+     "formed_judged": 2,
+     "not_committed_pct": 0.0
+    },
+    "bench-validator-02": {
+     "proposed": 3,
+     "quorum": 0,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 2,
+     "subdags": 1,
+     "rate_pct": 0.0,
+     "committed_certs": 3,
+     "committee_seen": 2,
+     "own_cert_pct": 33.3,
+     "own_leader_pct": 0.0,
+     "formed_judged": 0,
+     "not_committed_pct": null
+    }
+   },
+   "fleet": {
+    "proposed": 5,
+    "quorum": 2,
+    "repropose": 1,
+    "vote_errors": 2,
+    "canceled": 1,
+    "noform": 2,
+    "subdags": 2,
+    "rate_pct": 40.0,
+    "committed_certs": 3,
+    "own_cert_pct": null,
+    "own_leader_pct": null,
+    "not_committed_pct": null
+   }
+  },
+  {
+   "name": "arm b",
+   "start": "2026-10-06T06:05:00Z",
+   "end": "2026-10-06T06:20:00Z",
+   "secs": 900,
+   "nodes": {
+    "bench-validator-01": {
+     "proposed": 2,
+     "quorum": 1,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 50.0,
+     "committed_certs": 3,
+     "committee_seen": 1,
+     "own_cert_pct": 0.0,
+     "own_leader_pct": 0.0,
+     "formed_judged": 1,
+     "not_committed_pct": 100.0
+    },
+    "bench-validator-02": {
+     "proposed": 1,
+     "quorum": 1,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 100.0,
+     "committed_certs": 3,
+     "committee_seen": 1,
+     "own_cert_pct": 100.0,
+     "own_leader_pct": 100.0,
+     "formed_judged": 1,
+     "not_committed_pct": 0.0
+    }
+   },
+   "fleet": {
+    "proposed": 3,
+    "quorum": 2,
+    "repropose": 0,
+    "vote_errors": 0,
+    "canceled": 0,
+    "noform": 0,
+    "subdags": 2,
+    "rate_pct": 66.7,
+    "committed_certs": 3,
+    "own_cert_pct": null,
+    "own_leader_pct": null,
+    "not_committed_pct": null
+   }
+  },
+  {
+   "name": "phase warmup",
+   "start": "2026-10-06T06:00:00Z",
+   "end": "2026-10-06T06:10:00Z",
+   "secs": 600,
+   "nodes": {
+    "bench-validator-01": {
+     "proposed": 2,
+     "quorum": 2,
+     "repropose": 1,
+     "vote_errors": 2,
+     "canceled": 1,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 100.0,
+     "committed_certs": 3,
+     "committee_seen": 2,
+     "own_cert_pct": 66.7,
+     "own_leader_pct": 100.0,
+     "formed_judged": 2,
+     "not_committed_pct": 0.0
+    },
+    "bench-validator-02": {
+     "proposed": 3,
+     "quorum": 0,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 2,
+     "subdags": 1,
+     "rate_pct": 0.0,
+     "committed_certs": 3,
+     "committee_seen": 2,
+     "own_cert_pct": 33.3,
+     "own_leader_pct": 0.0,
+     "formed_judged": 0,
+     "not_committed_pct": null
+    }
+   },
+   "fleet": {
+    "proposed": 5,
+    "quorum": 2,
+    "repropose": 1,
+    "vote_errors": 2,
+    "canceled": 1,
+    "noform": 2,
+    "subdags": 2,
+    "rate_pct": 40.0,
+    "committed_certs": 3,
+    "own_cert_pct": null,
+    "own_leader_pct": null,
+    "not_committed_pct": null
+   }
+  },
+  {
+   "name": "phase mixed",
+   "start": "2026-10-06T06:10:00Z",
+   "end": "2026-10-06T06:20:00Z",
+   "secs": 600,
+   "nodes": {
+    "bench-validator-01": {
+     "proposed": 2,
+     "quorum": 1,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 50.0,
+     "committed_certs": 3,
+     "committee_seen": 1,
+     "own_cert_pct": 0.0,
+     "own_leader_pct": 0.0,
+     "formed_judged": 1,
+     "not_committed_pct": 100.0
+    },
+    "bench-validator-02": {
+     "proposed": 1,
+     "quorum": 1,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 0,
+     "subdags": 1,
+     "rate_pct": 100.0,
+     "committed_certs": 3,
+     "committee_seen": 1,
+     "own_cert_pct": 100.0,
+     "own_leader_pct": 100.0,
+     "formed_judged": 1,
+     "not_committed_pct": 0.0
+    }
+   },
+   "fleet": {
+    "proposed": 3,
+    "quorum": 2,
+    "repropose": 0,
+    "vote_errors": 0,
+    "canceled": 0,
+    "noform": 0,
+    "subdags": 2,
+    "rate_pct": 66.7,
+    "committed_certs": 3,
+    "own_cert_pct": null,
+    "own_leader_pct": null,
+    "not_committed_pct": null
+   }
+  },
+  {
+   "name": "run",
+   "start": "2026-10-06T06:00:00Z",
+   "end": "2026-10-06T06:20:00Z",
+   "secs": 1200,
+   "nodes": {
+    "bench-validator-01": {
+     "proposed": 4,
+     "quorum": 3,
+     "repropose": 1,
+     "vote_errors": 2,
+     "canceled": 1,
+     "noform": 0,
+     "subdags": 2,
+     "rate_pct": 75.0,
+     "committed_certs": 6,
+     "committee_seen": 2,
+     "own_cert_pct": 33.3,
+     "own_leader_pct": 50.0,
+     "formed_judged": 3,
+     "not_committed_pct": 33.3
+    },
+    "bench-validator-02": {
+     "proposed": 4,
+     "quorum": 1,
+     "repropose": 0,
+     "vote_errors": 0,
+     "canceled": 0,
+     "noform": 2,
+     "subdags": 2,
+     "rate_pct": 25.0,
+     "committed_certs": 6,
+     "committee_seen": 2,
+     "own_cert_pct": 66.7,
+     "own_leader_pct": 50.0,
+     "formed_judged": 1,
+     "not_committed_pct": 0.0
+    }
+   },
+   "fleet": {
+    "proposed": 8,
+    "quorum": 4,
+    "repropose": 1,
+    "vote_errors": 2,
+    "canceled": 1,
+    "noform": 2,
+    "subdags": 4,
+    "rate_pct": 50.0,
+    "committed_certs": 6,
+    "own_cert_pct": null,
+    "own_leader_pct": null,
+    "not_committed_pct": null
+   }
+  }
+ ],
+ "notes": [],
+ "nodes": {
+  "bench-validator-01": {
+   "files": [
+    "bench-validator-01-telcoin.log.gz"
+   ],
+   "authority": "A1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "authority_source": "auth= field"
+  },
+  "bench-validator-02": {
+   "files": [
+    "bench-validator-02-telcoin.log.gz"
+   ],
+   "authority": "B2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "authority_source": "auth= field"
+  }
+ }
+}

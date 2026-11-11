@@ -137,6 +137,46 @@ SYNOPSIS
 SYNOPSIS
     gcloud secrets delete SECRET [--etag=ETAG] [--location=LOCATION]
         [GCLOUD_WIDE_FLAG ...]
+== storage rsync ==
+SYNOPSIS
+    gcloud storage rsync SOURCE DESTINATION [--additional-headers=HEADER=VALUE]
+        [--canned-acl=PREDEFINED_ACL,
+          --predefined-acl=PREDEFINED_ACL, -a PREDEFINED_ACL]
+        [--checksums-only] [--no-clobber, -n] [--content-md5=MD5_DIGEST]
+        [--continue-on-error, -c] [--delete-unmatched-destination-objects]
+        [--do-not-decompress] [--dry-run]
+        [--exclude=[REGEX,...], -x [REGEX,...]]
+        [--gzip-in-flight=[FILE_EXTENSIONS,...], -j [FILE_EXTENSIONS,...]]
+        [--gzip-in-flight-all, -J] [--no-ignore-symlinks]
+        [--include-managed-folders] [--preserve-posix, -P]
+        [--recursive, -R, -r] [--skip-if-dest-has-newer-mtime, -u]
+        [--skip-unsupported, -U]
+        [--decryption-keys=[DECRYPTION_KEY,...]
+          --encryption-key=ENCRYPTION_KEY]
+        [--cache-control=CACHE_CONTROL
+          --content-disposition=CONTENT_DISPOSITION
+          --content-encoding=CONTENT_ENCODING
+          --content-language=CONTENT_LANGUAGE --content-type=CONTENT_TYPE
+          --custom-time=CUSTOM_TIME --clear-custom-contexts
+          | --custom-contexts=[CUSTOM_CONTEXTS_KEYS_AND_VALUES,...]
+          | --custom-contexts-file=CUSTOM_CONTEXTS_FILE
+          | --remove-custom-contexts=[CUSTOM_CONTEXTS_KEYS,...]
+          --update-custom-contexts=[CUSTOM_CONTEXTS_KEYS_AND_VALUES,...]
+          --clear-custom-metadata
+          | --custom-metadata=[CUSTOM_METADATA_KEYS_AND_VALUES,...]
+          | --remove-custom-metadata=[METADATA_KEYS,...]
+          --update-custom-metadata=[CUSTOM_METADATA_KEYS_AND_VALUES,...]]
+        [--if-generation-match=GENERATION
+          --if-metageneration-match=METAGENERATION] [GCLOUD_WIDE_FLAG ...]
+== storage objects list ==
+SYNOPSIS
+    gcloud storage objects list URLS [URLS ...]
+        [--additional-headers=HEADER=VALUE] [--exhaustive]
+        [--fetch-encrypted-object-hashes] [--metadata-filter=METADATA_FILTER]
+        [--next-page-token=NEXT_PAGE_TOKEN] [--raw] [--soft-deleted] [--stat]
+        [--decryption-keys=[DECRYPTION_KEY,...]] [--filter=EXPRESSION]
+        [--limit=LIMIT] [--page-size=PAGE_SIZE] [--sort-by=[FIELD,...]] [--uri]
+        [GCLOUD_WIDE_FLAG ...]
 == GCLOUD WIDE FLAGS ==
 GCLOUD WIDE FLAGS
     These flags are available to all commands: --access-token-file, --account,

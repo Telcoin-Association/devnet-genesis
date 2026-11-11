@@ -4,6 +4,7 @@
 Usage:
   cert-rate.py --logs DIR [--node-glob GLOB] [--node-name-regex RE] [--authority NODE=ID ...]
                [--windows MANIFEST | --from ISO --to ISO | --bucket-min N] [--format md|json|csv]
+  cert-rate.py --from-json REPORT [--format md|json|csv]
 
 Reads every file in DIR matching --node-glob (gzip or plain text; default bench-validator-*.log.gz:
 each validator's container logs, the container logs saved before a restart or kill, and the unit's
@@ -34,12 +35,19 @@ orphans (certificates no later header lists as a parent) need the parents of eve
 the default filter does not log: run the node with RUST_LOG including primary=debug and the
 header's parents appear in the proposer's debug lines; "not committed" is the default-filter proxy.
 
-Windows: --windows MANIFEST takes manifest.param_arms[] ({name, begin|start, end}) and
+Windows: --windows MANIFEST takes manifest.param_arms[] ({name, ready|begin|start, end}) and
 manifest.phases[] ({name, start, end}) plus one "run" window from the first start to the last end;
-a manifest with neither falls back to buckets. --from/--to is one window. Default (or
---bucket-min N): the whole log in N-minute buckets (N = 10).
+a manifest with neither falls back to buckets. An arm's window starts at its "ready" time when the
+manifest records one (the last node's progress after its restart, plus 120 s), else at its begin; an
+arm whose ready time is not before its end has no window (a note says so). --from/--to is one
+window. Default (or --bucket-min N): the whole log in N-minute buckets (N = 10).
 
-Exit status: 0 = report written; 1 = bad arguments or unreadable input; 2 = no file matched.
+--from-json REPORT renders a report this tool wrote with --format json (the teardown's
+analysis/certification.json) as md, json or csv, reading no log: the same bytes as the run that
+wrote it would have printed in that format.
+
+Exit status: 0 = report written; 1 = bad arguments or unreadable input (a --from-json file that is
+not a cert-rate report included); 2 = no file matched.
 Stdlib only.
 """
 import argparse
@@ -236,18 +244,26 @@ def manifest_windows(path):
     """(windows, note) from manifest.param_arms[] and .phases[] plus a "run" window."""
     with open(path) as fh:
         m = json.load(fh)
-    out = []
+    out, notes = [], []
     for key, label in (("param_arms", "arm"), ("phases", "phase")):
         for w in m.get(key) or []:
             if not isinstance(w, dict):
                 continue
             begin, end = w.get("begin") or w.get("start"), w.get("end")
+            ready = w.get("ready") if key == "param_arms" else None
+            name = "%s %s" % (label, w.get("name") or "?")
+            if ready and end:
+                # An arm is measured from ready (its last node back in step) to its end.
+                if parse_iso(ready) >= parse_iso(end):
+                    notes.append("%s: ready %s is not before its end %s: no window" % (name, ready, end))
+                    continue
+                begin = ready
             if begin and end:
-                out.append(("%s %s" % (label, w.get("name") or "?"), parse_iso(begin), parse_iso(end)))
+                out.append((name, parse_iso(begin), parse_iso(end)))
     if not out:
-        return None, "%s has no param_arms or phases: 10-minute buckets instead" % os.path.basename(path)
+        return None, notes + ["%s has no param_arms or phases: 10-minute buckets instead" % os.path.basename(path)]
     out.append(("run", min(w[1] for w in out), max(w[2] for w in out)))
-    return out, None
+    return out, notes
 
 
 def buckets(nodes, minutes):
@@ -337,7 +353,9 @@ def to_csv(doc):
 
 def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--logs", required=True, help="directory holding the node logs")
+    p.add_argument("--logs", help="directory holding the node logs (required unless --from-json)")
+    p.add_argument("--from-json", metavar="REPORT",
+                   help="render a report written with --format json instead of reading logs")
     p.add_argument("--node-glob", default="bench-validator-*.log.gz",
                    help="file names to read (fnmatch; default %(default)s)")
     p.add_argument("--node-name-regex", default=r"^(bench-validator-[0-9]+)-",
@@ -351,6 +369,11 @@ def parse_args(argv):
     p.add_argument("--to", dest="end", metavar="ISO", help="end of the --from window")
     p.add_argument("--format", choices=("md", "json", "csv"), default="md")
     a = p.parse_args(argv)
+    if a.from_json is not None:
+        if a.logs is not None or a.windows or a.start or a.bucket_min is not None or a.authority:
+            p.error("--from-json takes only --format")
+    elif a.logs is None:
+        p.error("--logs is required (or --from-json REPORT)")
     if (a.start is None) != (a.end is None):
         p.error("--from and --to go together")
     if a.bucket_min is not None and a.bucket_min <= 0:
@@ -368,42 +391,63 @@ def parse_args(argv):
     return a
 
 
+def load_report(path):
+    """A report written with --format json, checked for the shape the renderers read."""
+    with open(path) as fh:
+        doc = json.load(fh)
+    ok = (isinstance(doc, dict) and isinstance(doc.get("windows"), list) and isinstance(doc.get("nodes"), dict)
+          and isinstance(doc.get("notes"), list)
+          and all(isinstance(v, dict) and isinstance(v.get("files"), list) for v in doc["nodes"].values())
+          and all(isinstance(w, dict) and isinstance(w.get("nodes"), dict) and isinstance(w.get("fleet"), dict)
+                  for w in doc["windows"]))
+    if not ok:
+        raise ValueError("%s is not a cert-rate report (--format json)" % path)
+    return doc
+
+
 def main(argv=None):
     a = parse_args(argv)
     try:
         notes = []
         windows = None
-        if a.windows:
-            windows, note = manifest_windows(a.windows)
-            if note:
-                notes.append(note)
+        if a.from_json is not None:
+            doc = load_report(a.from_json)
+        elif a.windows:
+            windows, wnotes = manifest_windows(a.windows)
+            notes.extend(wnotes)
         elif a.start:
             windows = [("window", parse_iso(a.start), parse_iso(a.end))]
             if windows[0][2] <= windows[0][1]:
                 raise ValueError("--to must be after --from")
-        groups = find_files(a.logs, a.node_glob, a.name_re)
-        if not groups:
-            print("cert-rate: no file in %s matches %s" % (a.logs, a.node_glob), file=sys.stderr)
-            return 2
-        nodes = []
-        for name, paths in groups.items():
-            n = Node(name)
-            for p in paths:
-                n.read(p)
-            n.finish(a.authorities.get(name))
-            nodes.append(n)
-        if windows is None:
-            windows = buckets(nodes, a.bucket_min or 10)
-        doc = report(nodes, windows, notes)
+        if a.from_json is None:
+            groups = find_files(a.logs, a.node_glob, a.name_re)
+            if not groups:
+                print("cert-rate: no file in %s matches %s" % (a.logs, a.node_glob), file=sys.stderr)
+                return 2
+            nodes = []
+            for name, paths in groups.items():
+                n = Node(name)
+                for p in paths:
+                    n.read(p)
+                n.finish(a.authorities.get(name))
+                nodes.append(n)
+            if windows is None:
+                windows = buckets(nodes, a.bucket_min or 10)
+            doc = report(nodes, windows, notes)
+        if a.format == "json":
+            text = json.dumps(doc, indent=1) + "\n"
+        elif a.format == "csv":
+            text = to_csv(doc)
+        else:
+            text = to_markdown(doc) + "\n"
     except (OSError, ValueError, EOFError) as e:
         print("cert-rate: %s" % e, file=sys.stderr)
         return 1
-    if a.format == "json":
-        print(json.dumps(doc, indent=1))
-    elif a.format == "csv":
-        sys.stdout.write(to_csv(doc))
-    else:
-        print(to_markdown(doc))
+    except (KeyError, TypeError, AttributeError) as e:
+        # A --from-json report that passed load_report but lacks a field the renderer reads.
+        print("cert-rate: incomplete cert-rate report: %r" % (e,), file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
     return 0
 
 

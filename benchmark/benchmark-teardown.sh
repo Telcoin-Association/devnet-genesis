@@ -49,7 +49,12 @@
 # logging, so it can far exceed the run's own log size: check df before a teardown. Before the pull
 # starts, the filesystem under results/<run>/logs/ must have BENCH_TEARDOWN_MIN_FREE_GB (default 20;
 # 0 = no check) GB free; otherwise it stops with nothing pulled or deleted.
-# Then the service journal + sampler evidence per node, then the CERTIFICATION record: cert-rate.py
+# Then the service journal + sampler evidence per node (and, under BENCH_PERSIST_SAMPLER=1, the persist
+# sampler's files into results/<run>/persist/: bench_pull_persist_files, pull-lib.sh; warn-only). Then the
+# PREFILTER (D44): one parallel pass keeps the lines of the pulled logs that the readers below match
+# (tools/log-shapes.txt) in benchmark/work/prefilter/<run>/logs/, same names (bench_logs_prefilter,
+# pull-lib.sh); the certification, the startup provenance and cert-rate.md read that copy, and a pass
+# that fails leaves them reading the full logs. Then the CERTIFICATION record: cert-rate.py
 # runs over the pulled logs (manifest.certification); a validator under BENCH_CERT_FAIL_PCT in any
 # window gets a cert-fail log snapshot saved on the node and pulled, listed in
 # manifest.cert_failures[].logs[]. A re-run whose manifest already holds certification skips that
@@ -65,14 +70,22 @@
 # otherwise ok=- (a run without a coordinated start or blast end, a node already gone, or
 # BENCH_TEARDOWN_SKIP_LOGS=1) is a note, not a failure. BENCH_TEARDOWN_SKIP_COVERAGE=1 deletes anyway
 # and notes it in the manifest.
-# Then the LOCAL GATE: results/<run>/ is the
-# only copy of the run (no bucket keeps another), so before the first delete it must hold, for every
+# Then the LOCAL GATE: once the fleet is gone results/<run>/ and its archive copy are all there is of
+# the run, so before the first delete it must hold, for every
 # node in INSTANCE_NAMES, a non-empty logs/<node>-telcoin.log.gz, logs/<node>-unit-stdout.log.gz and
 # logs/<node>-recovery-*.tgz, a manifest.json that parses, and every log manifest.cert_failures[]
 # names. It then writes INDEX.md and CHECKSUMS.sha256 there and records manifest.archive (kind
-# local, path, verified_at, files, bytes). A missing file stops the teardown with nothing deleted,
+# local, path, verified_at, files, bytes; merged into the object, so archive.remote stays). A missing
+# file stops the teardown with nothing deleted,
 # naming every one; BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes anyway and notes it in the manifest
 # (archive.skipped_gate). The harness never deletes a node log.
+# Then the ARCHIVE: the archive bucket is the canonical copy of a finished run (since 2026-10-08;
+# results/ here is a working copy). tools/archive-run.sh --run <run> uploads results/<run>/ to its
+# runs/<run>/results/ (never deleting on either side; genesis*/, tunnel*.pid and dot-files stay out)
+# and tools/archive-verify.py checks the size and MD5 of every file; the result is recorded as
+# manifest.archive.remote {uri, verified_at, files, bytes}, and a second archive-run uploads and
+# verifies the files that record changed. An upload or a verify that fails stops the teardown with
+# nothing deleted; BENCH_TEARDOWN_SKIP_ARCHIVE=1 deletes anyway and notes it in the manifest.
 # Deletes: each instance (bench-obs too, after the local gate and every Prometheus read; its boot and data
 # disks auto-delete with it, else the orphan-disk step deletes them by their bench-run label) is deleted
 # in the background right after its id is re-checked, then one loop
@@ -84,8 +97,10 @@
 # first teardown whose deletes all finished.
 # After the deletes, report/provenance.py checks the node build the saved logs show against the
 # manifest's node_git_sha and records it as manifest node_startup_check (informs, never blocks);
-# then tools/cert-rate.py and tools/block-rate.py write analysis/ (BENCH_TEARDOWN_SKIP_ANALYSIS=1
-# skips them), and INDEX.md + CHECKSUMS.sha256 are written again over the final tree (never blocks).
+# then analysis/cert-rate.md (rendered from analysis/certification.json: cert-rate.py --from-json)
+# and analysis/block-rate.md are written (BENCH_TEARDOWN_SKIP_ANALYSIS=1 skips them), INDEX.md +
+# CHECKSUMS.sha256 again over the final tree, and the archive is brought up to that tree and verified
+# once more (never blocks: a failure says to re-run tools/archive-run.sh).
 # The last line of a teardown that reaches its end is
 #   TEARDOWN_DONE run=<id> deleted=<instances confirmed gone> left=<items the left-nothing checks
 #   still see> at=<UTC ISO>
@@ -135,6 +150,8 @@ SKIP_LOGS="${BENCH_TEARDOWN_SKIP_LOGS:-0}"
 case "${SKIP_LOGS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOGS must be 0 or 1 (got '${SKIP_LOGS}')" >&2; exit 1 ;; esac
 SKIP_GATE="${BENCH_TEARDOWN_SKIP_LOCAL_GATE:-0}"
 case "${SKIP_GATE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_LOCAL_GATE must be 0 or 1 (got '${SKIP_GATE}')" >&2; exit 1 ;; esac
+SKIP_ARCHIVE="${BENCH_TEARDOWN_SKIP_ARCHIVE:-0}"
+case "${SKIP_ARCHIVE}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_SKIP_ARCHIVE must be 0 or 1 (got '${SKIP_ARCHIVE}')" >&2; exit 1 ;; esac
 # Read by bench-lib.sh's _bench_marker_verdict; only "1" changes anything there.
 TRUST_MARKERS="${BENCH_TEARDOWN_TRUST_MARKERS:-0}"
 case "${TRUST_MARKERS}" in 0|1) ;; *) echo "❌ BENCH_TEARDOWN_TRUST_MARKERS must be 0 or 1 (got '${TRUST_MARKERS}')" >&2; exit 1 ;; esac
@@ -759,6 +776,33 @@ for i in "${!INSTANCE_NAMES[@]}"; do
         fi
     fi
 done
+# The persist sampler's files (BENCH_PERSIST_SAMPLER=1, as the deploy had it): warn-only, like collect's.
+if [ "${BENCH_PERSIST_SAMPLER:-0}" = "1" ]; then
+    echo ""
+    echo ">>> persist sampler files -> ${BENCH_RESULTS_DIR}/persist/ (informs, never blocks)"
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        id="$(printf '%s' "${GATE_IDS}" | awk -v z="${ZONES[$i]}" -v n="${inst}" '$1 == z && $2 == n { print $3; exit }')"
+        [ -n "${id}" ] || continue
+        bench_pull_persist_files "${inst}" "${ZONES[$i]}" "${BENCH_RESULTS_DIR}" \
+            || bench_warn "persist files of ${inst} not pulled — they go with the node"
+    done
+    stop_if_reauth "the persist files"
+fi
+
+# ================================ prefilter (D44) =========================================
+# One parallel pass over the pulled logs keeps the lines the certification, the startup provenance
+# and cert-rate.md match (tools/log-shapes.txt) under benchmark/work/prefilter/<run>/logs/, same
+# names; they read that copy (CERT_LOGS). A pass that fails leaves them reading the full logs.
+PREFILTER_DIR="${BENCH_DIR}/work/prefilter/${BENCH_RUN_ID}"
+CERT_LOGS="${LOG_DIR}"
+echo ""
+echo ">>> prefilter: ${LOG_DIR} -> ${PREFILTER_DIR}/logs (the lines the readers below match)"
+if bench_logs_prefilter "${LOG_DIR}" "${PREFILTER_DIR}"; then
+    [ "${BENCH_APPLY}" != "1" ] || CERT_LOGS="${PREFILTER_DIR}/logs"
+else
+    bench_warn "prefilter failed — the certification and the provenance read the full logs"
+fi
 
 # ================================ certification outcome (before the local gate) ===========
 # tools/cert-rate.py over the logs just pulled: manifest.certification and .cert_failures. Each
@@ -799,7 +843,7 @@ if [ "${BENCH_TEARDOWN_RECERTIFY:-0}" != "1" ] && cert_at="$(cert_recorded_at)";
     cert_miss="$(cert_logs_missing | paste -sd ' ' -)" || cert_miss=""
     [ -z "${cert_miss}" ] || echo "    ⚠ manifest.cert_failures lists log(s) not here (${cert_miss}): the cert-fail snapshot step runs again"
 fi
-[ "${CERT_SKIP}" = "1" ] || bench_certification_record "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
+[ "${CERT_SKIP}" = "1" ] || bench_certification_record "${CERT_LOGS}" "$(bench_manifest)" || bench_warn "certification not recorded — the gate checks what manifest.cert_failures lists"
 if [ "${CERT_SKIP}" != "1" ] || [ -n "${cert_miss}" ]; then
     bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" || bench_warn "certification snapshots not taken — the gate checks what manifest.cert_failures lists"
     stop_if_reauth "the certification snapshots"
@@ -895,32 +939,74 @@ else
 fi
 
 # ================================ local gate (before any delete) ==========================
-# results/<run>/ is the only copy of the run once the fleet is gone (see the header).
+# Once the fleet is gone, results/<run>/ and its archive copy are all there is of the run (see the header).
 echo ""
-echo ">>> local gate: ${BENCH_RESULTS_DIR} (the only copy; nothing is deleted until it holds every node's logs)$([ "${SKIP_GATE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOCAL_GATE=1')"
+echo ">>> local gate: ${BENCH_RESULTS_DIR} (nothing is deleted until it holds every node's logs)$([ "${SKIP_GATE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_LOCAL_GATE=1')"
 [ "${BENCH_APPLY}" = "1" ] || echo "    (dry run — the pulls above did not run; this is what results/${BENCH_RUN_ID}/ holds now)"
 RESULTS_ABS="$(cd "${BENCH_RESULTS_DIR}" && pwd -P)"
 if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then
-    bench_local_index --arg p "${RESULTS_ABS}" --arg t "$(bench_now_iso)" '.archive = {kind: "local", path: $p, verified_at: $t}' || {
+    bench_local_index --arg p "${RESULTS_ABS}" --arg t "$(bench_now_iso)" '.archive = (if (.archive | type) == "object" then .archive else {} end) + {kind: "local", path: $p, verified_at: $t}' || {
         echo "❌ ${BENCH_RESULTS_DIR}: INDEX.md, CHECKSUMS.sha256 or manifest.archive not written — NOTHING was deleted." >&2
         exit 1
     }
 elif [ "${SKIP_GATE}" = "1" ]; then
     bench_warn "BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 — deleting although ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above; they are lost with the fleet"
     if [ "${BENCH_APPLY}" = "1" ]; then
-        bench_local_index --arg p "${RESULTS_ABS}" '.archive = {kind: "local", path: $p, skipped_gate: true}' \
+        bench_local_index --arg p "${RESULTS_ABS}" '.archive = (if (.archive | type) == "object" then .archive else {} end) + {kind: "local", path: $p, skipped_gate: true}' \
             || bench_warn "INDEX.md, CHECKSUMS.sha256 or manifest.archive not written"
         bench_manifest_note "teardown: deleted without the local gate (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1) at $(bench_now_iso)" || true
     fi
 elif [ "${BENCH_APPLY}" = "1" ]; then
     echo "" >&2
     echo "❌ ${BENCH_RESULTS_DIR} lacks the file(s) marked ✗ above — NOTHING was deleted." >&2
-    echo "   It is the only copy of the run. Fix the pull (the teardown pulls what is missing from the" >&2
+    echo "   The archive copies it before anything is deleted. Fix the pull (the teardown pulls what is missing from the" >&2
     echo "   live nodes) and re-run; what is already in ${LOG_DIR} is kept." >&2
     echo "   Or delete without them: BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
     exit 1
 else
     echo "    ✗ with --yes the teardown stops here, before any delete, unless the pulls above land them (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes without them)"
+fi
+
+# ================================ archive (before any delete) =============================
+# td_archive_once — tools/archive-run.sh --run <run>, its output streamed (indented) and kept in
+# TD_TMP/archive.out. rc 0 = uploaded and verified.
+td_archive_once() {
+    local rc=0
+    "${DIR}/tools/archive-run.sh" --run "${BENCH_RUN_ID}" 2>&1 | tee "${TD_TMP}/archive.out" | sed 's/^/    /' || rc=$?
+    return "${rc}"
+}
+# td_archive — the archive copy of results/<run>/, verified: archive-run.sh, then manifest.archive.remote
+# from its ARCHIVE_REMOTE line (merged into manifest.archive; INDEX.md and CHECKSUMS.sha256 rewritten
+# with it), then archive-run.sh again for the files the record changed, verified again. rc 0 = the archive
+# holds results/<run>/ as it is now; 1 = not (the output says why). Dry run: archive-run.sh --dry-run
+# (its plan; no gcloud call).
+td_archive() {
+    local rec
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        "${DIR}/tools/archive-run.sh" --run "${BENCH_RUN_ID}" --dry-run 2>&1 | sed 's/^/    /'
+        return 0
+    fi
+    td_archive_once || return 1
+    rec="$(sed -n 's/^ARCHIVE_REMOTE //p' "${TD_TMP}/archive.out" | tail -n 1)"
+    if ! printf '%s' "${rec}" | jq -e '(.uri | type) == "string" and (.files | type) == "number" and (.bytes | type) == "number" and (.verified_at | type) == "string"' >/dev/null 2>&1; then
+        echo "    ✗ archive-run.sh printed no ARCHIVE_REMOTE record" >&2
+        return 1
+    fi
+    bench_local_index --argjson r "${rec}" '.archive = (if (.archive | type) == "object" then .archive else {} end) + {remote: $r}' || return 1
+    echo "    manifest.archive.remote: $(printf '%s' "${rec}" | jq -r '"\(.files) file(s), \(.bytes) bytes at \(.uri), verified \(.verified_at)"'); uploading what that record changed:"
+    td_archive_once
+}
+echo ""
+echo ">>> archive: ${BENCH_RESULTS_DIR} -> the archive bucket, size and MD5 verified (nothing is deleted until it is)$([ "${SKIP_ARCHIVE}" = "1" ] && echo ' — BENCH_TEARDOWN_SKIP_ARCHIVE=1')"
+if [ "${SKIP_ARCHIVE}" = "1" ]; then
+    bench_warn "BENCH_TEARDOWN_SKIP_ARCHIVE=1 — deleting without a verified archive copy of ${BENCH_RESULTS_DIR}"
+    [ "${BENCH_APPLY}" != "1" ] || bench_manifest_note "teardown: deleted without the archive (BENCH_TEARDOWN_SKIP_ARCHIVE=1) at $(bench_now_iso)" || true
+elif ! td_archive; then
+    echo "" >&2
+    echo "❌ the archive copy of ${BENCH_RESULTS_DIR} is not uploaded and verified (above) — NOTHING was deleted." >&2
+    echo "   Re-run the teardown, or tools/archive-run.sh --run ${BENCH_RUN_ID} by hand: the upload resumes and" >&2
+    echo "   never deletes. Or delete without it: BENCH_TEARDOWN_SKIP_ARCHIVE=1 benchmark/benchmark-teardown.sh --yes --run ${BENCH_RUN_ID}" >&2
+    exit 1
 fi
 
 # ================================ delete ==================================================
@@ -932,8 +1018,14 @@ if [ -n "${TUNNEL_PIDS}" ]; then
     # the pidfiles' process groups first (supervisor + child together; bench_tunnel_down stops every
     # tunnel*.pid, the bench-obs forwards' too), then whatever is left
     [ "${BENCH_APPLY}" = "1" ] && bench_tunnel_down
+    # D43: only what bench_tunnel_down left running (a pid it stopped made kill say "No such process").
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        live=""
+        for tpid in ${TUNNEL_PIDS}; do ! kill -0 "${tpid}" 2>/dev/null || live="${live} ${tpid}"; done
+        TUNNEL_PIDS="${live# }"
+    fi
     # shellcheck disable=SC2086  # pid list
-    bench_run kill ${TUNNEL_PIDS} || true
+    [ -z "${TUNNEL_PIDS}" ] || bench_run kill ${TUNNEL_PIDS} || true
 fi
 # Every tunnel process found was stopped above: a pidfile still here names a dead one.
 [ "${BENCH_APPLY}" = "1" ] && rm -f "$(bench_tunnel_pidfile)" "${BENCH_RESULTS_DIR}"/tunnel*.pid
@@ -1122,18 +1214,38 @@ fi
 # against the manifest's node_git_sha), written to the manifest as node_startup_check. Runs once
 # the log gate has passed (with BENCH_TEARDOWN_SKIP_LOGS=1, on whatever logs were saved) and after
 # the deletes, so the fleet is not kept up while the logs are read. Its result never stops the teardown.
+# D44: it reads the prefiltered copy, brought up to date first (the cert-fail snapshots came after the
+# first pass): provenance.py runs on PREFILTER_DIR as its run directory (logs/ there, and a copy of the
+# manifest it writes node_startup_check into), and that key is then set in the run's manifest. A
+# prefilter that fails leaves it reading results/<run>/ as before.
 node_startup_check() {
-    local prov="${DIR}/report/provenance.py" out rc=0 why
+    local prov="${DIR}/report/provenance.py" out rc=0 why run_dir="${BENCH_RESULTS_DIR}"
     echo ""
     echo ">>> node startup provenance (informational — never blocks the teardown)"
     command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — node startup provenance not checked"; return 0; }
     [ -f "${prov}" ] || { bench_warn "${prov} missing — node startup provenance not checked"; return 0; }
+    if bench_logs_prefilter "${LOG_DIR}" "${PREFILTER_DIR}"; then
+        run_dir="${PREFILTER_DIR}"
+    else
+        bench_warn "prefilter failed — the provenance reads the full logs"
+    fi
     if [ "${BENCH_APPLY}" != "1" ]; then
-        bench_run python3 "${prov}" --run-dir "${BENCH_RESULTS_DIR}" --update-manifest
+        [ "${run_dir}" = "${BENCH_RESULTS_DIR}" ] || echo "    + cp $(bench_manifest) ${run_dir}/manifest.json"
+        bench_run python3 "${prov}" --run-dir "${run_dir}" --update-manifest
+        [ "${run_dir}" = "${BENCH_RESULTS_DIR}" ] || echo "    + manifest.node_startup_check <- ${run_dir}/manifest.json"
         return 0
     fi
-    out="$(python3 "${prov}" --run-dir "${BENCH_RESULTS_DIR}" --update-manifest 2>&1)" || rc=$?
+    if [ "${run_dir}" != "${BENCH_RESULTS_DIR}" ] && ! cp -f -- "$(bench_manifest)" "${run_dir}/manifest.json"; then
+        bench_warn "could not copy the manifest to ${run_dir} — the provenance reads the full logs"
+        run_dir="${BENCH_RESULTS_DIR}"
+    fi
+    out="$(python3 "${prov}" --run-dir "${run_dir}" --update-manifest 2>&1)" || rc=$?
     [ -z "${out}" ] || printf '%s\n' "${out}" | sed 's/^/    /'
+    if [ "${run_dir}" != "${BENCH_RESULTS_DIR}" ]; then
+        bench_manifest_jq --slurpfile p "${run_dir}/manifest.json" '
+            if ($p[0] | type) == "object" and ($p[0] | has("node_startup_check")) then .node_startup_check = $p[0].node_startup_check else . end' \
+            || bench_warn "manifest.node_startup_check not written"
+    fi
     case "${rc}" in
         0) echo "    ✓ node startup provenance ok" ;;
         2) bench_warn "no node startup lines found in the saved logs" ;;
@@ -1151,10 +1263,53 @@ node_startup_check || bench_warn "node startup provenance check failed — teard
 # Since the gate, the deletes copied the run bucket into results/<run>/bucket/, genesis/ moved in
 # and the manifest has grown: analysis/ is written (the node logs are here now), then INDEX.md and
 # CHECKSUMS.sha256 again over the final tree. Never blocks.
+# td_local_analysis — analysis/cert-rate.md and block-rate.md, as bench_local_analysis (bench-lib.sh) writes
+# them, except that cert-rate.md is rendered from analysis/certification.json (cert-rate.py --from-json:
+# the same bytes a run over the logs prints, D44) and only without one from CERT_LOGS. Informational.
+td_local_analysis() {
+    local a="${BENCH_RESULTS_DIR}/analysis" t="${DIR}/tools" g name tmp err rc
+    g="$(_bench_cert_log_glob)"
+    echo "    analysis -> ${a}/ (informational)"
+    if [ "${BENCH_TEARDOWN_SKIP_ANALYSIS:-0}" = "1" ]; then
+        echo "      - skipped (BENCH_TEARDOWN_SKIP_ANALYSIS=1): python3 ${t}/cert-rate.py --from-json ${a}/certification.json and ${t}/block-rate.py --run ${BENCH_RESULTS_DIR} can be run by hand"
+        return 0
+    fi
+    if [ "${BENCH_APPLY}" != "1" ]; then
+        echo "      + python3 ${t}/cert-rate.py --from-json ${a}/certification.json > ${a}/cert-rate.md (without it: --logs ${CERT_LOGS} --windows $(bench_manifest) --node-glob '${g}')"
+        echo "      + python3 ${t}/block-rate.py --run ${BENCH_RESULTS_DIR} > ${a}/block-rate.md"
+        echo "      (dry run — not executed)"
+        return 0
+    fi
+    command -v python3 >/dev/null 2>&1 || { bench_warn "python3 not on PATH — no analysis"; return 0; }
+    mkdir -p "${a}" || { bench_warn "could not create ${a} — no analysis"; return 0; }
+    for name in cert-rate block-rate; do
+        tmp="$(mktemp "${a}/.${name}.md.XXXXXX")" || { bench_warn "${name}: no temp file"; continue; }
+        rc=0
+        if [ "${name}" = block-rate ]; then
+            err="$(python3 "${t}/block-rate.py" --run "${BENCH_RESULTS_DIR}" 2>&1 > "${tmp}")" || rc=$?
+        elif [ -s "${a}/certification.json" ] \
+            && err="$(python3 "${t}/cert-rate.py" --from-json "${a}/certification.json" 2>&1 > "${tmp}")"; then
+            echo "      · cert-rate.md from analysis/certification.json (no log read)"
+        elif compgen -G "${CERT_LOGS}/${g}" >/dev/null; then
+            err="$(python3 "${t}/cert-rate.py" --logs "${CERT_LOGS}" --windows "$(bench_manifest)" --node-glob "${g}" 2>&1 > "${tmp}")" || rc=$?
+        else
+            rm -f "${tmp}"
+            echo "      - cert-rate: no readable analysis/certification.json and no validator log in ${CERT_LOGS} (glob ${g})"
+            continue
+        fi
+        if [ "${rc}" -eq 0 ] && [ -s "${tmp}" ]; then
+            mv "${tmp}" "${a}/${name}.md" && echo "      ✓ ${a}/${name}.md"
+        else
+            rm -f "${tmp}"
+            bench_warn "${name}.py failed — ${a}/${name}.md not written: $(printf '%s\n' "${err:-no output}" | tail -1)"
+        fi
+    done
+    return 0
+}
 final_local_index() {
     echo ""
     echo ">>> final local index: ${BENCH_RESULTS_DIR} (informational — never blocks the teardown)"
-    bench_local_analysis
+    td_local_analysis
     if [ "${BENCH_APPLY}" = "1" ] && jq -e '.archive.kind == "local"' "$(bench_manifest)" >/dev/null 2>&1; then
         bench_local_index --arg t "$(bench_now_iso)" '.archive.final_index_at = $t'
     else
@@ -1162,6 +1317,20 @@ final_local_index() {
     fi
 }
 final_local_index || bench_warn "final local index failed — the gate's INDEX.md and CHECKSUMS.sha256 stay; re-run the teardown to rewrite them"
+
+# ================================ final archive ===========================================
+# The tree grew after the gate's archive (the run bucket's copy, genesis/ (never archived), the
+# provenance record, analysis/, the final index): bring the archive up to it and verify again. Never
+# blocks: the fleet is gone; a failure says how to finish it by hand.
+echo ""
+echo ">>> final archive: ${BENCH_RESULTS_DIR} -> the archive bucket (informational — never blocks the teardown)"
+if [ "${SKIP_ARCHIVE}" = "1" ]; then
+    echo "    - skipped (BENCH_TEARDOWN_SKIP_ARCHIVE=1): tools/archive-run.sh --run ${BENCH_RUN_ID} archives and verifies it by hand"
+elif [ "${BENCH_APPLY}" != "1" ]; then
+    echo "    + tools/archive-run.sh --run ${BENCH_RUN_ID} again over the final tree, manifest.archive.remote, and once more (as the gate's above)"
+else
+    td_archive || bench_warn "the archive does not hold the final tree verified — run tools/archive-run.sh --run ${BENCH_RUN_ID} (it resumes, never deletes, and verifies)"
+fi
 
 # ================================ left-nothing checks =====================================
 echo ""
@@ -1195,7 +1364,7 @@ for s in "${SECRETS[@]}"; do
         | jq -e --arg m "serviceAccount:${SERVICE_ACCOUNT}" '[.bindings[]? | .members[]] | index($m)' >/dev/null && acc=$((acc + 1))
 done
 chk "compute-SA bindings on bench secrets" "${acc}"
-echo "    · results/${BENCH_RUN_ID}/ kept, the only copy (back it up outside the repo): $(_bench_results_totals "${BENCH_RESULTS_DIR}" | awk '{ print $1 " file(s), " $2 " bytes" }')"
+echo "    · results/${BENCH_RUN_ID}/ kept, a working copy: $(_bench_results_totals "${BENCH_RESULTS_DIR}" | awk '{ print $1 " file(s), " $2 " bytes" }'); archive: $(jq -r '.archive.remote // empty | "\(.uri) (verified \(.verified_at))"' "$(bench_manifest)" 2>/dev/null | grep . || echo 'none verified')"
 echo "    · certification: $(bench_certification_summary "$(bench_manifest)")"
 echo "    devnet instances (must all be present):"
 for d in "${DENY[@]}"; do
@@ -1223,7 +1392,8 @@ fi
 # one a --yes run will use. A --yes run never gets here and spends no time on it.
 # td_gcloud_argv — every gcloud command this teardown issues, its own calls and those of the helpers
 # it calls (bench-lib.sh, pull-lib.sh, obs-lib.sh, recovery-lib.sh, and devnet-lib.sh's tn_iap_ssh*,
-# whose ssh flags are TN_SSH_FLAGS as devnet-lib.sh sets them): one line each, the command words,
+# whose ssh flags are TN_SSH_FLAGS as devnet-lib.sh sets them; tools/archive-run.sh and
+# tools/archive-verify.py): one line each, the command words,
 # then every flag those calls give it, names only. A call that gains a flag adds it here too:
 # test_teardown_local_gate compares this list with the source and with every call the fake gcloud sees.
 td_gcloud_argv() {
@@ -1245,6 +1415,8 @@ td_gcloud_argv() {
         "storage buckets delete --project --quiet" \
         "storage cp -r" \
         "storage rm -r --project" \
+        "storage rsync -r --dry-run --exclude --project" \
+        "storage objects list --project --format" \
         "secrets get-iam-policy --project --format" \
         "secrets remove-iam-policy-binding --project --member --role --format" \
         "secrets describe --project --format" \

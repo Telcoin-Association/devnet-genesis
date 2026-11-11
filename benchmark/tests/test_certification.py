@@ -658,11 +658,14 @@ class CallSiteTests(unittest.TestCase):
 
     def test_teardown_records_after_the_pulls_and_before_the_gate(self):
         evidence = self.line_of(TEARDOWN, "bench_pull_recovery_evidence ")
-        record = self.line_of(TEARDOWN, 'bench_certification_record "${LOG_DIR}" "$(bench_manifest)" ||')
+        # D44: the record reads the prefiltered copy (CERT_LOGS), the snapshots land in the real logs dir.
+        prefilter = self.line_of(TEARDOWN, 'if bench_logs_prefilter "${LOG_DIR}" "${PREFILTER_DIR}"; then')
+        record = self.line_of(TEARDOWN, 'bench_certification_record "${CERT_LOGS}" "$(bench_manifest)" ||')
         snap = self.line_of(TEARDOWN, 'bench_cert_failures_snapshot "${LOG_DIR}" "$(bench_manifest)" ||')
         gate = self.line_of(TEARDOWN, 'if bench_local_gate_check "${INSTANCE_NAMES[@]}"; then')
         self.assertLess(self.line_of(TEARDOWN, 'bench_pull_node_logs "${LOG_DIR}"'), evidence)
-        self.assertLess(evidence, record)
+        self.assertLess(evidence, prefilter)
+        self.assertLess(prefilter, record)
         self.assertLess(record, snap)
         self.assertLess(snap, gate)
         self.assertLess(gate, self.line_of(TEARDOWN, "bench_certification_summary"))

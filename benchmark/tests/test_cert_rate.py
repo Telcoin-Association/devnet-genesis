@@ -183,6 +183,89 @@ class CertRateTests(unittest.TestCase):
         p = self.run_tool("--windows", str(FIX / "node-logs" / "bench-validator-01-telcoin.log"))
         self.assertEqual(p.returncode, 1)
 
+    # ---- bench6 ready window and --from-json (H6a) ----
+    def golden(self, name):
+        return (FIX / "cert-rate-golden" / name).read_text()
+
+    def test_manifests_without_ready_give_the_bench_5_bytes(self):
+        # The goldens were written by the bench-5 tool (before ready and --from-json) on these logs.
+        for kind, manifest in (("phases", FIX / "manifest.json"), ("arms", FIX / "cert-rate-golden" / "arms-manifest.json")):
+            for fmt in ("md", "json", "csv"):
+                with self.subTest(kind=kind, fmt=fmt):
+                    p = self.run_tool("--windows", str(manifest), "--format", fmt)
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                    self.assertEqual(p.stdout, self.golden("%s.%s" % (kind, fmt)))
+        self.assertEqual(self.run_tool().stdout, self.golden("buckets.md"))
+
+    def test_an_arm_window_starts_at_ready(self):
+        manifest = Path(self._tmp.name) / "m.json"
+        m = json.loads((FIX / "cert-rate-golden" / "arms-manifest.json").read_text())
+        m["param_arms"][0]["ready"] = "2026-10-06T06:00:02Z"
+        m["param_arms"][1]["ready"] = "2026-10-06T06:20:00Z"     # not before its end: no window
+        m["phases"][0]["ready"] = "2026-10-06T06:09:00Z"          # a phase has no ready: ignored
+        manifest.write_text(json.dumps(m))
+        doc = self.doc("--windows", str(manifest))
+        self.assertEqual([(w["name"], w["start"], w["end"]) for w in doc["windows"]],
+                         [("arm delay-250ms", "2026-10-06T06:00:02Z", "2026-10-06T06:05:00Z"),
+                          ("phase warmup", "2026-10-06T06:00:00Z", "2026-10-06T06:10:00Z"),
+                          ("phase mixed", "2026-10-06T06:10:00Z", "2026-10-06T06:20:00Z"),
+                          ("run", "2026-10-06T06:00:00Z", "2026-10-06T06:20:00Z")])
+        self.assertEqual(doc["notes"], ["arm b: ready 2026-10-06T06:20:00Z is not before its end 2026-10-06T06:20:00Z: no window"])
+        # From 06:00:02 the 06:00:01.x proposals are out: v01 keeps 06:00:03.1, v02 06:00:03.2 and 06:00:05.2.
+        arm = doc["windows"][0]["nodes"]
+        whole = self.doc("--windows", str(FIX / "cert-rate-golden" / "arms-manifest.json"))["windows"][0]["nodes"]
+        self.assertEqual([(arm[n]["proposed"], whole[n]["proposed"]) for n in ("bench-validator-01", "bench-validator-02")],
+                         [(1, 2), (2, 3)])
+        self.assertIn("- arm b: ready 2026-10-06T06:20:00Z is not before its end", self.run_tool("--windows", str(manifest)).stdout)
+
+    def test_the_arm_window_rule_is_report_windows_arm_window(self):
+        # One definition of an arm's window (ready, else begin, to end): report/windows.py arm_window.
+        # cert-rate.py keeps its own copy (it is a stdlib-only tool that also takes the bench-4 "start"
+        # spelling); the two must pick the same start and end.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("report_windows_cr", str(TESTS.parent / "report" / "windows.py"))
+        windows = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(windows)
+        arms = [{"name": "a", "begin": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:05:00Z"},
+                {"name": "b", "begin": "2026-10-06T06:05:00Z", "ready": "2026-10-06T06:07:00Z", "end": "2026-10-06T06:20:00Z"}]
+        manifest = Path(self._tmp.name) / "m.json"
+        manifest.write_text(json.dumps({"param_arms": arms}))
+        doc = self.doc("--windows", str(manifest))
+        got = [(w["name"], w["start"], w["end"]) for w in doc["windows"] if w["name"].startswith("arm ")]
+        want = [("arm " + w["name"], self.iso(w["start_unix"]), self.iso(w["end_unix"])) for w in windows.arm_windows({"param_arms": arms})]
+        self.assertEqual(got, want)
+
+    @staticmethod
+    def iso(t):
+        import time as _time
+        return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(t))
+
+    def test_from_json_renders_the_bytes_the_logs_give(self):
+        report = Path(self._tmp.name) / "certification.json"
+        report.write_text(self.run_tool("--windows", str(FIX / "manifest.json"), "--format", "json").stdout)
+        for fmt in ("md", "json", "csv"):
+            with self.subTest(fmt=fmt):
+                p = subprocess.run([sys.executable, str(TOOL), "--from-json", str(report), "--format", fmt],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertEqual(p.stdout, self.golden("phases.%s" % fmt))
+
+    def test_from_json_refuses_what_is_not_a_report_and_takes_no_log_option(self):
+        bad = Path(self._tmp.name) / "bad.json"
+        for text in ("{}", "[]", '{"windows": [], "nodes": {"a": {}}, "notes": []}', "not json"):
+            bad.write_text(text)
+            p = subprocess.run([sys.executable, str(TOOL), "--from-json", str(bad)], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            self.assertEqual((p.returncode, p.stdout), (1, ""), text)
+            self.assertIn("cert-rate: ", p.stderr)
+        p = self.run_tool("--from-json", str(bad))
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("--from-json takes only --format", p.stderr)
+        p = subprocess.run([sys.executable, str(TOOL)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("--logs is required (or --from-json REPORT)", p.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

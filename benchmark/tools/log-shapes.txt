@@ -1,0 +1,35 @@
+# Fixed strings (grep -F, one per line) the teardown's log prefilter keeps (pull-lib.sh bench_logs_prefilter).
+# Lines starting with "#" are comments; no line may be empty (an empty pattern keeps every line).
+# tools/cert-rate.py (EVENT_RE), the certification record and cert-rate.md:
+header proposed
+quorum reached
+re-proposing last header
+failed to get vote for header
+Could not form a certificate
+subdag committed
+certificate committed
+# report/provenance.py (_CANDIDATE_MARKERS):
+starting
+et to
+ET TO
+chedule
+CHEDULE
+node switches
+# bench 6 node lines the report code reads:
+persisted output
+# for tools/arms-summary.py and tools/stage-latency.py:
+Failed to track spawned task
+batch built
+batch reported
+batch sealed
+consensus output ready
+digests resent
+header uncertified
+next block executed
+output executed
+output execution task finished
+output queued
+output saved
+subdag sequenced
+vote path timing
+waited for execution before assembling the output

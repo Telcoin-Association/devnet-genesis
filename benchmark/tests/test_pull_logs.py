@@ -1149,3 +1149,236 @@ class BucketTransferTests(FleetCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- bench6 prefilter and persist files (H6a) ----
+# D44: bench_logs_prefilter keeps the lines tools/log-shapes.txt names, one job per log; the readers
+# (tools/cert-rate.py, report/provenance.py, the certification record) must report the same from the
+# copy as from the full logs. bench_pull_persist_files lands the persist sampler's two files.
+CERT_RATE = BENCH / "tools" / "cert-rate.py"
+SHAPES = BENCH / "tools" / "log-shapes.txt"
+ANALYSIS_FIX = TESTS / "fixtures" / "analysis"
+PROV_FIX = TESTS / "fixtures" / "provenance"
+PREFILTER_SHIM = 'set -euo pipefail; source "$PULL_LIB"; "$@"'
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def shape_lines():
+    """The patterns of tools/log-shapes.txt: its lines but the "#" comments."""
+    return [line for line in SHAPES.read_text().split("\n")[:-1] if not line.startswith("#")]
+
+
+# The shapes kept for other units' tools (tools/arms-summary.py, tools/stage-latency.py): they read the
+# prefiltered copy when it holds what they match, else stream the full logs.
+OTHER_TOOLS_SHAPES = ("Failed to track spawned task", "batch built", "batch reported", "batch sealed",
+                      "consensus output ready", "digests resent", "header uncertified", "next block executed",
+                      "output executed", "output execution task finished", "output queued", "output saved",
+                      "subdag sequenced", "vote path timing", "waited for execution before assembling the output")
+
+
+class ShapeCoverageTests(unittest.TestCase):
+    def test_every_literal_a_reader_matches_is_a_shape(self):
+        shapes = shape_lines()
+        self.assertTrue(SHAPES.read_text().endswith("\n"))
+        self.assertNotIn("", SHAPES.read_text().split("\n")[:-1], "an empty line in a grep -f file matches every line")
+        self.assertEqual(len(shapes), len(set(shapes)))
+        cert = _load("cert_rate_shapes", CERT_RATE)
+        events = cert.EVENT_RE.pattern.split("|")
+        for lit in events:
+            self.assertRegex(lit, r"^[A-Za-z0-9 _-]+$", "cert-rate's EVENT_RE alternative %r is not a literal" % lit)
+        prov = _load("provenance_shapes", PROVENANCE)
+        markers = [m.decode() for m in prov._CANDIDATE_MARKERS]
+        missing = [lit for lit in events + markers if lit not in shapes]
+        self.assertEqual(missing, [], "tools/log-shapes.txt lacks what a reader matches")
+        # The bench-6 node lines the report code reads.
+        for lit in ("node switches", "persisted output"):
+            self.assertIn(lit, shapes)
+        # The file may hold more than these readers match: the other tools' shapes, under their comment.
+        lines = SHAPES.read_text().split("\n")[:-1]
+        at = lines.index("# for tools/arms-summary.py and tools/stage-latency.py:")
+        self.assertEqual(lines[at + 1:at + 1 + len(OTHER_TOOLS_SHAPES)], list(OTHER_TOOLS_SHAPES))
+
+
+class PrefilterTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="prefilter-")
+        self.root = Path(self._tmp.name)
+        self.run_dir = self.root / "results" / "r1"
+        self.logs = self.run_dir / "logs"
+        self.out = self.root / "work" / "prefilter" / "r1"
+        self.logs.mkdir(parents=True)
+        noise = "".join('ts=2026-10-06T06:0%d:00.000000000Z level=debug target=x message="noise %d"\n' % (i % 10, i)
+                        for i in range(200))
+        v1 = (ANALYSIS_FIX / "node-logs" / "bench-validator-01-telcoin.log").read_text()
+        v2 = (ANALYSIS_FIX / "node-logs" / "bench-validator-02-telcoin.log").read_text()
+        files = {
+            "bench-validator-01-unit-stdout.log.gz": noise + v1 + noise + (PROV_FIX / "node-log-validator-unit-stdout.txt").read_text(),
+            "bench-validator-02-unit-stdout.log.gz": v2 + noise,
+            "bench-validator-02-unit-stdout.rotated-1.log.gz": noise + v2,
+            "bench-validator-01-telcoin.log.gz": (PROV_FIX / "node-log-validator-container.txt").read_text() + v1,
+            "bench-validator-03-telcoin-pre-kill-20260101T000000Z.log.gz": (PROV_FIX / "node-log-adiri.txt").read_text(),
+            "bench-observer-11-telcoin.log": (PROV_FIX / "node-log-observer-json.txt").read_text() + "a\rline starting here\r\n",
+            "deploy-20260101T000000Z.log": (PROV_FIX / "deploy-output.txt").read_text(),
+        }
+        for name, text in files.items():
+            data = text.encode()
+            (self.logs / name).write_bytes(gzip.compress(data, mtime=0) if name.endswith(".gz") else data)
+        (self.logs / "bench-validator-01.pulled").write_text("marker\n")
+        (self.logs / ".hidden.log").write_text("starting\n")
+        m = json.loads((ANALYSIS_FIX / "manifest.json").read_text())
+        m.update({"node_git_sha": "ba43a1f0e270ca1c572d1b8378b39d2fc6360b57", "node_fork_schedule": "subsecond-from-genesis"})
+        (self.run_dir / "manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+        self.env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.root), "TMPDIR": str(self.root),
+                    "PULL_LIB": str(PULL_LIB), "BENCH_DIR": str(BENCH), "BENCH_APPLY": "1"}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def prefilter(self, *extra_args, **env):
+        e = dict(self.env)
+        e.update(env)
+        return subprocess.run(["bash", "-c", PREFILTER_SHIM, "_", "bench_logs_prefilter", str(self.logs), str(self.out)]
+                              + list(extra_args), env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=120)
+
+    def tool(self, *argv, **kw):
+        p = subprocess.run(["python3"] + [str(a) for a in argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=120)
+        self.assertIn(p.returncode, kw.get("rcs", (0,)), p.stderr)
+        return p.stdout if "rcs" not in kw else (p.returncode, p.stdout)
+
+    def test_every_reader_reports_the_same_from_the_prefiltered_copy(self):
+        p = self.prefilter()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"PREFILTER logs=7 read=7 reused=0 in_bytes=\d+ out_bytes=\d+ secs=\d+ failed=0\n$")
+        copy = self.out / "logs"
+        self.assertEqual(sorted(x.name for x in copy.iterdir()), sorted(x.name for x in self.logs.iterdir()
+                                                                         if x.name.endswith((".log", ".log.gz"))
+                                                                         and not x.name.startswith(".")))
+        full_bytes = sum(len(gzip.decompress(x.read_bytes())) for x in self.logs.glob("*-unit-stdout*.log.gz"))
+        copy_bytes = sum(len(gzip.decompress(x.read_bytes())) for x in copy.glob("*-unit-stdout*.log.gz"))
+        self.assertLess(copy_bytes * 2, full_bytes)
+        manifest = self.run_dir / "manifest.json"
+        for glob in ("bench-validator-*-unit-stdout*.log.gz", "bench-validator-*.log.gz"):
+            for fmt in ("md", "json", "csv"):
+                with self.subTest(glob=glob, fmt=fmt):
+                    full = self.tool(CERT_RATE, "--logs", self.logs, "--windows", manifest, "--node-glob", glob, "--format", fmt)
+                    self.assertEqual(self.tool(CERT_RATE, "--logs", copy, "--windows", manifest, "--node-glob", glob,
+                                               "--format", fmt), full)
+                    self.assertIn("bench-validator-02", full)
+        # The certification record's JSON renders the same cert-rate.md the logs give (the teardown's
+        # analysis/cert-rate.md, cert-rate.py --from-json).
+        record = self.root / "certification.json"
+        record.write_text(self.tool(CERT_RATE, "--logs", copy, "--windows", manifest, "--format", "json"))
+        self.assertEqual(self.tool(CERT_RATE, "--from-json", record),
+                         self.tool(CERT_RATE, "--logs", self.logs, "--windows", manifest))
+        # Provenance: the copy as a run directory beside a copy of the manifest, as the teardown runs it.
+        shutil.copyfile(str(manifest), str(self.out / "manifest.json"))
+        # checked_at is the wall-clock second each run made its check: not part of what the logs say.
+        def stable(doc):
+            if isinstance(doc, dict):
+                return {k: stable(v) for k, v in doc.items() if k != "checked_at"}
+            return [stable(v) for v in doc] if isinstance(doc, list) else doc
+        rc, full = self.tool(PROVENANCE, "--run-dir", self.run_dir, "--json", rcs=(0, 1))
+        rc2, copied = self.tool(PROVENANCE, "--run-dir", self.out, "--json", rcs=(0, 1))
+        self.assertIn("checked_at", json.loads(full))
+        self.assertEqual((rc2, stable(json.loads(copied))), (rc, stable(json.loads(full))))
+        self.assertTrue(json.loads(full)["starts"])
+        rc, text = self.tool(PROVENANCE, "--run-dir", self.run_dir, rcs=(0, 1))
+        rc2, text2 = self.tool(PROVENANCE, "--run-dir", self.out, rcs=(0, 1))
+        self.assertEqual((rc2, text2.split("\n", 1)[1]), (rc, text.split("\n", 1)[1]))
+
+    def test_a_second_pass_reads_only_new_logs_and_drops_copies_of_gone_ones(self):
+        self.assertEqual(self.prefilter().returncode, 0)
+        (self.logs / "bench-validator-02-telcoin-cert-fail-20260101T000000Z.log.gz").write_bytes(gzip.compress(b"x starting\n"))
+        (self.logs / "deploy-20260101T000000Z.log").unlink()
+        p = self.prefilter()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("PREFILTER logs=7 read=1 reused=6 ", p.stdout)
+        self.assertFalse((self.out / "logs" / "deploy-20260101T000000Z.log").exists())
+        self.assertEqual(gzip.decompress((self.out / "logs" / "bench-validator-02-telcoin-cert-fail-20260101T000000Z.log.gz")
+                                         .read_bytes()), b"x starting\n")
+
+    def test_a_cut_log_fails_the_pass_and_keeps_no_copy_of_it(self):
+        whole = (self.logs / "bench-validator-02-unit-stdout.log.gz").read_bytes()
+        (self.logs / "bench-validator-02-unit-stdout.log.gz").write_bytes(whole[:len(whole) // 2])
+        p = self.prefilter(BENCH_PREFILTER_JOBS="2")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("✗ bench-validator-02-unit-stdout.log.gz rc=1 ", p.stderr)
+        self.assertIn(" failed=1\n", p.stdout)
+        self.assertFalse((self.out / "logs" / "bench-validator-02-unit-stdout.log.gz").exists())
+        self.assertEqual([x.name for x in (self.out / "logs").iterdir() if x.name.startswith(".")], [])
+
+    def test_comment_lines_are_no_pattern_and_new_shapes_redo_every_copy(self):
+        (self.logs / "deploy-20260101T000000Z.log").write_text("# not a shape\nkeep starting here\n")
+        shapes = self.root / "shapes.txt"
+        shapes.write_text("# not a shape\nstarting\n")
+        p = self.prefilter(str(shapes))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((self.out / "logs" / "deploy-20260101T000000Z.log").read_text(), "keep starting here\n")
+        self.assertEqual((self.out / ".shapes.txt").read_text(), "starting\n")
+        self.assertIn("PREFILTER logs=7 read=0 reused=7 ", self.prefilter(str(shapes)).stdout)
+        shapes.write_text("# not a shape\nstarting\nshape\n")
+        p = self.prefilter(str(shapes))
+        self.assertIn("PREFILTER logs=7 read=7 reused=0 ", p.stdout)
+        self.assertEqual((self.out / "logs" / "deploy-20260101T000000Z.log").read_text(),
+                         "# not a shape\nkeep starting here\n")
+        self.assertFalse((self.out / ".shapes.txt.new").exists())
+
+    def test_the_dry_run_writes_nothing_and_a_bad_shapes_file_is_refused(self):
+        p = self.prefilter(BENCH_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("+ prefilter 7 log(s) of %s -> %s/logs/ (8 at a time)" % (self.logs, self.out), p.stdout)
+        self.assertFalse(self.out.exists())
+        bad = self.root / "shapes.txt"
+        bad.write_text("starting\n\nquorum reached\n")
+        p = self.prefilter(str(bad))
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("has an empty line", p.stderr)
+        p = self.prefilter(BENCH_PREFILTER_JOBS="0")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("BENCH_PREFILTER_JOBS='0' is not 1-64 — using 8", p.stderr)
+
+
+class PersistPullTests(PullCase):
+    def setUp(self):
+        super().setUp()
+        self.host = subprocess.run(["hostname", "-s"], stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
+        self.sampler = self.root / "node" / "var" / "lib" / "bench-sampler"
+        self.sampler.mkdir(parents=True)
+        self.results = self.root / "run"
+        self.env.update({"BENCH_APPLY": "1", "BENCH_PERSIST_REMOTE_DIR": str(self.sampler)})
+
+    def test_both_files_land_under_the_instance_name(self):
+        (self.sampler / (self.host + ".persist.csv")).write_text("ts_unix,pid\n1,2\n")
+        (self.sampler / (self.host + ".folios.txt")).write_text("ts_unix,folio_order\n1,0\n")
+        p = self.run_lib("bench_pull_persist_files", "bench-validator-01", "us-west2-a", self.results)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("✓ persist files: bench-validator-01.csv bench-validator-01.folios.txt", p.stdout)
+        persist = self.results / "persist"
+        self.assertEqual(sorted(x.name for x in persist.iterdir()), ["bench-validator-01.csv", "bench-validator-01.folios.txt"])
+        self.assertEqual((persist / "bench-validator-01.csv").read_text(), "ts_unix,pid\n1,2\n")
+        self.assertEqual(len(self.calls()), 1)
+        self.assertTrue(self.calls()[0]["stdin"].startswith("# bench-pull: persist\n"))
+
+    def test_a_node_without_them_is_a_note_and_keeps_an_earlier_copy(self):
+        (self.results / "persist").mkdir(parents=True)
+        (self.results / "persist" / "bench-validator-01.csv").write_text("earlier\n")
+        p = self.run_lib("bench_pull_persist_files", "bench-validator-01", "us-west2-a", self.results)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("- bench-validator-01: no persist sampler file on the node", p.stdout)
+        self.assertEqual(sorted(x.name for x in (self.results / "persist").iterdir()), ["bench-validator-01.csv"])
+        self.assertEqual((self.results / "persist" / "bench-validator-01.csv").read_text(), "earlier\n")
+
+    def test_the_dry_run_calls_nothing(self):
+        p = self.run_lib("bench_pull_persist_files", "bench-validator-01", "us-west2-a", self.results, BENCH_APPLY="0")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("+ persist files: bench-validator-01 %s/<host>.{persist.csv,folios.txt}" % self.sampler, p.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.results.exists())
