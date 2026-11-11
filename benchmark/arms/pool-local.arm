@@ -1,0 +1,15 @@
+# POOL+LOCAL: the pool and the epoch close, on top of V.
+# Adds sealed_tx_keep, digest_dedupe, recovery_threads 3 and epoch_close_task_drain.
+# Must show, on an M16 with an epoch boundary inside the mixed phase: landings after 300 s = 0;
+# resends near 0; duplicate digests executed 0; task-tracker errors 0 at the loaded boundary.
+name pool-local
+param mdbx_random_advice true
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 4
+param vote_queue_fix true
+param epoch_record_state_check true
+param sealed_tx_keep true
+param digest_dedupe true
+param recovery_threads 3
+param epoch_close_task_drain true
+host evict-mdbx

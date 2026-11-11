@@ -197,28 +197,62 @@ and the probe traffic (about 100 KB per pair) is negligible against inter-region
 
 ## params-apply
 
-`params-apply.sh` changes consensus parameters (`max_header_delay`, `min_header_delay`,
-`vote_timeout`, ...) on a running fleet, between the arms of a parameter sweep. It restarts one node
-at a time, waits until that node is back in consensus before it touches the next, and records each
-arm so the report can tell which values ran when. `BENCH_NODE_PARAM_OVERRIDES` sets values at
-deploy time (step 7's pre-start config writes them, before the coordinated start); this tool
-changes them afterwards.
+`params-apply.sh` puts a running fleet into a benchmark arm: the node switches of
+`benchmark/arms/switches.tsv` and the consensus timing parameters (`max_header_delay`,
+`min_header_delay`, `vote_timeout`, ...) in each node's `parameters.yaml`. It restarts one node at a
+time, reads the node's new state back from the node's own log before it touches the next, and
+records each arm so the report can tell which state ran when. `BENCH_NODE_PARAM_OVERRIDES` and
+`BENCH_ARM_FILE` set values at deploy time (step 7's pre-start config writes them, before the
+coordinated start); this tool changes them afterwards.
 
 ```
+params-apply.sh (--nodes <file> | --from-config) --arm-file <file> [--arm <name>]
 params-apply.sh (--nodes <file> | --from-config) --set <all|node>:<key>=<value>[,...] [--set ...] --arm <name>
 params-apply.sh (--nodes <file> | --from-config) --stage-test <node> [--set ...]
 params-apply.sh (--nodes <file> | --from-config) --close-arm <name>
+params-apply.sh (--nodes <file> | --from-config) --mark <label> | --end-mark <label>
 ```
 
-`--help` lists every option. `--dry-run` prints every gcloud command and every remote script and
-contacts nothing.
+`--help` lists every option and every `PARAMS_APPLY_*` knob. `--dry-run` prints the per-node plan
+(keys to change, whether the node restarts and why, the host steps), every gcloud command and every
+remote script; it contacts nothing and records nothing.
+
+### Arms
+
+An arm comes from an arm file or from `--set`.
+
+- `--arm-file benchmark/arms/<name>.arm` is the full switch state (format and refusals:
+  `benchmark/arms/README.md`). A switch the file does not list goes to its default. The arm's name
+  is the file's `name` line unless `--arm <name>` gives another. A file that breaks the grammar is
+  refused as a whole, naming the line, before any node is contacted. `--set` cannot be combined
+  with it.
+- `--set` changes only the keys it names, on top of what each node has, so `--set` arms are
+  cumulative. A switch takes one of its `arm_values` or its default; a timing key follows the rules
+  below.
+
+The switch names, types and allowed values come from `switches.tsv` and nowhere else. A switch is
+written as `key: value  # bench-override`, a boolean as a YAML boolean (`vote_queue_fix: true`). The
+node writes no switch at its default, so a node's file usually has none of them, and a switch the
+file leaves out is at its default. The tool compares effective values: it appends a key the file
+lacks when the arm needs another value, rewrites a line in place, and writes a switch that goes
+back to its default with the default (`parent_grace: 0ms  # bench-override`); it never deletes a
+line. Durations compare by value, so `0s`, `0ms` and an absent `parent_grace` are the same.
+
+Run 1's arm files are in `benchmark/arms/`, cumulative in this order: `a0-control`,
+`p1-mdbx-advice`, `v-vote` (`v-vote-floor` is the same with `quorum_exec_block_starved_rounds 0`),
+`pool-local`, `pipe`, `bound`, `gr150` (`gr100` instead when 150 ms misses), `a0-prime`. `final` is a
+placeholder for run 2 that the orchestrator fills. Each file starts with a comment saying what the
+arm adds and what it must show; every arm from `p1-mdbx-advice` on, `a0-prime` included, evicts
+`mdbx.dat` at each restart.
 
 ### What a run does
 
 1. **Phase A, read-only.** One IAP SSH session per node, up to five at once. Each reads where the
-   node's `parameters.yaml` is, its content and SHA-256, whether the `telcoin` container runs, and
-   the chain id on `127.0.0.1:8545`. The file is `<datadir>/parameters.yaml`, and the first of
-   these gives the datadir:
+   node's `parameters.yaml` is, its content and SHA-256, whether the `telcoin` container runs, the
+   chain id on `127.0.0.1:8545`, the `node switches` line the running container logged at its start
+   (the first one since its `StartedAt`), and whether the v2 library (`lib/common.sh` under
+   `TN_NODE_SCRIPTS_DIR`) and `systemd-run` are there. The file is `<datadir>/parameters.yaml`, and
+   the first of these gives the datadir:
    - the nodes file's `hostdatadir`;
    - `DATA_DIR` in `/etc/telcoin/.node-meta` (v2 nodes; `KEY=VALUE` lines, root 0600). A
      `DATA_DIR` set more than once has no single value and fails the node, and so does a
@@ -230,36 +264,117 @@ contacts nothing.
 
    The tool only reads the launch file; it never edits it. Each node's phase A summary names the
    launch file found and where its datadir came from. If any node fails here, nothing is changed.
-2. **Validation, local.** Each node's resulting values (its current file plus the `--set` values)
-   must pass the rules the node checks at startup: `min_header_delay <= max_header_delay`;
+2. **Validation, local.** Each node's resulting timing values (its current file plus the `--set`
+   values) must pass the rules the node checks at startup: `min_header_delay <= max_header_delay`;
    `1 <= header_num_of_batches_threshold <= max_header_num_of_batches`; `vote_timeout` (5 s when
    absent) at least `max_header_delay + 250 ms` and below 10 s. `gc_depth` and `basefee_address` are
    refused (fleet-wide), and so are keys the file holds as a `secs`/`nanos` block. What `--set`
-   alone gets wrong is refused before any node is contacted. Then the plan prints, per node,
-   `key old -> new`.
-3. **Phase B, serial.** Only nodes whose values change, observers first. Per node, in one session:
-   save the container log as `/var/lib/bench-logs/telcoin-pre-arm-<arm>-<UTC>.log.gz` (a restart
-   drops it; the harness pull collects that directory), copy the file to
-   `parameters.yaml.bak-<UTC>`, rewrite each key in place as `key: value  # bench-override`,
-   `systemctl restart telcoin`, then wait up to 180 s for the node to come back (see PARAMS_OK
-   below). The file is rewritten through `cat >`, so owner, mode and inode stay. A file without
-   `# bench-override` lines is first copied to `parameters.yaml.bak` (the unmarked original). A file
-   with `# bench-override` lines but no `.bak` is refused before any restart; deploy step 7 leaves
-   exactly that on a node with `BENCH_NODE_PARAM_OVERRIDES`. Phase B also refuses a file whose
-   SHA-256 changed since phase A.
+   alone gets wrong is refused before any node is contacted. A switch the arm sets that the running
+   image does not print on its `node switches` line refuses the arm before any change; the one
+   optional switch, `pipelined_persist`, may be missing while the arm leaves it at its default. A
+   node that restarts needs the v2 library and `systemd-run`.
 
-The restart is a plain `systemctl restart telcoin` (unit and container `telcoin`, on v2 and pre-v2
-nodes alike). No quorum guard is consulted, v2's own restart guard included. The tool keeps at most
-one node down at a time; whether the rest of the committee holds quorum meanwhile is the
-operator's responsibility.
+   Then the plan prints, per node, `key old -> new` and whether it restarts, with the reasons:
+   `params` (a key is rewritten), `live` (its running switches are not the arm's), `unread` (it has
+   no `node switches` line to compare, for example a stopped container) and `host` (the arm has host
+   steps). A node with none of these is not restarted.
+3. **Phase B, serial, observers first.** Per node, in one session:
+   1. the committee guard, v2's `tn_committee_down_guard` against the node's own RPC (see the
+      safety rules below);
+   2. the container log saved as `/var/lib/bench-logs/telcoin-pre-arm-<arm>-<UTC>.log.gz` (a
+      restart drops it; the harness pull collects that directory);
+   3. the epoch check: no stop within ±90 s of an epoch boundary;
+   4. the file copied to `parameters.yaml.bak-<UTC>` and each key rewritten in place as
+      `key: value  # bench-override`, through `cat >`, so owner, mode and inode stay. A file
+      without `# bench-override` lines is first copied to `parameters.yaml.bak` (the unmarked
+      original). A file with `# bench-override` lines but no `.bak` is refused before any restart;
+      deploy step 7 leaves exactly that on a node with `BENCH_NODE_PARAM_OVERRIDES`. Phase B also
+      refuses a file whose SHA-256 changed since phase A;
+   5. one transient unit, `systemd-run --unit bench-arm-<arm>-<UTC>`, runs `systemctl stop telcoin`,
+      the arm's host steps and `systemctl start telcoin`. Its script and output stay in
+      `/var/lib/bench-logs/arm-units/<unit>.{sh,out}`;
+   6. the wait until the node is back in consensus, then the readback (`PARAMS_OK` and
+      `SWITCHES_OK` below).
 
-Arms are cumulative: each one starts from the node's current file, so a key an arm does not set
-keeps the value the last arm gave it.
+When every node has read back, the tool prints `ARM_READY` and records `ready`.
 
-The first node that does not come back stops the run with a non-zero exit. The tool prints why, the
-`gcloud compute ssh <node> --zone=<zone> --project=<project> --tunnel-through-iap` command to
-inspect it, and the `cp -p parameters.yaml.bak-<UTC> parameters.yaml && systemctl restart telcoin`
-rollback. Nodes after it are untouched.
+### Safety rules
+
+- One node is down at a time, and observers go first.
+- The guard is resampled. It counts the authors of one consensus commit, and a member that is up
+  can miss one, so bench 4's single sample refused 25-50 % of the time with nobody down (lessons
+  2026-11-05). One refusal is a sample: up to 8 samples, 10 s apart (`PARAMS_APPLY_GUARD_TRIES`,
+  `PARAMS_APPLY_GUARD_SECS`). Eight refusals in a row are a deferral: 60 s
+  (`PARAMS_APPLY_GUARD_DEFER_SECS`), then 8 more samples. A second deferral stops the run without
+  touching the node. A pass that came with a warning (the guard could not count the committee)
+  counts as a refusal. An observer passes at once.
+- No stop within ±90 s of an epoch boundary (`PARAMS_APPLY_EPOCH_MARGIN_SECS`), on either side: the
+  epoch timing is v2's `tn_epoch_secs_left`, and once the next epoch runs, its duration minus the
+  seconds left is the time since the boundary. The tool waits in naps of at most 15 s, at most
+  600 s in all (`PARAMS_APPLY_EPOCH_WAIT_SECS`), then gives up without touching the node. After a
+  wait it takes the guard again.
+- Stop, host steps and start run inside one `systemd-run` unit. The session launches it and watches
+  its output file, so a dropped IAP session or the session's own alarm cannot leave the node
+  stopped. The unit has no `set -e`: a failed stop skips the host steps, and the start always runs.
+  A unit that does not launch restores the file, and the node is not restarted.
+- The first node that fails stops the run with exit 1: a guard that defers twice, an epoch wait that
+  gives up, a unit that fails its stop, host steps or start, a node not back in consensus within
+  180 s (`PARAMS_APPLY_HEALTH_SECS`), or a readback that does not match. The tool prints
+  `PA_FAIL <node> <why>`, records `failed: <node>` on the arm when the arm had begun, and leaves the
+  later nodes untouched. On stderr it says whether the node was restarted, names the unit, and
+  prints the `gcloud compute ssh <node> --zone=<zone> --project=<project> --tunnel-through-iap`
+  command to inspect it and, after a restart, the `cp -p parameters.yaml.bak-<UTC>
+  parameters.yaml && systemctl restart telcoin` rollback.
+- Every wait has a deadline and prints when it gives up: a free SSH slot, the guard (its sample
+  count), the epoch wait, the unit's start (600 s, `PARAMS_APPLY_UNIT_SECS`), back in consensus, and
+  the session's own alarm.
+- A dry run never reaches a live call: each one sits behind a `[ "${DRY}" = 0 ] || return` guard on
+  the line before it, and the record is never written. `tests/test_params_apply.py` runs every arm
+  file under a fake `gcloud` that prints `REACHED` and exits 9, and asserts it is never called.
+
+### Readback and tags
+
+After each start the session prints the newest `node switches` line logged since the unit's stop.
+That line (message `node switches`, target `node::switches`, one `key=value` per switch in the
+order of `switches.tsv`) must come from this start: a line whose own time is before the stop is
+stale and fails the node. Every switch of the arm must read back with the arm's value, compared
+by value: the node prints durations in humantime form (`150ms`, and `0s` for zero), which match
+the tsv's `150ms` and `0ms`. A switch missing from the line fails the node, unless it is optional
+and the arm leaves it at its default.
+With `--set`, only the switches `--set` names are compared; with timing keys alone, none are.
+
+| tag | when |
+|---|---|
+| `PA_GUARD <node> sample=<n>/<max> rc=<0\|1\|2\|blind> <guard message>` | each guard sample |
+| `PA_GUARD_DEFER <node> ...` | a deferral (8 refusals in a row) |
+| `PA_GUARD_SUMMARY <node> samples=<n> refused=<n>` | before the stop (or the failure) |
+| `PA_EPOCH_WAIT <node> ...` / `PA_EPOCH <node> secs_left=<n> since_boundary=<n> waited=<n>` | the epoch check |
+| `PA_UNIT_LAUNCHED <unit> <UTC>`, `PA_UNIT <line of the unit's output>` | the stop/start unit |
+| `PA_PROGRESS_AT <UTC>`, `PA_RESTART_SECS <n>` | back in consensus; seconds from the stop |
+| `PA_SWITCH_LINE <line>` | the `node switches` line read back |
+| `SWITCHES_OK <node> <key>=<value> ...` | the node's switches read back, in `switches.tsv` order |
+| `SWITCHES_CURRENT <node> <key>=<value> ...` | a node already in the arm (not restarted): its running line |
+| `PARAMS_OK <node> max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms\|->` | the timing readback of a restarted node |
+| `PARAMS_CURRENT <node> ...` | the same for a node not restarted (nothing-to-change arms) |
+| `PA_FAIL <node> <why>` | the node that stopped the run |
+| `ARM_READY <arm> ready=<UTC> restarted=<n> nodes=<n>` | every node is in the arm |
+
+The `PA_*` lines from the node come indented in the run's output; the tool's own tags start the
+line. `PARAMS_OK` is printed only once all of these hold:
+
+- `eth_chainId` answers on `127.0.0.1:8545`, with the chain id the node had in phase A;
+- the node's consensus moved past where it was before the restart. A validator needs a
+  `quorum reached` or `header proposed` line whose (epoch, round) is above the highest one in the
+  last 20000 lines before the restart. An observer needs a consensus number (`consensus_number=`,
+  `got new consensus <n>/`, `last_consensus_height=`) above the one it had. Block height is no
+  measure: an idle chain stays at block 0;
+- the boot lines since the restart (`Max header delay set to <n> ms` and the min header delay, max
+  batch delay and vote timeout lines) show the file's values, which proves the node reads the file
+  that was rewritten. A missing boot line is noted, not fatal;
+- the file read back gives the planned values. `max`, `min`, `batch` and `vote` are in ms, `thr` is
+  `header_num_of_batches_threshold`, and `-` means the file does not have the key (the node's
+  default applies);
+- the switches read back (`SWITCHES_OK`), when the arm has any.
 
 ### Nodes file
 
@@ -276,14 +391,16 @@ validator-4-devnet   europe-west4-a              tn-devnet   validator
 observer-5-devnet    europe-west2-b              tn-devnet   observer
 ```
 
-On a four-validator committee one node down leaves no fault margin; make sure the other three are
-in consensus before an arm starts.
+On a four-validator committee one node down leaves no fault margin; the guard then needs every
+other member in the counted commit, and resamples until it sees them.
 
 `--from-config` reads the bench fleet from `benchmark/config.sh` (it needs `BENCH_RUN_ID`), writes
 it to `results/<run>/nodes.txt` with every node's `hostdatadir` set to the config's
-`VALIDATOR_DATA_DIR`, and records into `results/<run>/manifest.json`. With `--nodes`,
-nothing from the devnet or bench config is loaded. `--validators-only` leaves observers out;
-otherwise `all:` reaches them too.
+`VALIDATOR_DATA_DIR`, takes the v2 library's directory from `TN_NODE_SCRIPTS_DIR` and the guard's
+public fallback RPC from `BENCH_GUARD_PUBLIC_RPC`, and records into `results/<run>/manifest.json`.
+With `--nodes`, nothing from the devnet or bench config is loaded (the library defaults to
+`/opt/telcoin-node-scripts`, the fallback RPC to a dead local port). `--validators-only` leaves
+observers out; otherwise `all:` and an arm file reach them too.
 
 ### Stage test first
 
@@ -294,57 +411,84 @@ BENCH_RUN_ID=<run> benchmark/tools/params-apply.sh --from-config --stage-test be
 ```
 
 It runs phase A and phase B on that one node with no value change: the keys `--set` names (by
-default the two header delays) are written back with their current values, then the node restarts
-and has to come back. The saved log is `telcoin-stage-test-<UTC>.log.gz`. No arm is recorded. It
-shows that the datadir lookup, the log save, the rewrite, the restart and the health wait all work
-on that fleet's nodes before an arm depends on them.
-
-### PARAMS_OK
-
-```
-PARAMS_OK <node> max=<ms> min=<ms> batch=<ms> thr=<n> vote=<ms|->
-```
-
-One line per restarted node, printed only once all of these hold:
-
-- `eth_chainId` answers on `127.0.0.1:8545`, with the chain id the node had in phase A;
-- the node's consensus moved past where it was before the restart. A validator needs a
-  `quorum reached` or `header proposed` line whose (epoch, round) is above the highest one in the
-  last 20000 lines before the restart. An observer needs a consensus number (`consensus_number=`,
-  `got new consensus <n>/`, `last_consensus_height=`) above the one it had. Block height is no
-  measure: an idle chain stays at block 0;
-- the boot lines since the restart (`Max header delay set to <n> ms` and the min header delay, max
-  batch delay and vote timeout lines) show the file's values, which proves the node reads the file
-  that was rewritten. A missing boot line is noted, not fatal;
-- the file read back gives the planned values. `max`, `min`, `batch` and `vote` are in ms, `thr` is
-  `header_num_of_batches_threshold`, and `-` means the file does not have the key (the node's
-  default applies).
+default the two header delays) are written back with their current values, then the node stops
+and starts in its unit and has to come back. The saved log is `telcoin-stage-test-<UTC>.log.gz`
+and the unit `bench-arm-stage-test-<UTC>`. No arm is recorded. It shows that the datadir lookup,
+the guard, the epoch check, the log save, the rewrite, the unit and the health wait all work on
+that fleet's nodes before an arm depends on them. When the node logs a `node switches` line, it
+must match the file; an image without the line is noted.
 
 ### Recording
 
 With `<results-dir>/manifest.json` present (`--results-dir`, or `results/<run>` with
 `--from-config`), each arm goes into `manifest.param_arms`. Otherwise it goes into
-`param-arms.json` beside the nodes file, as `{"param_arms": [...]}`.
+`param-arms.json` beside the nodes file, as `{"param_arms": [...]}`. The fields are frozen in
+`benchmark/arms/MANIFEST-FIELDS.md`:
 
 ```json
-{"name": "a1", "begin": "2026-10-06T14:00:05Z", "end": null,
- "nodes": {"bench-validator-01": {"max_header_delay": "600ms", "min_header_delay": "300ms"}}}
+{"name": "p1-mdbx-advice", "begin": "2026-11-12T03:10:05Z", "end": null, "via": "params-apply",
+ "file": "benchmark/arms/p1-mdbx-advice.arm", "sha256": "<64 hex>",
+ "switches": {"quorum_exec_block": "false", "...": "...", "mdbx_random_advice": "true", "...": "..."},
+ "nodes": {"bench-observer-11": {"mdbx_random_advice": "true"}},
+ "host": [{"step": "evict-mdbx", "value": null,
+           "nodes": {"bench-observer-11": {"resident_pages_before": 812345, "resident_pages_after": 0}}}],
+ "restart_secs": {"bench-observer-11": 41.0}, "guard": {"bench-observer-11": {"samples": 1, "refused": 0}},
+ "marks": [], "ready": "2026-11-12T03:19:41Z"}
 ```
 
-- `begin` is the first restart of the arm, by the node's clock (the clock its log uses).
-- `end` stays `null` until the next arm begins, which sets it to that arm's `begin`, or until
-  `--close-arm <name>` sets it to now.
-- `nodes` holds every node the arm's values reach, with values as written. A node that already had
-  them is included even though it was not restarted.
-- When every node already has the arm's values (a sweep's baseline arm), nothing restarts and the arm
-  is still recorded, with `begin` = now by the operator's clock and `"no_restart": true`. The tool
-  first prints each node's `PARAMS_CURRENT` line from the file phase A read, and refuses (nothing
-  recorded) when one of them disagrees or a node's container is not running.
+- `begin` is the arm's first stop, by the node's clock (the clock its log uses). The arm is opened
+  there, which closes the arm open before it (`end` = this `begin`) and that arm's open marks.
+- `end` stays `null` until the next arm begins or `--close-arm <name>` sets it to now.
+- `via` is `params-apply`. `file` is the arm file, repo-relative (absolute for a file outside the
+  repository), or `null` for an arm given with `--set`. `sha256` and `switches` (every row of
+  `switches.tsv`, defaults included, values as strings) come with an arm file only.
+- `nodes` holds, for an arm file, the keys rewritten on each restarted node (`{}` for a node
+  restarted with nothing to rewrite). For `--set`, as before: every node the values reach, with the
+  values as written, including a node that already had them and was not restarted.
+- `host` lists the host steps per node, `restart_secs` the seconds from the stop to consensus
+  progress, `guard` the samples taken before the node's stop and how many refused.
+- `ready` is the last node's consensus progress plus 120 s (`PARAMS_APPLY_SETTLE_SECS`); an arm's
+  measurement window is `ready` to `end`. `ARM_READY` prints it as soon as the last node read back,
+  so it can be up to 120 s ahead: a caller that starts a blast waits until then.
+- `marks` are sub-windows: `--mark <label>` opens one on the open arm (`begin` = now, `end` null),
+  `--end-mark <label>` ends it, and the next `--mark`, the next arm or `--close-arm` ends an open
+  one. Labels follow the arm-name rule and are unique within an arm. These commands contact no node.
+- When every node already has the arm (the file and its running switches), nothing restarts and the
+  arm is still recorded, with `begin` = now by the operator's clock, `"no_restart": true` and `ready`
+  = `begin`. The tool first prints each node's `PARAMS_CURRENT` (and `SWITCHES_CURRENT`) line from
+  what phase A read, and refuses (nothing recorded) when one of them disagrees or a node's container
+  is not running.
 - `failed: <node>` appears when the run stopped at that node.
 
 An arm name is `[a-z0-9-]` and unique in the record. `report/provenance.py` accepts a logged value
 when it is the fleet value, the node's step-9 override, or a value an arm begun by then set for
-that node. `report/make_bundle.py` publishes the arms as rows in `consensus.param_arms`.
+that node. `report/make_bundle.py` publishes the arms as rows in `consensus.param_arms` (it reads
+`name`, `begin`, `end`, `nodes` and `failed`), and `tools/cert-rate.py --windows` cuts its windows
+from them.
+
+### Resuming after a failure
+
+1. Read why: the `PA_FAIL` line, then the node itself (`sudo systemctl status <unit>`,
+   `sudo cat /var/lib/bench-logs/arm-units/<unit>.out`, `sudo docker logs --tail 200 telcoin`).
+   The unit has started the node again whatever failed after its stop.
+2. Fix the cause. To undo the failed node instead, use the rollback line the tool printed.
+3. Run the same arm again under a new name, for example
+   `--arm-file benchmark/arms/v-vote.arm --arm v-vote-r2`. Nodes already in the arm (their file and
+   their running switches match it) are not restarted; the failed node and the ones after it are.
+   The record keeps the failed entry, closed by the new one's `begin`.
+
+A guard that deferred twice or an epoch wait that gave up left the node as it was; run again once
+the committee or the epoch allows it.
+
+### Host steps
+
+The arm file's `host read-ahead-kb <n>` and `host evict-mdbx` run in the unit, between the stop and
+the start (read-ahead first, the eviction last). The function that writes them is
+`host_steps_hook` in `params-apply.sh`, between the `HOOK` marker lines; its comment is the
+contract. Until it is filled in, an arm that lists a host step is refused with
+`host steps not available` before any node is contacted (a dry run prints its plan first), and
+every arm file from `p1-mdbx-advice` on is refused that way. An arm with a host step restarts every
+node.
 
 ## propose-latency
 

@@ -1,0 +1,16 @@
+# PIPE: pipelined persist, on top of POOL+LOCAL (only if pipelined_persist made the image).
+# If the image lacks it, the tool refuses this arm before any change: drop the pipelined_persist
+# line here and in every later arm.
+# Must show: the output task against max(execute, persist); tx/s; S10.
+name pipe
+param mdbx_random_advice true
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 4
+param vote_queue_fix true
+param epoch_record_state_check true
+param sealed_tx_keep true
+param digest_dedupe true
+param recovery_threads 3
+param epoch_close_task_drain true
+param pipelined_persist true
+host evict-mdbx

@@ -3,8 +3,8 @@
 
 `gcloud compute ssh <node> ... --command=...` runs the stdin script with bash on a fake node: the
 directory $PA_NODES/<node>, with /usr/local/libexec/telcoin/, /etc/telcoin/, /opt/telcoin/ and
-/var/lib/bench-logs moved into it and the node stubs ($PA_NODE_BIN: docker, systemctl, curl, date,
-sleep) first on PATH. A file
+/var/lib/bench-logs moved into it and the node stubs ($PA_NODE_BIN: docker, systemctl, systemd-run,
+curl, date, sleep) first on PATH. A file
 <node>/iap-refuse-once makes the first call fail the way IAP refuses a tunnel (4033). Every call
 appends {"argv", "stdin", "node", "start", "end", "rc"} as one JSON line to $PA_SHIM_LOG.
 Any other gcloud command fails (params-apply.sh needs none).

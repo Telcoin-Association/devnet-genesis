@@ -1,0 +1,4 @@
+# final: PLACEHOLDER for run 2. The orchestrator fills it after the user's decision at G3, and
+# deploy step 7 applies it before the first start (BENCH_ARM_FILE). Until then it is the control
+# state: every switch at its default, no host step.
+name final

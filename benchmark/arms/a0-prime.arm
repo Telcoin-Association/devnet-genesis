@@ -1,0 +1,7 @@
+# A0': every switch at its default again, after the rolling restart (noted in the record).
+# The eviction keeps the rule that every arm starts its persist comparison from an evicted cache;
+# drop the host line for a plain control.
+# Must show the drift bound: when commit us/tx moved more than 15 % against A0, only adjacent arms
+# are compared.
+name a0-prime
+host evict-mdbx

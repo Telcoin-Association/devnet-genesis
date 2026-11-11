@@ -1,0 +1,12 @@
+# V: the vote path, on top of P1.
+# Adds quorum_exec_block (own tip by default, the quorum rule for 4 rounds after an own header was
+# cancelled uncertified), vote_queue_fix and epoch_record_state_check.
+# Must show: own-header certification >= 98 % on every validator; at most f `behind` refusals per
+# header; lock_ms p95 < 1.1 s; no generator silent for more than 30 s.
+name v-vote
+param mdbx_random_advice true
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 4
+param vote_queue_fix true
+param epoch_record_state_check true
+host evict-mdbx

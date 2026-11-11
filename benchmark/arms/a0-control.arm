@@ -1,0 +1,4 @@
+# A0, control: every switch at its default, no host step (bench-5 behaviour on the bench-6 image).
+# Run 1 runs it first, on the fresh fleet that was never restarted, so harness faults show before any arm.
+# Must show bench 5's signatures: write amplification, starved validators, the resend cliff.
+name a0-control
