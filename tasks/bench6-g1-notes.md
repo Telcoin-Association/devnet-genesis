@@ -454,3 +454,68 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
   is followed by one build that walks only sealed transactions: the analysis must not read either as a regression.
 - Still to show end to end (the next e2e unit): S1 on a running fleet, S6 (failed report at the boundary), S9 (restart), a real
   queued-limit eviction (S7), and the effective mode on a live validator.
+
+## From U12b (pipelined persist, wiring; `tasks/checkpoint-bench6-u12b.md`) — still held off the integration branch
+- As built: `run()` reads the switch once. Off: `run_sequential`, the old loop moved verbatim (same sha256 of the body; the only
+  line removed from `lib.rs` is the old signature; the 27-test engine suite passes unchanged). On: `run_pipelined` drives the
+  two-slot pipeline, returns only when the queue is empty AND the pipeline is idle, lets every output in flight commit before it
+  returns an error, and fails closed if it ever has nothing to wait on.
+- Go/no-go (D7) so far: gate 3 (the epoch-close barrier test) PASS — it fails when the barrier is removed by hand; the engine's
+  existing differential test passes with the switch forced on. Gates 1 and 2 (differential proptest, persist faults): the
+  independent test unit is still running. Gate 4 (e2e sets and the 2-on/2-off fleet): next. Gate 5 (cycle ≤ 1.1 × max(execute,
+  persist)) has no measurement yet. Gate 6: the domain review approved with two Low findings, both fixed.
+- **D9 is settled by the mechanics, not by taste: 3 with pipelining on.** A pipelined node that keeps up reads 2 outputs behind
+  (one committing, one building), so a bound of 2 would hold the gate closed whenever there is load. The arm files `bound`,
+  `gr150`, `gr100` carry `pipelined_persist true` with a bound of 2 today: they change to 3 if pipelined persist makes the
+  image, and stay at 2 with `pipelined_persist` removed if it does not. The epoch-close backlog gauge reads one higher too.
+- D52. What "executed" means under pipelining: durable AND announced (recorded at the commit), as in the sequential loop. An
+  output that is built but not durable counts as behind for the admission bound and the epoch-close gauge.
+- D53 (was D8). With the switch on, RPC `latest` can show blocks of up to two outputs that are not durable yet (sequential:
+  one). A crash loses them and replay rebuilds the same blocks. For the PR text.
+- D54. The barrier's stated reason in the design was too strong: what keeps the next epoch's first output off the closing block
+  is the forwarder sending nothing past a close (as today); the engine-side barrier is a second line. The docs now say so.
+- D55. The pipelined series (`tn_engine_unpersisted_outputs`, `…built_height`, `…persist_wait_seconds`,
+  `…commit_interval_seconds`, `…close_barrier_holds_total`) export 0 on a sequential node; the sequential arm's cycle is
+  `execution_duration_seconds`. In pipelined mode `execution_duration_seconds` and the `output execution task finished` line's
+  `task_ms` run from build start to COMMIT: the per-output time is not comparable across the two modes without the lap fields.
+- D56. `proc_write_bytes` on `persisted output` is process-wide: with a build overlapping the persist it also holds that
+  build's log writes. Treat it as an upper bound in pipelined arms; the page-operation deltas are unaffected (single writer).
+- D45 stands (5-minute read-transaction timeout). A stale output halts a pipelined node where the sequential one would run it
+  twice (info).
+- The test delay hook (`TN_TEST_EXECUTION_DELAY_MS`) only slowed the sequential task; the orchestrator added it to the
+  pipelined build task so the slow-executor e2e tests mean the same thing with the switch on.
+
+## From H12 (rehearsal of run 1's data path; `tasks/checkpoint-bench6-H12.md`)
+- The real `run-arms.sh`, arm tool and blast driver were walked in a sandbox through: a failed blast retried, a blast failing
+  twice (the sequencer stops with the arm open), a resume (`--from-arm`), and the return to defaults. Every start line of
+  every node matched its arm (44 of 44), the resumed arm included.
+- **One bug that would have mismeasured run 1, fixed:** the summary tool counted FAILED hand-run blasts as measured rows (it
+  never read their return code) and gave a resumed arm the wrong role. It now builds an entry for a hand-run blast from the
+  blast's own records, picks the arm by its begin, and lists failed blasts as "not measured". Bench 5's self-check is
+  unchanged (EXIT 0).
+- Driver gaps, ranked (none loses a measurement; all are closed by the next harness unit before run 1 unless noted):
+  1. The sequencer's own log (retries, pool-gate readings, the planned epoch boundary) is written outside `results/`, so the
+     archive and the bundle never see it.
+  2. No hand-run blast writes `blasts[]`, so the report's window helpers (light, load, floor blast) find nothing in a run made
+     of hand runs. Fix at the root: the blast driver records the same entry for a hand run as for a scripted one.
+  3. `blast_runs[]` lacks kind, senders, window and phase seconds (closed by 2).
+  4. `blast_runs[].log` points at the path a log had before it was archived.
+  5. Reader side: `stage-latency.py` without `--windows` keeps failed blasts; the phase windows of three tools come from the
+     live manifest only (the last blast); `cert-rate.py` has no window for an idle mark.
+- D57. The rehearsal module takes about 4 minutes: keep it in the gate (recommended: it is the only test of the whole data
+  path) or run it on request.
+
+## From ST-U12a (differential and persist-fault tests of the pipelined core; `tasks/checkpoint-bench6-st-u12a.md`)
+- **Go/no-go gates 1 and 2: PASS, no finding against the core.** An independent agent that had not written the core drove the
+  pipeline against the sequential path as an oracle: 64 generated cases by default and a 400-case hunt (2,776 blocks, 711
+  seeded builds, 253 commits landing in the middle of the next build), with the previous commit released before, during or
+  after each build. Every block, receipt, trie digest and engine update matched. The fault property (a persist failing early
+  or late, then restart and replay) held in 400 of 400 cases: the database ends at the last durable output, memory is rolled
+  back, the pipeline refuses to continue, and the replay reaches the oracle's chain.
+- The tests bite: three hand mutations of the core (a seeded build that skips the committing output's deltas; an announce
+  before the persist; a rollback that keeps a block) fail 7, 8 and 3 of the 8 new tests.
+- Limits, stated: the database comparison covers blocks, receipts and the trie and hashed tables, not plain state, change sets
+  or history (a divergence there would show in later roots within a case); a commit landing between two blocks of the next
+  build is reached by timing here — the wiring unit's own test forces it deterministically.
+- Gate 5 (the cycle bench) was not written by this unit: a separate small unit writes it; the orchestrator runs it on a quiet
+  host.

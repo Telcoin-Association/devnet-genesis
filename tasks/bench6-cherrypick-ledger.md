@@ -51,3 +51,6 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 54 | U6b | sealed-keep | sealed_tx_keep (builder side: ticket, mark on quorum ack, selection skip) | 760813fa0 | c08d78c33 | #1807 | | |
 | 55 | U6b | sealed-keep | — (orphan pass clears sealed marks on every pool; conflict with U5's tests in close_epoch.rs resolved by keeping both test sections) | 11c813596 | 3bbcbe226 | #1807 | | |
 | 56 | orch (U6b's patch, reworked) | sealed-keep | — (node wiring: the worker's sealing mode reaches the builder; without it the switch marks nothing) | — | 3ee6b629f | #1807 | | |
+| (held) | U12b | pipelined-persist | pipelined_persist (wiring: run_sequential verbatim + run_pipelined; metrics; persist hooks) | 2e2d5f3b4..1f9dde523 (7) | b6/pipe-stack a89ff912c..1c6ba2ef7 | — | | |
+| (held) | orch | pipelined-persist | — (execution delay hook in the pipelined build task) | 2ea56e7dd | b6/pipe-stack 27de9976e | — | | |
+| (held) | ST-U12a | pipelined-persist | — (differential + fault tests) | 2f763333f | b6/pipe-stack a2d2c3255 | — | | |
