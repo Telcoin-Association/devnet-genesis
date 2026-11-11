@@ -307,3 +307,15 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - H1b: `pool_at_start` is read from Prometheus one second before each blast's start (the node's RPC does not expose txpool),
   recorded per blast, with a warning above 1,000 queued; record-only as proposed in D12 (no blocking). A 150-s light-blast lead is
   safe because the late-start guard cuts every create at start − 30 s: a slow create costs one unsent attempt, never a late blaster.
+
+## From U4a (recovery pool) and U0c (plumbing)
+- The dedicated pool is process-wide, built lazily on the first non-empty output, so a failed build warns mid-run (then recovery
+  uses the global pool; never a panic). `recovery_threads` has no upper cap. Dropping a recovery handle at an epoch close does not
+  cancel its job: up to 8 leftover recoveries can occupy a 3-thread pool and the next epoch's first job waits behind them (the
+  global pool behaved the same, a small pool makes it more visible) — watch `recover_ms` after boundaries in the POOL+LOCAL arm.
+- Rayon's global pool is also used on the execute path by `finish` (two sites) and by persist (sorts); the state root is
+  single-threaded. D4 (a separate pool for root/finish) therefore reduces to "finish only"; the contention bench (U4b) measures it.
+- D36. Criterion is not a dependency of the workspace; the orchestrator did not add it. The contention bench is a plain timed
+  binary like the repo's existing bench. Confirm, or ask for Criterion (a new dependency tree in `Cargo.lock`).
+- The switch line renders a zero duration as `0s` and a duration such as 1.5 s as `1s 500ms` (a space): harness readers compare
+  durations by value, and the arm values in use (150 ms, 100 ms) are unaffected.

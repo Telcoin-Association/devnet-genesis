@@ -32,3 +32,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 22 | U0b | bench6-e2e-scaffold | — | a045aaebc | b09d65945 | | | |
 | 23 | U2 | voter-lock | vote_queue_fix | c56b33c0a | 2b9a69925 | #1804 | | |
 | 24 | U2 | tracker-drain | — (gauge) | 12bb5bb45 | 16695b20a | #1806 | | |
+| 25-36 | U0c | bench6-switches, mdbx-advice, recovery-pool ×2, sealed-keep ×2, inflight-bound ×2, pipelined-persist ×4 | (plumbing; no behaviour) | 644569519..8c64788b8 (12) | 16695b20a..7cfe52acd | | | |
+| 37 | U4a | recovery-pool | recovery_threads | 4a9e1c014 | aa71a50f8 | #1805 | | |
