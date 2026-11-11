@@ -39,3 +39,4 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 40 | U6a | sealed-keep | sealed_tx_keep (store + pool side) | da24d6780 | edc616c0d | #1807 | | |
 | 41-44 | U5 | tracker-drain | epoch_close_task_drain, epoch_record_state_check | 9277bf947, 1f00d60a2, 115be0879, 584f86a83 | 2783dfa79..42b2a6f39 | #1806 | | |
 | (held) | U12a | pipelined-persist | (core; not integrated until last) | e74947cca, 938493304, fd81652d2 | — | — | | |
+| 45 | U4b | recovery-pool | — (bench binary) | e3f6c4ba3 | d0824a0a4 | #1805 | | |
