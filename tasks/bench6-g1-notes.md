@@ -638,3 +638,26 @@ transaction; "exactly once" is checked by walking every block on all four nodes.
 - A process that outlives its driver for more than `LAUNCH_LEFT_WAIT_SECS` (60) ends the segment log with `LEFT_RUNNING` and
   exit 125 instead of an rc line. With `BENCH_TUNNEL_MODE` other than `ssh` the deploy's tunnel would count as such a process;
   the benchmark uses the default ssh tunnels (own session), so nothing changes for it.
+
+### mdbx-advice (#1802) — APPROVE WITH FOLLOW-UPS; nothing Critical, High or Medium; no code change needed before the image (report `tasks/bench6/review/mdbx-advice-report.md`)
+- Switch off: nothing that writes data, returns an error or feeds consensus changes; the accepted per-persist counters run
+  (≈ 115 µs) and, at open, one read transaction and one `/proc/self/maps` scan. Mixed fleet: cannot fork, reject or stall —
+  the switch reaches only process-local mapping flags, page-cache behaviour, metrics and a debug line.
+- The one `unsafe` block (the `madvise` call) is sound: libmdbx never moves the map at run time in the node's mode. No failure
+  can fail the open or a persist, or panic. The change opens no second handle and writes no read-ahead or prefault state.
+- D65 (Low, confirmed) — **a second variable in the advice arm:** on kernel 6.3 and later `MADV_RANDOM` also makes reclaim
+  ignore accessed bits on the advised range, so under page-cache pressure the fix arm can evict and refault freshly written
+  pages sooner. The persist sampler already records `workingset_refault_file` and `pgmajfault`; the arm summary reports
+  their per-arm deltas next to the amplification. If the database's working set fits in memory, the effect is nil.
+- D66 — label an arm by what the node measured (`mdbx_advised_bytes` > 0 and no "not applied" warning), not by the switch
+  line. Fixed in code too (c88936999): "advice applied" is logged only when bytes were advised.
+- D67 (for the write-up and the PR): the control arm is NOT "kernel default" — with the switch off libmdbx's own advice
+  covers the pages in use at open and at each growth step; the advice is re-applied only when the map's upper limit
+  changes, not on growth. Docs corrected (c88936999).
+- D68 (pre-existing, outside this change; its own upstream issue): every Prometheus scrape reaches reth's environment-level
+  `stat()`, which can run on the persist's live write transaction from the metrics thread. Code path verified, consequence
+  not assessed (benches 3-5 ran with scrapes; no crash recorded). Fix sketched: take the page size from the per-table
+  stats the hook already reads. Relevant to this program's standing question (what on a real node differs from the local
+  probe): to be checked against the persist root-cause list.
+- Nine Info items for the upstream PR (probe cost inside two lap fields, the non-Linux stub, weak assertions, an unused
+  open-time lookup with the switch off, and others) are in the report.
