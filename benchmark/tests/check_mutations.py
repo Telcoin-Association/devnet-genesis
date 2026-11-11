@@ -1316,12 +1316,12 @@ cases = [
      'test_probe.LiveFakeTests.test_all_deletes_the_vm_when_interrupted'),
     # every arm sets the boot read_ahead_kb
     ('benchmark/benchmark-probe.sh',
-     '    if [ "${step}" = ra16 ]; then ra=16; ral=16; else ra="${BOOT_RA_KB}"; ral="<boot value>"; fi\n',
+     '    if [ "${step}" = ra16 ]; then ra=16; ral=16; else ra="$(rec_boot_ra "${e}")"; ral="<boot value>"; fi\n',
      '    if [ "${step}" = ra16 ]; then ra=16; ral=16; else ra=""; ral="<boot value>"; fi\n',
      'test_probe.DryRunTests.test_arm_commands'),
     # the finish removes the arm's DB
     ('benchmark/benchmark-probe.sh',
-     'rm -f -- "\\$D/mdbx.dat" "\\$D/mdbx.lck" "\\$D/probe-meta.txt" "\\$B/data/${name}.appender.log"\n',
+     'rm -f -- "\\$D/mdbx.dat" "\\$D/mdbx.lck" "\\$D/probe-meta.txt" "${ddr}/${name}.appender.log"\n',
      '\n',
      'test_probe.DryRunTests.test_plan_matches_the_golden_file'),
     # the run deadline skips an arm
@@ -1341,8 +1341,8 @@ cases = [
      'test_probe.LiveFakeTests.test_a_start_session_that_dropped_is_settled_by_the_wait'),
     # the census warm-up before the read_bytes count
     ('benchmark/benchmark-probe.sh',
-     'timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; timeout 20 fincore',
-     'timeout 20 fincore',
+     'timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; resof "$C" >/dev/null',
+     'resof "$C" >/dev/null',
      'test_probe.DryRunTests.test_plan_matches_the_golden_file'),
     # core expands to the never-cut eight
     ('benchmark/benchmark-probe.sh',
@@ -1356,8 +1356,8 @@ cases = [
      'test_probe.LiveFakeTests.test_all_runs_the_arms_and_writes_the_summary'),
     # a prefault that dropped fails the safety arm
     ('benchmark/benchmark-probe.sh',
-     'else .outputs_grown_without_prefault == 0 end)}) as $c',
-     'else .outputs_grown_without_prefault >= 0 end)}) as $c',
+     'else .outputs_grown_without_prefault == 0 end),',
+     'else .outputs_grown_without_prefault >= 0 end),',
      'test_probe.LiveFakeTests.test_the_safety_arm_fails_when_its_prefault_drops_and_is_incomplete_alone'),
     # a missing reference is incomplete, never a pass
     ('benchmark/benchmark-probe.sh',
@@ -1379,7 +1379,72 @@ cases = [
      'DEADLINE_MIN=120 ARM_DEADLINE=900',
      'DEADLINE_MIN=100 ARM_DEADLINE=900',
      'test_probe.DryRunTests.test_deadlines_in_the_rendered_scripts'),
+    # H17. Setup requires no fincore
+    ('benchmark/benchmark-probe.sh',
+     'TOOLS_REQUIRED="python3 systemd-run ',
+     'TOOLS_REQUIRED="fincore python3 systemd-run ',
+     'test_probe.DryRunTests.test_setup_checks_its_tools_and_needs_no_fincore'),
+    # the safety arm reads residency with the census tool when fincore is missing
+    ('benchmark/benchmark-probe.sh',
+     '    reader=census; resof() { timeout 20 python3 "$C" --file "$1" --resident-only 2>/dev/null',
+     '    reader=census; resof() { timeout 20 fincore -n -r -o PAGES "$1" 2>/dev/null',
+     'test_probe.DryRunTests.test_the_safety_censuses_read_residency_without_fincore'),
+    # a reader that moved residency fails the safety arm
+    ('benchmark/benchmark-probe.sh',
+     '(.quiet_runs == 5 and .quiet_steady == 4)',
+     '(.quiet_runs == 5)',
+     'test_probe.LiveFakeTests.test_the_safety_arm_fails_when_its_reader_moved_residency'),
+    # every arm stamps the probe's exit (the sampler window's end)
+    ('benchmark/benchmark-probe.sh',
+     'wait "$p" || rc=$?\ndate +%s > "$A/probe_end"\n',
+     'wait "$p" || rc=$?\n',
+     'test_probe.DryRunTests.test_arm_commands'),
+    # the write counts are taken over the measured outputs only
+    ('benchmark/benchmark-probe.sh',
+     '$t.rows | map(select(.[$t.c.warm] == "0"))',
+     '$t.rows | map(select(.[$t.c.warm] != "2"))',
+     'test_probe.LiveFakeTests.test_all_runs_the_arms_and_writes_the_summary'),
+    # a column the source lacks is n/a, never 0
+    ('benchmark/benchmark-probe.sh',
+     'flush_ops_med: (vals("fs_flush_cycle") | med), mdbx_syncs_med',
+     'flush_ops_med: (vals("fs_flush_cycle") | med // 0), mdbx_syncs_med',
+     'test_probe.LiveFakeTests.test_the_summary_says_n_a_where_a_source_lacks_a_value'),
+    # the binding constraint is the larger share of a cap
+    ('benchmark/benchmark-probe.sh',
+     'elif .iops_pct >= .mibps_pct then "iops" else "throughput" end',
+     'elif .iops_pct >= .mibps_pct then "throughput" else "iops" end',
+     'test_probe.LiveFakeTests.test_all_runs_the_arms_and_writes_the_summary'),
+    # --disks both: the second record of an arm runs on the local SSD
+    ('benchmark/benchmark-probe.sh',
+     '"${e%%|*}_nvme|${e#*|}|nvme|${e%%|*}"',
+     '"${e%%|*}_nvme|${e#*|}|hyperdisk|${e%%|*}"',
+     'test_probe.LiveFakeTests.test_both_disks_runs_each_arm_on_each_device_and_pairs_them'),
+    # an nvme record starts only on the local SSD's mount
+    ('benchmark/benchmark-probe.sh',
+     '    if [ "$(rec_dev "${e}")" = nvme ]; then\n',
+     '    if false; then\n',
+     'test_probe.LiveFakeTests.test_both_disks_runs_each_arm_on_each_device_and_pairs_them'),
+    # setup prepares the local SSD
+    ('benchmark/benchmark-probe.sh',
+     '    [ "${DISKS}" != both ] || script_setup_nvme\n',
+     '    true || script_setup_nvme\n',
+     'test_probe.LiveFakeTests.test_both_disks_runs_each_arm_on_each_device_and_pairs_them'),
+    # the safety arm's reference is on the same device
+    ('benchmark/benchmark-probe.sh',
+     'rk="${ref}"; [ -z "${ref}" ] || [ "${DISKS}" != both ] || rk="${ref}_${dev}"',
+     'rk="${ref}"',
+     'test_probe.LiveFakeTests.test_both_disks_runs_each_arm_on_each_device_and_pairs_them'),
+    # the local-SSD shape's maintenance policy
+    ('benchmark/benchmark-probe.sh',
+     'MACHINE_TYPE="${LSSD_TYPE}"; MAINT=TERMINATE; fi',
+     'MACHINE_TYPE="${LSSD_TYPE}"; MAINT=MIGRATE; fi',
+     'test_probe.LiveFakeTests.test_both_disks_runs_each_arm_on_each_device_and_pairs_them'),
     # H11. The launchers and the arm sequencer.
+    # H17: the probe's device knob reaches the driver
+    ('benchmark/launch/launch.sh',
+     '[ -z "${disks}" ] || CMD+=(--disks "${disks}")',
+     'true || CMD+=(--disks "${disks}")',
+     'test_launch.LaunchStartTests.test_the_probe_passes_its_disks_knob'),
     ('benchmark/launch/launch.sh',
      '[ -z "${PLACEHOLDERS}" ] || refuse "placeholders not filled',
      'true || refuse "placeholders not filled',

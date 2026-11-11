@@ -248,6 +248,26 @@ The orchestrator watches what these checks cannot see:
 4. Wait for `== probe rc=`; the line before it is `DOWN_OK` (the VM and its disk are gone) or `DOWN_INCOMPLETE` (run `benchmark-probe.sh down` again).
 5. Read `results/<run>/probe/SUMMARY.txt` before gate G1.
 
+The probe has two modes, chosen by `LAUNCH_PROBE_DISKS` in the env file (launch.sh passes it as `--disks`).
+
+| mode | knob | VM | records | run, start to `DOWN_OK` |
+|---|---|---|---|---|
+| hyperdisk (the default) | unset | the fleet's shape: `c3-highcpu-8`, the 100 GB `hyperdisk-balanced` boot disk at 20,000 IOPS and 800 MiB/s | one per arm, on the boot disk; all 20 arms | about 85 min: 5 to create and settle, 20 arms of 2.5-4 min plus about 40 s of sessions each, 2 to collect |
+| both | `LAUNCH_PROBE_DISKS=both` with `LAUNCH_PROBE_ARMS=g1-node,g5,g8-nowritemap` | `c3-standard-8-lssd` (`--lssd-machine-type`): the same boot disk, plus its first local NVMe SSD made ext4 and mounted at `/mnt/bench-probe-nvme` with the options the image's fstab gives `/` | two per arm: `<arm>@hyperdisk`, then `<arm>@nvme` | about 60 min for the six arms: 37 of probe time, 8 of sessions, 5 to create, up to 2 for the mkfs, 2 to collect |
+
+`both` with all 20 arms needs about 150 min, more than the 120-min run deadline: the driver skips the arms that could not end in time, so run it with the subset.
+The subset answers whether the fix (whole-map `MADV_RANDOM`) helps or hurts on each device: `g1-node` is the node's own shape, `g5` is the prefault on/off square with and without the fix (`g5-7default`, `g5-7default-mrand`, `g5-7pfoff`, `g5-7pfoff-mrand`), and `g8-nowritemap` is the no-WRITEMAP write path.
+Add `g6-peer,g6-peer-mrand` (about 15 min more) to see the fix against a foreign read-ahead opener as well.
+`c3-standard-8-lssd` has twice the fleet's RAM (32 GB against 16), so compare `@hyperdisk` with `@nvme` inside one run, never a `both` run's numbers with a hyperdisk run's.
+The local SSD goes with the instance: the run creates the same two resources in both modes, and `DOWN_OK` covers both.
+
+`SUMMARY.txt` starts with `PROBE_RUN` (the mode, the shape, and which reader gave resident pages: `fincore`, or `census` when the image has no fincore).
+Each `PROBE_ARM` line now ends with the device writes per measured output: `wr_ops/out` (write requests), `wr_kib_mean` and `wr_kib_p90` (bytes per request), `flushes/out`, `syncs/out` (MDBX's own msync and fsync calls), `commit_wr_ops/out`, `sync_ms`, `dev_ms/wr` and `dev_ms/flush` (the sampler's diskstats time per request), and the arm's totals.
+The `BIND` line under it compares the commit's write rate with the device's provisioned caps (`commit_iops=<rate>/<cap> (<share>)`, the same for MiB/s) and names the larger share; on the local SSD, which has no provisioned cap, it reads `n/a (no provisioned cap)`.
+An arm with fewer bytes that pays for them in requests shows a smaller `device/mdbx` and a larger `wr_ops/out` and `commit_iops` share.
+With `both`, a `PAIR <arm> hyperdisk/nvme` line follows each arm's two records with their main numbers side by side.
+A value the source does not record reads `n/a`, never 0.
+
 ## Run 1: the arms
 
 | # | launch | wait for | read before the next segment |

@@ -4,7 +4,7 @@
    labels benchmark=1,network=bench,bench-run=r20991231-0101,tn-role=probe; results benchmark/results/r20991231-0101/probe/
    deadlines: run 120 min, arm 900 s, ssh ready 300 s, delete 300 s each
    read_ahead_kb: each arm sets it before it starts (the value the VM booted with; 16 for host step ra16, put back after)
-   arms (19):
+   arms (20):
      g0-baseline            --arm 1 --preload-gb 6 --outputs 40 --warmup 3
      g1-node                --arm 7 --preload-gb 0.05 --txs 6500 --outputs 150 --warmup 30 --pause-ms 1000 --reader-hold 20 --overflow-per-tx 0.05
      g2-readall             --arm 1 --preload-gb 6 --outputs 40 --warmup 3 --cache-prep readused
@@ -14,6 +14,7 @@
      g5-7default            --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10
      g5-7pfoff              --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --prefault-off
      g5-7pfoff-mrand        --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --prefault-off --madvise-random
+     g5-7default-mrand      --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --madvise-random
      g6-peer                --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --peer-open-at 60
      g6-peer-nr             --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --peer-open-at 60 --peer-nordahead
      g6-peer-mrand          --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --peer-open-at 60 --madvise-random
@@ -43,7 +44,7 @@
 ----- remote script ssh-ready -----
 echo PROBE_SSH_READY
 ----- end ssh-ready -----
-== run: 19 arm(s), each under a 900-s watchdog; the run ends by start + 120 min
+== run: 20 arm(s), each under a 900-s watchdog; the run ends by start + 120 min
 -- upload the bundle and settle the VM
   + [alarm 300s] gcloud compute scp \<bundle:\ \<--bin\>\,\ tools/folio-census.py\,\ node-persist-sampler.sh\,\ SHA256SUMS\>.tar.gz bench-probe-r20991231-0101:/tmp/bench-probe-bundle.tar.gz --zone=us-west2-a --project=<project> --tunnel-through-iap --scp-flag=-o\ ConnectTimeout=20
   + [alarm 900s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<setup.sh
@@ -64,9 +65,16 @@ mkdir -p "$B/bin" "$B/data" "$B/arms" || fail "mkdir $B"
 tar -xzf /tmp/bench-probe-bundle.tar.gz -C "$B/bin" || fail "cannot unpack /tmp/bench-probe-bundle.tar.gz"
 ( cd "$B/bin" && sha256sum -c --quiet SHA256SUMS ) || fail "bundle checksums differ"
 chmod 0755 "$B/bin/mdbx-writeback-probe" "$B/bin/node-persist-sampler.sh"
-for t in python3 fincore systemd-run findmnt lsblk timeout sha256sum; do command -v "$t" >/dev/null 2>&1 || fail "no $t"; done
+# Every tool the remote scripts and the sampler need (TOOLS_REQUIRED: all from Ubuntu 24.04's base
+# packages) and every module the census and the host probe import. fincore is optional: Ubuntu 24.04
+# moved it to util-linux-extra, which the image lacks. Without it, residency comes from the bundled
+# census tool's --resident-only (mincore over a map nothing reads), here and in the sampler.
+for t in python3 systemd-run systemctl journalctl findmnt lsblk timeout sha256sum stat tar gzip awk; do command -v "$t" >/dev/null 2>&1 || fail "no $t"; done
+python3 -c 'import argparse, array, collections, ctypes, ctypes.util, itertools, json, mmap, os, re, shlex, signal, subprocess, sys, time' >/dev/null 2>&1 || fail "python3 cannot import every module the census and the host probe use"
+timeout 60 python3 "$B/bin/folio-census.py" --file "$B/bin/folio-census.py" --resident-only >/dev/null 2>&1 || fail "the census tool's --resident-only does not run here"
+if command -v fincore >/dev/null 2>&1; then rr=fincore; else rr=census; fi
 "$B/bin/mdbx-writeback-probe" --help >/dev/null 2>&1 || fail "the probe binary does not start here (glibc?)"
-echo "SETUP_OK kernel=$(uname -r)"
+echo "SETUP_OK kernel=$(uname -r) resident_reader=$rr"
 ----- end setup -----
 -- host probe (bench_host_probe_script)
   + [alarm 120s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<host-probe.sh
@@ -106,6 +114,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -192,6 +201,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -278,6 +288,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -364,6 +375,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -453,6 +465,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -539,6 +552,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -625,6 +639,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -711,6 +726,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -797,6 +813,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -853,6 +870,93 @@ chmod 0644 "$T"
 echo "ARM_TAR g5-7pfoff-mrand bytes=$(stat -c %s "$T") sha256=$(sha256sum "$T" | cut -d' ' -f1)"
 ----- end arm-g5-7pfoff-mrand-finish -----
   + [alarm 300s x3] gcloud compute scp bench-probe-r20991231-0101:/var/tmp/bench-probe-g5-7pfoff-mrand.tar.gz benchmark/results/r20991231-0101/probe/arms/g5-7pfoff-mrand.tar.gz --zone=us-west2-a --project=<project> --tunnel-through-iap --scp-flag=-o\ ConnectTimeout=20
+== arm g5-7default-mrand: --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --madvise-random
+  + [alarm 180s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<arm-g5-7default-mrand-start.sh
+----- remote script arm-g5-7default-mrand-start -----
+# arm g5-7default-mrand: start (returns at once; the arm runs in its own unit)
+set -u
+B=/var/lib/bench-probe
+A=/var/lib/bench-probe/arms/g5-7default-mrand
+if [ -e "$A/started" ]; then echo "ARM_START g5-7default-mrand already"; exit 0; fi
+mkdir -p "$A/results" "$A/persist" || { echo "ARM_START g5-7default-mrand failed mkdir"; exit 1; }
+DEV="$(findmnt -no SOURCE --target "$B/data")"
+DISK="$(lsblk -no PKNAME "$DEV" 2>/dev/null | head -n 1)"
+[ -n "$DISK" ] || DISK="${DEV#/dev/}"
+case "$DISK" in ''|*[!a-z0-9]*) echo "ARM_START g5-7default-mrand failed disk '$DISK'"; exit 1 ;; esac
+# >>> bench-lib: bench_host_step_script read-ahead-kb <boot value>
+<rendered by bench-lib.sh>
+# <<< bench-lib: bench_host_step_script
+[ "$HOST_STEP_RC" = 0 ] || { echo "ARM_START g5-7default-mrand failed host step"; exit 1; }
+cat > "$A/unit.sh" <<'PROBE_UNIT'
+#!/bin/bash
+# probe arm g5-7default-mrand: run by systemd-run as bench-probe-arm-g5-7default-mrand; $1 = the disk under /var/lib/bench-probe/data
+A=/var/lib/bench-probe/arms/g5-7default-mrand
+cd "$A" || exit 1
+date +%s > "$A/start"
+/var/lib/bench-probe/bin/mdbx-writeback-probe --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --madvise-random --quiet-secs 10 --quiet-max-mbps 2 --quiet-retries 6 --quiet-wait-secs 20 --require-quiet --tag g5-7default-mrand --data-dir /var/lib/bench-probe/data --results-dir $A/results --disk "$1" > "$A/probe.log" 2>&1 &
+p=$!
+echo "$p" > "$A/probe.pid"
+( sleep 900; if kill -0 "$p" 2>/dev/null; then echo 1 > "$A/timed_out"; kill -TERM "$p"; sleep 30; kill -KILL "$p" 2>/dev/null; fi ) &
+w=$!
+rc=0
+wait "$p" || rc=$?
+date +%s > "$A/probe_end"
+kill "$w" 2>/dev/null
+date +%s > "$A/end"
+echo "$rc" > "$A/rc"
+touch "$A/done"
+PROBE_UNIT
+echo "/var/lib/bench-probe/bin/mdbx-writeback-probe --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --madvise-random --quiet-secs 10 --quiet-max-mbps 2 --quiet-retries 6 --quiet-wait-secs 20 --require-quiet --tag g5-7default-mrand --data-dir /var/lib/bench-probe/data --results-dir $A/results --disk $DISK" > "$A/cmd.txt"
+systemd-run --unit=bench-probe-sampler-g5-7default-mrand --collect --quiet -p RuntimeMaxSec=1500 \
+    /usr/bin/env PERSIST_PID_FILE=$A/probe.pid PERSIST_MDBX_FILE=/var/lib/bench-probe/data/g5-7default-mrand/mdbx.dat PERSIST_DATA_DIR=/var/lib/bench-probe/data \
+    PERSIST_OUT_DIR=$A/persist PERSIST_HOST=g5-7default-mrand PERSIST_INTERVAL_SECS=10 PERSIST_MDBX_EVERY_SECS=30 \
+    PERSIST_CENSUS_EVERY_SECS=60 PERSIST_CENSUS=/var/lib/bench-probe/bin/folio-census.py PERSIST_METRICS_URL=http://127.0.0.1:9/metrics \
+    /bin/bash /var/lib/bench-probe/bin/node-persist-sampler.sh || { echo "ARM_START g5-7default-mrand failed sampler"; exit 1; }
+systemd-run --unit=bench-probe-arm-g5-7default-mrand --collect --quiet -p RuntimeMaxSec=1200 \
+    /bin/bash "$A/unit.sh" "$DISK" || { systemctl stop bench-probe-sampler-g5-7default-mrand; echo "ARM_START g5-7default-mrand failed unit"; exit 1; }
+date +%s > "$A/started"
+echo "ARM_START g5-7default-mrand ok disk=$DISK unix=$(cat "$A/started")"
+----- end arm-g5-7default-mrand-start -----
+  + [alarm 420s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<arm-g5-7default-mrand-wait.sh
+----- remote script arm-g5-7default-mrand-wait -----
+# arm g5-7default-mrand: wait (at most 300 s in this session)
+A=/var/lib/bench-probe/arms/g5-7default-mrand
+t0=$(date +%s); k=0
+while :; do
+    if [ -e "$A/done" ]; then
+        echo "ARM_DONE g5-7default-mrand rc=$(cat "$A/rc" 2>/dev/null) timed_out=$(cat "$A/timed_out" 2>/dev/null || echo 0) start=$(cat "$A/start" 2>/dev/null) end=$(cat "$A/end" 2>/dev/null)"
+        exit 0
+    fi
+    if ! systemctl is-active --quiet bench-probe-arm-g5-7default-mrand; then
+        sleep 2; [ -e "$A/done" ] && continue
+        echo "ARM_LOST g5-7default-mrand"; exit 0
+    fi
+    e=$(( $(date +%s) - t0 ))
+    [ "$e" -lt 300 ] || { echo "ARM_WAIT g5-7default-mrand running"; exit 0; }
+    k=$((k + 1)); [ $(( k % 6 )) -ne 0 ] || echo "ARM_WAIT g5-7default-mrand elapsed=$e"
+    sleep 5
+done
+----- end arm-g5-7default-mrand-wait -----
+  + [alarm 300s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<arm-g5-7default-mrand-finish.sh
+----- remote script arm-g5-7default-mrand-finish -----
+# arm g5-7default-mrand: finish (stop a late arm and the sampler, remove the DB, tar for the pull)
+set -u
+B=/var/lib/bench-probe
+A=/var/lib/bench-probe/arms/g5-7default-mrand
+D=/var/lib/bench-probe/data/g5-7default-mrand
+if systemctl is-active --quiet bench-probe-arm-g5-7default-mrand; then systemctl stop bench-probe-arm-g5-7default-mrand; echo "ARM_FINISH g5-7default-mrand stopped the running arm"; fi
+systemctl stop bench-probe-sampler-g5-7default-mrand >/dev/null 2>&1 || true
+mkdir -p "$A"
+journalctl -u bench-probe-sampler-g5-7default-mrand -u bench-probe-arm-g5-7default-mrand --no-pager -o short-iso > "$A/journal.txt" 2>&1 || true
+rm -f -- "$D/mdbx.dat" "$D/mdbx.lck" "$D/probe-meta.txt" "$B/data/g5-7default-mrand.appender.log"
+rmdir -- "$D" 2>/dev/null || true
+if [ -e "$D/mdbx.dat" ]; then echo "ARM_FINISH g5-7default-mrand could not remove $D/mdbx.dat"; fi
+T=/var/tmp/bench-probe-g5-7default-mrand.tar.gz
+tar -C "$B/arms" -czf "$T" g5-7default-mrand || { echo "ARM_TAR g5-7default-mrand failed"; exit 1; }
+chmod 0644 "$T"
+echo "ARM_TAR g5-7default-mrand bytes=$(stat -c %s "$T") sha256=$(sha256sum "$T" | cut -d' ' -f1)"
+----- end arm-g5-7default-mrand-finish -----
+  + [alarm 300s x3] gcloud compute scp bench-probe-r20991231-0101:/var/tmp/bench-probe-g5-7default-mrand.tar.gz benchmark/results/r20991231-0101/probe/arms/g5-7default-mrand.tar.gz --zone=us-west2-a --project=<project> --tunnel-through-iap --scp-flag=-o\ ConnectTimeout=20
 == arm g6-peer: --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --peer-open-at 60
   + [alarm 180s] gcloud compute ssh bench-probe-r20991231-0101 --zone=us-west2-a --project=<project> --tunnel-through-iap --ssh-flag=-o\ ConnectTimeout=20 --ssh-flag=-o\ StrictHostKeyChecking=accept-new --ssh-flag=-T --command=sudo\ bash\ -s \<arm-g6-peer-start.sh
 ----- remote script arm-g6-peer-start -----
@@ -883,6 +987,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -969,6 +1074,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1055,6 +1161,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1141,6 +1248,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1227,6 +1335,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1313,6 +1422,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1399,6 +1509,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1485,6 +1596,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1571,6 +1683,7 @@ echo "$p" > "$A/probe.pid"
 w=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 date +%s > "$A/end"
 echo "$rc" > "$A/rc"
@@ -1659,6 +1772,7 @@ bash "$A/safety.sh" live "$p" > "$A/census-safety.txt" 2>&1 &
 s=$!
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 wait "$s"
 bash "$A/safety.sh" quiet >> "$A/census-safety.txt" 2>&1
@@ -1672,32 +1786,39 @@ F=/var/lib/bench-probe/data/g9-sampler/mdbx.dat
 C=/var/lib/bench-probe/bin/folio-census.py
 A=/var/lib/bench-probe/arms/g9-sampler
 mode="$1"; p="${2:-}"
-res() { timeout 20 fincore -n -r -o PAGES "$F" 2>/dev/null | tr -d ' '; }
+if command -v fincore >/dev/null 2>&1; then
+    reader=fincore; resof() { timeout 20 fincore -n -r -o PAGES "$1" 2>/dev/null | tr -d ' '; }
+else
+    reader=census; resof() { timeout 20 python3 "$C" --file "$1" --resident-only 2>/dev/null | tr -d ' '; }
+fi
+res() { resof "$F"; }
 rb() { local k v; while read -r k v; do if [ "$k" = read_bytes: ]; then echo "$v"; return; fi; done < "/proc/$$/io"; echo 0; }
-# Warm-up outside the count: python3, the census's modules and fincore come off the disk once here (a
-# census of the census script itself), so read_bytes below is what the censuses of mdbx.dat read.
-timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; timeout 20 fincore -n -r -o PAGES "$C" >/dev/null 2>&1
+# Warm-up outside the count: python3, the census's modules and the reader come off the disk once here (a
+# census of the census script itself and a reading of it), so read_bytes below is what the censuses of mdbx.dat read.
+timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; resof "$C" >/dev/null
 if [ "$mode" = live ]; then
     n=0; while [ ! -e "$F" ] && [ "$n" -lt 300 ]; do sleep 5; n=$((n + 5)); done
     sleep 60
 fi
-io0="$(rb)"; runs=0; same=0
+io0="$(rb)"; runs=0; same=0; steady=0; prev=""
 for i in 1 2 3 4 5; do
     if [ "$mode" = live ] && ! kill -0 "$p" 2>/dev/null; then echo "CENSUS_SAFETY $mode i=$i writer_gone"; break; fi
     b="$(res)"
+    if [ -n "$prev" ] && [ "$prev" = "$b" ]; then steady=$((steady + 1)); fi
     if [ "$mode" = live ]; then
         timeout 60 python3 "$C" --file "$F" --pid "$p" --header > "$A/census-$mode-$i.txt" 2>&1; crc=$?
     else
         timeout 60 python3 "$C" --file "$F" --header > "$A/census-$mode-$i.txt" 2>&1; crc=$?
     fi
     a="$(res)"
+    prev="$a"
     runs=$((runs + 1))
     if [ -n "$b" ] && [ "$b" = "$a" ]; then same=$((same + 1)); fi
     echo "CENSUS_SAFETY $mode i=$i res_before=${b:--} res_after=${a:--} census_rc=$crc"
     if [ "$mode" = live ]; then sleep 10; fi
 done
 io1="$(rb)"
-echo "CENSUS_SAFETY_IO $mode runs=$runs unchanged=$same read_bytes=$((io1 - io0))"
+echo "CENSUS_SAFETY_IO $mode runs=$runs unchanged=$same read_bytes=$((io1 - io0)) steady=$steady reader=$reader"
 PROBE_SAFETY
 echo "/var/lib/bench-probe/bin/mdbx-writeback-probe --arm 7 --preload-gb 0.05 --txs 2000 --outputs 240 --warmup 40 --pause-ms 500 --reader-hold 10 --keep-db --quiet-secs 10 --quiet-max-mbps 2 --quiet-retries 6 --quiet-wait-secs 20 --require-quiet --tag g9-sampler --data-dir /var/lib/bench-probe/data --results-dir $A/results --disk $DISK" > "$A/cmd.txt"
 systemd-run --unit=bench-probe-sampler-g9-sampler --collect --quiet -p RuntimeMaxSec=1500 \

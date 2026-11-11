@@ -20,6 +20,11 @@ Behaviour switches (environment):
   FAKE_START_SILENT=1  every arm start session prints nothing and exits 255 (the arm runs all the same)
   FAKE_I1, FAKE_OUTPUT  the files every arm's results/summary-i1.csv and results/<arm>.csv are copied from
   FAKE_DROP_PREFAULT_ARM  for this arm, pg_prefault reads 0 from output 2 on (a read-ahead opener's mark)
+  FAKE_PERSIST    the file every arm's persist/<arm>.persist.csv is copied from, its ts_unix cells read as
+                  seconds before the arm's probe_end (which the tarball stamps with the time of the finish)
+  FAKE_RESIDENT_READER  the reader setup reports (default census: the image has no fincore)
+  FAKE_NVME_FAIL=1  a setup that prepares the local SSD (--disks both) fails at its mount
+  FAKE_QUIET_STEADY  the safety arm's quiet `steady` count (default 4: every reading agreed with the last)
 
 It never runs the remote script it receives.
 """
@@ -82,6 +87,16 @@ def arm_tarball(vm, arm):
         add_file(tar, arm + "/start", "%d\n" % (now - 200))
         add_file(tar, arm + "/end", "%d\n" % now)
         add_file(tar, arm + "/rc", os.environ.get("FAKE_ARM_RC", "0") + "\n")
+        add_file(tar, arm + "/probe_end", "%d\n" % now)
+        persist = os.environ.get("FAKE_PERSIST", "")
+        if persist:
+            with open(persist) as fh:
+                rows = fh.read().splitlines()
+            for i in range(1, len(rows)):
+                cells = rows[i].split(",")
+                cells[0] = str(now + int(cells[0]))
+                rows[i] = ",".join(cells)
+            add_file(tar, "%s/persist/%s.persist.csv" % (arm, arm), "\n".join(rows) + "\n")
         add_file(tar, arm + "/cmd.txt", "/var/lib/bench-probe/bin/mdbx-writeback-probe --tag %s\n" % arm)
         summary = os.environ.get("FAKE_SUMMARY", "")
         if summary:
@@ -106,9 +121,10 @@ def arm_tarball(vm, arm):
             add_file(tar, "%s/results/%s.csv" % (arm, arm), "\n".join(lines) + "\n")
         if arm.startswith("g9-"):
             lines = ["CENSUS_SAFETY live i=%d res_before=100 res_after=104 census_rc=0" % i for i in range(1, 6)]
-            lines.append("CENSUS_SAFETY_IO live runs=5 unchanged=0 read_bytes=0")
+            lines.append("CENSUS_SAFETY_IO live runs=5 unchanged=0 read_bytes=0 steady=0 reader=census")
             lines += ["CENSUS_SAFETY quiet i=%d res_before=900 res_after=900 census_rc=0" % i for i in range(1, 6)]
-            lines.append("CENSUS_SAFETY_IO quiet runs=5 unchanged=5 read_bytes=0")
+            lines.append("CENSUS_SAFETY_IO quiet runs=5 unchanged=5 read_bytes=0 steady=%s reader=census"
+                         % os.environ.get("FAKE_QUIET_STEADY", "4"))
             add_file(tar, arm + "/census-safety.txt", "\n".join(lines) + "\n")
     with open(path, "rb") as fh:
         data = fh.read()
@@ -123,7 +139,15 @@ def play_vm(inst, script):
     for m in re.finditer(r'echo "HOST_STEP (\S+) read-ahead-kb (\d+) \$\*"; exit 0', script):
         out.append("HOST_STEP %s read-ahead-kb %s read_ahead_kb_before=128 read_ahead_kb_after=%s" % (m.group(1), m.group(2), m.group(2)))
     if first.startswith("# setup:"):
-        out.append("SETUP_OK kernel=6.8.0-fake")
+        if "SETUP_NVME" in script:
+            if os.environ.get("FAKE_NVME_FAIL") == "1":
+                print("SETUP_FAIL nvme: mount /dev/nvme1n1 on /mnt/bench-probe-nvme failed")
+                return 0
+            out.append("SETUP_NVME dev=/dev/nvme1n1 mount=/mnt/bench-probe-nvme mkfs=done"
+                       " fstab_root_options=discard,commit=30,errors=remount-ro"
+                       " options=rw,relatime,discard,errors=remount-ro,commit=30"
+                       " root_options=rw,relatime,discard,errors=remount-ro,commit=30")
+        out.append("SETUP_OK kernel=6.8.0-fake resident_reader=%s" % os.environ.get("FAKE_RESIDENT_READER", "census"))
     elif "# >>> bench-lib: bench_host_probe_script" in script:
         if os.environ.get("FAKE_HOST_JSON"):
             out.append("HOST_PROBE %s %s" % (inst, os.environ["FAKE_HOST_JSON"]))

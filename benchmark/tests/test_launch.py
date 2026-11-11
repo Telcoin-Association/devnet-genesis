@@ -360,6 +360,20 @@ class LaunchStartTests(LaunchBase):
         self.assertIn("--bin benchmark/work/probe-bin/mdbx-writeback-probe --arms core\n",
                       self.launch("--dry-run", self.envf, "probe").stdout)
 
+    def test_the_probe_passes_its_disks_knob(self):
+        # Unset: no --disks (the driver's default, hyperdisk); set: --disks after --bin and --arms, as given.
+        self.assertIn("  command: benchmark/benchmark-probe.sh all --bin benchmark/work/probe-bin/mdbx-writeback-probe\n",
+                      self.launch("--dry-run", self.envf, "probe").stdout)
+        self.t.write(self.envf, self.t.root.joinpath(self.envf).read_text()
+                     + "LAUNCH_PROBE_ARMS=g1-node,g5,g8-nowritemap\nLAUNCH_PROBE_DISKS=both\n")
+        p = self.launch("--dry-run", self.envf, "probe")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        # (the dry run prints the argv shell-quoted: a comma reads \,)
+        self.assertIn("  command: benchmark/benchmark-probe.sh all --bin benchmark/work/probe-bin/mdbx-writeback-probe"
+                      " --arms g1-node\\,g5\\,g8-nowritemap --disks both\n", p.stdout)
+        # The shipped probe env file leaves it unset (commented), so a launch of it runs the hyperdisk mode.
+        self.assertIn("# LAUNCH_PROBE_DISKS=both\n", (LAUNCH / "bench6-probe.env").read_text())
+
     def test_the_dry_run_starts_nothing(self):
         p = self.launch("--dry-run", self.envf, "deploy12", FAKE_GCLOUD_MODE="reached")
         self.assertEqual(p.returncode, 0, p.stderr)

@@ -2,9 +2,11 @@
 #
 # benchmark-probe.sh — the one-VM GCE probe: one VM of the bench fleet's exact shape (machine type,
 # boot disk type, size, IOPS and throughput, the pinned boot image and so its kernel) runs the
-# mdbx-writeback-probe arms of benchmark/private/bench6-prep/I-1r/gce-arms.md §2 (g0-g9), each beside
-# the bench-6 persist sampler, and the results land in results/<run>/probe/. One driver creates the VM
-# and deletes it again.
+# mdbx-writeback-probe arms of benchmark/private/bench6-prep/I-1r/gce-arms.md §2 (g0-g9, plus
+# g5-7default-mrand), each beside the bench-6 persist sampler, and the results land in
+# results/<run>/probe/. With --disks both the VM is a local-SSD shape and each arm runs on the Hyperdisk
+# boot disk and then on the local NVMe SSD, so only the device differs. One driver creates the VM and
+# deletes it again.
 #
 # Subcommands (all need --run-id or BENCH_RUN_ID):
 #   plan     print every gcloud argv and every remote script the run would use; ZERO gcloud calls,
@@ -35,6 +37,13 @@
 #   --dry-run                 any subcommand: print instead of calling gcloud (plan is always dry)
 #   --keep                    down (and the end of all) deletes nothing and prints the commands
 #   --allow-fleet             run although other bench resources exist in the project (never touches them)
+#   --disks <hyperdisk|both>  hyperdisk: every arm on the boot disk, the fleet's shape [hyperdisk]. both: the
+#                             VM is --lssd-machine-type, its first local NVMe SSD is made ext4 and mounted
+#                             at /mnt/bench-probe-nvme, and each arm runs twice, as <arm>@hyperdisk (boot
+#                             disk) then <arm>@nvme (local SSD); SUMMARY.txt pairs them (PAIR lines)
+#   --lssd-machine-type <t>   the --disks both shape, a -lssd shape whose local SSDs come with the machine
+#                             type [c3-standard-8-lssd: 8 vCPU, 32 GB, two 375 GiB local SSDs; the fleet's
+#                             c3-highcpu-8 has 16 GB, so the two modes differ in RAM, never a pair's records]
 #
 # RUNBOOK (the orchestrator, from the repo root; RUN = a fresh run id such as r20261111-1800):
 #   1. Build the binary. Local docker, about 5-15 min the first time: it pulls rust:1.94-bookworm, the
@@ -51,7 +60,13 @@
 #        BENCH_RUN_ID=RUN benchmark/benchmark-probe.sh all --bin benchmark/work/probe-bin/mdbx-writeback-probe
 #      The last line is DOWN_OK (the VM and its disk are gone) or DOWN_INCOMPLETE (the names left to delete;
 #      `down` again deletes them). With --keep the VM stays up for a look; `down` deletes it afterwards.
-#   4. Read results/RUN/probe/SUMMARY.txt first. One PROBE_ARM line per arm:
+#      Hyperdisk against the local NVMe SSD, the subset that says whether the fix (whole-map MADV_RANDOM)
+#      helps or hurts on each device (a fresh RUN):
+#        BENCH_RUN_ID=RUN benchmark/benchmark-probe.sh all --bin benchmark/work/probe-bin/mdbx-writeback-probe \
+#            --disks both --arms g1-node,g5,g8-nowritemap
+#   4. Read results/RUN/probe/SUMMARY.txt first. Its PROBE_RUN line names the mode, the shape and the
+#      resident-page reader (fincore, or census: the census tool's --resident-only when the image has no
+#      fincore). One PROBE_ARM line per arm (per record with --disks both, <arm>@hyperdisk and <arm>@nvme):
 #        device/mdbx    device write bytes / MDBX-dirtied bytes per output: the amplification. Bench 5's
 #                       nodes ran at 4.3x; g0 should read about 1.00x.
 #        commit/mdbx    the same ratio over the commit window only (median)
@@ -59,18 +74,25 @@
 #        past_used_end  pages resident past the allocation frontier at the end; readahead built them (R1)
 #        prefault/grown prefault calls per grown page (summary-i1.csv); about 1.00 with prefault on
 #        no_prefault_outputs  outputs that grew with no prefault at all (<arm>.csv); g6-peer's H2 signature
+#      then the device writes (write_stats): per measured output the median write requests (wr_ops/out),
+#      bytes per request (wr_kib_mean over the arm, wr_kib_p90 of the outputs), flushes, MDBX syncs, the
+#      commit's write requests, MDBX's sync ms, the sampler's device ms per write and per flush, and the
+#      arm's totals; n/a where the source has none. Its BIND line sets the commit's request and byte
+#      rates against the device's provisioned IOPS and MiB/s and names the larger share (a local SSD has
+#      no cap: n/a). With --disks both a PAIR line puts each arm's two devices side by side.
 #      Then the SAFETY line of the safety arm (g9-sampler): PASS needs its ratio_proc_med and
 #      prefault_per_grown within 0.02 of its reference arm (the same flags without --keep-db: g5-7default),
 #      beyond_used_resident_max at most 8 pages above it, read_bytes of the census side loop at most 64 KiB
 #      in each mode, quiet unchanged=5 of 5 (five censuses as root left the idle DB's residency as it was),
-#      and no output that grew without a prefault. The tolerances are SAFE_* below; the line shows both
+#      quiet steady=4 of 4 (the reader's back-to-back readings agree), and no output that grew without a
+#      prefault. The tolerances are SAFE_* below; the line shows both
 #      values of every comparison, so a reader can judge "within noise" again.
 #      Per arm: arms/<arm>/ (probe.log, results/<arm>.summary.txt, .csv and summary-i1.csv, persist/ with
 #      the sampler's CSV and folio census, cmd.txt, journal.txt) and arms/<arm>.status.json. manifest.json
 #      has the VM's shape and image, the host probe, each arm's command, start, end, exit code, read_ahead_kb
 #      step and its summary-i1.csv row (pwritev_*, gc_*, freelist_*, *_peer, prefault_per_grown, ...), the
 #      safety verdict, and the sha256s of the binary, its sources and the bundle.
-#   Duration: about 80 min: create and settle 5 min, 19 arms of 2.5-4 min (55 min of probe time) plus
+#   Duration: about 85 min: create and settle 5 min, 20 arms of 2.5-4 min (58 min of probe time) plus
 #   about 40 s of sessions and pull each, collect 2 min. The run starts an arm only if it can end, at its
 #   900-s watchdog plus 4 min, before --deadline-min (120): the last arm must start by minute 101, which
 #   leaves about 25 min for slow quiet gates. `--arms core` (8 arms, about 25 min of probe time) is the
@@ -78,6 +100,10 @@
 #   Cost: one c3-highcpu-8 for about 1.5 h, and a 100 GB hyperdisk-balanced boot disk with 20,000 IOPS
 #   and 800 MiB/s provisioned for the same time (provisioned IOPS and throughput bill by the hour on top
 #   of the GB). No external IP, no bucket, nothing left after DOWN_OK.
+#   --disks both with g1-node,g5,g8-nowritemap: 12 records, about 60 min (37 min of probe time, 8 of
+#   sessions, the mkfs of the local SSD in setup); all 20 arms twice would pass the 120-min deadline, and
+#   the arms that could not end in time are skipped. Cost: one c3-standard-8-lssd (its two 375 GiB local
+#   SSDs included) and the same boot disk for about 1 h.
 #
 # Safety: every gcloud call, and every ssh/scp session, sits behind `[ "${DRY}" = "0" ] || return 0` on
 # the line before it, so a dry run returns there. The driver deletes only bench-probe-<run-id> (instance
@@ -102,7 +128,7 @@ case "${SUB}" in
 esac
 
 ARMS_ARG="" BIN="" ZONE_ARG="" FALLBACK_ARG="us-west2-b,us-west2-c" DEADLINE_MIN=120 ARM_DEADLINE=900
-DRY=0 KEEP=0 ALLOW_FLEET=0
+DRY=0 KEEP=0 ALLOW_FLEET=0 DISKS=hyperdisk LSSD_TYPE=c3-standard-8-lssd
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
@@ -119,6 +145,8 @@ while [ $# -gt 0 ]; do
         --fallback-zones) FALLBACK_ARG="$2" ;;
         --deadline-min) DEADLINE_MIN="$2" ;;
         --arm-deadline-secs) ARM_DEADLINE="$2" ;;
+        --disks) DISKS="$2" ;;
+        --lssd-machine-type) LSSD_TYPE="$2" ;;
         *) die "unknown option '$1' (try --help)" ;;
     esac
     shift 2
@@ -129,6 +157,14 @@ export BENCH_RUN_ID
 case "${DEADLINE_MIN}" in ''|*[!0-9]*|0*) die "--deadline-min '${DEADLINE_MIN}' must be a positive integer" ;; esac
 case "${ARM_DEADLINE}" in ''|*[!0-9]*|0*) die "--arm-deadline-secs '${ARM_DEADLINE}' must be a positive integer" ;; esac
 [ "${ARM_DEADLINE}" -ge 120 ] || die "--arm-deadline-secs must be at least 120"
+case "${DISKS}" in hyperdisk|both) ;; *) die "--disks '${DISKS}' must be hyperdisk or both" ;; esac
+# A shape whose local SSDs come with the machine type (C3 offers them only on its -lssd standard shapes):
+# the instance create needs no --local-ssd flag, and nothing but the instance holds them.
+case "${LSSD_TYPE}" in
+    *[!a-z0-9-]*|-*) die "--lssd-machine-type '${LSSD_TYPE}' is not a machine type name" ;;
+    *-lssd) ;;
+    *) die "--lssd-machine-type '${LSSD_TYPE}' is not a -lssd shape (local SSD bundled with the machine type)" ;;
+esac
 
 # shellcheck source=bench-lib.sh
 source "${PROBE_DIR}/bench-lib.sh"
@@ -141,6 +177,11 @@ _bench_host_name_ok "${INST}" || die "'${INST}' is not a valid instance name"
 # The fleet's labels (config.sh) and this VM's role: bench_leftovers and the teardown see it.
 LABELS="${INSTANCE_LABELS},tn-role=probe"
 case ",${LABELS}," in *",benchmark=1,"*",bench-run=${BENCH_RUN_ID},"*) ;; *) die "INSTANCE_LABELS '${INSTANCE_LABELS}' lacks benchmark=1 or bench-run=${BENCH_RUN_ID}" ;; esac
+# --disks both: the -lssd shape (the fleet's c3-highcpu-8 has no local SSD, so the shape, and with it the
+# RAM, differs from the fleet's: a confound between the two modes, never inside one run's pairs) and
+# the one host-maintenance policy every local-SSD shape takes.
+MAINT=MIGRATE
+if [ "${DISKS}" = both ]; then MACHINE_TYPE="${LSSD_TYPE}"; MAINT=TERMINATE; fi
 PD="${BENCH_RESULTS_DIR}/probe"
 STATE="${PD}/probe-state.txt"
 REL_PD="${PD#"${REPO_ROOT}/"}"
@@ -160,12 +201,28 @@ done
 
 # Remote layout (root-owned, on the boot disk like the nodes' /var/lib/telcoin).
 RB=/var/lib/bench-probe
+# --disks both: the local SSD's mount point; the nvme records keep their DBs under ${RNV}/data.
+RNV=/mnt/bench-probe-nvme
 RBUNDLE=/tmp/bench-probe-bundle.tar.gz
+# What setup requires on the VM, beyond bash and coreutils (Essential), with the Ubuntu 24.04 package
+# each comes from: python3 (python3), systemd-run/systemctl/journalctl (systemd), findmnt/lsblk
+# (util-linux), timeout/sha256sum/stat (coreutils), tar (tar), gzip (gzip, for tar -z), awk (mawk; the
+# sampler). The census and the host probe import only the standard library (libpython3.12-stdlib).
+# --disks both adds mkfs.ext4 (e2fsprogs), mount/umount (mount) and readlink (coreutils). fincore
+# (util-linux-extra on 24.04, not on the image) is optional; curl (the sampler's gauge read) is unused here.
+TOOLS_REQUIRED="python3 systemd-run systemctl journalctl findmnt lsblk timeout sha256sum stat tar gzip awk"
+TOOLS_NVME="mkfs.ext4 mount umount readlink"
+# The local SSD's file system, made as common/observability/obs-vm makes its data disk.
+NVME_MKFS="-q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard"
+PY_MODULES="import argparse, array, collections, ctypes, ctypes.util, itertools, json, mmap, os, re, shlex, signal, subprocess, sys, time"
 SSH_READY_SECS=300
 DELETE_SECS=300
 WAIT_CHUNK_SECS=300
 
 # --- the arms (benchmark/private/bench6-prep/I-1r/gce-arms.md §2, in run order) ----------------------------
+# Plus one arm that table lacks, g5-7default-mrand: the fix (whole-map MADV_RANDOM) on the node's own path
+# with nothing broken (prefault on), the fourth cell of g5's prefault x MADV_RANDOM square; it says what
+# the fix costs where it has nothing to fix, on each device.
 # name|host step|sampler cadence|probe flags. Every arm also gets --tag <name> --data-dir --results-dir
 # --disk and the quiet gate. The columns, never the name, drive the behaviour: host step ra16 runs the
 # arm at read_ahead_kb 16 (every other arm at the boot value); cadence std = sampler row every 10 s, mdbx
@@ -185,6 +242,7 @@ ARMS_ALL=(
     "g5-7default|-|std|${A7}"
     "g5-7pfoff|-|std|${A7} --prefault-off"
     "g5-7pfoff-mrand|-|std|${A7} --prefault-off --madvise-random"
+    "g5-7default-mrand|-|std|${A7} --madvise-random"
     "g6-peer|-|std|${A7} --peer-open-at 60"
     "g6-peer-nr|-|std|${A7} --peer-open-at 60 --peer-nordahead"
     "g6-peer-mrand|-|std|${A7} --peer-open-at 60 --madvise-random"
@@ -226,6 +284,36 @@ else
     done
 fi
 arm_field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
+
+# The records the run makes, in order. --disks hyperdisk: one per selected arm, the arm's own entry
+# (its name is the record's name and key). --disks both: two per arm, the Hyperdisk boot disk first,
+# then the local SSD, each entry `<arm>_<dev>|<host step>|<cadence>|<flags>|<dev>|<arm>`: the key
+# `<arm>_<dev>` names the arm's files, units, tag and tarball (no `@`: systemd reads it as a template
+# instance), the record's name in the manifest and SUMMARY.txt is `<arm>@<dev>`.
+records_of() {
+    local e
+    for e in "$@"; do
+        if [ "${DISKS}" = both ]; then
+            printf '%s\n' "${e%%|*}_hyperdisk|${e#*|}|hyperdisk|${e%%|*}" "${e%%|*}_nvme|${e#*|}|nvme|${e%%|*}"
+        else
+            printf '%s\n' "${e}"
+        fi
+    done
+}
+RECS=()
+while IFS= read -r r; do RECS+=("${r}"); done < <(records_of ${ARMS[@]+"${ARMS[@]}"})
+ALL_RECS=()
+while IFS= read -r r; do ALL_RECS+=("${r}"); done < <(records_of "${ARMS_ALL[@]}")
+rec_key() { arm_field "$1" 1; }
+rec_dev() { local d; d="$(arm_field "$1" 5)"; printf '%s' "${d:-hyperdisk}"; }
+rec_arm() { local a; a="$(arm_field "$1" 6)"; printf '%s' "${a:-$(arm_field "$1" 1)}"; }
+rec_name() { if [ "${DISKS}" = both ]; then printf '%s@%s' "$(rec_arm "$1")" "$(rec_dev "$1")"; else rec_key "$1"; fi; }
+# rec_data <entry> — the record's data dir on the VM; rec_data_ref the same as the scripts write it where
+# they have $B (the boot disk's text stays as it always was).
+rec_data() { if [ "$(rec_dev "$1")" = nvme ]; then printf '%s' "${RNV}/data"; else printf '%s' "${RB}/data"; fi; }
+rec_data_ref() { if [ "$(rec_dev "$1")" = nvme ]; then printf '%s' "${RNV}/data"; else printf '%s' '$B/data'; fi; }
+# rec_by_key <key> — the record (of ALL_RECS) with that key, "" when none.
+rec_by_key() { local s; for s in "${ALL_RECS[@]}"; do [ "${s%%|*}" != "$1" ] || { printf '%s' "${s}"; return 0; }; done; }
 
 # --- output helpers ---------------------------------------------------------------------------------
 exec 3>&1
@@ -402,12 +490,16 @@ create_disk() {   # create_disk <zone>
         --labels="${LABELS}" --description="bench one-VM probe ${BENCH_RUN_ID}"
 }
 
-create_vm() {   # create_vm <zone>
+# create_vm <zone> — the VM on the boot disk create_disk made. Its only disk flag is that boot disk
+# (auto-delete=yes): with --disks both the local SSDs come with the -lssd machine type, no flag asks for
+# them and no disk resource holds them (gcloud compute disks never lists them), so deleting the instance
+# releases them and down's two deletes cover everything the run created.
+create_vm() {
     gc 300 compute instances create "${INST}" --project="${PROJECT_ID}" --zone="$1" \
         --machine-type="${MACHINE_TYPE}" \
         --network-interface="network-tier=PREMIUM,subnet=default,nic-type=GVNIC,stack-type=IPV4_ONLY,no-address" \
         --disk="name=${DISK},device-name=${DISK},boot=yes,auto-delete=yes,mode=rw" \
-        --maintenance-policy=MIGRATE --provisioning-model=STANDARD \
+        --maintenance-policy="${MAINT}" --provisioning-model=STANDARD \
         --no-service-account --no-scopes --tags=bench-probe --labels="${LABELS}" \
         --description="bench one-VM probe ${BENCH_RUN_ID}" \
         --no-shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring --reservation-affinity=any
@@ -477,6 +569,7 @@ cmd_up() {
             state_set zone "${z}"
             state_set created_unix "$(now)"
             state_set boot_read_ahead_kb ""
+            [ "${DISKS}" != both ] || state_set boot_read_ahead_kb_nvme ""
             log "created ${INST} in ${z}"
             wait_ssh
             return
@@ -511,9 +604,53 @@ mkdir -p "\$B/bin" "\$B/data" "\$B/arms" || fail "mkdir \$B"
 tar -xzf ${RBUNDLE} -C "\$B/bin" || fail "cannot unpack ${RBUNDLE}"
 ( cd "\$B/bin" && sha256sum -c --quiet SHA256SUMS ) || fail "bundle checksums differ"
 chmod 0755 "\$B/bin/mdbx-writeback-probe" "\$B/bin/node-persist-sampler.sh"
-for t in python3 fincore systemd-run findmnt lsblk timeout sha256sum; do command -v "\$t" >/dev/null 2>&1 || fail "no \$t"; done
+# Every tool the remote scripts and the sampler need (TOOLS_REQUIRED: all from Ubuntu 24.04's base
+# packages) and every module the census and the host probe import. fincore is optional: Ubuntu 24.04
+# moved it to util-linux-extra, which the image lacks. Without it, residency comes from the bundled
+# census tool's --resident-only (mincore over a map nothing reads), here and in the sampler.
+for t in ${TOOLS_REQUIRED}; do command -v "\$t" >/dev/null 2>&1 || fail "no \$t"; done
+python3 -c '${PY_MODULES}' >/dev/null 2>&1 || fail "python3 cannot import every module the census and the host probe use"
+timeout 60 python3 "\$B/bin/folio-census.py" --file "\$B/bin/folio-census.py" --resident-only >/dev/null 2>&1 || fail "the census tool's --resident-only does not run here"
+if command -v fincore >/dev/null 2>&1; then rr=fincore; else rr=census; fi
 "\$B/bin/mdbx-writeback-probe" --help >/dev/null 2>&1 || fail "the probe binary does not start here (glibc?)"
-echo "SETUP_OK kernel=\$(uname -r)"
+EOS
+    [ "${DISKS}" != both ] || script_setup_nvme
+    echo 'echo "SETUP_OK kernel=$(uname -r) resident_reader=$rr"'
+}
+
+# script_setup_nvme — (--disks both) the local SSD: the first of the shape's local NVMe SSDs
+# (google-local-nvme-ssd-0) made ext4 the way the obs VM makes its data disk (no lazy init: its
+# background zeroing would write during the arms), mounted at ${RNV} with the options the image's fstab
+# gives / (the fleet's data dir, /var/lib/telcoin, lives on /), so the two devices differ in the device
+# only. A run again on the same VM keeps the mount it finds. Anything else fails the setup, and the run
+# with it: an nvme record never runs on the boot disk.
+script_setup_nvme() {
+    cat <<EOS
+N=${RNV}
+for t in ${TOOLS_NVME}; do command -v "\$t" >/dev/null 2>&1 || fail "no \$t"; done
+L=/dev/disk/by-id/google-local-nvme-ssd-0
+# The guest environment's udev rules name the local SSDs; without them, the first disk whose model is
+# GCE's local NVMe SSD (nvme_card; a Hyperdisk or PD reads nvme_card-pd).
+[ -e "\$L" ] || L="\$(lsblk -dnpo NAME,MODEL 2>/dev/null | awk '\$2 == "nvme_card" { print \$1; exit }')"
+[ -n "\$L" ] && [ -e "\$L" ] || fail "nvme: no google-local-nvme-ssd-0 and no nvme_card disk (${MACHINE_TYPE} without a local SSD?)"
+NV="\$(readlink -f "\$L")"
+case "\$NV" in /dev/nvme[0-9]*n[0-9]*) ;; *) fail "nvme: \$L is '\$NV', not an NVMe namespace" ;; esac
+case "\$(findmnt -no SOURCE --target /)" in "\$NV"|"\$NV"p*) fail "nvme: \$NV holds /" ;; esac
+O="\$(findmnt -s -no OPTIONS --mountpoint / 2>/dev/null | head -n 1)"
+[ -n "\$O" ] || fail "nvme: no fstab options for /"
+if [ "\$(findmnt -no SOURCE --mountpoint "\$N" 2>/dev/null)" = "\$NV" ]; then
+    mk=kept
+else
+    m="\$(findmnt -no TARGET --source "\$NV" 2>/dev/null | head -n 1)"
+    if [ -n "\$m" ]; then umount "\$NV" || fail "nvme: \$NV is mounted on \$m and does not unmount"; echo "SETUP_NOTE nvme: unmounted \$NV from \$m"; fi
+    timeout 600 mkfs.ext4 ${NVME_MKFS} "\$NV" || fail "nvme: mkfs.ext4 \$NV failed"
+    mkdir -p "\$N" || fail "nvme: mkdir \$N"
+    mount -t ext4 -o "\$O" "\$NV" "\$N" || fail "nvme: mount \$NV on \$N failed"
+    mk=done
+fi
+[ "\$(findmnt -no SOURCE --mountpoint "\$N" 2>/dev/null)" = "\$NV" ] || fail "nvme: \$N is not \$NV after the mount"
+mkdir -p "\$N/data" || fail "nvme: mkdir \$N/data"
+echo "SETUP_NVME dev=\$NV mount=\$N mkfs=\$mk fstab_root_options=\$O options=\$(findmnt -no OPTIONS --mountpoint "\$N") root_options=\$(findmnt -no OPTIONS --mountpoint /)"
 EOS
 }
 
@@ -524,17 +661,29 @@ script_host_probe() {
     echo "# <<< bench-lib: bench_host_probe_script"
 }
 
-# arm_unit_script <name> <cadence> <flags> — the unit's script (written on the VM by the start session):
-# the probe under a watchdog of ARM_DEADLINE s; probe.pid for the sampler; rc, timed_out, start, end, done.
+# script_host_probe_nvme — (--disks both) the host probe of the local SSD's data dir: its disk, its
+# read_ahead_kb (the value the nvme records put back) and its mount. Never a mkdir: a data dir that is
+# not on the local SSD's mount gives probe_failed, so no nvme record can fall back to the boot disk.
+script_host_probe_nvme() {
+    echo "# host probe of ${RNV}/data, the local SSD"
+    echo "[ \"\$(findmnt -no TARGET --target ${RNV}/data 2>/dev/null)\" = ${RNV} ] || { echo \"HOST_PROBE ${INST} probe_failed ${RNV}/data is not on the local SSD mount\"; exit 0; }"
+    echo "# >>> bench-lib: bench_host_probe_script"
+    bench_host_probe_script "${INST}" "${RNV}/data"
+    echo "# <<< bench-lib: bench_host_probe_script"
+}
+
+# arm_unit_script <key> <cadence> <flags> <data dir> — the unit's script (written on the VM by the start
+# session): the probe under a watchdog of ARM_DEADLINE s; probe.pid for the sampler; rc, timed_out,
+# start, probe_end (the probe's exit: the end of its measured outputs, for the sampler's window), end, done.
 arm_unit_script() {
-    local name="$1" cad="$2" flags="$3" a="${RB}/arms/$1"
+    local name="$1" cad="$2" flags="$3" dd="$4" a="${RB}/arms/$1"
     cat <<EOS
 #!/bin/bash
-# probe arm ${name}: run by systemd-run as bench-probe-arm-${name}; \$1 = the disk under ${RB}/data
+# probe arm ${name}: run by systemd-run as bench-probe-arm-${name}; \$1 = the disk under ${dd}
 A=${a}
 cd "\$A" || exit 1
 date +%s > "\$A/start"
-${RB}/bin/mdbx-writeback-probe ${flags} ${QUIET} --tag ${name} --data-dir ${RB}/data --results-dir \$A/results --disk "\$1" > "\$A/probe.log" 2>&1 &
+${RB}/bin/mdbx-writeback-probe ${flags} ${QUIET} --tag ${name} --data-dir ${dd} --results-dir \$A/results --disk "\$1" > "\$A/probe.log" 2>&1 &
 p=\$!
 echo "\$p" > "\$A/probe.pid"
 ( sleep ${ARM_DEADLINE}; if kill -0 "\$p" 2>/dev/null; then echo 1 > "\$A/timed_out"; kill -TERM "\$p"; sleep 30; kill -KILL "\$p" 2>/dev/null; fi ) &
@@ -547,6 +696,7 @@ EOS
     cat <<'EOS'
 rc=0
 wait "$p" || rc=$?
+date +%s > "$A/probe_end"
 kill "$w" 2>/dev/null
 EOS
     if [ "${cad}" = safety ]; then
@@ -560,52 +710,66 @@ touch "$A/done"
 EOS
 }
 
-# arm_safety_script <name> — the safety arm's census check: five folio censuses as root, each between two fincore
-# readings of mdbx.dat; `live` against the running arm (from 60 s after the file appears), `quiet`
-# after it ended (the DB is kept: residency must not move at all). read_bytes is the side loop's own
-# block reads, its reaped children (fincore, the census) included.
+# arm_safety_script <key> <data dir> — the safety arm's census check: five folio censuses as root, each
+# between two readings of mdbx.dat's resident pages; `live` against the running arm (from 60 s after the
+# file appears), `quiet` after it ended (the DB is kept: residency must not move at all). The reader is
+# fincore when the VM has it, else the census tool's --resident-only (setup checked it runs). Neither can
+# move what it reads: both map the file PROT_NONE and ask mincore, which never faults a page in, and the
+# census opens it O_NOATIME and never reads it. The arm checks that rather than trusting it: read_bytes
+# is the side loop's own block reads, its reaped children (the reader, the census) included, so a page
+# any of them pulled into the cache is counted there (and is bounded by SAFE_MAX_READ_BYTES); `steady`
+# counts the readings that agree with the reading just before them with nothing between (quiet: 4 of
+# 4), which a reader that moved residency could not give; `reader` names it.
 arm_safety_script() {
-    local name="$1"
+    local name="$1" dd="$2"
     cat <<EOS
 #!/bin/bash
-F=${RB}/data/${name}/mdbx.dat
+F=${dd}/${name}/mdbx.dat
 C=${RB}/bin/folio-census.py
 A=${RB}/arms/${name}
 EOS
     cat <<'EOS'
 mode="$1"; p="${2:-}"
-res() { timeout 20 fincore -n -r -o PAGES "$F" 2>/dev/null | tr -d ' '; }
+if command -v fincore >/dev/null 2>&1; then
+    reader=fincore; resof() { timeout 20 fincore -n -r -o PAGES "$1" 2>/dev/null | tr -d ' '; }
+else
+    reader=census; resof() { timeout 20 python3 "$C" --file "$1" --resident-only 2>/dev/null | tr -d ' '; }
+fi
+res() { resof "$F"; }
 rb() { local k v; while read -r k v; do if [ "$k" = read_bytes: ]; then echo "$v"; return; fi; done < "/proc/$$/io"; echo 0; }
-# Warm-up outside the count: python3, the census's modules and fincore come off the disk once here (a
-# census of the census script itself), so read_bytes below is what the censuses of mdbx.dat read.
-timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; timeout 20 fincore -n -r -o PAGES "$C" >/dev/null 2>&1
+# Warm-up outside the count: python3, the census's modules and the reader come off the disk once here (a
+# census of the census script itself and a reading of it), so read_bytes below is what the censuses of mdbx.dat read.
+timeout 60 python3 "$C" --file "$C" --header >/dev/null 2>&1; resof "$C" >/dev/null
 if [ "$mode" = live ]; then
     n=0; while [ ! -e "$F" ] && [ "$n" -lt 300 ]; do sleep 5; n=$((n + 5)); done
     sleep 60
 fi
-io0="$(rb)"; runs=0; same=0
+io0="$(rb)"; runs=0; same=0; steady=0; prev=""
 for i in 1 2 3 4 5; do
     if [ "$mode" = live ] && ! kill -0 "$p" 2>/dev/null; then echo "CENSUS_SAFETY $mode i=$i writer_gone"; break; fi
     b="$(res)"
+    if [ -n "$prev" ] && [ "$prev" = "$b" ]; then steady=$((steady + 1)); fi
     if [ "$mode" = live ]; then
         timeout 60 python3 "$C" --file "$F" --pid "$p" --header > "$A/census-$mode-$i.txt" 2>&1; crc=$?
     else
         timeout 60 python3 "$C" --file "$F" --header > "$A/census-$mode-$i.txt" 2>&1; crc=$?
     fi
     a="$(res)"
+    prev="$a"
     runs=$((runs + 1))
     if [ -n "$b" ] && [ "$b" = "$a" ]; then same=$((same + 1)); fi
     echo "CENSUS_SAFETY $mode i=$i res_before=${b:--} res_after=${a:--} census_rc=$crc"
     if [ "$mode" = live ]; then sleep 10; fi
 done
 io1="$(rb)"
-echo "CENSUS_SAFETY_IO $mode runs=$runs unchanged=$same read_bytes=$((io1 - io0))"
+echo "CENSUS_SAFETY_IO $mode runs=$runs unchanged=$same read_bytes=$((io1 - io0)) steady=$steady reader=$reader"
 EOS
 }
 
 script_arm_start() {
-    local e="$1" name step cad flags a iv me ce ra ral
-    name="$(arm_field "${e}" 1)"; step="$(arm_field "${e}" 2)"; cad="$(arm_field "${e}" 3)"; flags="$(arm_field "${e}" 4)"
+    local e="$1" name step cad flags a iv me ce ra ral dd ddr
+    name="$(rec_key "${e}")"; step="$(arm_field "${e}" 2)"; cad="$(arm_field "${e}" 3)"; flags="$(arm_field "${e}" 4)"
+    dd="$(rec_data "${e}")"; ddr="$(rec_data_ref "${e}")"
     a="${RB}/arms/${name}"
     if [ "${cad}" = safety ]; then iv=5 me=5 ce=5; else iv=10 me=30 ce=60; fi
     cat <<EOS
@@ -615,33 +779,39 @@ B=${RB}
 A=${a}
 if [ -e "\$A/started" ]; then echo "ARM_START ${name} already"; exit 0; fi
 mkdir -p "\$A/results" "\$A/persist" || { echo "ARM_START ${name} failed mkdir"; exit 1; }
-DEV="\$(findmnt -no SOURCE --target "\$B/data")"
+EOS
+    # An nvme record runs only on the local SSD's mount: never on a data dir that fell back to the boot disk.
+    if [ "$(rec_dev "${e}")" = nvme ]; then
+        echo "[ \"\$(findmnt -no TARGET --target ${dd} 2>/dev/null)\" = ${RNV} ] || { echo \"ARM_START ${name} failed ${dd} is not on the local SSD mount\"; exit 1; }"
+    fi
+    cat <<EOS
+DEV="\$(findmnt -no SOURCE --target "${ddr}")"
 DISK="\$(lsblk -no PKNAME "\$DEV" 2>/dev/null | head -n 1)"
 [ -n "\$DISK" ] || DISK="\${DEV#/dev/}"
 case "\$DISK" in ''|*[!a-z0-9]*) echo "ARM_START ${name} failed disk '\$DISK'"; exit 1 ;; esac
 EOS
-    # Every arm sets the read_ahead_kb it runs with (16 with host step ra16, else the boot value), so an
-    # ra16 arm whose finish could not put the boot value back never leaves a later arm at 16. No boot
-    # value known (the host probe failed): no arm sets it, and run_arm skips the ra16 arm.
-    if [ "${step}" = ra16 ]; then ra=16; ral=16; else ra="${BOOT_RA_KB}"; ral="<boot value>"; fi
+    # Every arm sets the read_ahead_kb it runs with (16 with host step ra16, else the boot value of its
+    # device), so an ra16 arm whose finish could not put the boot value back never leaves a later arm at
+    # 16. No boot value known (the host probe failed): no arm sets it, and run_arm skips the ra16 arm.
+    if [ "${step}" = ra16 ]; then ra=16; ral=16; else ra="$(rec_boot_ra "${e}")"; ral="<boot value>"; fi
     if [ -n "${ra}" ]; then
         echo "# >>> bench-lib: bench_host_step_script read-ahead-kb ${ral}"
-        bench_host_step_script "${INST}" read-ahead-kb "${ra}" "${RB}/data" || return 1
+        bench_host_step_script "${INST}" read-ahead-kb "${ra}" "${dd}" || return 1
         echo "# <<< bench-lib: bench_host_step_script"
         echo "[ \"\$HOST_STEP_RC\" = 0 ] || { echo \"ARM_START ${name} failed host step\"; exit 1; }"
     fi
     echo "cat > \"\$A/unit.sh\" <<'PROBE_UNIT'"
-    arm_unit_script "${name}" "${cad}" "${flags}"
+    arm_unit_script "${name}" "${cad}" "${flags}" "${dd}"
     echo "PROBE_UNIT"
     if [ "${cad}" = safety ]; then
         echo "cat > \"\$A/safety.sh\" <<'PROBE_SAFETY'"
-        arm_safety_script "${name}"
+        arm_safety_script "${name}" "${dd}"
         echo "PROBE_SAFETY"
     fi
     cat <<EOS
-echo "${RB}/bin/mdbx-writeback-probe ${flags} ${QUIET} --tag ${name} --data-dir ${RB}/data --results-dir \$A/results --disk \$DISK" > "\$A/cmd.txt"
+echo "${RB}/bin/mdbx-writeback-probe ${flags} ${QUIET} --tag ${name} --data-dir ${dd} --results-dir \$A/results --disk \$DISK" > "\$A/cmd.txt"
 systemd-run --unit=bench-probe-sampler-${name} --collect --quiet -p RuntimeMaxSec=$((ARM_DEADLINE + 600)) \\
-    /usr/bin/env PERSIST_PID_FILE=\$A/probe.pid PERSIST_MDBX_FILE=${RB}/data/${name}/mdbx.dat PERSIST_DATA_DIR=${RB}/data \\
+    /usr/bin/env PERSIST_PID_FILE=\$A/probe.pid PERSIST_MDBX_FILE=${dd}/${name}/mdbx.dat PERSIST_DATA_DIR=${dd} \\
     PERSIST_OUT_DIR=\$A/persist PERSIST_HOST=${name} PERSIST_INTERVAL_SECS=${iv} PERSIST_MDBX_EVERY_SECS=${me} \\
     PERSIST_CENSUS_EVERY_SECS=${ce} PERSIST_CENSUS=${RB}/bin/folio-census.py PERSIST_METRICS_URL=http://127.0.0.1:9/metrics \\
     /bin/bash ${RB}/bin/node-persist-sampler.sh || { echo "ARM_START ${name} failed sampler"; exit 1; }
@@ -683,25 +853,25 @@ EOS
 # well; a stopped, failed or --keep-db arm leaves it (up to 6 GB on disk and in the page cache, which the
 # next arm would compete with), so the finish removes the probe's files by name (never a tree).
 script_arm_finish() {
-    local e="$1" name step
-    name="$(arm_field "${e}" 1)"; step="$(arm_field "${e}" 2)"
+    local e="$1" name step dd ddr
+    name="$(rec_key "${e}")"; step="$(arm_field "${e}" 2)"; dd="$(rec_data "${e}")"; ddr="$(rec_data_ref "${e}")"
     cat <<EOS
 # arm ${name}: finish (stop a late arm and the sampler, remove the DB,$([ "${step}" = ra16 ] && echo ' put read_ahead_kb back,') tar for the pull)
 set -u
 B=${RB}
 A=${RB}/arms/${name}
-D=${RB}/data/${name}
+D=${dd}/${name}
 if systemctl is-active --quiet bench-probe-arm-${name}; then systemctl stop bench-probe-arm-${name}; echo "ARM_FINISH ${name} stopped the running arm"; fi
 systemctl stop bench-probe-sampler-${name} >/dev/null 2>&1 || true
 mkdir -p "\$A"
 journalctl -u bench-probe-sampler-${name} -u bench-probe-arm-${name} --no-pager -o short-iso > "\$A/journal.txt" 2>&1 || true
-rm -f -- "\$D/mdbx.dat" "\$D/mdbx.lck" "\$D/probe-meta.txt" "\$B/data/${name}.appender.log"
+rm -f -- "\$D/mdbx.dat" "\$D/mdbx.lck" "\$D/probe-meta.txt" "${ddr}/${name}.appender.log"
 rmdir -- "\$D" 2>/dev/null || true
 if [ -e "\$D/mdbx.dat" ]; then echo "ARM_FINISH ${name} could not remove \$D/mdbx.dat"; fi
 EOS
     if [ "${step}" = ra16 ]; then
         echo "# >>> bench-lib: bench_host_step_script read-ahead-kb <boot value>"
-        bench_host_step_script "${INST}" read-ahead-kb "${BOOT_RA_KB}" "${RB}/data"
+        bench_host_step_script "${INST}" read-ahead-kb "$(rec_boot_ra "${e}")" "${dd}"
         echo "# <<< bench-lib: bench_host_step_script"
     fi
     cat <<EOS
@@ -714,6 +884,9 @@ EOS
 
 # --- run ------------------------------------------------------------------------------------------------
 BOOT_RA_KB=""
+BOOT_RA_KB_NV=""
+# rec_boot_ra <entry> — the read_ahead_kb its device booted with (the host probe of its data dir).
+rec_boot_ra() { if [ "$(rec_dev "$1")" = nvme ]; then printf '%s' "${BOOT_RA_KB_NV}"; else printf '%s' "${BOOT_RA_KB}"; fi; }
 
 # kv <line> <key> — the value of key=<v> in a space-separated line.
 kv() { printf '%s\n' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | tail -n 1; }
@@ -766,11 +939,96 @@ safety_ref() {
     return 1
 }
 
-# write_status <name> <result> — arms/<name>.status.json from what the arm left locally; for an arm with
-# sampler cadence safety, also its verdict against the reference arm's status file (when that ran).
+# write_stats <arm.csv> <persist.csv> <probe_end unix> — the arm's device writes as one JSON object, from
+# the probe's per-output CSV over its measured outputs (warm 0) and the sampler's diskstats rows. The
+# probe's fs_* columns are /proc/diskstats deltas of the device holding the data dir (the device the
+# device/mdbx ratio reads): fs_wios_* completed write requests, fs_wb_* bytes, fs_flush_cycle flush
+# requests; *_cycle spans the output (puts, commit, pause), *_commit the commit alone. Per output, the
+# median (the probe's own: the middle of the sorted values, the upper one of an even count); p90 is the
+# probe's too. diskstats gives counts and bytes, never one request's size, so the write size is bytes
+# per request: its mean over the arm and the p90 of the per-output means. mdbx syncs are MDBX's own
+# msync + fsync calls (pg_msync + pg_fsync). The per-output CSV has no device write time; the sampler's
+# disk_wr_ticks_ms_total does, read over the rows inside the measured outputs' span (probe_end minus their
+# summed cycle_ms, up to probe_end) when two rows cover at least half of it. A column, a file or a span
+# that is missing gives null, never 0 (SUMMARY.txt prints n/a).
+write_stats() {
+    local per="" f="$1" out
+    [ -r "${f}" ] || f=/dev/null
+    [ -r "$2" ] && per="$(cat "$2")"
+    out="$(jq -R -s -c --arg pe "$3" --arg per "${per}" '
+        def num: if type == "string" and test("^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$") then tonumber else null end;
+        def rnd($k): if . == null then null else (. * $k | round) / $k end;
+        def div($a; $b): if $a == null or $b == null or $b == 0 then null else $a / $b end;
+        def table: split("\n") | map(select(length > 0) | split(","))
+                   | {c: ((.[0] // []) | to_entries | map({(.value): .key}) | add // {}), rows: .[1:]};
+        table as $t
+        | (if $t.c.warm == null then [] else $t.rows | map(select(.[$t.c.warm] == "0")) end) as $m
+        | def vals($k): if $t.c[$k] == null or ($m | length) == 0 then null
+                        else ($m | map(.[$t.c[$k]] | num)) | (if any(. == null) then null else . end) end;
+          def med: if . == null then null else sort | .[length / 2 | floor] end;
+          def p90: if . == null or length == 0 then null else sort | .[(length - 1) * 0.9 | round] end;
+          def tot: if . == null then null else add end;
+          (vals("fs_wios_cycle")) as $ops | (vals("fs_wb_cycle")) as $by
+        | (if vals("pg_msync") == null or vals("pg_fsync") == null then null
+           else [vals("pg_msync"), vals("pg_fsync")] | transpose | map(add) end) as $sy
+        | (if $ops == null or $by == null then null
+           else [$by, $ops] | transpose | map(select(.[1] > 0) | .[0] / .[1] / 1024) end) as $kib
+        | ($ops | tot) as $opt | ($by | tot) as $byt
+        | (vals("fs_wios_commit") | tot) as $cop | (vals("fs_wb_commit") | tot) as $cby
+        | (vals("commit_ms") | tot | div(.; 1000)) as $cs | (vals("cycle_ms") | tot | div(.; 1000)) as $ys
+        | ($pe | num) as $we
+        | ($per | table) as $s
+        | (if $we == null or $ys == null or $ys <= 0 then null
+           else [$s.rows[] | {t: (.[$s.c.ts_unix // -1] // "" | num), wi: (.[$s.c.disk_wr_ios_total // -1] // "" | num),
+                              wt: (.[$s.c.disk_wr_ticks_ms_total // -1] // "" | num),
+                              fi: (.[$s.c.disk_flush_ios_total // -1] // "" | num),
+                              ft: (.[$s.c.disk_flush_ticks_ms_total // -1] // "" | num)}
+                 | select(.t != null and .t >= $we - $ys and .t <= $we)] | sort_by(.t) end) as $w
+        | (if $w == null or ($w | length) < 2 or (($w[-1].t - $w[0].t) < ([1, $ys / 2] | max)) then null
+           else {a: $w[0], b: $w[-1]} end) as $win
+        | {outputs_measured: (if $t.c.warm == null then null else ($m | length) end),
+           write_ops_med: ($ops | med), write_bytes_med: ($by | med),
+           write_kib_mean: (div($byt; $opt) | div(.; 1024) | rnd(10)), write_kib_p90: ($kib | p90 | rnd(10)),
+           flush_ops_med: (vals("fs_flush_cycle") | med), mdbx_syncs_med: ($sy | med),
+           commit_write_ops_med: (vals("fs_wios_commit") | med), commit_write_bytes_med: (vals("fs_wb_commit") | med),
+           sync_ms_med: (vals("lat_sync_ms") | med),
+           write_ops_total: $opt, write_bytes_total: $byt, flush_ops_total: (vals("fs_flush_cycle") | tot),
+           mdbx_syncs_total: ($sy | tot), commit_write_ops_total: $cop, commit_write_bytes_total: $cby,
+           commit_secs_total: ($cs | rnd(1000)), cycle_secs_total: ($ys | rnd(1000)),
+           commit_iops: (div($cop; $cs) | rnd(1)), commit_mibps: (div($cby; $cs) | div(.; 1048576) | rnd(10)),
+           cycle_iops: (div($opt; $ys) | rnd(1)), cycle_mibps: (div($byt; $ys) | div(.; 1048576) | rnd(10)),
+           device_write_ms_per_op: (if $win == null or $win.a.wi == null or $win.b.wi == null or $win.a.wt == null or $win.b.wt == null
+                                    then null else div($win.b.wt - $win.a.wt; $win.b.wi - $win.a.wi) | rnd(1000) end),
+           device_flush_ms_per_op: (if $win == null or $win.a.fi == null or $win.b.fi == null or $win.a.ft == null or $win.b.ft == null
+                                    then null else div($win.b.ft - $win.a.ft; $win.b.fi - $win.a.fi) | rnd(1000) end),
+           sampler_window_secs: (if $win == null then null else $win.b.t - $win.a.t end)}' "${f}" 2>/dev/null)" || out='{}'
+    [ -n "${out}" ] || out='{}'
+    printf '%s\n' "${out}"
+}
+
+# binding <writes json> <device> — the binding constraint on the record's device: the commit window's
+# write requests per second against the provisioned IOPS and its MiB/s against the provisioned
+# throughput (the commit is when the writes are issued and what the writer waits on; a rate held at a
+# cap reads near 100 %). binds names the larger share; null for a device with no provisioned cap (the
+# local SSD) or without the rates.
+binding() {
+    local ic="" tc=""
+    if [ "$2" = hyperdisk ]; then ic="${NODE_DISK_IOPS:-}"; tc="${NODE_DISK_THROUGHPUT:-}"; fi
+    printf '%s' "$1" | jq -c --arg dev "$2" --arg ic "${ic}" --arg tc "${tc}" '
+        def n: if . == "" then null else (tonumber? // null) end;
+        def pct($r; $c): if $r == null or $c == null or $c == 0 then null else ($r / $c * 100 | round) end;
+        {device: $dev, iops_cap: ($ic | n), mibps_cap: ($tc | n), commit_iops, commit_mibps, cycle_iops, cycle_mibps}
+        | .iops_pct = pct(.commit_iops; .iops_cap) | .mibps_pct = pct(.commit_mibps; .mibps_cap)
+        | .binds = (if .iops_pct == null or .mibps_pct == null then null
+                    elif .iops_pct >= .mibps_pct then "iops" else "throughput" end)' 2>/dev/null || echo 'null'
+}
+
+# write_status <key> <result> — arms/<key>.status.json from what the record left locally; for an arm with
+# sampler cadence safety, also its verdict against the reference arm's status file on the same device
+# (when that ran).
 write_status() {
-    local name="$1" result="$2" e step cad flags d s st en rc to amp cw pr pu cm q l np ref base
-    e=""; for s in "${ARMS_ALL[@]}"; do [ "${s%%|*}" = "${name}" ] && e="${s}"; done
+    local name="$1" result="$2" e step cad flags d s st en rc to amp cw pr pu cm q l np ref rk base rn dev arm ws
+    e="$(rec_by_key "${name}")"; rn="$(rec_name "${e}")"; dev="$(rec_dev "${e}")"; arm="$(rec_arm "${e}")"
     step="$(arm_field "${e}" 2)"; cad="$(arm_field "${e}" 3)"; flags="$(arm_field "${e}" 4)"
     d="${PD}/arms/${name}"
     s="${d}/results/${name}.summary.txt"
@@ -784,11 +1042,13 @@ write_status() {
     q="$(grep '^CENSUS_SAFETY' "${d}/census-safety.txt" 2>/dev/null)" || q=""
     l="$(grep -h "^HOST_STEP ${INST} " "${PD}/sessions/arm-${name}-start.out" "${PD}/sessions/arm-${name}-finish.out" 2>/dev/null)" || l=""
     np="$(no_prefault "${d}/results/${name}.csv")" || np=""
-    base="$(jq -n -c --arg name "${name}" --arg group "${name%%-*}" --arg step "${step}" --arg cad "${cad}" --arg flags "${flags}" \
+    ws="$(write_stats "${d}/results/${name}.csv" "${d}/persist/${name}.persist.csv" "$(cat "${d}/probe_end" 2>/dev/null)")" || ws='{}'
+    base="$(jq -n -c --arg name "${rn}" --arg group "${arm%%-*}" --arg step "${step}" --arg cad "${cad}" --arg flags "${flags}" \
         --arg cmd "$(cat "${d}/cmd.txt" 2>/dev/null)" --arg result "${result}" --arg st "${st}" --arg en "${en}" \
         --arg rc "${rc}" --arg to "${to:-0}" --arg amp "${amp}" --arg cw "${cw}" --arg pr "${pr}" --arg pu "${pu}" \
         --arg cm "${cm}" --arg q "${q}" --argjson hs "$(printf '%s\n' "${l}" | bench_host_step_record "${INST}")" \
-        --argjson i1 "$(i1_row "${d}/results/summary-i1.csv")" --arg np "${np}" '
+        --argjson i1 "$(i1_row "${d}/results/summary-i1.csv")" --arg np "${np}" --arg arm "${arm}" --arg dev "${dev}" \
+        --argjson ws "${ws}" --argjson bind "$(binding "${ws}" "${dev}")" '
         def n: if . == "" then null else (tonumber? // null) end;
         def iso: if . == null then null else todate end;
         {name: $name, group: $group, host_step: (if $step == "-" then null else $step end), sampler_cadence: $cad,
@@ -799,12 +1059,16 @@ write_status() {
          resident_past_used_end_pages: ($pu | n), commit_ms_median: ($cm | n),
          outputs_grown_without_prefault: (if $np == "" then null else ($np | split(" ")[0] | n) end),
          first_output_grown_without_prefault: (if $np == "" then null else ($np | split(" ")[1] | n) end),
-         i1: $i1, census_safety: ($q | split("\n") | map(select(length > 0)))}')" || return 1
+         i1: $i1, census_safety: ($q | split("\n") | map(select(length > 0))),
+         arm: $arm, device: $dev, writes: $ws, binding: $bind}')" || return 1
     if [ "${cad}" = safety ]; then
+        # The reference arm on the same device: its record's key and name.
         ref="$(safety_ref "${e}")" || ref=""
+        rk="${ref}"; [ -z "${ref}" ] || [ "${DISKS}" != both ] || rk="${ref}_${dev}"
+        [ -z "${rk}" ] || ref="$(rec_name "$(rec_by_key "${rk}")")"
         base="$(printf '%s' "${base}" | jq -c --arg ref "${ref}" --argjson tr "${SAFE_TOL_RATIO}" \
             --argjson tp "${SAFE_TOL_PAST_USED}" --argjson mb "${SAFE_MAX_READ_BYTES}" \
-            --slurpfile r <(cat "${PD}/arms/${ref:-none}.status.json" 2>/dev/null || echo null) '
+            --slurpfile r <(cat "${PD}/arms/${rk:-none}.status.json" 2>/dev/null || echo null) '
             def num: if type == "number" then . else null end;
             (.i1) as $me | (($r[0] // {}) | .i1 // {}) as $ri
             | ([.census_safety[] | select(startswith("CENSUS_SAFETY_IO ")) | split(" ")
@@ -818,7 +1082,9 @@ write_status() {
              read_bytes: {live: $io.live.read_bytes, quiet: $io.quiet.read_bytes},
              quiet_unchanged: $io.quiet.unchanged, quiet_runs: $io.quiet.runs,
              outputs_grown_without_prefault: .outputs_grown_without_prefault,
-             tolerances: {ratio: $tr, past_used_pages: $tp, read_bytes: $mb}} as $s
+             tolerances: {ratio: $tr, past_used_pages: $tp, read_bytes: $mb},
+             quiet_steady: $io.quiet.steady,
+             reader: ([.census_safety[] | select(startswith("CENSUS_SAFETY_IO quiet ")) | capture(" reader=(?<r>[a-z]+)") | .r][0] // null)} as $s
             | ($s | {ratio_proc_med: near(.ratio_proc_med[0]; .ratio_proc_med[1]; $tr),
                      prefault_per_grown: near(.prefault_per_grown[0]; .prefault_per_grown[1]; $tr),
                      beyond_used_resident_max: (if (.beyond_used_resident_max[0] | num) == null or (.beyond_used_resident_max[1] | num) == null
@@ -827,7 +1093,9 @@ write_status() {
                                   then null else (.read_bytes.live <= $mb and .read_bytes.quiet <= $mb) end),
                      quiet_unchanged: (if .quiet_runs == null then null else (.quiet_runs == 5 and .quiet_unchanged == 5) end),
                      prefault_never_dropped: (if (.outputs_grown_without_prefault | num) == null then null
-                                              else .outputs_grown_without_prefault == 0 end)}) as $c
+                                              else .outputs_grown_without_prefault == 0 end),
+                     reader_steady: (if (.quiet_runs | num) == null or (.quiet_steady | num) == null then null
+                                     else (.quiet_runs == 5 and .quiet_steady == 4) end)}) as $c
             | .safety = ($s + {checks: $c,
                  pass: (if ([$c[]] | any(. == false)) then false elif ([$c[]] | any(. == null)) then null else true end)})')" \
             || return 1
@@ -835,7 +1103,7 @@ write_status() {
     printf '%s\n' "${base}" | jq . > "${PD}/arms/${name}.status.json"
 }
 
-# finish_and_pull <entry> — the arm's finish session, then its tarball pulled, checked against the sha256
+# finish_and_pull <entry> — the record's finish session, then its tarball pulled, checked against the sha256
 # the finish printed, and unpacked into arms/; rc 0 when arms/<name>/ came over whole.
 finish_and_pull() {
     local e="$1" name out tgz line sha got
@@ -856,7 +1124,8 @@ finish_and_pull() {
     return 1
 }
 
-# run_arm <entry> <run deadline unix> — one arm; never stops the loop. rc 0 = done with rc 0 and pulled.
+# run_arm <entry> <run deadline unix> — one record (an arm on one device); never stops the loop. rc 0 =
+# done with rc 0 and pulled.
 run_arm() {
     local e="$1" dl="$2" name out line result="" t0
     name="$(arm_field "${e}" 1)"
@@ -867,7 +1136,7 @@ run_arm() {
         mkdir -p "${PD}/arms/${name}"; write_status "${name}" "skipped: run deadline"
         return 1
     fi
-    if [ "$(arm_field "${e}" 2)" = ra16 ] && [ "${DRY}" = "0" ] && [ -z "${BOOT_RA_KB}" ]; then
+    if [ "$(arm_field "${e}" 2)" = ra16 ] && [ "${DRY}" = "0" ] && [ -z "$(rec_boot_ra "${e}")" ]; then
         log "arm ${name}: skipped, the host probe gave no read_ahead_kb to restore"
         mkdir -p "${PD}/arms/${name}"; write_status "${name}" "skipped: no boot read_ahead_kb"
         return 1
@@ -928,7 +1197,7 @@ check_bin() {
 
 cmd_run() {
     local dl="$1" work bundle e fails=0 ok=0 n=0 out r
-    echo "== run: ${#ARMS[@]} arm(s), each under a ${ARM_DEADLINE}-s watchdog; the run ends by $([ "${DRY}" = 1 ] && echo "start + ${DEADLINE_MIN} min" || bench_iso_from_unix "${dl}")" >&3
+    echo "== run: ${#RECS[@]} arm(s)$([ "${DISKS}" = both ] && echo " (${#ARMS[@]} on each of hyperdisk and nvme)"), each under a ${ARM_DEADLINE}-s watchdog; the run ends by $([ "${DRY}" = 1 ] && echo "start + ${DEADLINE_MIN} min" || bench_iso_from_unix "${dl}")" >&3
     if [ "${DRY}" = "0" ]; then
         check_bin || return 1
         mkdir -p "${PD}/sessions" "${PD}/scripts" "${PD}/arms" || return 1
@@ -950,6 +1219,18 @@ cmd_run() {
         echo "❌ setup failed: $(grep '^SETUP_FAIL' "${PD}/sessions/setup.out" | tail -n 1)" >&2
         return 1
     fi
+    if [ "${DRY}" = "0" ]; then
+        # Which reader gave resident pages (fincore or the census), and the local SSD as setup made it.
+        r="$(kv "$(grep '^SETUP_OK' "${PD}/sessions/setup.out" | tail -n 1)" resident_reader)" || r=""
+        state_set resident_reader "${r}"
+        log "setup: resident pages from ${r:-?}$([ "${r}" = census ] && echo ' (no fincore on the image: the census tool'"'"'s --resident-only)')"
+        if [ "${DISKS}" = both ]; then
+            r="$(grep '^SETUP_NVME ' "${PD}/sessions/setup.out" | tail -n 1)" || r=""
+            [ -n "${r}" ] || { echo "❌ setup printed no SETUP_NVME line: no local SSD to run on" >&2; return 1; }
+            state_set nvme_setup "${r#SETUP_NVME }"
+            log "setup: local SSD ${r#SETUP_NVME }"
+        fi
+    fi
     echo "-- host probe (bench_host_probe_script)" >&3
     remote host-probe 120 "${PD}/sessions/host-probe.out" script_host_probe
     if [ "${DRY}" = "0" ]; then
@@ -969,7 +1250,24 @@ cmd_run() {
         # The plan renders the restore with 128 in place of the host probe's read_ahead_kb.
         BOOT_RA_KB=128
     fi
-    for e in ${ARMS[@]+"${ARMS[@]}"}; do
+    if [ "${DISKS}" = both ]; then
+        echo "-- host probe of the local SSD (bench_host_probe_script, ${RNV}/data)" >&3
+        remote host-probe-nvme 120 "${PD}/sessions/host-probe-nvme.out" script_host_probe_nvme
+        if [ "${DRY}" = "0" ]; then
+            bench_host_probe_record "${INST}" < "${PD}/sessions/host-probe-nvme.out" > "${PD}/host-probe-nvme.json"
+            BOOT_RA_KB_NV="$(jq -r '.read_ahead_kb // empty' "${PD}/host-probe-nvme.json" 2>/dev/null)" || BOOT_RA_KB_NV=""
+            case "${BOOT_RA_KB_NV}" in *[!0-9]*) BOOT_RA_KB_NV="" ;; esac
+            r="$(state_get boot_read_ahead_kb_nvme)" || r=""
+            case "${r}" in
+                ''|*[!0-9]*) [ -z "${BOOT_RA_KB_NV}" ] || state_set boot_read_ahead_kb_nvme "${BOOT_RA_KB_NV}" ;;
+                *) BOOT_RA_KB_NV="${r}" ;;
+            esac
+            log "host probe (nvme): read_ahead_kb ${BOOT_RA_KB_NV:-?}, disk $(jq -r '.disk // "-"' "${PD}/host-probe-nvme.json"), mount $(jq -r '.datadir_mount_options // "-"' "${PD}/host-probe-nvme.json")"
+        else
+            BOOT_RA_KB_NV=128
+        fi
+    fi
+    for e in ${RECS[@]+"${RECS[@]}"}; do
         n=$((n + 1))
         if run_arm "${e}" "${dl}"; then ok=$((ok + 1)); else fails=$((fails + 1)); fi
     done
@@ -980,30 +1278,66 @@ cmd_run() {
 }
 
 # --- collect --------------------------------------------------------------------------------------------
-# summary_lines — SUMMARY.txt, in the table's run order: one PROBE_ARM line per arm with a status file,
-# the safety arm's census totals and its SAFETY verdict.
+# summary_lines — SUMMARY.txt: a PROBE_RUN line (the device mode, the shape, which reader gave resident
+# pages, the local SSD as setup made it), then in the table's run order one PROBE_ARM line per record with
+# a status file (its device writes appended to the bytes ratio and commit time), its BIND line (the
+# binding constraint on its device), the safety arm's census totals and its SAFETY verdict; with
+# --disks both a PAIR line after each arm's nvme record sets the two devices side by side. A value a
+# source lacks reads n/a in the columns this added, "-" in the older ones.
 summary_lines() {
-    local e f name
-    for e in "${ARMS_ALL[@]}"; do
-        name="${e%%|*}"
-        f="${PD}/arms/${name}.status.json"
+    local e f key arm h
+    jq -r -n --arg d "${DISKS}" --arg mt "${MACHINE_TYPE}" --arg rr "$(state_get resident_reader)" --arg nv "$(state_get nvme_setup)" '
+        "PROBE_RUN disks=\($d) machine_type=\($mt) resident_reader=\(if $rr == "" then "n/a" else $rr end)"
+        + (if $nv == "" then "" else " nvme: \($nv)" end)'
+    for e in "${ALL_RECS[@]}"; do
+        key="${e%%|*}"
+        f="${PD}/arms/${key}.status.json"
         [ -r "${f}" ] || continue
-        jq -r '"PROBE_ARM \(.name) result=\(.result | gsub(" "; "_")) rc=\(.exit_code // "-") device/mdbx=\(.device_per_mdbx // "-")"
+        jq -r 'def na: if . == null then "n/a" else . end;
+               def mib: if . == null then "n/a" else ((. / 1048576 * 10 | round) / 10) end;
+               "PROBE_ARM \(.name) result=\(.result | gsub(" "; "_")) rc=\(.exit_code // "-") device/mdbx=\(.device_per_mdbx // "-")"
                + " commit/mdbx=\(.commit_window_device_per_mdbx // "-") process/mdbx=\(.process_per_mdbx // "-")"
                + " past_used_end=\(.resident_past_used_end_pages // "-") commit_ms=\(.commit_ms_median // "-")"
                + " prefault/grown=\(.i1.prefault_per_grown // "-") past_used_max=\(.i1.beyond_used_resident_max // "-")"
-               + " no_prefault_outputs=\(.outputs_grown_without_prefault // "-")"' "${f}"
-        jq -r '.census_safety[]' "${f}" | grep '^CENSUS_SAFETY_IO' | sed "s/^/  ${name} /"
+               + " no_prefault_outputs=\(.outputs_grown_without_prefault // "-")"
+               + " outputs=\(.writes.outputs_measured | na) wr_ops/out=\(.writes.write_ops_med | na)"
+               + " wr_kib_mean=\(.writes.write_kib_mean | na) wr_kib_p90=\(.writes.write_kib_p90 | na)"
+               + " flushes/out=\(.writes.flush_ops_med | na) syncs/out=\(.writes.mdbx_syncs_med | na)"
+               + " commit_wr_ops/out=\(.writes.commit_write_ops_med | na) sync_ms=\(.writes.sync_ms_med | na)"
+               + " dev_ms/wr=\(.writes.device_write_ms_per_op | na) dev_ms/flush=\(.writes.device_flush_ms_per_op | na)"
+               + " wr_ops=\(.writes.write_ops_total | na) wr_mib=\(.writes.write_bytes_total | mib)"
+               + " flushes=\(.writes.flush_ops_total | na) syncs=\(.writes.mdbx_syncs_total | na)"' "${f}"
+        jq -r 'def na: if . == null then "n/a" else . end;
+               def pc: if . == null then "n/a" else "\(.)%" end;
+               (.binding // {}) as $b
+               | "BIND \(.name) device=\(.device // "hyperdisk") commit_iops=\($b.commit_iops | na)/\($b.iops_cap | na) (\($b.iops_pct | pc))"
+               + " commit_mibps=\($b.commit_mibps | na)/\($b.mibps_cap | na) (\($b.mibps_pct | pc))"
+               + " cycle_iops=\($b.cycle_iops | na) cycle_mibps=\($b.cycle_mibps | na) -> "
+               + (if $b.binds != null then $b.binds
+                  elif $b.commit_iops == null or $b.commit_mibps == null then "n/a (no commit-window rates)"
+                  else "n/a (no provisioned cap)" end)' "${f}"
+        jq -r '.census_safety[]' "${f}" | grep '^CENSUS_SAFETY_IO' | sed "s/^/  $(jq -r '.name' "${f}") /"
         jq -r 'select(.safety != null) | .safety as $s | ($s.checks | to_entries) as $c
             | def pair(k): "\($s[k][0] // "-")/\($s[k][1] // "-")";
             "SAFETY \(.name) ref=\($s.reference // "none") ratio_proc_med=\(pair("ratio_proc_med"))"
             + " prefault_per_grown=\(pair("prefault_per_grown")) past_used_max=\(pair("beyond_used_resident_max"))"
             + " read_bytes_live=\($s.read_bytes.live // "-") read_bytes_quiet=\($s.read_bytes.quiet // "-")"
             + " quiet_unchanged=\($s.quiet_unchanged // "-")/\($s.quiet_runs // "-")"
-            + " no_prefault_outputs=\($s.outputs_grown_without_prefault // "-") -> "
+            + " no_prefault_outputs=\($s.outputs_grown_without_prefault // "-")"
+            + " reader=\($s.reader // "n/a") quiet_steady=\($s.quiet_steady // "n/a")/\(if $s.quiet_runs == null then "n/a" else $s.quiet_runs - 1 end) -> "
             + (if $s.pass == true then "PASS"
                elif $s.pass == false then "FAIL (\([$c[] | select(.value == false) | .key] | join(",")))"
                else "INCOMPLETE (not measured: \([$c[] | select(.value == null) | .key] | join(",")))" end)' "${f}"
+        [ "${DISKS}" = both ] && [ "$(rec_dev "${e}")" = nvme ] || continue
+        arm="$(rec_arm "${e}")"
+        h="${PD}/arms/${arm}_hyperdisk.status.json"
+        [ -r "${h}" ] || continue
+        jq -r -n --arg arm "${arm}" --slurpfile h "${h}" --slurpfile v "${f}" '
+            def na: if . == null then "n/a" else . end;
+            def both(f): "\($h[0] | f | na)/\($v[0] | f | na)";
+            "PAIR \($arm) hyperdisk/nvme device/mdbx=\(both(.device_per_mdbx)) wr_ops/out=\(both(.writes.write_ops_med))"
+            + " wr_kib_mean=\(both(.writes.write_kib_mean)) commit_ms=\(both(.commit_ms_median)) sync_ms=\(both(.writes.sync_ms_med))"
+            + " commit_iops=\(both(.writes.commit_iops)) binds=\(both(.binding.binds))"'
     done
 }
 
@@ -1011,7 +1345,7 @@ cmd_collect() {
     local e name zone_now info
     echo "== collect: ${REL_PD}/ (manifest.json, SUMMARY.txt, arms/), then the run's INDEX.md" >&3
     # An arm whose run reached the pull and lost it gets one more finish and pull (a skipped arm never ran).
-    for e in ${ARMS[@]+"${ARMS[@]}"}; do
+    for e in ${RECS[@]+"${RECS[@]}"}; do
         name="$(arm_field "${e}" 1)"
         [ "${DRY}" = "0" ] || continue
         jq -e '.result | endswith("; pull failed")' "${PD}/arms/${name}.status.json" >/dev/null 2>&1 || continue
@@ -1026,7 +1360,7 @@ cmd_collect() {
     fi
     mkdir -p "${PD}" || return 1
     # A safety verdict reads its reference arm's status: write it again now that every arm that ran has one.
-    for e in "${ARMS_ALL[@]}"; do
+    for e in "${ALL_RECS[@]}"; do
         [ "$(arm_field "${e}" 3)" = safety ] || continue
         name="${e%%|*}"
         [ ! -r "${PD}/arms/${name}.status.json" ] || write_status "${name}" "$(jq -r '.result' "${PD}/arms/${name}.status.json")"
@@ -1040,7 +1374,9 @@ cmd_collect() {
         --slurpfile img <(cat "${PD}/image.json" 2>/dev/null || echo null) \
         --slurpfile host <(cat "${PD}/host-probe.json" 2>/dev/null || echo null) \
         --arg info "$(cat "${info}" 2>/dev/null)" --arg sums "$(cat "${PD}/bundle-SHA256SUMS" 2>/dev/null)" \
-        --slurpfile arms <(cat "${PD}"/arms/*.status.json 2>/dev/null) '
+        --slurpfile arms <(cat "${PD}"/arms/*.status.json 2>/dev/null) \
+        --arg disks "${DISKS}" --arg maint "${MAINT}" --arg rr "$(state_get resident_reader)" --arg nv "$(state_get nvme_setup)" \
+        --arg mkfs "${NVME_MKFS}" --slurpfile hostnv <(cat "${PD}/host-probe-nvme.json" 2>/dev/null || echo null) '
         def n: if . == "" then null else (tonumber? // null) end;
         def kvs: split("\n") | map(select(test("^[a-z0-9_]+=")) | capture("^(?<k>[a-z0-9_]+)=(?<v>.*)$")) | map({(.k): .v}) | add // {};
         {schema: "bench-probe/v1", run_id: $run,
@@ -1048,10 +1384,15 @@ cmd_collect() {
               disk_provisioned_iops: ($di | n), disk_provisioned_throughput_mibps: ($dp | n), boot_image: $image,
               boot_image_record: ($img[0] | if . == null then null else {name, status, archiveSizeBytes, creationTimestamp,
                                    deprecated: (.deprecated.state // "ACTIVE"), family, licenses} end),
-              labels: $labels, created_unix: ($created | n), deleted_unix: ($deleted | n)},
+              labels: $labels, created_unix: ($created | n), deleted_unix: ($deleted | n), maintenance_policy: $maint},
          deadlines: {arm_secs: ($ad | n), run_min: ($rd | n)},
          binary: ($info | kvs), bundle_sha256: ($sums | split("\n") | map(select(length > 0) | split("  ") | {(.[1]): .[0]}) | add // {}),
-         host_probe: $host[0], arms: $arms}' > "${PD}/manifest.json.tmp" && mv -f "${PD}/manifest.json.tmp" "${PD}/manifest.json" \
+         host_probe: $host[0], arms: $arms,
+         disks: $disks, resident_reader: (if $rr == "" then null else $rr end),
+         local_ssd: (if $disks != "both" then null
+                     else {machine_type: $mt, mkfs_options: $mkfs}
+                          + ($nv | split(" ") | map(capture("^(?<k>[a-z_]+)=(?<v>.*)$")) | map({(.k): .v}) | add // {}) end),
+         host_probe_nvme: $hostnv[0]}' > "${PD}/manifest.json.tmp" && mv -f "${PD}/manifest.json.tmp" "${PD}/manifest.json" \
         || { echo "❌ could not write ${PD}/manifest.json" >&2; return 1; }
     summary_lines > "${PD}/SUMMARY.txt"
     cat "${PD}/SUMMARY.txt" >&3
@@ -1210,6 +1551,11 @@ print_header() {
     echo "   labels ${LABELS}; results ${REL_PD}/"
     echo "   deadlines: run ${DEADLINE_MIN} min, arm ${ARM_DEADLINE} s, ssh ready ${SSH_READY_SECS} s, delete ${DELETE_SECS} s each"
     echo "   read_ahead_kb: each arm sets it before it starts (the value the VM booted with; 16 for host step ra16, put back after)"
+    if [ "${DISKS}" = both ]; then
+        echo "   disks: both: each arm runs on the ${NODE_DISK_TYPE} boot disk (<arm>@hyperdisk, ${RB}/data), then on the local SSD"
+        echo "   (<arm>@nvme, ${RNV}/data: google-local-nvme-ssd-0, mkfs.ext4 ${NVME_MKFS}, mounted with /'s fstab options);"
+        echo "   host maintenance ${MAINT}; the local SSD goes with the instance"
+    fi
     echo "   arms (${#ARMS[@]}):"
     for e in ${ARMS[@]+"${ARMS[@]}"}; do
         printf '     %-22s %s%s\n' "$(arm_field "${e}" 1)" "$(arm_field "${e}" 4)" \

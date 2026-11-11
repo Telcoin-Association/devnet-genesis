@@ -2573,7 +2573,7 @@ bench_fsync_probe_summary() {
 # Pure script builders and local parsers; the callers (deploy step 7, tools/params-apply.sh, the
 # one-VM probe) send the scripts and record the lines. Manifest names: arms/MANIFEST-FIELDS.md.
 
-# _bench_host_py — the python3 program (stdlib only; the Ubuntu 24.04 image ships python3, fincore,
+# _bench_host_py — the python3 program (stdlib only; the Ubuntu 24.04 image lacks fincore, ships python3,
 # findmnt and lsblk) behind the host probe and the host steps, run as `python3 - <mode> ...`:
 #   probe <inst> <datadir> <start script>  one line `HOST_PROBE <inst> <json>` (the frozen keys of
 #                                          node_startup[inst].host, in table order; a field it cannot
