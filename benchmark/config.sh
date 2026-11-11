@@ -47,7 +47,7 @@ case "$-" in
 esac
 _bench_caller="$(basename -- "${0:-}")"
 case "${_bench_caller}" in
-    benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\
+    benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|benchmark-probe.sh|\
     devnet-keygen.sh|devnet-genesis-build.sh|devnet-network-config.sh|devnet-finalize.sh|\
     devnet-contracts.sh|create-instances.sh|genesis.sh|copy-committee.sh|params-apply.sh) ;;
     *)
@@ -133,6 +133,12 @@ unset WG_HUB_ENDPOINT WG_HUB_PUBKEY
 # Node image. ../config.sh exports the live devnet's unconditionally (an env DOCKER_IMAGE never
 # survives it), so the bench pins its own through BENCH_DOCKER_IMAGE: a tag or repo@sha256:<digest>.
 export DOCKER_IMAGE="${BENCH_DOCKER_IMAGE:-${DOCKER_IMAGE}}"
+# Boot image. ../config.sh exports IMAGE as the ubuntu-2404-lts-amd64 image FAMILY, which resolves to the newest image
+# at create time; the kernel and its page-cache, read-ahead and THP defaults come with it, so a bench fleet boots one
+# fixed image instead. Default: the image bench 5 booted. BENCH_NODE_BOOT_IMAGE=projects/<project>/global/images/<image>
+# picks another; a /family/ value is refused below. common/create-instances.sh passes ${IMAGE} to the node create
+# (--create-disk image=) through CONFIG_FILE, so neither common/ nor ../config.sh changes.
+export IMAGE="${BENCH_NODE_BOOT_IMAGE:-projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105}"
 
 # Machines. Default c3-highcpu-8 + hyperdisk-balanced (the c3-hdb shape of the 29 Sep run);
 # override per sizing sweep. e2/n1 cannot attach hyperdisk, so they need BENCH_NODE_DISK_TYPE=pd-ssd.
@@ -235,9 +241,15 @@ export PARAMETERS_FILE
 # <int>ms or <int>s. gc_depth and basefee_address stay fleet-wide. Checked below; live changes between
 # sweep arms are tools/params-apply.sh's job, not this knob's.
 export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
-# <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. Keep in step with
-# tools/params-apply.sh PARAM_KEYS.
+# <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. This line (the timing keys) stays in
+# step with tools/params-apply.sh PARAM_KEYS (tests/test_params_apply.py compares the two).
 export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
+# Node switches (bench 6): one <type>:<key> per row of arms/switches.tsv, in row order. The tsv is their single source
+# of truth (the arm tool reads it; tests/test_node_image.py keeps this list equal to it). Each is a top-level
+# parameters.yaml key whose node default is bench 5's behaviour; the allowlist above gains them so a per-node override
+# may set one too. pipelined_persist is optional: an image may not know it.
+export BENCH_NODE_SWITCH_KEYS="bool:quorum_exec_block int:quorum_exec_block_starved_rounds bool:vote_queue_fix bool:mdbx_random_advice bool:sealed_tx_keep bool:digest_dedupe int:recovery_threads bool:epoch_close_task_drain bool:epoch_record_state_check dur:parent_grace int:rpc_admission_backlog_outputs bool:pipelined_persist"
+BENCH_NODE_PARAM_KEYS="${BENCH_NODE_PARAM_KEYS} ${BENCH_NODE_SWITCH_KEYS}"
 # Node log filter: step 7's pre-start config puts --log.stdout.filter <f> --log.file.filter <f>
 # --log.file.max-files <n> on the node's command line (step 9 checks it). The default (bench 4, the design's
 # D2 filter) logs the whole primary at debug (proposer, certifier and voter: `Processing vote request from
@@ -398,6 +410,32 @@ export BENCH_LAG_IDX="${BENCH_LAG_IDX:-2}"
 export BENCH_LAG_AT_SECS="${BENCH_LAG_AT_SECS:-300}"
 export BENCH_LAG_PAUSE_SECS="${BENCH_LAG_PAUSE_SECS:-180}"
 export BENCH_TRAP_WAIT_SECS="${BENCH_TRAP_WAIT_SECS:-300}"  # interrupted run: wait this long for DONE markers
+# ---- bench 6 knobs (H0; the drivers read these, never set them). Unset = bench 5's behaviour. ----
+# Pre-start host steps (deploy step 7, bench_prestart_script). BENCH_NODE_EVICT_MDBX=1 drops <datadir>/db/mdbx.dat
+# from the page cache (sync, then posix_fadvise DONTNEED; fincore must then report 0 resident pages, else
+# PRECFG_FAIL). BENCH_NODE_READ_AHEAD_KB=<n> writes the data disk's queue/read_ahead_kb and reads it back; empty
+# leaves the device as it booted. Each adds its field to the PRECFG_OK line only when set.
+export BENCH_NODE_EVICT_MDBX="${BENCH_NODE_EVICT_MDBX:-0}"
+export BENCH_NODE_READ_AHEAD_KB="${BENCH_NODE_READ_AHEAD_KB:-}"
+# Persist sampler (deploy step 9): 1 installs bench-persist-sampler.service beside the node sampler. It writes
+# <host>.persist.csv every 30 s (columns: tools/persist-csv-header.txt) and <host>.folios.txt every 900 s
+# (tools/folio-census-header.txt); collect copies both into results/<run>/persist/. sampler.csv is untouched.
+export BENCH_PERSIST_SAMPLER="${BENCH_PERSIST_SAMPLER:-0}"
+# Arm file (arms/README.md): a full node-switch state plus host steps. Set, deploy step 7 applies it to every node
+# before the first start, through the same snippet the arm tool (tools/params-apply.sh) uses for a rolling restart.
+# Empty: no arm. A relative path is made absolute here, against the caller's directory (the drivers re-source this
+# file after changing directory). The arm file carries the host steps, so BENCH_NODE_EVICT_MDBX and
+# BENCH_NODE_READ_AHEAD_KB must stay unset beside it.
+export BENCH_ARM_FILE="${BENCH_ARM_FILE:-}"
+case "${BENCH_ARM_FILE}" in ''|/*) ;; *) BENCH_ARM_FILE="$(pwd -P)/${BENCH_ARM_FILE}" ;; esac
+export BENCH_ARM_FILE
+# Blaster tail scan (--tail-scan-secs): the landings scan runs this many seconds past the cooldown, so late landings
+# are counted (the blaster's run.tail_scan). 0 = off: no flag, the bench-5 argv.
+export BENCH_TAIL_SCAN_SECS="${BENCH_TAIL_SCAN_SECS:-0}"
+# Lead time of a LIGHT blast (start_at = now + this); the load blast keeps BENCH_START_DELAY_SECS. Default:
+# BENCH_START_DELAY_SECS, the lead bench 5 gave every blast. The bench-6 runs set 150: the blast tool's late-start
+# guard turns a slow create into one unsent retry rather than a late blaster.
+export BENCH_LIGHT_START_DELAY_SECS="${BENCH_LIGHT_START_DELAY_SECS:-${BENCH_START_DELAY_SECS}}"
 # App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the SAME tn-contracts
 # checkout devnet-contracts.sh uses, on a bench/<run> branch that is never committed to.
 export BENCH_CONTRACTS_SRC_DIR="${BENCH_CONTRACTS_SRC_DIR:-$(cd "${REPO_ROOT}/.." && pwd)/tn-contracts-devnet-relaunch}"
@@ -408,8 +446,11 @@ export BENCH_BUCKET="tn-devnet-bench-${BENCH_RUN_ID}"
 export BENCH_BUCKET_LOCATION="${BENCH_BUCKET_LOCATION:-us-west2}"
 export BENCH_FIREWALL_RULES=("bench-allow-consensus" "bench-allow-iap-rpc")
 export BENCH_LABELS="benchmark=1,network=bench,bench-run=${BENCH_RUN_ID}"
-# The only copy of a run: nothing is archived to a bucket. The teardown's local gate checks it holds
-# every node's logs before anything is deleted (bench_local_gate_check); back results/ up by hand.
+# The run's local results. Since 2026-10-08 the canonical copy of a finished run is the project's GCS archive bucket
+# for bench runs (runs/<run>/results/ in it; kept, 7-day soft delete; benchmark/README.md names it); results/ here is
+# a transient working copy: before pruning it, verify that the archive holds every file at the same size and MD5.
+# The teardown's local gate checks that results/ holds every node's logs before anything is deleted
+# (bench_local_gate_check).
 export BENCH_RESULTS_DIR="${BENCH_DIR}/results/${BENCH_RUN_ID}"
 # Zones the run's nodes were created in: after a stockout moved a node (BENCH_ZONE_FALLBACKS), deploy step 2
 # writes ${BENCH_RESULTS_DIR}/zones.env, one line BENCH_ZONES_USED=<zone of node 0> ... <zone of node N>. It
@@ -662,5 +703,44 @@ fi
 # 4 = CHAOS_KILL_IDX in benchmark-blast.sh (bench-validator-05); keep the two in step.
 if [ "${BENCH_CHAOS}" = "1" ] && [ "${BENCH_LAG_IDX}" -eq 4 ]; then
     echo "❌ benchmark/config.sh: BENCH_LAG_IDX=4 (${INSTANCE_NAMES[4]}) is the node the chaos schedule kills; pick another validator or set BENCH_CHAOS=0." >&2; exit 1
+fi
+# Bench 6 knobs. The boot image: one fixed image, never a family (it would float to whatever is newest at create time).
+case "${IMAGE}" in
+    */family/*) echo "❌ benchmark/config.sh: BENCH_NODE_BOOT_IMAGE='${IMAGE}' names an image family; a bench fleet boots one fixed image: give projects/<project>/global/images/<image>, e.g. projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105 (bench 5's)." >&2; exit 1 ;;
+esac
+case "${IMAGE}" in
+    *[!a-z0-9/.-]*|*//*|*/|projects/*/*/global/images/*|projects/*/global/images/*/*) _bench_bad=1 ;;
+    projects/?*/global/images/?*) _bench_bad="" ;;
+    *) _bench_bad=1 ;;
+esac
+if [ -n "${_bench_bad}" ]; then
+    echo "❌ benchmark/config.sh: BENCH_NODE_BOOT_IMAGE='${IMAGE}' is not projects/<project>/global/images/<image> (the form the node create takes; a bare name would be looked up in the bench project)." >&2; exit 1
+fi
+for _bench_knob in BENCH_NODE_EVICT_MDBX BENCH_PERSIST_SAMPLER; do
+    case "${!_bench_knob}" in
+        0|1) ;;
+        *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;
+    esac
+done
+case "${BENCH_NODE_READ_AHEAD_KB}" in
+    *[!0-9]*|0?*) echo "❌ benchmark/config.sh: BENCH_NODE_READ_AHEAD_KB='${BENCH_NODE_READ_AHEAD_KB}' must be empty or a non-negative integer (KiB)." >&2; exit 1 ;;
+esac
+case "${BENCH_TAIL_SCAN_SECS}" in
+    ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: BENCH_TAIL_SCAN_SECS='${BENCH_TAIL_SCAN_SECS}' must be a non-negative integer." >&2; exit 1 ;;
+esac
+case "${BENCH_LIGHT_START_DELAY_SECS}" in
+    ''|*[!0-9]*|0*) echo "❌ benchmark/config.sh: BENCH_LIGHT_START_DELAY_SECS='${BENCH_LIGHT_START_DELAY_SECS}' must be a positive integer (default: BENCH_START_DELAY_SECS)." >&2; exit 1 ;;
+esac
+if [ -n "${BENCH_ARM_FILE}" ]; then
+    if [ ! -f "${BENCH_ARM_FILE}" ] || [ ! -r "${BENCH_ARM_FILE}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_ARM_FILE='${BENCH_ARM_FILE}' is not a readable regular file." >&2; exit 1
+    fi
+    case "${BENCH_ARM_FILE}" in
+        *.arm) ;;
+        *) echo "❌ benchmark/config.sh: BENCH_ARM_FILE='${BENCH_ARM_FILE}' is not an arm file (<name>.arm, arms/README.md)." >&2; exit 1 ;;
+    esac
+    if [ "${BENCH_NODE_EVICT_MDBX}" != "0" ] || [ -n "${BENCH_NODE_READ_AHEAD_KB}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_ARM_FILE='${BENCH_ARM_FILE}' sets the host steps itself (host evict-mdbx, host read-ahead-kb); unset BENCH_NODE_EVICT_MDBX and BENCH_NODE_READ_AHEAD_KB." >&2; exit 1
+    fi
 fi
 unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys _bench_zones _bench_zarr

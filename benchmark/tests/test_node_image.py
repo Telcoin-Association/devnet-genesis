@@ -3009,5 +3009,263 @@ class BlasterFallbackTests(FakeGcloudCase):
                       "(e2-standard-2 n2-standard-2 n2d-standard-2)", p.stdout)
 
 
+# ---- bench6 knobs-and-names (H0) ----
+# benchmark/config.sh's bench-6 knobs (boot image pin, pre-start host steps, persist sampler, arm file, tail scan,
+# light start delay), its node-switch list against the list's single source of truth benchmark/arms/switches.tsv, and
+# the frozen persist file headers. BENCH5_EXPORTS holds every BENCH_* export plus IMAGE as benchmark/config.sh made them
+# at bench 5 (commit 149f941) in this suite's sandbox and environment, normalized by Bench6KnobTests.bench_exports:
+# <ROOT> = the sandbox, <REPO> = this checkout, <PROJECT> = the GCP project id. The test fixes what may differ.
+BENCH5_EXPORTS = FIX / "bench5-config-exports.txt"
+BOOT_IMAGE = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105"
+SWITCHES_TSV = BENCH / "arms" / "switches.tsv"
+SWITCHES_HEADER = ["key", "type", "default", "arm_values", "topic", "optional"]
+# The frozen switch keys and types, in row order (the plan's switch table; the node prints them in its
+# `node switches` startup line). Renaming one is a contract change for the node image and every harness unit.
+SWITCH_KEYS = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
+               "bool:mdbx_random_advice", "bool:sealed_tx_keep", "bool:digest_dedupe", "int:recovery_threads",
+               "bool:epoch_close_task_drain",
+               "bool:epoch_record_state_check", "dur:parent_grace", "int:rpc_admission_backlog_outputs",
+               "bool:pipelined_persist"]
+SWITCH_DEFAULT = {"bool": "false", "int": "0", "dur": "0ms"}
+# An int row may list its default (0) among its arm values: an arm line that gives it means the key left out.
+SWITCH_ARM_VALUE = {"bool": re.compile(r"^true$"), "int": re.compile(r"^(?:0|[1-9][0-9]{0,8})$"),
+                    "dur": re.compile(r"^[1-9][0-9]{0,8}(?:ms|s)$")}
+# The timing keys BENCH_NODE_PARAM_KEYS held at bench 5 (tools/params-apply.sh PARAM_KEYS is compared to them).
+TIMING_KEYS = ("dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay "
+               "int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes "
+               "int:max_concurrent_requests bool:allow_private_forward_targets")
+PERSIST_HEADER = BENCH / "tools" / "persist-csv-header.txt"
+FOLIO_HEADER = BENCH / "tools" / "folio-census-header.txt"
+PERSIST_COLUMNS = (
+    "ts_unix,pid,"
+    "disk_rd_ios_total,disk_rd_bytes_total,disk_rd_ticks_ms_total,disk_wr_ios_total,disk_wr_bytes_total,"
+    "disk_wr_ticks_ms_total,disk_flush_ios_total,disk_flush_ticks_ms_total,disk_in_flight_ios,disk_io_ticks_ms_total,"
+    "vm_nr_dirty_pages,vm_nr_writeback_pages,vm_nr_dirtied_pages_total,vm_nr_written_pages_total,"
+    "vm_workingset_refault_file_pages_total,vm_pgmajfault_total,vm_thp_file_alloc_total,vm_thp_file_fallback_total,"
+    "mem_available_kb,mem_cached_kb,mem_dirty_kb,mem_writeback_kb,"
+    "memcg_current_bytes,memcg_file_bytes,memcg_file_dirty_bytes,memcg_file_writeback_bytes,"
+    "memcg_workingset_refault_file_pages_total,"
+    "proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,"
+    "proc_write_bytes_total,proc_cancelled_write_bytes_total,"
+    "mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes")
+FOLIO_COLUMNS = ("ts_unix,census_secs,mdbx_dat_size_bytes,mdbx_dat_resident_pages,unresolved_pages,"
+                 "folio_order,folios,dirty_folios,writeback_folios,active_folios")
+# Every column name carries its unit (or is a count named by what it counts).
+COLUMN_UNIT_RE = re.compile(r"^(?:[a-z][a-z0-9_]*_(?:bytes|kb|pages|total|ios|secs|unix|folios)|pid|folio_order|folios)$")
+EXPORTS_OF = r'''
+set -euo pipefail
+. "$1/config.sh"
+python3 -c 'import json, os; print("EXPORTS " + json.dumps(dict(os.environ), sort_keys=True))'
+'''
+
+
+def read_exports_file(path):
+    """{name: value} from NAME=value lines (blank lines and # comments skipped)."""
+    out = {}
+    for line in Path(path).read_text().splitlines():
+        if line and not line.startswith("#"):
+            name, _, value = line.partition("=")
+            out[name] = value
+    return out
+
+
+def switch_rows():
+    """benchmark/arms/switches.tsv as (header, [row dict]); every line split on tabs."""
+    lines = SWITCHES_TSV.read_text().split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    header = lines[0].split("\t")
+    return header, [dict(zip(header, l.split("\t"))) for l in lines[1:]]
+
+
+class Bench6KnobTests(BashCase):
+    """The bench-6 knobs in benchmark/config.sh: unset, every bench-5 export stays as it was (bar the pinned boot
+    image and the switch keys the allowlist gains); set, each is checked before anything can use it."""
+
+    def run_config(self, script, *args, caller="benchmark-deploy.sh", cwd=None, **env):
+        return subprocess.run(["bash", "-c", script, caller] + [str(a) for a in args], env=self.env(**env),
+                              cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120,
+                              universal_newlines=True, errors="replace")
+
+    def bench_exports(self, **env):
+        """Every BENCH_* variable and IMAGE that config.sh leaves in the environment, normalized."""
+        p = self.run_config(EXPORTS_OF, self.bench, **env)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        line = [l for l in p.stdout.splitlines() if l.startswith("EXPORTS ")]
+        self.assertEqual(len(line), 1, p.stdout)
+        out = {}
+        for k, v in json.loads(line[0][len("EXPORTS "):]).items():
+            if k.startswith("BENCH_") or k == "IMAGE":
+                out[k] = v.replace(str(self.root), "<ROOT>").replace(str(REPO), "<REPO>").replace("tn-" + "devnet",
+                                                                                                    "<PROJECT>")
+        return out
+
+    def refused(self, knob, value, phrase, **env):
+        env.setdefault(knob, value)
+        p = self.run_config(EXPORTS_OF, self.bench, **env)
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("❌ benchmark/config.sh: %s='%s'" % (knob, value), p.stdout)
+        self.assertIn(phrase, p.stdout)
+        self.assertNotIn("EXPORTS ", p.stdout)
+
+    def test_knobs_unset_keep_every_bench5_export(self):
+        bench5 = read_exports_file(BENCH5_EXPORTS)
+        self.assertEqual(bench5["IMAGE"], "projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64")
+        self.assertEqual(bench5["BENCH_NODE_PARAM_KEYS"], TIMING_KEYS)
+        want = dict(bench5)
+        # Deliberate: the family bench 5 resolved at create time is now pinned, and the allowlist gains the switches.
+        want["IMAGE"] = BOOT_IMAGE
+        want["BENCH_NODE_PARAM_KEYS"] = TIMING_KEYS + " " + " ".join(SWITCH_KEYS)
+        # New, each at its bench-5 behaviour.
+        want.update({"BENCH_NODE_SWITCH_KEYS": " ".join(SWITCH_KEYS), "BENCH_NODE_EVICT_MDBX": "0",
+                     "BENCH_NODE_READ_AHEAD_KB": "", "BENCH_PERSIST_SAMPLER": "0", "BENCH_ARM_FILE": "",
+                     "BENCH_TAIL_SCAN_SECS": "0", "BENCH_LIGHT_START_DELAY_SECS": bench5["BENCH_START_DELAY_SECS"]})
+        self.assertEqual(self.bench_exports(), want)
+        # Explicitly empty is the same as unset (BENCH_NODE_BOOT_IMAGE is read, never exported: it stays as given).
+        self.assertEqual(self.bench_exports(BENCH_NODE_BOOT_IMAGE="", BENCH_NODE_EVICT_MDBX="", BENCH_PERSIST_SAMPLER="",
+                                            BENCH_ARM_FILE="", BENCH_TAIL_SCAN_SECS="",
+                                            BENCH_LIGHT_START_DELAY_SECS=""), dict(want, BENCH_NODE_BOOT_IMAGE=""))
+
+    def test_boot_image_pin_and_refusals(self):
+        later = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261201"
+        self.assertEqual(self.bench_exports(BENCH_NODE_BOOT_IMAGE=later)["IMAGE"], later)
+        # The root config's family never survives: an IMAGE from the environment is overwritten either way.
+        self.assertEqual(self.bench_exports(IMAGE="projects/x/global/images/family/y")["IMAGE"], BOOT_IMAGE)
+        self.refused("BENCH_NODE_BOOT_IMAGE", "projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64",
+                     "names an image family")
+        for value in ("ubuntu-2404-noble-amd64-v20261105", "projects/ubuntu-os-cloud/global/images/",
+                      "projects//global/images/x", "projects/a/b/global/images/x", "projects/p/global/images/x/y",
+                      "projects/p/global/images/x y", "projects/p/global/images/x*", "projects/p/zones/z/images/x",
+                      "https://www.googleapis.com/compute/v1/" + BOOT_IMAGE):
+            with self.subTest(value=value):
+                self.refused("BENCH_NODE_BOOT_IMAGE", value, "is not projects/<project>/global/images/<image>")
+
+    @unittest.skipUnless((REPO / "common" / "create-instances.sh").is_file(), "the common submodule is not checked out")
+    def test_the_create_call_boots_IMAGE(self):
+        # common/ is never edited: the pin works because the node create reads ${IMAGE} through CONFIG_FILE.
+        text = (REPO / "common" / "create-instances.sh").read_text()
+        self.assertIn("--create-disk=auto-delete=yes,boot=yes,device-name=${INSTANCE_NAMES[$i]},image=${IMAGE},", text)
+
+    def test_the_probe_driver_may_load_the_profile(self):
+        script = '. "$1/config.sh"; echo "LOADED ${IMAGE}"'
+        p = self.run_config(script, self.bench, caller="benchmark-probe.sh")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("LOADED %s\n" % BOOT_IMAGE, p.stdout)
+        p = self.run_config(script, self.bench, caller="benchmark-other.sh")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("❌ 'benchmark-other.sh' is not allowed to run with CONFIG_FILE=benchmark/config.sh.", p.stdout)
+
+    def test_bench6_knob_values(self):
+        ok = (("BENCH_NODE_EVICT_MDBX", "1"), ("BENCH_PERSIST_SAMPLER", "1"), ("BENCH_NODE_READ_AHEAD_KB", "0"),
+              ("BENCH_NODE_READ_AHEAD_KB", "16"), ("BENCH_NODE_READ_AHEAD_KB", "4096"), ("BENCH_TAIL_SCAN_SECS", "180"),
+              ("BENCH_LIGHT_START_DELAY_SECS", "150"))
+        for knob, value in ok:
+            with self.subTest(knob=knob, value=value):
+                self.assertEqual(self.bench_exports(**{knob: value})[knob], value)
+        # The light lead follows BENCH_START_DELAY_SECS unless it is set itself.
+        got = self.bench_exports(BENCH_START_DELAY_SECS="420")
+        self.assertEqual((got["BENCH_START_DELAY_SECS"], got["BENCH_LIGHT_START_DELAY_SECS"]), ("420", "420"))
+        got = self.bench_exports(BENCH_START_DELAY_SECS="420", BENCH_LIGHT_START_DELAY_SECS="150")
+        self.assertEqual((got["BENCH_START_DELAY_SECS"], got["BENCH_LIGHT_START_DELAY_SECS"]), ("420", "150"))
+        bad = (("BENCH_NODE_EVICT_MDBX", "2", "must be 0 or 1"), ("BENCH_NODE_EVICT_MDBX", "yes", "must be 0 or 1"),
+               ("BENCH_PERSIST_SAMPLER", "true", "must be 0 or 1"), ("BENCH_PERSIST_SAMPLER", "01", "must be 0 or 1"),
+               ("BENCH_NODE_READ_AHEAD_KB", "16k", "must be empty or a non-negative integer"),
+               ("BENCH_NODE_READ_AHEAD_KB", "-1", "must be empty or a non-negative integer"),
+               ("BENCH_NODE_READ_AHEAD_KB", "016", "must be empty or a non-negative integer"),
+               ("BENCH_NODE_READ_AHEAD_KB", " 16", "must be empty or a non-negative integer"),
+               ("BENCH_TAIL_SCAN_SECS", "1.5", "must be a non-negative integer"),
+               ("BENCH_TAIL_SCAN_SECS", "x", "must be a non-negative integer"),
+               ("BENCH_TAIL_SCAN_SECS", "07", "must be a non-negative integer"),
+               ("BENCH_LIGHT_START_DELAY_SECS", "0", "must be a positive integer"),
+               ("BENCH_LIGHT_START_DELAY_SECS", "150s", "must be a positive integer"))
+        for knob, value, phrase in bad:
+            with self.subTest(knob=knob, value=value):
+                self.refused(knob, value, phrase)
+        # A bad BENCH_START_DELAY_SECS reaches the light lead through its default and is named there.
+        p = self.run_config(EXPORTS_OF, self.bench, BENCH_START_DELAY_SECS="soon")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("❌ benchmark/config.sh: BENCH_LIGHT_START_DELAY_SECS='soon' must be a positive integer "
+                      "(default: BENCH_START_DELAY_SECS).", p.stdout)
+
+    def test_arm_file_knob(self):
+        arms = self.root / "arms"
+        arms.mkdir()
+        (arms / "p1.arm").write_text("name p1\nparam mdbx_random_advice true\nhost evict-mdbx\n")
+        (arms / "notes.txt").write_text("name p1\n")
+        real = os.path.realpath(str(arms))
+        # Relative to the caller's directory, made absolute once (the drivers re-source config.sh after a cd).
+        p = self.run_config(EXPORTS_OF, self.bench, cwd=str(self.root), BENCH_ARM_FILE="arms/p1.arm")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        got = json.loads([l for l in p.stdout.splitlines() if l.startswith("EXPORTS ")][0][len("EXPORTS "):])
+        self.assertEqual(got["BENCH_ARM_FILE"], real + "/p1.arm")
+        self.assertEqual(self.bench_exports(BENCH_ARM_FILE=str(arms / "p1.arm"))["BENCH_ARM_FILE"],
+                         str(arms / "p1.arm").replace(str(self.root), "<ROOT>"))
+        for value, phrase in ((str(arms / "missing.arm"), "is not a readable regular file"),
+                              (str(arms), "is not a readable regular file"),
+                              (str(arms / "notes.txt"), "is not an arm file (<name>.arm, arms/README.md).")):
+            with self.subTest(value=value):
+                self.refused("BENCH_ARM_FILE", value, phrase)
+        # The arm file carries the host steps: a host knob beside it is refused, whatever its value.
+        for knob, value in (("BENCH_NODE_EVICT_MDBX", "1"), ("BENCH_NODE_READ_AHEAD_KB", "16"),
+                            ("BENCH_NODE_READ_AHEAD_KB", "0")):
+            with self.subTest(knob=knob, value=value):
+                self.refused("BENCH_ARM_FILE", str(arms / "p1.arm"), "sets the host steps itself", **{knob: value})
+        self.assertEqual(self.bench_exports(BENCH_ARM_FILE=str(arms / "p1.arm"), BENCH_NODE_EVICT_MDBX="0",
+                                            BENCH_NODE_READ_AHEAD_KB="")["BENCH_NODE_EVICT_MDBX"], "0")
+
+    def test_switch_keys_are_the_rows_of_switches_tsv(self):
+        header, rows = switch_rows()
+        self.assertEqual(header, SWITCHES_HEADER)
+        self.assertEqual(["%s:%s" % (r["type"], r["key"]) for r in rows], SWITCH_KEYS)
+        for r in rows:
+            with self.subTest(key=r["key"]):
+                self.assertEqual(len(r), len(SWITCHES_HEADER), r)
+                self.assertRegex(r["key"], r"^[a-z][a-z0-9_]{0,62}$")
+                self.assertEqual(r["default"], SWITCH_DEFAULT[r["type"]])   # bench-5 behaviour
+                values = r["arm_values"].split(",")
+                self.assertTrue(values and all(SWITCH_ARM_VALUE[r["type"]].match(v) for v in values), r)
+                self.assertEqual(len(values), len(set(values)), r)
+                self.assertRegex(r["topic"], r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+                self.assertIn(r["optional"], ("yes", "no"))
+        self.assertEqual([r["key"] for r in rows if r["optional"] == "yes"], ["pipelined_persist"])
+        self.assertEqual({r["key"]: r["arm_values"] for r in rows if r["type"] != "bool"},
+                         {"quorum_exec_block_starved_rounds": "0,4", "recovery_threads": "3",
+                          "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "2"})
+        # config.sh carries the same list (one source of truth, kept equal here) and allows it per node.
+        got = self.bench_exports()
+        self.assertEqual(got["BENCH_NODE_SWITCH_KEYS"].split(), ["%s:%s" % (r["type"], r["key"]) for r in rows])
+        self.assertEqual(got["BENCH_NODE_PARAM_KEYS"].split(), TIMING_KEYS.split() + got["BENCH_NODE_SWITCH_KEYS"].split())
+        # The literal export line stays the timing keys: tests/test_params_apply.py compares it to PARAM_KEYS.
+        line = re.search(r'^export BENCH_NODE_PARAM_KEYS="([^"]+)"', (BENCH / "config.sh").read_text(), re.M).group(1)
+        self.assertEqual(line, TIMING_KEYS)
+
+    def test_switch_keys_pass_the_per_node_override_check(self):
+        ov = ("4:quorum_exec_block=true,quorum_exec_block_starved_rounds=4,parent_grace=150ms "
+              "2:recovery_threads=3,rpc_admission_backlog_outputs=2")
+        self.assertEqual(self.bench_exports(BENCH_NODE_PARAM_OVERRIDES=ov)["BENCH_NODE_PARAM_OVERRIDES"], ov)
+        for value, phrase in (("4:quorum_exec_block=yes", "is not true or false"),
+                              ("4:parent_grace=150", "is not <int>ms or <int>s"),
+                              ("4:recovery_threads=x", "is not a positive integer"),
+                              # an override never needs a default: int 0 stays refused here, as for the timing keys
+                              ("4:quorum_exec_block_starved_rounds=0", "is not a positive integer"),
+                              ("4:quorum_exec_blok=true", "unknown key 'quorum_exec_blok'")):
+            with self.subTest(value=value):
+                p = self.run_config(EXPORTS_OF, self.bench, BENCH_NODE_PARAM_OVERRIDES=value)
+                self.assertEqual(p.returncode, 1, p.stdout)
+                self.assertIn("❌ benchmark/config.sh: BENCH_NODE_PARAM_OVERRIDES item '%s': " % value, p.stdout)
+                self.assertIn(phrase, p.stdout)
+
+    def test_persist_headers_are_frozen(self):
+        for path, want, first in ((PERSIST_HEADER, PERSIST_COLUMNS, "ts_unix"), (FOLIO_HEADER, FOLIO_COLUMNS, "ts_unix")):
+            with self.subTest(path=path.name):
+                text = path.read_text()
+                self.assertEqual(text, want + "\n")   # one line, LF-terminated
+                cols = want.split(",")
+                self.assertEqual(cols[0], first)
+                self.assertEqual(len(cols), len(set(cols)), "duplicate column")
+                for c in cols:
+                    self.assertRegex(c, COLUMN_UNIT_RE)
+
+
 if __name__ == "__main__":
     unittest.main()
