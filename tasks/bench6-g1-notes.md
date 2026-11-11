@@ -413,3 +413,24 @@ The figures sum to well under 100 %: the cause on a node is NOT identified. The 
 - D17 (prefault-off switch) is cheap to add if the GCE probe calls for it: one `mdbx_env_set_option` call beside the advice, a
   switch that requires `mdbx_random_advice` (prefault off WITHOUT whole-map advice is the 8.7× case), plus the config field, the
   plumbing and the harness row. Not built; decide after the VM run.
+
+## From U11 (RPC admission bound; `tasks/checkpoint-bench6-u11.md`)
+- As built: with `rpc_admission_backlog_outputs: K` an ACTIVE validator refuses `eth_sendRawTransaction` (and the sync variant)
+  with −32003 "txpool is full" once the engine is K outputs behind what the node has forwarded to it, and admits again only when
+  the backlog is back at 0. The check runs before any decoding. Off (0) costs one `None` check per request.
+- D47. **What the arm will look like under saturation.** The gate stays closed for as long as the engine needs to execute and
+  persist everything admitted while it was open, so under a saturating load it is closed most of the time. The generator
+  resends a refused transaction for about 30 s and DROPS it on the 22nd refusal (without advancing the nonce). So this arm
+  trades queue depth for client-side refusals and, past 30 s, drops: its verdict must be read on landed tx/s AND on the
+  refused/dropped counts and the confirmation latency of what was admitted, not on throughput alone. Whether the arm is run at
+  the saturating rate or at a rate just above the execution ceiling is a question for the gate.
+- D48. Validators' backlogs rise together, so their gates close together; there is no jitter. An observer's forwarder then walks
+  the whole committee, logs a warn per transaction per pass and requeues. Not changed (it needs `forward.rs`).
+- D49. A limit above about 73 can never close (64 in the channel + 8 queued + 1 executing); K = 1 closes whenever any output is
+  in flight. One sentence for the config docs (orchestrator, with D44).
+- D50. Only active validators are gated; observers' own submissions pass (their pool feeds the validators' gates). One-line
+  change if the user wants observers gated too.
+- The gauge `tn_node_execution_backlog_outputs` is set only when an output is forwarded: during a consensus stall it freezes
+  while the gate (which reads the live value) may already have reopened. Read the gate from the refusal counter, not the gauge.
+- D9 stands (2 or 3 with pipelining): with pipelined persist "executed" must still mean durable — the wiring unit decides and
+  documents it.

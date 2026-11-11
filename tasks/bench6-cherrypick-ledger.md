@@ -44,3 +44,5 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 47 | U3 | digest-dedupe | — (`sender` on the skip line) | e1f4a1b65 | 8bc341967 | #1807 | | |
 | 48 | U10 | digest-dedupe | digest_dedupe (proposer half) | b6f415761 | 7fdcb9ff5 | #1807 | | |
 | 49 | U10 | bench6-obs | — (digest wait from first receipt; review note on #1819) | af793ae56 | c8e5ae7be | #1819 note | | |
+| 50 | U11 | inflight-bound | — (backlog recorded at forward; gauge) | ee277abaf | f792ef186 | — | | |
+| 51 | U11 | inflight-bound | rpc_admission_backlog_outputs | e61d4eeda | 256422898 | — | | |
