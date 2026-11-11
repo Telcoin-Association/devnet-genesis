@@ -84,10 +84,10 @@ SPECS = {
   claims=[C + ": the switch table, the `switches` row (`node switches` line, `tn_node_switch` gauge) and the obs rows.", "`" + T + "bench6/briefs/u0c-api.md` (what the plumbing landed)."],
   questions=["A switch at its default must not be written to a `parameters.yaml` (a genesis ceremony's file must hold the same keys as before): verify the serde attributes for every field and the guard test.",
              "An unknown or mistyped key in `parameters.yaml`: is it rejected or silently ignored? A benchmark arm that misspells a switch must not run as a control arm unnoticed."]),
- "pipelined-persist": dict(topics=None, range=("dc7855cc6", "b6/pipe-stack"), issue="#1800 (execution ceiling)", switch="`pipelined_persist` (bool; default false)",
+ "pipelined-persist": dict(topics=None, range=("d91d65d3e", "b6/pipe-stack-2"), issue="#1800 (execution ceiling)", switch="`pipelined_persist` (bool; default false)",
   claims=["The design `" + P + "I-5/design.md` (§2 state machine, §3 invariants with their enforcing sites, §4 crash and failure matrix, §6.5 go/no-go).",
           G + ", sections \"From U12a\", \"From U12b\", \"From ST-U12a\" (as built; D45, D52-D56) and the API note `" + T + "bench6/briefs/u12a-api.md`.",
-          "Unit checkpoints `" + T + "checkpoint-bench6-u12a.md`, `…-u12b.md`, `…-st-u12a.md`, and the e2e result if it exists: `…-st-u12b.md`."],
+          "Unit checkpoints `" + T + "checkpoint-bench6-u12a.md`, `…-u12b.md`, `…-st-u12a.md`, `…-st-u12c.md`, and the e2e results: `…-st-u12b.md` and section \"From ST-U12b\" of the gate notes (mixed fleet, epoch close and five SIGKILLs mid-pipeline all passed 3 of 3)."],
   questions=["Invariant I3 (one pinned read snapshot per output for every state root of N+1): find any read during N+1's build that could see N's commit half-applied or a later snapshot.",
              "Durability before visibility: is anything that consensus, a peer or the epoch record can see (engine updates, `recent_blocks`, canonical head, the execution backlog) ever ahead of what is durable? RPC `latest` is known to be (D53).",
              "Crash matrix: a SIGKILL at every point between build start of N+1 and commit end of N. Does restart always find a consistent database and replay to the same chain? What about a persist error that is NOT a crash (the pipeline refuses and drains)?",
@@ -108,7 +108,7 @@ def main():
         lo, hi = sp["range"]
         cs = commits(lo + ".." + hi) if False else commits(git("merge-base", lo, hi).strip() + ".." + hi)
         head = git("rev-parse", "--short=9", hi).strip()
-        where = "branch `%s` (the integration branch plus the held pipelined-persist commits); read it with `git show <commit>` and `git show %s:<path>` — it is NOT the checked-out branch of the worktree" % (hi, hi)
+        where = "branch `%s` (the integration branch plus the held pipelined-persist commits), checked out READ-ONLY for you at `/home/drtnarg/coding/telcoin/tn-b6-u0c` (use that directory instead of the brief's; builds and tests of another job run there, sources do not change)" % hi
     else:
         cs = [c for c in commits(BASE + "..HEAD") if c["t"] in sp["topics"]]
         head = git("rev-parse", "--short=9", "HEAD").strip()
