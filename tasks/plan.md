@@ -1,57 +1,90 @@
-# Plan: bench 5 → upstream — nine issues, ten stacked PRs into `staging/benchmark-obs-2026-11`, the persist root cause
+# Plan: bench 6 — recover the execution ceiling, fix every bench-5 concern, rerun, publish, upstream what the run confirms
 
-Written 2026-11-09 (xerxes). The approved plan text is the orchestrator's brief (this file is its checklist). Previous plan archived at
-`tasks/archive/plan-bench5-2026-11-06.md`. Rules: no Claude/Anthropic attribution on any commit, PR or issue text; opus agents implement;
-subagents never push, never `gh … create`, never touch GCP; one writer per file; `tn-node-deployment/` and `common/` are not edited;
-`--project tn-devnet` on every ad-hoc gcloud read; one e2e/nextest job per machine at a time. The orchestrator opens the issues and PRs.
+Written 2026-11-10 (xerxes). The approved plan text is `/home/drtnarg/.claude/plans/i-want-to-run-groovy-grove.md` (the orchestrator's
+brief; this file is its tick list). Previous plan archived at `tasks/archive/plan-bench5-upstream-2026-11-09.md`.
+Agent rules: `tasks/bench6-agent-rules.md`. Design reports: `benchmark/private/bench6-prep/design/`. Ledger:
+`tasks/bench6-cherrypick-ledger.md`. Names contract: `tasks/bench6-contract.md`. Upstream map: `tasks/bench6-upstream-map.md`.
+Standing rules: no Claude/Anthropic attribution anywhere; opus agents implement and analyse, sonnet for inventories; subagents never
+push, never `gh … create/edit/comment`, never touch GCP; one writer per file; `tn-node-deployment/` and `common/` are not edited;
+`--project tn-devnet` on every ad-hoc gcloud read; one e2e job per machine at a time; cargo through the host-wide slot wrapper.
 
-User decisions (2026-11-09): base branch `staging/benchmark-obs-2026-11` (pinned at c65abdf79, D2); stop after PRs + issues + investigation.
+User decisions (2026-11-10): U1 image base = the landed staging tree + review follow-ups; U2 everything, switchable (defaults =
+bench-5 behaviour; pipelined persist only if its go/no-go tests pass by the image cut); U3 two deployments (run 1 arms, run 2
+headline; one-VM GCE probe before run 1); U4 generator: measurements only. Issues and PRs only after the benchmark confirms a fix.
+Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analysis), G4 (after run 2's analysis).
 
-Preflight facts (2026-11-09T21:31-21:40Z): origin/main moved to c2fffa5f2 = c65abdf79 + #1768 "Vendor and pare down the Reth code" (836 files,
-+310k; touches our `tn-reth/src/env/mod.rs`, `tn-reth/src/error.rs`, `e2e-tests/tests/it/restarts.rs`) — staging stays pinned at c65abdf79
-per D2; the user's pre-attest merge of main will meet it (report the `git merge-tree` conflict count in W5). #1793 still open. #1790 open
-(#1644's replay parent check halts a fresh adiri node). gcloud auth is VALID (grant@telcoin.org; default project telcoin-network ≠ tn-devnet).
-Snapshots: `benchmark/results/r20261105-0803/logs/bench-obs-prometheus-20261105T161318Z.tar.gz`,
-`benchmark/results/r20261107-1504/logs/bench-obs-prometheus-20261107T185712Z.tar.gz`; recovery tarballs per node in each run's `logs/`.
-Worktree `/home/drtnarg/coding/telcoin/telcoin-network-pr5` @ 3a721a1b6 (detached, rerere on); dedicated target dir
-`/home/drtnarg/coding/telcoin/telcoin-network-pr5-target` seeded by `cp -a` from the bench target (marker `.seeded`).
-Previous session's scratch (5.4 GB, `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/8fd11b65-538a-4941-99e8-e68b9023491c`)
-could not be deleted by the orchestrator (safety classifier) — operator item.
+## Facts at the start (2026-11-10T23:19Z) — what changed since the plan was written (21:00Z)
+- The tn-workspace session finished and PUSHED both tips: staging `staging/benchmark-obs-2026-11` = 514bf6687 (ten PRs merged into it,
+  main 9aa1d6139 merged, the event-gap fix; attested; PR #1826 into main open) and `fix/benchmark-obs-review-followups` = 165e3fe01
+  (48 commits on the staging tip; attested; PR #1827 into main open). main is an ancestor of both.
+- **Base pin for bench 6 = 165e3fe01** (replaces the plan's local pin `bo-asm` 807ee9ed4; the design reports' line numbers are from
+  807ee9ed4, so every unit greps first). The "rebase onto pushed tips" step of W3 is now only "re-check that the base has not moved".
+- No cargo job and no attest was running at 23:19Z (load 0.8). Disk: 259 GB free on `/`; `/tmp` 17/31 GB; swap full.
+- Old target dirs (nothing deleted without the user's word): telcoin-network-pr5-target 37 GB, telcoin-network-bench/target 24 GB,
+  telcoin-network-bench5/target 20 GB (ours, 81 GB); tn-workspace targets ≈ 300 GB (the other session's). sccache 10/10 GiB.
+- Deviation recorded: node units run as general-purpose opus agents that load `tn-rust-skills` + the domain skills, write their row's
+  unit tests, run the package-scoped gates themselves and spawn a `tn-domain-reviewer` on their diff (the `tn-rust-engineer` agent
+  definition cannot run cargo, write tests or spawn its own reviewer; lesson 2026-11-05). `tn-review-agent` / `tn-security-eval`
+  per topic stay as planned in W3.
 
 ## W0 — preflight (orchestrator)
-- [x] fetch origin main; `merge-base --is-ancestor 4bf4604d2 c65abdf79` OK; pin c65abdf79 recorded
-- [x] worktree + rerere; dedicated target dir seeding (background)
-- [x] `gh api repos/$R/assignees/grantkee` → 204; ls-remote: none of staging/benchmark-obs-2026-11, feat/bench-observability, fix/*-<slug>, feat/<slug> exist
-- [x] labels verified: bug enhancement consensus spike tech debt P0 P1 P2 upstream security ci (+documentation, duplicate, …)
-- [x] project-context ×2 regenerated (2026-11-09 ≈ 21:58Z; devnet-genesis 25.4 KB, telcoin-network 37.1 KB) (sonnet agents; drafts in ~/.claude/plans/i-want-to-run-groovy-grove-agent-{a5cf86070e393dff8,afca48f1971ed4419}.md)
-- [x] checkpoints: tasks/checkpoint-bench5-prs.md (U-STACK), tasks/checkpoint-bench5-texts.md (U-TEXT), tasks/checkpoint-bench5-persist-{a,c,d}.md (agents), tasks/checkpoint-bench5-persist.md (orchestrator)
+- [x] bench-5 launchers copied out of the old session scratch → `benchmark/launch/bench5/` (5 launchers + 2 gate scripts, cmp-identical) — 23:20Z
+- [x] old plan archived; this tick list written
+- [x] planning reports saved to `benchmark/private/bench6-prep/design/` (node design, harness design, explorers A-C, decomposer check)
+- [x] `tasks/bench6-agent-rules.md`; helpers `tasks/bench6/{mk-worktree.sh,e2e-lane.sh,w0-archive.sh,w0-archive-verify.py}`
+- [x] integration worktree `/home/drtnarg/coding/telcoin/telcoin-network-b6` @ 165e3fe01 on `bench/bench6-2026-11` (rerere on, tn-contracts by reference)
+- [ ] archive r20261103-1922, r20261107-1504, r20261105-0803 → `gs://tn-devnet-benchmark-archive/runs/<run>/results/` (detached, pid
+      `tasks/bench6/w0-archive.pid`, log `tasks/bench6/w0-archive-20261110T232332Z.log`; exclude rule re-proven by dry run: a `^`-leading
+      `--exclude` is silently ignored by gcloud and would have uploaded `genesis/`); verify report `tasks/bench6/w0-archive-verify.md`
+- [x] project-context ×3 (sonnet): devnet-genesis 38 KB, telcoin-network 52 KB (describes the b6 tree at 165e3fe01; lives in the main checkout's `.claude/`), tn-benchmarks 23 KB
+- [x] task-decomposer: the task tool was not available to it, so the list and its dependency corrections are `tasks/bench6-task-list.md` (85 tasks; U1, U2, U7 need only U0a; GCE probe waits on I-1; H11 after H10; site pushes wait for their gates)
+- [x] ledger, contract and upstream-map files seeded (`tasks/bench6-{cherrypick-ledger,contract,upstream-map}.md`); orchestrator resume state `tasks/checkpoint-bench6-orch.md`
 
-## W1 — build and verify the stack (U-STACK, opus)
-- [x] P1 split on 4bf4604d2 (U-STACK-a, done ≈ 22:15Z; 13 carry rows cleared; DEVIATION accepted by the orchestrator: the test-only `primary/src/tests/log_capture.rs` helper + its 3-line mod declaration were copied forward from land-path-obs cafca0d95 into f1 SEC1 9bad6966d so its test compiles; 07 then adds it as an identical add — noted in the f1 PR body via {{CARRY_NOTE}}): pr5/00-obs = 3a721a1b6 → pr5/01-log-dumps → 02-exec-split → 03-signer-reuse → 04-cached-reads → 05-f1-commit-lag → 06-f3-rejoin → 07-land-path-obs → 08-batch-wake → 09-cert-requeue (cherry-pick -x per `Topic:`; carry rows for SEC1 9bad6966d + guard 8651e5abd)
-- [x] Gate: `git diff --stat bench5-p1/09-cert-requeue 067639def` empty (re-verified by the orchestrator 22:19Z); tags bench5-p1/NN-slug set
-- [x] P2 rebase done: heads 243efea78 1b0717358 359ffa8bf 8af014cd2 8c5400c33 a8d601923 529926ad0 43310a70b 69abacd5e e9a31b4ad (tasks/bench5-heads.json); one conflict (obs 2d47fe191 in worker/network/mod.rs vs GHSA 677bb6055; range-diff 37/38 identical); cross-check merge ≡ pr5/09 (0 hunks); SIGKILL_SET_REQUIRED: no; strict `cargo check --workspace --all-targets --all-features` green at all ten heads; 38 commits, 0 attribution hits, 38 -x lines (orchestrator re-verified); sha map tasks/bench5-sha-map.json; P3 note: #1788 `publish_certified_consensus_num_hash` can move `last_published_consensus_num_hash` backward — exercised by the restarts e2e set
-- [x] P3: per-commit strict `cargo check --workspace --all-targets` (38/38); per head fmt + clippy + `nextest --locked --workspace`; top head `make public-tests` + test_slow_execution_stays_active + test_observer_late_join_catchup + test_observer_reconnect_after_pause (+ `make test-sigkill` if P2 found replay overlap); `git status --porcelain` empty after each run — LAUNCHED 2026-11-10T00:25Z (U-STACK-b, gated behind the probe window; S0: liveness mutation anchors 1×5 at every head, heads == heads.json, 38 commits) — DONE ≈ 03:25Z: 38/38, all ten heads green (fmt, clippy ×2, nextest 3935-4049 passed), top head public-tests 24 min (workspace 4049; test_epoch 11; test_restarts 11), adiri 1980, liveness quorum 9 + 5 mutations rejected, 3 named e2e passed; no flakes, no fixups, no sha change; snippets tasks/bench5-p3-testing/
+## W1 — investigations (opus; outputs `benchmark/private/bench6-prep/<unit>/`) — all six launched 2026-11-10 ≈ 23:35Z
+- [x] I-1 persist trigger — DONE: the load ran in a re-opened DB whose advice covered only the genesis pages (stage-only start + start-all); `MADV_RANDOM` closes read-around but not the prefault `pwritev` route; eviction is ineffective; bench-4 commit = 38 µs/tx; local probe arms 7/8 built
+- [ ] I-1r local probe run (`run-i1.sh`, ≈ 40 min quiet window `tasks/bench6/QUIET`; builds wait behind `tasks/bench6/cargo-slot.sh`)
+- [x] I-2 generator and sealed tx — DONE: no window generator-bound; resends reconcile (60.5 % accepted as new); 3,804 queued-pool evictions from stale entries; ≥ 95 % of the unlanded lost; the cliff exists since bench 3; boundary loss path uncovered (S6 → ST-U6)
+- [ ] I-3 ceiling recut — sections 1, 2, 3a, 4, 5, 6 DONE (commit cost drifts +0.031 s/output per minute of load in both windows; overlap slows `finish` 2-3×; v09's lost leader rounds = the #934 durability barrier); 3b pending U4b's Criterion results; ten report corrections saved for the I-6b pass
+- [x] I-4 design answers — DONE: design D as written always settles on the floor (8 outputs stale); a twelfth switch `quorum_exec_block_starved_rounds` makes both variants buildable; U2 also owns `network/message.rs` + `error/network.rs`; G1 items in `tasks/bench6-g1-notes.md`
+- [x] I-5 pipelined persist design — DONE (`I-5/design.md`): go for implementation; three ownership gaps settled (U0c adds `OutputBuildScope::seeded` + `pub mod persister;`; U12a owns `engine/src/error.rs`; ST-U12a owns the `mod` line in `engine/tests/it/main.rs`)
+- [x] I-6 bench-5 report repair — DONE: 12 defects corrected (16-entry corrections list), backfill caveats updated, local re-bundle + site gates green (115 tests, scrub 0/0); nothing committed
+- [ ] I-6b second pass (folds I-1, I-2, I-3, I-4 results into the report and backfill, re-bundles; launched 2026-11-11 ≈ 00:10Z); republish after G1
 
-## W2 — texts (U-TEXT, opus; writes only tasks/issue-bodies/, tasks/pr-bodies/, its checkpoint)
-- [x] 9 issue bodies with `{{ISSUE:<slug>}}` cross-refs; lint clean (2026-11-09 ≈ 21:59Z; 5 titles shortened to ≤ 120 chars, verbatim H1s in tasks/issue-bodies/TITLES.md; no forward references)
-- [x] 10 PR bodies with `{{ISSUE:*}}`, `{{PR:prev}}`, `{{ORDER}}`, `{{SHA:<bench sha>}}`, `{{TESTING:NN}}` placeholders; lint clean
-- [x] tasks/bench5-labels.json (tables A and B) written by U-TEXT (verified: labels per table A/B; `{peer}` note confirmed against worker metrics.rs:292-299) for the orchestrator's gh calls
+## W2a — node topics (base 165e3fe01; switches default to bench-5 behaviour)
+- [ ] wave 0: U0a switches · U0b e2e scaffold — launched ≈ 23:35Z (worktrees tn-b6-u0a, tn-b6-u0b); U8 DONE f3d34932e, integrated (ledger row 1)
+- [ ] wave 0b: U0c plumbing (after U0a)
+- [ ] wave 1: U1 quorum-exec-block · U2 voter-lock · U3 mdbx-advice · U4a recovery-pool · U4b contention bench · U5 tracker-drain ·
+      U6a sealed-keep store · U7 digest-dedupe (worker) · U8 bench6-obs · U12a pipelined-persist core (after I-5)
+- [ ] wave 2: U9 parent-grace · U11 inflight-bound · U12b pipelined wiring · U6b sealed-keep batch marks · U1v voter cases · ST-U12a
+- [ ] wave 3: U10 digest-dedupe (proposer) · ST-U1 · ST-U5 · ST-U6 · ST-U11 · ST-U12b
+- [ ] integration by cherry-pick: U0a-c, U8, U5, U4, U3, U2, U1 (+U1v), U7, U6a-b, U9, U10, U11, U12 last
+- [ ] pipelined persist go/no-go recorded
 
-## W3 — GitHub (orchestrator only; after W1 P3 green + W2 lint clean)
-- [x] attribution gate over commit messages and bodies = 0 (23:48Z: commits c65abdf79..pr5/09 grep = 0; issue+PR bodies grep = 0)
-- [x] 9 issues created 2026-11-10T00:28Z — #1799 f1, #1800 f2, #1801 f3, #1802 persist, #1803 far-validator, #1804 starvation, #1805 lag-feedback, #1806 epoch-drain, #1807 sealed-tx (assignee grantkee, labels per table A, no leftovers); NOTE: opened by a dry-run bug in w3/create_issues.sh (lesson recorded), before PASS 2 — #1802 body must be replaced by `gh issue edit 1802 --body-file` once PASS 2 lands; map tasks/bench5-issue-map.json
-- [x] staging pushed: c65abdf79 → refs/heads/staging/benchmark-obs-2026-11 — 03:27Z
-- [x] ten heads pushed `--atomic` under table-B names; remote shas verified — 03:27Z, all 10 verified == local
-- [x] 10 PRs opened 00→09 (ready, assignee grantkee, labels); `{{ORDER}}`/`{{PR:prev}}` filled by `gh pr edit`; `gh pr list --base` = 10; pr.yaml visible — 03:28Z: #1811 00 · #1812 01 · #1813 02 · #1814 03 · #1816 04 · #1817 05 · #1818 06 · #1819 07 · #1820 08 · #1821 09 (map tasks/bench5-pr-map.json); ORDER/PR:prev filled
-- [x] `git merge-tree` dry-run of origin/main (c2fffa5f2) into pr5/09 (22:19Z): ONE content conflict, crates/tn-reth/src/error.rs — re-run 03:29Z against origin/main 0ec59a363 (= + #1793 + #1785): still ONE conflict, crates/tn-reth/src/error.rs; consensus_bus.rs, network_tests.rs, node.rs, run_epoch.rs auto-merge
+## W2b — harness and generator units
+- [x] H0 knobs and frozen names — DONE (config.sh +85/−5, `arms/switches.tsv` 12 keys, arm-file format, persist CSV + folio headers, `MANIFEST-FIELDS.md`; 9 new tests, 11/11 mutation anchors killed); H9a DONE (per-second send series, window waits, resends by cause; 211 tests; send path byte-identical to a golden recorded before the change; uncommitted in the generator repo); H9b launched 2026-11-11 ≈ 00:15Z (tail scan + I-2's extras + `bench/aggregate.py`)
+- [ ] H1a → H1b · H2 → H3 · H4 · H5a → H5b · H6a · H7a ∥ H7b · H9a → H9b · H10 · H11
+- [ ] H6b (README) and H8 (gate) last, no cargo job running
 
-## W4 — persist root cause (parallel)
-- [x] I-a gcloud reads (orchestrator; 21:58Z: bench 3+4 same image v20261024 + kernel 7.0.0-1014-gcp, bench 5 v20261105 + 7.0.0-1017-gcp; kernel from Ops Agent syslog, serial console not in Logging): ubuntu-2404-lts-amd64 image publish dates vs deploys 11-03 19:23Z / 11-05 08:05Z / 11-07 15:06Z; serial-console "Linux version" per bench instance; Monitoring disk write_bytes/ops per instance per blast window (3 runs) → benchmark/private/bench5-r20261107-1504/I-B2/gcp.md
-- [x] I-b Prometheus replay + sampler CSVs (U-PERSIST-a, ≈ 22:03Z) → I-B2/series.md (commit s ≈ 1.0 ms/MB device bytes, r 0.99; bench 3 = bench 5 signature at matched tx/output; bench 4 diverged in minute 5 when re-reads (page-cache pressure) began; write size 230 → 30 KB; bench 5 nodes also dropped late in the run)
-- [x] I-c libmdbx writeback probe on xerxes (U-PERSIST-c): crate /home/drtnarg/coding/telcoin/mdbx-writeback-probe built + smoke DONE ≈ 22:10Z (I-B2/probe-smoke.md: large-folio cache → 3.5× device bytes, ~107 KB ops, 2× commit time; order-0 cache → 1.00×; no-WRITEMAP pwrite path → 1.00× at the device; libmdbx already sets MADV_NOHUGEPAGE; MADV_RANDOM covers only the first VMA); full run GO given 22:12Z (+ arm 6 cgroup MemoryMax=2G) → I-B2/probe.md — FULL RUN DONE 22:43Z (9 arms) + 7 re-run/extra arms 23:58-00:16Z (orchestrator, quiet machine after the peer session's `make attest` ended 23:55Z): 6 GB WRITEMAP read-all 1.70× and 3.76× median (WIDE), 2 GB 14.5×, memcg/cold/no-WRITEMAP 1.00×; probe.md fold-in by U-PERSIST-c2 (launched 00:25Z) — probe.md FINAL (265 lines, U-PERSIST-c2 done 00:40Z; 6 GB read-all 1.70×/3.76× median, scatter-dependent 1.05-17.4×; 2 GB 14.5×; order-0 arms 1.00×; "prefault off" refuted)
-- [x] I-d synthesis (U-PERSIST-d, launched ≈ 22:05Z; PASS 1 on gcp.md + series.md, PASS 2 after the probe): I-B2/verdict.md; persist issue text updated; report finding 3 + §6 arms amended; tndb answer recorded; orchestrator posts `gh issue comment` — PASS 2 sent 00:44Z (re-rank proposals, §5 actuals, title decision, report (b1)-(b3); then `gh issue edit 1802`) — PASS 2 DONE 01:00Z (verdict ≈ 85 % whole-folio dirtying, 60 % pressure took bench 4 out; "prefault off" refuted; ranking a-e); #1802 title+body replaced 01:03Z (title 107 chars); report §6 stale prefault sentence fixed by the orchestrator; tn-lmdb write path checked (MAP_SHARED + msync/fdatasync, MADV_RANDOM whole reserve → same exposure, (a) built in)
+## W3 — verify, image, GCE probe
+- [ ] one-VM GCE probe (announced; H0, H2, H4, H10 in) → I-1 verdict
+- [ ] **G1** (investigations, probe, design defaults, persist arms P2/P3, boot image pin, corrected bench-5 report, prune question)
+- [ ] node branch gates: per-commit strict check, fmt, clippy ×2, nextest --workspace, public-tests, restarts/epochs/sigkill e2e,
+      mixed-switch 2-on/2-off fleet, tn-review per topic, tn-security-eval for U1, U2, U3, U6, U7/U10, U9, U11, U12, final_state check
+- [ ] base re-check (origin tips unchanged or rebase explained hunk by hunk)
+- [ ] image built and pushed, digest recorded, `--probe-node-image` by digest; generator image, `BENCH_TXGEN_SHA` pinned
+- [ ] harness gate alone on the host; dry runs (prestart per knob, params-apply per arm file, probe, teardown)
+- [ ] **G2**
 
-## W5 — wrap-up (orchestrator)
-- [x] ledger + pr texts get "Opened as #n"; todo.md review section; lessons; memory bench5-main-fixes-run.md updated — 03:35Z (memory updated with PR/issue numbers; todo.md review section)
-- [ ] commit + push devnet-genesis main (no attribution; checkpoints gitignored)
-- [ ] final message: PR links in merge order + recipe; issue links; persist verdict; tndb answer; report §6 pointer; submodule answer; bench-6 arms; cautions
+## W4 — run 1: arms (orchestrator only; `tasks/checkpoint-bench6-run1.md`)
+- [ ] deploy → A0 → P1 → V → POOL+LOCAL → PIPE → BOUND → GR150 → A0′ → collect → teardown → archive
+- [ ] W5 analysis units A1-A7, A4o, D1 → **G3**
+
+## W6 — run 2: headline (`tasks/checkpoint-bench6-run2.md`)
+- [ ] deploy → idle → blasts → teardown → reindex → archive → bundle
+- [ ] W7 analysis, report `tasks/bench6-report-<run>.md`, publish to tn-benchmarks → **G4**
+
+## W8 — upstream (after G4)
+- [ ] stack on `staging/benchmark-bench6-2026-11`, verify per head, texts, issues and PRs (assignee grantkee, reviewers MavenRain + sstanfield), MDBX coordination
+
+## W9 — wrap-up
+- [ ] ledger verdicts, todo.md review section, lessons, memory, README archive-bucket fix, archive of both bench-6 runs, commit + push devnet-genesis

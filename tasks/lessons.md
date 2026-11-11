@@ -1504,3 +1504,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   falling through; the dry branch ends in `continue`/`return`. Before the first real run of any script that calls `gh … create`,
   `git push`, `gcloud … create` or `cast send`, run it once with the binary shimmed on PATH (a stub that prints REACHED and exits 9)
   and assert zero hits. Scripts that create external artifacts are run once by hand per step, not iterated on with live credentials.
+
+## 2026-11-10 — `gcloud storage rsync --exclude` is a list flag: a regex that starts with `^` is silently dropped
+- Symptom: the W0 archive of benches 3-5 used `--exclude='^genesis[^/]*/.*$|…'`; a `--dry-run` showed all 255 files of the smallest
+  run queued, the 24 `genesis/` files (node keys) included. The 2026-10-06 lesson (a list-flag value starting with `^` is parsed as
+  `^DELIM^…`) applies to `--exclude` as well: the rule was read as a delimiter spec and matched nothing. Caught before any upload.
+- Rule: an exclude regex never starts with `^` (gcloud matches from the start of the relative path anyway: `genesis[^/]*/.*|…`);
+  every upload script first runs the same command with `--dry-run` and refuses to continue if a path that must stay local appears in
+  the "Would copy" list; the verify step also fails when an excluded file exists in the bucket.
