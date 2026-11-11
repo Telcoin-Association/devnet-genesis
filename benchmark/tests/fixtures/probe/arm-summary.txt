@@ -1,0 +1,10 @@
+# mdbx-writeback-probe  tag=fake  arm=7  (fixture: the line shapes of src/main.rs's summary, values made up)  unix_ts=1700000000
+args: Args { arm: 7, preload_gb: 0.05, outputs: 240 }
+kernel: 6.8.0-fake  |  Linux version 6.8.0-fake
+
+per output: 880 account upserts, 1240 slot upserts (seek+delete+upsert), 2000 txhash inserts, 107 appends of 1500 B -> logical 1036316 B
+commit ms: median 19.7  p90 71.6  | mdbx sync ms median 19.4 | ops ms median 11.8
+per output (KB): logical 1012  mdbx-dirtied pages 24706  process-dirtied 24710  vm nr_dirtied 24737  device(fs, cycle) 24758  device(commit only) 24717  appender 0  background est 28
+ratios: device/logical 24.46  device/mdbx-dirtied 4.31  device(commit only)/mdbx-dirtied 4.12  process-dirtied/mdbx-dirtied 3.97  device/process-dirtied 1.09
+per-commit device/mdbx-dirtied: commit window median 4.125 [p10 1.000, p90 6.001]  cycle median 4.300 [p10 1.000, p90 6.007]  process/mdbx median 3.970 [p10 1.000, p90 5.000]
+I-1: grown 97 pages/output (Δlast_pgno), prefault calls 0/output (ratio 0.00); resident past used: end 41 pages, max 60; file 4.295 GB at open, 4.295 GB at end
