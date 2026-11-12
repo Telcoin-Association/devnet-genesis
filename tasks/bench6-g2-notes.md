@@ -90,3 +90,15 @@ session are byte-identical to before. A real defect was found on the way: the qu
 "unlimited" local-SSD quota (fixed).
 First live use of: the bench-owned create of `-lssd` nodes (TERMINATE policy), the mount script, a mount point as the data directory
 under the deployment scripts' key generation. Each fails early and loudly if wrong (step 2, step 3, step 5).
+
+## N6. Pipelined persist's gate 5 and the engine contention bench (quiet window 2026-11-12T08:09-08:20Z)
+- **Gate 5 PASS**: `pass=true` in all four cycle-bench runs, every measured output overlapped (35 of 35). Interval over the longer phase:
+  0.991 and 1.030 execute-bound (speedup 1.10 on a lab database), 1.004 and 1.003 with the persist forced to bench 5's ratio
+  (speedup 1.29 and 1.35). Gate 6 (the switch-off e2e sets on the stack) is the last open gate.
+- **Contention bench** (I-3 verdict §3b, `benchmark/private/bench6-prep/I-3/contention-u4b.md`), on the fleet's CPU shape:
+  on the shared pool one recovery job per output takes `finish` from 3.03 to 11.07 µs/tx (+8.0, inside the +8 to +15 bench 5 showed
+  on the fleet; `finish` loses 94-98 % of the job's wall time). The dedicated pool leaves `finish` within 0.15-0.68 µs/tx, but the
+  cost moves: a job takes 78 ms on three threads against 51 ms on eight, root rises 7-16 %. So in run 1 the `pool-local` arm is read
+  on `recover_wait` as well as on `finish`, and it counts as confirmed only where the node reports `pool=dedicated`.
+  The dedicated pool misses its own criterion in one case of four (two jobs at once, ratio 1.18 against a band of about 1.15).
+  The read-cache A/B cannot size E5's share: the lab's EVM lap is a tenth of the fleet's.
