@@ -64,6 +64,15 @@ RUN1_ENV = {"BENCH_TAIL_SCAN_SECS": "180", "BENCH_LIGHT_START_DELAY_SECS": "150"
 DISPATCH = "blast_run_begin"
 NODE_SHA = "ba43a1f0e270ca1c572d1b8378b39d2fc6360b57"   # the fake nodes' version line (fixtures/params-apply)
 FAIL_INDICES = "0 3 4"   # bench-blaster-03 of these blast indices ends rc 1
+# Bench 6's local-SSD deployment (option e): validators 03-07 and 10 on c3-standard-8-lssd with the data directory on
+# their first local SSD; validators 01, 02 and the observer on c3-standard-8, validators 08 and 09 on run 1's
+# c3-highcpu-8, these five on the boot disk.
+LSSD, STD, HIGHCPU = "c3-standard-8-lssd", "c3-standard-8", "c3-highcpu-8"
+E_TYPES = dict(zip(NODES, [STD, STD, LSSD, LSSD, LSSD, LSSD, LSSD, HIGHCPU, HIGHCPU, LSSD, STD]))
+E_LSSD = [n for n in NODES if E_TYPES[n] == LSSD]
+E_GROUPS = [("local-ssd", LSSD, E_LSSD), ("boot", STD, VALIDATORS[:2]), ("boot", HIGHCPU, VALIDATORS[7:9])]
+NO_CAPS = "n/a (local SSD, no provisioned caps)"   # the arm summary's caps of a local SSD
+ROOT_OPTS = "discard,commit=30,errors=remount-ro"  # the boot disk's fstab options, which the SSD's mount takes
 
 
 def iso(t):
@@ -569,6 +578,102 @@ class Run1RehearsalTests(unittest.TestCase):
         # every node: the deploy's start, then v-vote, v-vote-r2 (same state, second name) and a0-prime;
         # a0-control restarted nothing
         self.assertEqual((doc["switches"]["checked"], doc["switches"]["matched"]), (4 * len(NODES), 4 * len(NODES)))
+
+    # --- bench 6: the local-SSD deployment's data path, on a copy of the walk's results -------------------
+    def lssd_record(self, inst, k):
+        """bench_lssd_mount_record (bench-lib.sh) on what <inst>'s mount session prints: its LSSD_MOUNT line, as the
+        mount script writes it, among the session's other lines."""
+        line = ("LSSD_MOUNT %s dev=/dev/nvme1n1 by_id=google-local-nvme-ssd-0 size_bytes=402653184000 "
+                "uuid=0b1c2d3e-0000-4000-8000-%012d mount=/var/lib/telcoin mkfs=done options=rw,relatime,%s "
+                "fstab_root_options=%s ra_kb=128" % (inst, k, ROOT_OPTS, ROOT_OPTS))
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.walk.root),
+               "TMPDIR": str(self.walk.root / "tmp"), "BENCH_RUN_ID": RUN_ID, "BENCH_APPLY": "0", "LC_ALL": "C"}
+        # $0 is the deploy, the driver that records the line (benchmark/config.sh admits only the bench drivers)
+        p = subprocess.run(["bash", "-c", 'set -euo pipefail; source benchmark/bench-lib.sh; bench_lssd_mount_record "$1"',
+                            "benchmark-deploy.sh", inst],
+                           input="# local-SSD data directory\n%s\r\nPRECFG_OK %s\n" % (line, inst), env=env,
+                           cwd=str(self.walk.tree), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout)
+
+    def lssd_summary(self, run, tag):
+        out = self.walk.root / ("lssd-summary-" + tag)
+        p = self.walk.tool(BENCH / "tools" / "arms-summary.py", "--run-dir", run, "--out-dir", out, "--cache-dir",
+                           self.walk.root / ("lssd-cache-" + tag), "--prefiltered", self.walk.root / "no-prefilter",
+                           "--no-stages")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads((out / "arms.json").read_text())
+
+    def test_the_local_ssd_data_path_into_the_arm_summary(self):
+        """Option (e) on a copy of the walk's results. Machine types alone change nothing (no disk class anywhere).
+        Then deploy step 2's data_disk plan for every instance, each local-SSD node's LSSD_MOUNT line through
+        bench_lssd_mount_record merged into its entry as step 3 merges it, and persist CSVs that carry the device
+        counters (16 KiB a write and three flushes an output on a local SSD, 4 KiB and one on the boot disk): the
+        arm summary puts the validators in three (disk class, machine type) groups, the six local-SSD ones without
+        caps, with numbers in every group's write count, flush, size and commit columns."""
+        run = self.walk.root / "lssd" / RUN_ID
+        shutil.copytree(str(self.R), str(run))
+        man = json.loads((run / "manifest.json").read_text())
+        man["machine_type"] = HIGHCPU
+        # the boot disk as the deploy's manifest records it (bench-lib.sh, config.sh's defaults)
+        boot = {"size_gb": 100, "type": "hyperdisk-balanced", "provisioned_iops": 20000, "provisioned_throughput": 800}
+        man["node_disk"] = dict(boot)
+        for inst in man["instances"]:
+            inst["machine_type"] = E_TYPES[inst["name"]]
+        (run / "manifest.json").write_text(json.dumps(man, indent=2) + "\n")
+        doc = self.lssd_summary(run, "types")
+        for r in doc["summary_rows"]:
+            self.assertFalse("by_disk_class" in r, r["row_id"])
+            self.assertEqual([n for n, e in r["engine_by_node"].items() if "disk_class" in e], [], r["row_id"])
+        # step 2: the plan's entry per instance (deploy data_disk_plan); step 3: the record merged into it
+        for inst in man["instances"]:
+            inst["data_disk"] = {"class": "local-ssd"} if inst["name"] in E_LSSD else dict(boot, **{"class": "boot"})
+        by_name = dict((i["name"], i) for i in man["instances"])
+        for k, n in enumerate(E_LSSD):
+            rec = self.lssd_record(n, k + 1)
+            self.assertEqual((rec["class"], rec["device"], rec["mount"], rec["mkfs"]),
+                             ("local-ssd", "/dev/nvme1n1", "/var/lib/telcoin", "done"))
+            by_name[n]["data_disk"] = dict(by_name[n]["data_disk"], **rec)
+        self.assertEqual(len(set(by_name[n]["data_disk"]["uuid"] for n in E_LSSD)), 6)
+        (run / "manifest.json").write_text(json.dumps(man, indent=2) + "\n")
+        header = (BENCH / "tools" / "persist-csv-header.txt").read_text().strip().split(",")
+        for n in NODES:
+            path = run / "persist" / (n + ".csv")
+            with open(str(path), newline="") as fh:
+                rows = list(csv.DictReader(fh))
+            kib, flushes = (16, 9) if n in E_LSSD else (4, 3)    # per 30-s sample: three outputs
+            for j, row in enumerate(rows):
+                ops = int(row["disk_wr_bytes_total"]) // (kib * 1024)
+                row.update(disk_wr_ios_total=ops, disk_wr_ticks_ms_total=ops // 10, disk_flush_ios_total=j * flushes,
+                           disk_flush_ticks_ms_total=j * flushes)
+            with open(str(path), "w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=header)
+                w.writeheader()
+                w.writerows(rows)
+        doc = self.lssd_summary(run, "lssd")
+        for n in E_LSSD:
+            self.assertEqual(doc["disk_caps_by_node"][n], {"iops": NO_CAPS, "mibps": NO_CAPS}, n)
+        self.assertEqual(len(doc["summary_rows"]), 5)
+        for r in doc["summary_rows"]:
+            with self.subTest(row=r["row_id"]):
+                groups = r["by_disk_class"]
+                self.assertEqual([(g["disk_class"], g["machine_type"], g["nodes"]) for g in groups], E_GROUPS)
+                for g in groups:
+                    for col in ("wr_ops_per_output", "flush_ops_per_output", "wr_kib_per_op", "commit_ms_output",
+                                "commit_us_tx"):
+                        self.assertIsInstance(g[col], (int, float), (g["machine_type"], col, g[col]))
+                self.assertEqual([(g["wr_kib_per_op"], g["flush_ops_per_output"]) for g in groups],
+                                 [(16.0, 3.0), (4.0, 1.0), (4.0, 1.0)])
+                self.assertEqual((groups[0]["iops_pct_of_cap"], groups[0]["cap_floor_ms_per_output"]), (NO_CAPS, NO_CAPS))
+                for g in groups[1:]:
+                    self.assertIsInstance(g["iops_pct_of_cap"], float, g["machine_type"])
+                e = r["engine_by_node"]
+                self.assertEqual(dict((n, e[n]["disk_class"]) for n in NODES),
+                                 dict((n, "local-ssd" if n in E_LSSD else "boot") for n in NODES))
+                for n in E_LSSD:
+                    self.assertEqual((e[n]["iops_pct_of_cap"], e[n]["mibps_pct_of_cap"], e[n]["binds"]),
+                                     (NO_CAPS,) * 3, n)
 
 
 if __name__ == "__main__":

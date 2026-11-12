@@ -52,6 +52,14 @@ NODE_IMAGE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/be
               "benchmark/report/provenance.py", "common/create-instances.sh")
 # test_host_probe imports test_node_image (its BashCase and TREE); test_params_apply imports test_host_probe.
 HOST_PROBE = NODE_IMAGE + ("benchmark/tests/test_node_image.py", "benchmark/tests/fixtures/host-probe")
+# test_node_deploy.TREE (bench 6, L1d) plus the bench-obs bundle and fixtures/node-image (its gcloud stub, the obs
+# startup stub and dashboards); test_local_ssd_deploy imports test_node_deploy.
+NODE_DEPLOY = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
+               "benchmark/obs-lib.sh", "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
+               "benchmark/node-image-contract.txt", "benchmark/arms/switches.tsv", "benchmark/arms/v-vote.arm",
+               "benchmark/arms/final.arm", "benchmark/tools/params-apply.sh", "benchmark/node-persist-sampler.sh",
+               "benchmark/tools/folio-census.py", "benchmark/consensus-parameters.yaml", "benchmark/obs",
+               "benchmark/tests/fixtures/node-image", "common/create-instances.sh", "common/wgvpn/wg-config.sh")
 suites = {
     "test_recovery": ("benchmark/recovery-schedule.py", "benchmark/recovery-lib.sh",
                       "benchmark/node-sampler.sh", "benchmark/benchmark-blast.sh",
@@ -170,13 +178,39 @@ suites = {
                    "benchmark/node-persist-sampler.sh", "benchmark/tools", "benchmark/arms",
                    "benchmark/tests/test_repo_hygiene.py", "benchmark/tests/fixtures/probe"),
     # H11: the launchers, the arm files and .gitignore go into the test's own git tree (every driver is a fake);
-    # a knob test reads config.sh and every top-level and tools/ shell script.
+    # a knob test reads config.sh and every top-level and tools/ shell script. Bench 6 (L3): the lssd env's config
+    # view sources a copy of both config.sh files with the consensus parameters beside them.
     "test_launch": ("benchmark/launch", "benchmark/arms", "benchmark/.gitignore", "benchmark/tests/fixtures/launch",
+                    "config.sh", "benchmark/consensus-parameters.yaml",
                     "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
                     "benchmark/recovery-lib.sh", "benchmark/benchmark-blast.sh", "benchmark/benchmark-deploy.sh",
                     "benchmark/benchmark-teardown.sh", "benchmark/benchmark-probe.sh", "benchmark/benchmark-firewall.sh",
                     "benchmark/blaster-startup.sh", "benchmark/node-sampler.sh", "benchmark/node-persist-sampler.sh",
                     "benchmark/tools"),
+    # Bench 6, the local-SSD units. L1a: the shape knobs of benchmark/config.sh, sourced in a sandbox of its own
+    # with the root config.sh beside it; the narrowed create runs the REAL common/create-instances.sh.
+    "test_node_shapes": ("config.sh", "benchmark/config.sh", "benchmark/consensus-parameters.yaml",
+                         "common/create-instances.sh", "common/wgvpn/wg-config.sh"),
+    # L1b: the mount, record and check builders out of bench-lib.sh (it loads ../devnet-lib.sh with benchmark/config.sh
+    # as its config, and that sources the root one) on a fake node; a mirror test reads the probe driver, a contract
+    # test the manifest fields.
+    "test_local_ssd": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/consensus-parameters.yaml",
+                       "benchmark/bench-lib.sh", "benchmark/pull-lib.sh", "benchmark/obs-lib.sh",
+                       "benchmark/benchmark-probe.sh", "benchmark/arms/MANIFEST-FIELDS.md"),
+    # L1d: test_node_deploy.TREE (the deploy's sandbox), the bench-obs bundle and its stubs; every test skips
+    # without the common submodule.
+    "test_node_deploy": NODE_DEPLOY,
+    # L1c: the local-SSD half of the deploy, in test_node_deploy's sandbox (it imports that module).
+    "test_local_ssd_deploy": NODE_DEPLOY + ("benchmark/tests/test_node_deploy.py",),
+    # The run-1 rehearsal (H13; L4 adds the local-SSD data path): test_run1_rehearsal.TREE for the walk, the arm files,
+    # its fixtures and the arm tool's fake nodes (it imports test_params_apply, which imports test_host_probe), and
+    # every reader it runs on the results (the tools, the report modules, the summary's and sampler's fixtures).
+    "test_run1_rehearsal": HOST_PROBE + ("benchmark/tests/test_host_probe.py", "benchmark/tests/test_params_apply.py",
+                                         "benchmark/recovery-lib.sh", "benchmark/blaster-startup.sh",
+                                         "benchmark/stall-scan.py", "benchmark/launch/run-arms.sh", "benchmark/tools",
+                                         "benchmark/report", "benchmark/tests/fixtures/run1-rehearsal",
+                                         "benchmark/tests/fixtures/params-apply",
+                                         "benchmark/tests/fixtures/arms-summary", "benchmark/tests/fixtures/analysis"),
 }
 
 # Long anchors, each one line of its file verbatim; the mutants below change one piece of it.
@@ -1972,6 +2006,432 @@ cases = [
      '        if any(not is_na(e["wr_iops"]) for e in m["engine_by_node"].values()):',
      '        if True:',
      'test_arms_summary.ArmsSummaryTests.test_disk_columns_without_the_counters'),
+    # Bench 6, the local-SSD units (L1a, L1b, L1c, L1d, L2, L3, H20): each unit applied its anchors by hand on a
+    # copy of the tree and reported them; a test that compares with the harness base skips here (no .git in the
+    # copy), so none is a target. L1a: benchmark/config.sh's shape knobs.
+    # L1a M1 an index past the last node is accepted (BENCH_NODE_MACHINE_TYPES)
+    ('benchmark/config.sh',
+     ('_bench_bad="not <index>:<machine-type>" ;; esac\n'
+      '    case "${_bench_idx}" in \'\'|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index \'${_bench_idx}\' is not a number}" ;; esac\n'
+      '    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${#INSTANCE_NAMES[@]}" ]'),
+     ('_bench_bad="not <index>:<machine-type>" ;; esac\n'
+      '    case "${_bench_idx}" in \'\'|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index \'${_bench_idx}\' is not a number}" ;; esac\n'
+      '    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -gt "${#INSTANCE_NAMES[@]}" ]'),
+     'test_node_shapes.RefusalTests.test_machine_types'),
+    # L1a M2 a duplicate index is accepted (BENCH_NODE_MACHINE_TYPES)
+    ('benchmark/config.sh',
+     ('    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac\n'
+      '    _bench_seen="${_bench_seen}${_bench_idx} "\n'
+      '    if [ -z "${_bench_bad}" ] && ! [[ "${_bench_v}" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]]; then'),
+     ('    _bench_seen="${_bench_seen}${_bench_idx} "\n'
+      '    if [ -z "${_bench_bad}" ] && ! [[ "${_bench_v}" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]]; then'),
+     'test_node_shapes.RefusalTests.test_machine_types'),
+    # L1a M3 the unset of the other types' INSTANCE_NAMES entries is dropped
+    ('benchmark/config.sh',
+     '[ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ] || unset "INSTANCE_NAMES[${_bench_idx}]"',
+     '[ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ] || :',
+     'test_node_shapes.CreateNarrowTests.test_sparse_instance_names'),
+    # L1a M3b same, against the real create-instances.sh
+    ('benchmark/config.sh',
+     '[ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ] || unset "INSTANCE_NAMES[${_bench_idx}]"',
+     '[ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ] || :',
+     'test_node_shapes.CreateNarrowTests.test_create_instances_per_type'),
+    # L1a M4 BENCH_NODE_DATADIR_LSSD=1 is accepted without BENCH_FLEET
+    ('benchmark/config.sh',
+     'if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = "1" ] && [ -z "${BENCH_FLEET:-}" ]; then',
+     'if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = "1" ] && false; then',
+     'test_node_shapes.RefusalTests.test_datadir_lssd'),
+    # L1a M5 BENCH_NODE_ZONES is applied after the zones.env block
+    ('benchmark/config.sh',
+     ('    export ZONES=("${_bench_zarr[@]}")\n'
+      'fi\n'),
+     ('    export ZONES=("${_bench_zarr[@]}")\n'
+      'fi\n'
+      'for _bench_item in ${BENCH_NODE_ZONES:-}; do ZONES[${_bench_item%%:*}]="${_bench_item#*:}"; done\n'),
+     'test_node_shapes.ZonesEnvTests.test_zones_env_wins'),
+    # L1a M6 a scratch variable of the new blocks leaks into the caller
+    ('benchmark/config.sh',
+     '_bench_zones _bench_zarr _bench_lssd',
+     '_bench_zones _bench_zarr',
+     'test_node_shapes.KnobUnsetTests.test_no_scratch_variable_survives'),
+    # L1a M7 the e2/n1 x hyperdisk refusal checks MACHINE_TYPE only
+    ('benchmark/config.sh',
+     'for _bench_t in "${NODE_MACHINE_TYPES[@]}"; do',
+     'for _bench_t in "${MACHINE_TYPE}"; do',
+     'test_node_shapes.RefusalTests.test_e2_n1_hyperdisk_per_type'),
+    # L1a M8 a -lssd node gets its data directory on the SSD with the knob at 0
+    ('benchmark/config.sh',
+     '        1:*-lssd) NODE_DATADIR_LSSD[_bench_idx]=1;',
+     '        *:*-lssd) NODE_DATADIR_LSSD[_bench_idx]=1;',
+     'test_node_shapes.OptionETests.test_lssd_nodes_with_the_knob_at_0'),
+    # L1a M9 the zone check is loosened to <letters>...-<letter>
+    ('benchmark/config.sh',
+     '! [[ "${_bench_v}" =~ ^[a-z]+-[a-z]+[0-9]+-[a-z]$ ]]',
+     '! [[ "${_bench_v}" =~ ^[a-z].*-[a-z]$ ]]',
+     'test_node_shapes.RefusalTests.test_zones'),
+    # L1a M10 the narrowed create keeps the fleet's MACHINE_TYPE
+    ('benchmark/config.sh',
+     ('    export MACHINE_TYPE="${BENCH_CREATE_MACHINE_TYPE}"\n'
+      '    for _bench_idx in "${!INSTANCE_NAMES[@]}"; do\n'
+      '        [ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ]'),
+     ('    for _bench_idx in "${!INSTANCE_NAMES[@]}"; do\n'
+      '        [ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${BENCH_CREATE_MACHINE_TYPE}" ]'),
+     'test_node_shapes.CreateNarrowTests.test_create_instances_per_type'),
+    # L1a M11 BENCH_CREATE_MACHINE_TYPE is accepted without BENCH_NODE_MACHINE_TYPES
+    ('benchmark/config.sh',
+     '    if [ -z "${BENCH_NODE_MACHINE_TYPES:-}" ]; then',
+     '    if false; then',
+     'test_node_shapes.RefusalTests.test_create_machine_type'),
+    # L1b: the mount, record and check builders of bench-lib.sh, the C4 quota helpers and the host probe on a whole disk.
+    # L1b marker check dropped
+    ('benchmark/bench-lib.sh',
+     ('MS="$(findmnt -no SOURCE --mountpoint "$M" 2>/dev/null || true)"\n'
+      'if [ -e "$S" ]; then'),
+     ('MS="$(findmnt -no SOURCE --mountpoint "$M" 2>/dev/null || true)"\n'
+      'if false && [ -e "$S" ]; then'),
+     'test_local_ssd.MountScriptTests.test_marker_without_the_mount_is_lost_and_never_formatted_again'),
+    # L1b nofail dropped
+    ('benchmark/bench-lib.sh',
+     'ext4 %s,nofail,x-systemd.device-timeout=30s 0 2',
+     'ext4 %s,x-systemd.device-timeout=30s 0 2',
+     'test_local_ssd.MountScriptTests.test_first_time_formats_mounts_and_writes_the_marker_last'),
+    # L1b mkfs over a non-empty directory
+    ('benchmark/bench-lib.sh',
+     '            [ -z "$(ls -A "$M")" ] || lf "$M is not empty"\n',
+     '',
+     'test_local_ssd.MountScriptTests.test_a_data_directory_that_is_not_empty_is_refused'),
+    # L1b root-disk refusal dropped
+    ('benchmark/bench-lib.sh',
+     'case "$R" in "$NV"|"$NV"p[0-9]*) lf "$NV holds / ($R)" ;; esac\n',
+     '',
+     'test_local_ssd.MountScriptTests.test_a_by_id_link_to_the_root_disk_or_a_partition_is_refused'),
+    # L1b fallback to another NVMe device added
+    ('benchmark/bench-lib.sh',
+     '[ -e "$L" ] || lf "no $L (a machine type without a local SSD?)"',
+     ('[ -e "$L" ] || L=/dev/disk/by-id/google-local-nvme-ssd-1\n'
+      '[ -e "$L" ] || lf "no $L (a machine type without a local SSD?)"'),
+     'test_local_ssd.MountScriptTests.test_no_by_id_link_fails_without_a_fallback'),
+    # L1b marker written before the reload
+    ('benchmark/bench-lib.sh',
+     ('    chmod 0644 "$U" || lf "chmod $U failed"\n'
+      '    systemctl daemon-reload || lf "systemctl daemon-reload failed"\n'
+      '    # 6. the marker, last: from here on a missing mount is a wiped SSD, never a first time\n'
+      '    mkdir -p "${S%/*}" && chmod 0700 "${S%/*}" || lf "mkdir ${S%/*} failed"\n'
+      '    (umask 077 && printf \'%s\\n\' "$UU" > "$S.tmp") && mv -f "$S.tmp" "$S" || lf "cannot write the marker $S"\n'),
+     ('    chmod 0644 "$U" || lf "chmod $U failed"\n'
+      '    mkdir -p "${S%/*}" && chmod 0700 "${S%/*}" || lf "mkdir ${S%/*} failed"\n'
+      '    (umask 077 && printf \'%s\\n\' "$UU" > "$S.tmp") && mv -f "$S.tmp" "$S" || lf "cannot write the marker $S"\n'
+      '    systemctl daemon-reload || lf "systemctl daemon-reload failed"\n'),
+     'test_local_ssd.MountScriptTests.test_a_failed_mount_or_reload_leaves_no_marker'),
+    # L1b marker written before the mount
+    ('benchmark/bench-lib.sh',
+     '        mount -t ext4 -o "$O" "$NV" "$M" || lf "mount $NV on $M failed"\n',
+     ('        mkdir -p "${S%/*}" && : > "$S"\n'
+      '        mount -t ext4 -o "$O" "$NV" "$M" || lf "mount $NV on $M failed"\n'),
+     'test_local_ssd.MountScriptTests.test_a_failed_mount_or_reload_leaves_no_marker'),
+    # L1b kept without the UUID comparison
+    ('benchmark/bench-lib.sh',
+     '! uuid_ok "$W" || [ "$UU" != "$W" ]; then',
+     '! uuid_ok "$W"; then',
+     'test_local_ssd.MountScriptTests.test_marker_with_a_mount_of_another_uuid_is_lost'),
+    # L1b device mounted elsewhere not refused
+    ('benchmark/bench-lib.sh',
+     '    [ -z "$T" ] || lf "$NV is mounted on $T (it is not unmounted here)"\n',
+     '',
+     'test_local_ssd.MountScriptTests.test_a_device_mounted_elsewhere_is_left_alone'),
+    # L1b drop-in without RequiresMountsFor
+    ('benchmark/bench-lib.sh',
+     'printf \'[Unit]\\nRequiresMountsFor=%s\\n\' "$M" > "$U"',
+     'printf \'[Unit]\\n\' > "$U"',
+     'test_local_ssd.MountScriptTests.test_first_time_formats_mounts_and_writes_the_marker_last'),
+    # L1b mount without the root fstab options
+    ('benchmark/bench-lib.sh',
+     '        mount -t ext4 -o "$O" "$NV" "$M" || lf',
+     '        mount -t ext4 -o defaults "$NV" "$M" || lf',
+     'test_local_ssd.MountScriptTests.test_first_time_formats_mounts_and_writes_the_marker_last'),
+    # L1b partition accepted as the namespace
+    ('benchmark/bench-lib.sh',
+     'case "${NV#/dev/nvme}" in *[!0-9n]*) lf "$L is \'$NV\', not an NVMe namespace" ;; esac\n',
+     '',
+     'test_local_ssd.MountScriptTests.test_a_by_id_link_to_the_root_disk_or_a_partition_is_refused'),
+    # L1b check script compares nothing
+    ('benchmark/bench-lib.sh',
+     ('if [ -z "$NV" ] || [ "$MS" != "$NV" ]; then\n'
+      '    echo "PRECFG_FAIL'),
+     ('if [ -z "$NV" ]; then\n'
+      '    echo "PRECFG_FAIL'),
+     'test_local_ssd.CheckScriptTests.test_another_device_or_no_local_ssd_ends_the_session'),
+    # L1b check script does not end the session
+    ('benchmark/bench-lib.sh',
+     ("    echo ') || exit 1'\n"
+      '}'),
+     ("    echo ') || true'\n"
+      '}'),
+     'test_local_ssd.CheckScriptTests.test_an_unmounted_node_ends_the_session'),
+    # L1b record accepts any by-id
+    ('benchmark/bench-lib.sh',
+     '$l | capture("^dev=(?<device>/dev/nvme[0-9]+n[0-9]+) by_id=google-local-nvme-ssd-0"',
+     '$l | capture("^dev=(?<device>/dev/nvme[0-9]+n[0-9]+) by_id=[^ ]+"',
+     'test_local_ssd.MountRecordTests.test_a_failed_line_or_any_other_shape_is_a_failure'),
+    # L1b record accepts a failed line
+    ('benchmark/bench-lib.sh',
+     '        "failed "*|failed) echo "❌ bench_lssd_mount_record: ${inst} ${rest}" >&2; return 1 ;;\n',
+     '',
+     'test_local_ssd.MountRecordTests.test_a_failed_line_or_any_other_shape_is_a_failure'),
+    # L1b C4 counted as CPUS
+    ('benchmark/bench-lib.sh',
+     '        c4) echo C4_CPUS ;;\n',
+     '',
+     'test_local_ssd.C4QuotaTests.test_c4_has_its_own_sum_and_says_why_it_is_not_checked'),
+    # L1b C4 reason dropped
+    ('benchmark/bench-lib.sh',
+     '        C4_CPUS) echo "C4 vCPUs count against',
+     '        C4_CPUS_X) echo "C4 vCPUs count against',
+     'test_local_ssd.C4QuotaTests.test_c4_has_its_own_sum_and_says_why_it_is_not_checked'),
+    # L1b resume without the emptiness check
+    ('benchmark/bench-lib.sh',
+     ('        [ "$(ls -A "$M")" = lost+found ] && [ -d "$M/lost+found" ] && [ ! -L "$M/lost+found" ] \\\n'
+      '            && [ -z "$(ls -A "$M/lost+found")" ] \\\n'
+      '            || lf "$M is a mount of $NV that holds data and the marker $S is absent: it is neither formatted again nor adopted"\n'),
+     '',
+     'test_local_ssd.MountScriptTests.test_a_mount_of_the_device_with_data_and_no_marker_is_refused'),
+    # L1b resume without the source check
+    ('benchmark/bench-lib.sh',
+     '    if [ -n "$MS" ] && [ "$MS" = "$NV" ]; then\n',
+     '    if [ -n "$MS" ]; then\n',
+     'test_local_ssd.MountScriptTests.test_resume_refuses_another_device_a_second_mount_or_another_file_system'),
+    # L1b resume without the ext4 check
+    ('benchmark/bench-lib.sh',
+     '        [ "$FT" = ext4 ] || lf "$M is a mount of $NV with file system \'${FT:-?}\', not ext4, and the marker $S is absent"\n',
+     '',
+     'test_local_ssd.MountScriptTests.test_resume_refuses_another_device_a_second_mount_or_another_file_system'),
+    # L1b host probe: a whole disk read as its parent
+    ('benchmark/bench-lib.sh',
+     'names.append(os.path.basename(os.path.dirname(real) if part else real))',
+     'names.append(os.path.basename(os.path.dirname(real)))',
+     'test_host_probe.HostProbeScriptTests.test_probe_on_a_whole_disk_local_ssd'),
+    # Derived by L4 (L1b added the sampler's whole-disk case without an anchor, the sampler being unchanged): a data
+    # directory on a whole NVMe namespace, read as its parent like a partition, counts no disk at all.
+    ('benchmark/node-persist-sampler.sh',
+     '    [ -e "${sys}/partition" ] && sys="${sys%/*}"',
+     '    sys="${sys%/*}"',
+     'test_persist_sampler.SamplerTests.test_whole_disk_data_dir_counts_the_namespace_itself'),
+    # L1d: the deploy on a fleet of several machine types (step 0's plan and quota lines, step 2's creates, the zone
+    # overrides and the stockout rounds).
+    # L1d machine_vcpus without the -lssd strip
+    ('benchmark/benchmark-deploy.sh',
+     '    local n t="${1%-lssd}"\n',
+     '    local n t="${1}"\n',
+     'test_node_deploy.QuotaTests.test_one_cpu_line_per_node_and_local_ssd'),
+    # L1d region_needs back to MACHINE_TYPE for every node
+    ('benchmark/benchmark-deploy.sh',
+     ('        t="${NODE_MACHINE_TYPES[$i]}"\n'
+      '        nc="$(machine_vcpus "${t}" "${z}")"\n'),
+     ('        t="${MACHINE_TYPE}"\n'
+      '        nc="$(machine_vcpus "${t}" "${z}")"\n'),
+     'test_node_deploy.QuotaTests.test_one_cpu_line_per_node_and_local_ssd'),
+    # L1d zone_fallback_check against MACHINE_TYPE
+    ('benchmark/benchmark-deploy.sh',
+     '            out="$(perl -e \'alarm shift; exec @ARGV\' 60 gcloud compute machine-types describe "${t}" --zone="${z}" \\\n',
+     '            out="$(perl -e \'alarm shift; exec @ARGV\' 60 gcloud compute machine-types describe "${MACHINE_TYPE}" --zone="${z}" \\\n',
+     'test_node_deploy.StockoutTests.test_a_fallback_zone_without_the_nodes_type_is_reported_by_step_0'),
+    # L1d bench_create_node with MIGRATE
+    ('benchmark/benchmark-deploy.sh',
+     '        --maintenance-policy=TERMINATE \\\n',
+     '        --maintenance-policy=MIGRATE \\\n',
+     'test_node_deploy.OptionETests.test_bench_argv_is_create_instances_argv_but_the_maintenance_policy'),
+    # L1d a -lssd type also sent through create-instances.sh
+    ('benchmark/benchmark-deploy.sh',
+     ('                case "${t}" in *-lssd) continue ;; esac\n'
+      '                echo "    + BENCH_CREATE_MACHINE_TYPE'),
+     '                echo "    + BENCH_CREATE_MACHINE_TYPE',
+     'test_node_deploy.OptionETests.test_two_create_instances_calls_and_six_bench_creates'),
+    # L1d the live guard before the bench create removed
+    ('benchmark/benchmark-deploy.sh',
+     ('    [ "${BENCH_APPLY}" = "1" ] || return 0\n'
+      '    bench_run gcloud beta compute instances create'),
+     '    bench_run gcloud beta compute instances create',
+     'test_node_deploy.OptionETests.test_the_live_guard_makes_a_dry_bench_create_print_and_call_nothing'),
+    # L1d zone_fallback_record names MACHINE_TYPE
+    ('benchmark/benchmark-deploy.sh',
+     ('    t="$(node_machine_type "$1")"\n'
+      '    ZONES[$1]="$3"\n'),
+     ('    t="${MACHINE_TYPE}"\n'
+      '    ZONES[$1]="$3"\n'),
+     'test_node_deploy.StockoutTests.test_a_lssd_stockout_moves_that_node_alone'),
+    # L1d C4 metric checked like any other (L1b's quota_check hunk undone)
+    ('benchmark/benchmark-deploy.sh',
+     '            if [ -n "${why}" ] && [ -z "${have}" ]; then\n',
+     '            if false; then\n',
+     'test_node_deploy.QuotaTests.test_c4_cpus_are_not_checked_with_the_reason_and_never_stop'),
+    # L1d a headroom jq prints as 9.2e+18 compared as an integer
+    ('benchmark/benchmark-deploy.sh',
+     '                         | if . >= 9007199254740992 then "unlimited" else . end][0] // empty',
+     '                         ][0] // empty',
+     'test_node_deploy.QuotaTests.test_c4_cpus_are_not_checked_with_the_reason_and_never_stop'),
+    # L1d zone_overrides recorded again on a re-run
+    ('benchmark/benchmark-deploy.sh',
+     '    [ "$(jq -r \'has("zone_overrides")\' "$(bench_manifest)" 2>/dev/null || true)" != true ] || return 0\n',
+     '',
+     'test_node_deploy.ZoneOverrideTests.test_overrides_are_recorded_once_and_zones_env_is_written'),
+    # L1d the fleet line counts MACHINE_TYPE for every node
+    ('benchmark/benchmark-deploy.sh',
+     ('    groups="$(machine_groups)"\n'
+      '    case "${groups}" in\n'),
+     ('    groups="${MACHINE_TYPE}"\n'
+      '    case "${groups}" in\n'),
+     'test_node_deploy.OptionETests.test_plan_names_every_type_and_calls_nothing'),
+    # L1d bench_create_nodes does not skip a node that exists
+    ('benchmark/benchmark-deploy.sh',
+     ('            echo "Instance ${inst} already exists in ${ZONES[$i]} — skipping."\n'
+      '            continue\n'),
+     '            echo "Instance ${inst} already exists in ${ZONES[$i]} — skipping."\n',
+     'test_node_deploy.OptionETests.test_a_rerun_skips_every_node_that_exists'),
+    # L1c: the deploy's local-SSD data path (step 2's data_disk, step 3's mount sessions, step 7's check, the dry plan
+    # and --print-lssd-mount).
+    # L1c step 3's knob-off early return dropped
+    ('benchmark/benchmark-deploy.sh',
+     ('    [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ] || return 0\n'
+      '    local nodes jobs log i inst out rec mk n=0 nd=0 nk=0 nr=0 failed=""\n'),
+     '    local nodes jobs log i inst out rec mk n=0 nd=0 nk=0 nr=0 failed=""\n',
+     'test_local_ssd_deploy.KnobUnsetTests.test_step_3_is_the_serial_markers_alone'),
+    # L1c a failed LSSD_MOUNT line does not stop step 3
+    ('benchmark/benchmark-deploy.sh',
+     '    [ -z "${failed}" ] || bench_die "step 3: the data directory is not on the local SSD of${failed}',
+     '    [ -z "${failed}" ] || bench_warn "step 3: the data directory is not on the local SSD of${failed}',
+     'test_local_ssd_deploy.OptionEStep3Tests.test_a_lost_node_stops_the_step_naming_it_and_the_others_are_kept'),
+    # L1c the local-SSD check after the probes instead of before
+    ('benchmark/benchmark-deploy.sh',
+     '{ [ -z "${chk}" ] || printf \'%s\\n\' "${chk}"; bench_fsync_probe_script "${inst}"; bench_host_probe_script "${inst}"; bench_prestart_script "${inst}"; }',
+     '{ bench_fsync_probe_script "${inst}"; bench_host_probe_script "${inst}"; [ -z "${chk}" ] || printf \'%s\\n\' "${chk}"; bench_prestart_script "${inst}"; }',
+     'test_local_ssd_deploy.OptionEStep7Tests.test_the_check_comes_first_on_the_six_and_nowhere_else'),
+    # L1c the local-SSD check on the boot-disk nodes too
+    ('benchmark/benchmark-deploy.sh',
+     ('    if [ "${NODE_DATADIR_LSSD[$1]}" = 1 ]; then\n'
+      '        chk='),
+     ('    if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ]; then\n'
+      '        chk='),
+     'test_local_ssd_deploy.OptionEStep7Tests.test_the_check_comes_first_on_the_six_and_nowhere_else'),
+    # L1c data_disk written under instances[].disks
+    ('benchmark/benchmark-deploy.sh',
+     "'map(.data_disk = $m[.name])'",
+     "'map(.disks = [$m[.name]])'",
+     'test_local_ssd_deploy.OptionEStep2Tests.test_every_instance_gets_its_data_disk_and_none_under_disks'),
+    # L1c the live guard before the mount session removed
+    ('benchmark/benchmark-deploy.sh',
+     ('    [ "${BENCH_APPLY}" = "1" ] || return 0\n'
+      '    bench_lssd_mount_script "${inst}"'),
+     '    bench_lssd_mount_script "${inst}"',
+     'test_local_ssd_deploy.OptionEStep3Tests.test_the_live_guard_keeps_a_dry_mount_session_from_any_call'),
+    # L1c a resumed node counted as done
+    ('benchmark/benchmark-deploy.sh',
+     ' resumed) nr=$((nr + 1)) ;; esac',
+     ' resumed) nd=$((nd + 1)) ;; esac',
+     'test_local_ssd_deploy.OptionEStep3Tests.test_a_rerun_keeps_and_resumes'),
+    # L1c --print-lssd-mount does not refuse a boot-disk node
+    ('benchmark/benchmark-deploy.sh',
+     '    [ "${NODE_DATADIR_LSSD[$_i]}" = 1 ] || bench_die',
+     '    true || bench_die',
+     'test_local_ssd_deploy.DryPathTests.test_print_lssd_mount_refuses_a_boot_disk_node_and_a_stranger'),
+    # L1c the plan's step-3 lines with the knob off
+    ('benchmark/benchmark-deploy.sh',
+     ('    [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ] || return 0\n'
+      '    local i names="" dirs'),
+     '    local i names="" dirs',
+     'test_local_ssd_deploy.DryPathTests.test_a_lssd_node_with_the_knob_off_is_refused'),
+    # Held back, three anchors whose every test fails by an exception, never at an assertion (no case can be
+    # killed here until their test asserts first): L1d "zones.env not written up front with BENCH_NODE_ZONES"
+    # (ZoneOverrideTests reads the missing zones.env: FileNotFoundError), L1c "step 2's data_disk written with the
+    # knob off" (KnobUnsetTests.test_step_2_writes_no_data_disk puts the dicts in a set: TypeError) and L1c "a
+    # node's record not merged into instances[].data_disk" (OptionEStep3Tests pops the missing ts: KeyError).
+    # L2: the arm summary on a fleet with nodes on a local SSD (by_disk_class, NO_CAPS, the groups). L2's M5 (the
+    # early return of node_groups) is killed by the base comparison alone; its case is under test_run1_rehearsal.
+    # L2 M1 the local-SSD cap reading is not an n/a
+    ('benchmark/tools/arms-summary.py',
+     'NO_CAPS = "n/a (local SSD, no provisioned caps)"',
+     'NO_CAPS = "local SSD, no provisioned caps"',
+     'test_arms_summary.ArmsSummaryTests.test_a_local_ssd_only_fleet'),
+    # L2 M2 the group medians run over every node, the observer with the validators
+    ('benchmark/tools/arms-summary.py',
+     'by_group = group_medians(per_node, validators, groups)',
+     'by_group = group_medians(per_node, list(per_node), groups)',
+     'test_arms_summary.ArmsSummaryTests.test_a_fleet_split_by_disk_class_and_machine_type'),
+    # L2 M3 a local-SSD node's writes are read against the boot disk's caps
+    ('benchmark/tools/arms-summary.py',
+     'e.update(disk_row(nds[n], csv_cache.get(n), a, b, node_caps(caps, groups, n)))',
+     'e.update(disk_row(nds[n], csv_cache.get(n), a, b, caps))',
+     'test_arms_summary.ArmsSummaryTests.test_a_local_ssd_only_fleet'),
+    # L2 M4 a fleet of one (disk class, machine type) group gets by_disk_class
+    ('benchmark/tools/arms-summary.py',
+     ('    if len(keys) < 2:\n'
+      '        return []'),
+     ('    if len(keys) < 1:\n'
+      '        return []'),
+     'test_arms_summary.ArmsSummaryTests.test_the_class_reading_and_groups_by_hand'),
+    # L2 M6 the groups are made by disk class alone
+    ('benchmark/tools/arms-summary.py',
+     'names = [n for n in validators if groups.get(n) == (c, t)]',
+     'names = [n for n in validators if n in groups and groups[n][0] == c]',
+     'test_arms_summary.ArmsSummaryTests.test_a_fleet_split_by_disk_class_and_machine_type'),
+    # L2 M7 a class of two machine types is labelled without its type
+    ('benchmark/tools/arms-summary.py',
+     'if len(types[c]) > 1 else ""',
+     'if len(types[c]) > 9 else ""',
+     'test_arms_summary.ArmsSummaryTests.test_the_class_reading_and_groups_by_hand'),
+    # L3 and H20: the local-SSD deployment's launch files, and the env file's pin of the walk's plan.
+    # L3 m1 validator 04 (index 3) loses its -lssd shape
+    ('benchmark/launch/bench6-run1-lssd.env',
+     ' 3:c3-standard-8-lssd 4:c3-standard-8-lssd',
+     ' 4:c3-standard-8-lssd',
+     'test_launch.EnvAndPlanTests.test_the_lssd_env_is_run_1_with_the_local_ssd_shape'),
+    # L3 m2 the env leaves the data directory on the boot disk
+    ('benchmark/launch/bench6-run1-lssd.env',
+     'BENCH_NODE_DATADIR_LSSD=1\n',
+     '',
+     'test_launch.LssdLaunchTests.test_the_env_as_launch_exports_it_loads_in_config_as_option_e'),
+    # L3 m3 the plan's closing control is a second a0-control
+    ('benchmark/launch/bench6-run1-lssd.plan',
+     'a0-prime        M16',
+     'a0-control      M16',
+     'test_launch.EnvAndPlanTests.test_the_lssd_plan'),
+    # L3 m4 the env pins BENCH_MACHINE_TYPE (validators 08 and 09 leave run 1's c3-highcpu-8)
+    ('benchmark/launch/bench6-run1-lssd.env',
+     'BENCH_NODE_DATADIR_LSSD=1\n',
+     ('BENCH_NODE_DATADIR_LSSD=1\n'
+      'BENCH_MACHINE_TYPE=c3-standard-8\n'),
+     'test_launch.EnvAndPlanTests.test_the_lssd_env_is_run_1_with_the_local_ssd_shape'),
+    # L3 m5 the env moves validator 04 to another zone
+    ('benchmark/launch/bench6-run1-lssd.env',
+     'australia-southeast1-b 4:us-east4-c',
+     'australia-southeast1-b 3:asia-northeast1-c 4:us-east4-c',
+     'test_launch.LssdLaunchTests.test_the_env_as_launch_exports_it_loads_in_config_as_option_e'),
+    # L3 m6 the advice arm and the closing control swapped
+    ('benchmark/launch/bench6-run1-lssd.plan',
+     ('p1-mdbx-advice  M16\n'
+      'a0-prime        M16\n'),
+     ('a0-prime        M16\n'
+      'p1-mdbx-advice  M16\n'),
+     'test_launch.EnvAndPlanTests.test_the_lssd_plan'),
+    # H20 a1 run-arms.sh ignores RUN_ARMS_PLAN
+    ('benchmark/launch/run-arms.sh',
+     'PLAN="${RUN_ARMS_PLAN:-benchmark/launch/bench6-run1.plan}" FROM_ARM=',
+     'PLAN="benchmark/launch/bench6-run1.plan" FROM_ARM=',
+     'test_launch.ArmsWalkTests.test_run_arms_plan_is_the_walk_when_no_plan_is_given'),
+    # H20 a2 the lssd env loses its plan pin
+    ('benchmark/launch/bench6-run1-lssd.env',
+     'RUN_ARMS_PLAN=benchmark/launch/bench6-run1-lssd.plan\n',
+     '',
+     'test_launch.EnvAndPlanTests.test_every_knob_the_env_files_set_exists_in_config_or_its_driver'),
+    # L4: the rehearsal of the local-SSD deployment's data path (LSSD_MOUNT line, bench_lssd_mount_record, the
+    # manifest, the arm summary) on a copy of the walk's results.
+    # L2 M5 (re-pointed here: test_arms_summary kills it only by the base comparison) node_groups gives every node a
+    # class when no instance carries data_disk, so a run before the local SSD prints disk classes
+    ('benchmark/tools/arms-summary.py',
+     ('    if not any(isinstance(i.get(F["m_data_disk"]), dict) for i in inst.values()):\n'
+      '        return {}'),
+     ('    if not inst:\n'
+      '        return {}'),
+     'test_run1_rehearsal.Run1RehearsalTests.test_the_local_ssd_data_path_into_the_arm_summary'),
 ]
 
 
