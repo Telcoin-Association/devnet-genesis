@@ -1013,3 +1013,10 @@ What it settles and what it does not:
    per arm and node, write operations per persist and sustained write IOPS against the provisioned cap (the persist CSV
    has them; the arm summary gets the column) — the persist ceiling may be the disk's IOPS provisioning, which no node
    switch changes. Raising the provisioned IOPS for one arm (a deploy-time knob, `BENCH_NODE_DISK_IOPS`) is the direct test.
+
+## Resolutions after the condensed brief (`tasks/bench6-g1-brief.md` §6; 2026-11-12)
+The brief's six flags and four silent items are resolved in its §6: D18 superseded by the probe (eviction matters); the
+evict step has a mincore fallback (works without `fincore`); D76 restated for 1,200-s epochs (≈ 0.2-0.4 %); the bench-5 page
+needs one more correction (the "likely trigger: re-open, about 60 %" is refuted by both probes); D17 and D32: do not build;
+P2 (`read_ahead_kb` 16): drop; P3 (no-WRITEMAP): not in run 1, upstream option D83; D84's column owed (a harness unit);
+D68 is not a read-through path; e2e on 80a0c76c0: exec_block + epoch_drain 3 of 3, sealed_txs + admission 7 of 7.
