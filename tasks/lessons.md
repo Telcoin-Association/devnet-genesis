@@ -1582,3 +1582,15 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   one subtest, in the suite and again alone, and passed it when run plainly. Rule: detach a test run with `setsid … < /dev/null`
   alone (no controlling terminal, so no SIGHUP arrives), never with `nohup`; and when a gate fails only on a signal test, read the
   launcher's signal dispositions (`grep SigIgn /proc/self/status`) before reading the code.
+
+## 2026-11-12 — a parser tested on a tidy fixture reads nothing from the real thing (run 1, the walk's health check)
+- What happened: `run-arms.sh` checks each node's disk and fatal-error count after every step from `benchmark-blast.sh status`,
+  which prints a node's last serial-console line that holds `BENCH_STATUS`. On a fleet that line carries the syslog prefix
+  (`<time> <host> bench-node-sampler.sh[pid]: BENCH_STATUS …`); the walk's pattern wanted `<node>: BENCH_STATUS` with nothing
+  between. Every check said `verdict=unknown read=0/11`, and an unknown verdict never stops the walk: the automatic stop on a
+  full disk or a fatal database error was blind for the whole of run 1. The unit tests and the rehearsal fed the bare form.
+- Rules: (1) a fixture for anything read off a serial console, a log or a cloud API is a line copied from a real run, prefix and
+  all (bench 5's logs had them); (2) a safety check that can answer "unknown" on every node is itself checked once on the live
+  fleet right after the deploy, before the long segment starts, and "unknown on all nodes" is treated as a failed check, not as
+  no news; (3) when a running driver's check is found blind, nobody edits the driver: an independent read-only watcher takes
+  its place until the segment ends.
