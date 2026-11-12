@@ -1,11 +1,12 @@
 """benchmark/launch/: launch.sh (one detached segment of a bench run) and run-arms.sh (the run-1 arm
-walk), the env files and the default plan.
+walk), the env files, the default plan and run 1b's (the local-SSD deployment's) plan.
 
-Every test builds a throwaway git tree with the real launch/ scripts, env files and arm files and
-fake drivers (fixtures/launch/fake-driver.py behind each driver's path) that record their argv
+Every test builds a throwaway git tree with the real launch/ scripts, env files, run 1b's plan and arm
+files and fake drivers (fixtures/launch/fake-driver.py behind each driver's path) that record their argv
 and environment, print REACHED and answer from a scenario. The tree's default plan is the frozen
 eight-arm walk (fixtures/launch/walk-8.plan), so a hand edit of the real plan never moves a test that
-addresses arms by number; test_the_default_plan and the real-plan dry run pin the real plan. Shims
+addresses arms by number; test_the_default_plan and the real-plan dry run pin the real plan, and
+test_the_lssd_plan and its dry runs pin run 1b's. Shims
 on PATH stand in for gcloud (the token check), pgrep (the process check: it finds nothing unless a
 test says so, so the host's own processes never make a test refuse) and curl (the pool gate's
 Prometheus read). Nothing here reaches a real project.
@@ -39,6 +40,17 @@ DEFAULT_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M1
                 ("v-vote-floor", ["L", "M16"]), ("pool-local", ["M16@epoch"]), ("pipe", ["M4", "M16"]),
                 ("bound", ["M4", "M16"]), ("gr150", ["I", "L", "M16s"]), ("a0-prime", ["M16"])]
 TYPES = {"I", "L", "M4", "M16", "M16s"}
+ENV_FILES = ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env", "bench6-run1-lssd.env")
+# Run 1b, the local-SSD deployment (option e): run 1's arms a0-control, p1-mdbx-advice and a0-prime, and run 1's env
+# plus the four shape knobs below (values as the env file spells them, quotes and all).
+LSSD_PLAN = "benchmark/launch/bench6-run1-lssd.plan"
+LSSD_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M16"]), ("a0-prime", ["M16"])]
+OPTION_E = ("0:c3-standard-8 1:c3-standard-8 2:c3-standard-8-lssd 3:c3-standard-8-lssd 4:c3-standard-8-lssd "
+            "5:c3-standard-8-lssd 6:c3-standard-8-lssd 9:c3-standard-8-lssd 10:c3-standard-8")
+LSSD_FALLBACKS = ("2:australia-southeast1-a,australia-southeast1-b 4:us-east4-c,us-east4-a 5:europe-west4-b,europe-west4-c "
+                  "6:asia-southeast1-a,asia-southeast1-c 7:asia-east1-a 8:asia-northeast3-b 9:asia-south1-b,asia-south1-a")
+LSSD_SHAPE = {"BENCH_NODE_MACHINE_TYPES": '"%s"' % OPTION_E, "BENCH_NODE_DATADIR_LSSD": "1", "BENCH_FLEET": "c3-lssd6-hdb4",
+              "BENCH_ZONE_FALLBACKS": '"%s"' % LSSD_FALLBACKS}
 
 
 def read_plan(path):
@@ -70,7 +82,7 @@ class Tree:
         for d in ("benchmark/launch", "benchmark/arms", "benchmark/tools", "benchmark/report", "tasks",
                   ".fake/state", ".fake/curl", "benchmark/results/" + RUN, "benchmark/work/probe-bin"):
             (self.root / d).mkdir(parents=True, exist_ok=True)
-        for f in ("launch.sh", "run-arms.sh", "bench6-run1.env", "bench6-run2.env", "bench6-probe.env"):
+        for f in ("launch.sh", "run-arms.sh", "bench6-run1-lssd.plan") + ENV_FILES:
             shutil.copy2(str(LAUNCH / f), str(self.root / "benchmark/launch" / f))
         shutil.copy2(str(FIX / "walk-8.plan"), str(self.root / "benchmark/launch/bench6-run1.plan"))
         for f in (BENCH / "arms").glob("*.arm"):
@@ -216,14 +228,16 @@ class LaunchRefusalTests(LaunchBase):
         self.assertFalse((self.t.root / "PWNED").exists())
 
     def test_every_shipped_env_file_is_refused_until_its_placeholders_are_filled(self):
-        for f, keys in (("bench6-run1.env", "BENCH_RUN_ID"), ("bench6-run2.env", "BENCH_RUN_ID"), ("bench6-probe.env", "BENCH_RUN_ID")):
+        for f in ENV_FILES:
             with self.subTest(f=f):
-                self.assertRefused(self.launch("benchmark/launch/" + f, "deploy12"), keys + " is still a placeholder")
-        body = (LAUNCH / "bench6-run1.env").read_text().replace("<run-id>", RUN)
-        p = self.launch(self.env_file(body), "deploy12")
-        self.assertRefused(p, "placeholders not filled")
-        for k in ("BENCH_DOCKER_IMAGE", "BENCH_DOCKER_IMAGE_EXPECT_DIGEST", "BENCH_NODE_EXPECT_SHA", "BENCH_TXGEN_SHA"):
-            self.assertIn(" " + k, p.stderr)
+                self.assertRefused(self.launch("benchmark/launch/" + f, "deploy12"), "BENCH_RUN_ID is still a placeholder")
+        for f in ("bench6-run1.env", "bench6-run1-lssd.env"):
+            with self.subTest(f=f, run_id="filled"):
+                body = (LAUNCH / f).read_text().replace("<run-id>", RUN)
+                p = self.launch(self.env_file(body), "deploy12")
+                self.assertRefused(p, "placeholders not filled")
+                for k in ("BENCH_DOCKER_IMAGE", "BENCH_DOCKER_IMAGE_EXPECT_DIGEST", "BENCH_NODE_EXPECT_SHA", "BENCH_TXGEN_SHA"):
+                    self.assertIn(" " + k, p.stderr)
 
     def test_a_dirty_harness_tree(self):
         self.t.write("benchmark/arms/a0-control.arm", "name a0-control\nparam vote_queue_fix true\n")
@@ -437,6 +451,78 @@ class LaunchStatusTests(LaunchBase):
         self.rc_line(log2, "deploy12")
 
 
+# $1 = a copy of benchmark/config.sh (the repo-root config.sh beside its parent): what option (e) sets, one line each.
+CONFIG_VIEW = r'''
+set -euo pipefail
+. "$1"
+printf 'TYPES %s\n' "${NODE_MACHINE_TYPES[*]}"
+printf 'LSSD %s\n' "${NODE_DATADIR_LSSD[*]}"
+printf 'MACHINE_TYPE %s\n' "${MACHINE_TYPE}"
+printf 'FLEET %s\n' "${BENCH_FLEET}"
+printf 'ZONES %s\n' "${ZONES[*]}"
+printf 'FALLBACKS %s\n' "${BENCH_ZONE_FALLBACKS}"
+'''
+
+
+class LssdLaunchTests(LaunchBase):
+    """Run 1b (bench6-run1-lssd.env, bench6-run1-lssd.plan) through launch.sh: the walk's dry run started as a live
+    segment reaches no driver, and the env as launch.sh exports it loads in benchmark/config.sh as option (e)."""
+
+    def setUp(self):
+        super().setUp()
+        text = (LAUNCH / "bench6-run1-lssd.env").read_text()
+        for k, v in FILL.items():
+            text = text.replace(k, v)
+        self.lssd = "tasks/lssd.env"
+        self.t.write(self.lssd, text)
+
+    def test_the_walk_dry_run_as_a_segment_reaches_no_driver(self):
+        pid, log = self.started(self.launch(self.lssd, "arms", "--dry-run", "--plan", LSSD_PLAN))
+        self.assertRegex(self.the_rc_line(log, "arms", 90), r"^== arms rc=0 ")
+        text = log.read_text()
+        self.assertEqual(self.t.calls(), [])
+        self.assertNotIn("REACHED", text)
+        self.assertEqual(self.t.lines("gcloud.log"), ["gcloud auth print-access-token"])    # the launcher's token check
+        self.assertIn("== arms command: benchmark/launch/run-arms.sh --dry-run --plan %s\n" % LSSD_PLAN, text)
+        self.assertIn("\nBENCH_NODE_MACHINE_TYPES=%s\n" % OPTION_E, text)
+        self.assertIn("DRY RUN: run-arms walks %s on %s; nothing is called\n" % (LSSD_PLAN, RUN), text)
+        self.assertIn("\nDRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)\n", text)
+
+    def config_view(self, dry_stdout):
+        """benchmark/config.sh sourced (as benchmark-deploy.sh) with exactly the environment a launch dry run printed."""
+        env = dict(l[len("  env "):].split("=", 1) for l in dry_stdout.splitlines() if l.startswith("  env "))
+        self.assertIn("BENCH_RUN_ID", env, dry_stdout)
+        cfg = self.t.root / ".fake/cfg"
+        if not cfg.exists():
+            (cfg / "benchmark").mkdir(parents=True)
+            shutil.copy2(str(REPO / "config.sh"), str(cfg / "config.sh"))
+            for f in ("config.sh", "consensus-parameters.yaml"):
+                shutil.copy2(str(BENCH / f), str(cfg / "benchmark" / f))
+        p = subprocess.run(["bash", "-c", CONFIG_VIEW, "benchmark-deploy.sh", str(cfg / "benchmark/config.sh")],
+                           env=self.t.env(**env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        keys = ("TYPES", "LSSD", "MACHINE_TYPE", "FLEET", "ZONES", "FALLBACKS")
+        return dict(l.split(" ", 1) for l in p.stdout.splitlines() if l.split(" ", 1)[0] in keys)
+
+    def test_the_env_as_launch_exports_it_loads_in_config_as_option_e(self):
+        p = self.launch("--dry-run", self.lssd, "arms", "--plan", LSSD_PLAN)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("  command: benchmark/launch/run-arms.sh --plan %s\n" % LSSD_PLAN, p.stdout)
+        got = self.config_view(p.stdout)
+        run1 = self.config_view(self.launch("--dry-run", self.envf, "arms").stdout)
+        std, lssd, hc = "c3-standard-8", "c3-standard-8-lssd", "c3-highcpu-8"
+        self.assertEqual(got["TYPES"].split(), [std, std, lssd, lssd, lssd, lssd, lssd, hc, hc, lssd, std])
+        self.assertEqual(got["LSSD"].split(), ["0", "0", "1", "1", "1", "1", "1", "0", "0", "1", "0"])
+        self.assertEqual(got["FLEET"], "c3-lssd6-hdb4")
+        self.assertEqual(got["FALLBACKS"], LSSD_FALLBACKS)
+        # run 1's default machine type (validators 08 and 09 keep it) and run 1's zones: nothing moved
+        self.assertEqual(run1["TYPES"].split(), [hc] * 11)
+        self.assertEqual(run1["LSSD"].split(), ["0"] * 11)
+        self.assertEqual((got["MACHINE_TYPE"], got["ZONES"]), (hc, run1["ZONES"]))
+        self.assertEqual(self.t.lines("gcloud.log"), [])
+
+
 class ArmsBase(unittest.TestCase):
     """run-arms.sh against the fake drivers, with fast knobs."""
 
@@ -525,9 +611,19 @@ class ArmsWalkTests(ArmsBase):
 
     def test_the_real_plan_walks_in_a_dry_run(self):
         # The sandbox's default plan is the frozen walk-8; this walks the real one as it stands, hand edits and all.
-        shutil.copy2(str(LAUNCH / "bench6-run1.plan"), str(self.t.root / "benchmark/launch/bench6-run1.plan"))
-        walk = read_plan(LAUNCH / "bench6-run1.plan")
-        p = self.arms("--dry-run")
+        self.dry_walk_of_the_real("benchmark/launch/bench6-run1.plan")
+
+    def test_the_lssd_plan_walks_in_a_dry_run(self):
+        p = self.dry_walk_of_the_real(LSSD_PLAN, "--plan", LSSD_PLAN)
+        self.assertIn("DRY RUN: run-arms walks %s on %s; nothing is called\n" % (LSSD_PLAN, RUN), p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^DRY RUN END: 3 arm\(s\), 6 step\(s\), 5 blast\(s\)$")
+
+    def dry_walk_of_the_real(self, rel, *args):
+        """run-arms --dry-run [args] on the repo's plan <rel> as it stands (copied to the same path in the sandbox):
+        every arm applied under its recorded name, one run per blast step, the END line's counts."""
+        shutil.copy2(str(REPO / rel), str(self.t.root / rel))
+        walk = read_plan(REPO / rel)
+        p = self.arms("--dry-run", *args)
         self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr)
         self.assertEqual(self.t.calls(), [])
         want, used = [], set()
@@ -547,6 +643,7 @@ class ArmsWalkTests(ArmsBase):
         self.assertEqual(len(re.findall(r"(?m)^ +env .* benchmark/benchmark-blast\.sh run --yes ", p.stdout)), blasts)
         self.assertRegex(p.stdout, r"(?m)^DRY RUN END: %d arm\(s\), %d step\(s\), %d blast\(s\)$"
                          % (len(walk), sum(len(steps) for _, steps in walk), blasts))
+        return p
 
 
 class ArmsStopTests(ArmsBase):
@@ -1159,7 +1256,7 @@ class EnvAndPlanTests(unittest.TestCase):
         srcs = [BENCH / "config.sh"] + sorted(BENCH.glob("*.sh")) + sorted((BENCH / "tools").glob("*.sh")) \
             + [LAUNCH / "launch.sh", LAUNCH / "run-arms.sh"]
         text = "\n".join(p.read_text() for p in srcs)
-        for f in ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env"):
+        for f in ENV_FILES:
             for k in self.env_keys(f):
                 with self.subTest(f=f, k=k):
                     self.assertRegex(text, r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % k, "%s sets a knob no source reads" % k)
@@ -1186,9 +1283,35 @@ class EnvAndPlanTests(unittest.TestCase):
         for k in ("BENCH_NODE_DB_SYNC_MODE", "BENCH_NODE_LOG_FILTER", "BENCH_LOG_TRANSFER", "BENCH_OBS_DISK_MAX_PCT"):
             self.assertNotIn(k, r2)
 
+    def test_the_lssd_env_is_run_1_with_the_local_ssd_shape(self):
+        # Every key of run 1 with run 1's value (image, generator, boot image, measurements: the same placeholders),
+        # plus the four shape knobs; no BENCH_MACHINE_TYPE (validators 08 and 09 keep the default) and no zone moved.
+        r1, lssd = self.env_keys("bench6-run1.env"), self.env_keys("bench6-run1-lssd.env")
+        self.assertEqual(set(LSSD_SHAPE) & set(r1), set())
+        self.assertEqual(lssd, dict(r1, **LSSD_SHAPE))
+        for k in ("BENCH_MACHINE_TYPE", "BENCH_NODE_ZONES", "BENCH_ARM_FILE"):
+            self.assertNotIn(k, lssd)
+        # Tokyo (index 3) has no fallback zone that offers c3-standard-8-lssd, and the file says so
+        self.assertNotIn(" 3:", " " + LSSD_FALLBACKS)
+        self.assertRegex((LAUNCH / "bench6-run1-lssd.env").read_text(), r"(?m)^#.*Tokyo \(index 3\b")
+
+    def test_the_lssd_plan(self):
+        walk = read_plan(LAUNCH / "bench6-run1-lssd.plan")
+        self.assertEqual(walk, LSSD_WALK)
+        self.check_arms(walk)
+        # Each row pairs with run 1's: the arm's own steps there, and the arms in run 1's relative order.
+        run1 = read_plan(LAUNCH / "bench6-run1.plan")
+        for arm, steps in walk:
+            self.assertIn(steps, [s for a, s in run1 if a == arm], arm)
+        self.assertEqual([a for a, _ in walk], [a for a, _ in run1 if a in dict(walk)])
+
     def test_the_default_plan(self):
         walk = read_plan(LAUNCH / "bench6-run1.plan")
         self.assertEqual(walk, DEFAULT_WALK)
+        self.check_arms(walk)
+
+    def check_arms(self, walk):
+        """Every arm file exists, its name line is the arm's, and every step is a type (M16 and M16s may carry @epoch)."""
         for arm, steps in walk:
             self.assertTrue((BENCH / "arms" / (arm + ".arm")).is_file(), arm)
             name = re.search(r"(?m)^name (\S+)$", (BENCH / "arms" / (arm + ".arm")).read_text()).group(1)

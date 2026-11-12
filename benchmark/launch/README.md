@@ -12,6 +12,8 @@ Each call runs as a detached segment that survives the session that started it, 
 | `bench6-run1.env` | run 1, the arms run |
 | `bench6-run2.env` | run 2, the headline |
 | `bench6-probe.env` | the one-VM GCE probe |
+| `bench6-run1-lssd.env` | run 1b, the local-SSD deployment: run 1's env file plus four shape knobs |
+| `bench6-run1-lssd.plan` | run 1b's walk: three of run 1's arms |
 
 Tests: `benchmark/tests/test_launch.py` (fake drivers and shims in `benchmark/tests/fixtures/launch/`).
 
@@ -59,6 +61,7 @@ Knobs the files set, and who reads them:
 | `LAUNCH_PROBE_BIN` | | | `benchmark/work/probe-bin/mdbx-writeback-probe` | launch.sh |
 | `LAUNCH_PROBE_ARMS` | | | (commented out: all arms; `core` is the short run) | launch.sh |
 
+`bench6-run1-lssd.env` (run 1b) sets every run-1 knob to run 1's value and adds the four shape knobs listed under "Run 1b: the local-SSD deployment".
 `test_launch.py` checks that every key an env file sets is read by `benchmark/config.sh` or a driver.
 
 ## launch.sh
@@ -149,6 +152,7 @@ Sixteen blasts in all; `--dry-run` prints every command.
 `v-vote` and `v-vote-floor` are the two forms of the vote fix (G1): the adaptive one (`quorum_exec_block_starved_rounds 4`) and the always-on one (`0`).
 If the image lacks `pipelined_persist`, drop the `pipelined_persist` line from `pipe.arm`, `bound.arm` and `gr150.arm` (arms/README.md), or drop the `pipe` line here.
 After a hand edit of the plan, update `DEFAULT_WALK` in `test_launch.py`: `test_the_default_plan` pins `bench6-run1.plan`, and `test_the_real_plan_walks_in_a_dry_run` walks it with `--dry-run`.
+An edit that changes the steps or the order of `a0-control`, `p1-mdbx-advice` or `a0-prime` also fails `test_the_lssd_plan` until run 1b's plan follows it.
 The tests that address arms by number walk a frozen copy of the eight-arm walk (`tests/fixtures/launch/walk-8.plan`), so an edit of the plan does not move them.
 
 ### One arm
@@ -290,6 +294,126 @@ A value the source does not record reads `n/a`, never 0.
 
 The `arms` segment needs the deploy's RPC tunnel (localhost:18545, for `M16@epoch`) and bench-obs forward (localhost:19090, for the pool gate) still up; both outlive the deploy until the teardown stops them.
 
+## Run 1b: the local-SSD deployment
+
+Run 1b deploys run 1's fleet again with the data directory of six validators on a local NVMe SSD, and walks three of run 1's arms on it.
+It is option (e) of the local-SSD design (`benchmark/private/bench6-prep/design/design-local-ssd-deployment.md`, not in git), the shape recommended for gate G2.
+Every validator stays in run 1's zone, and the validators of both disk classes execute the same outputs under the same load at the same time.
+It runs after run 1's teardown, because the instance names are fixed and only one bench fleet exists at a time.
+It has its own run id and runs run 1's image, generator and boot image: fill `bench6-run1-lssd.env`'s placeholders with run 1's values and a fresh run id.
+
+### The shape
+
+Every node keeps run 1's zone and the fleet's 100 GB `hyperdisk-balanced` boot disk.
+
+| nodes | indices | machine type | memory | data directory |
+|---|---|---|---|---|
+| validators 03, 04, 05, 06, 07, 10 | 2-6, 9 | `c3-standard-8-lssd` | 32 GiB | the first of its two local NVMe SSDs (`google-local-nvme-ssd-0`), mounted at the data directory |
+| validators 01, 02 and observer 11 | 0, 1, 10 | `c3-standard-8` | 32 GiB | the boot disk |
+| validators 08, 09 | 7, 8 | `c3-highcpu-8`, run 1's shape (the default `MACHINE_TYPE`) | 16 GiB | the boot disk |
+
+Hong Kong and Seoul offer no `c3-standard-8`, so validators 08 and 09 keep run 1's shape.
+The boot-disk class therefore holds two machine types, and the arm summary groups the validators by disk class and machine type, never by class alone.
+
+| knob | run 1b | read by |
+|---|---|---|
+| `BENCH_NODE_MACHINE_TYPES` | `"0:c3-standard-8 1:c3-standard-8 2:c3-standard-8-lssd ... 6:c3-standard-8-lssd 9:c3-standard-8-lssd 10:c3-standard-8"` (the table above) | config.sh (`NODE_MACHINE_TYPES`) |
+| `BENCH_NODE_DATADIR_LSSD` | `1` | config.sh (`NODE_DATADIR_LSSD`) |
+| `BENCH_FLEET` | `c3-lssd6-hdb4` (config.sh requires it with `BENCH_NODE_DATADIR_LSSD=1`) | config.sh |
+| `BENCH_ZONE_FALLBACKS` | the zones below | config.sh |
+| `BENCH_MACHINE_TYPE` | unset: `c3-highcpu-8` | config.sh |
+
+Each stockout fallback zone was read on 2026-11-12 to offer the node's own machine type.
+Validator 03 (Sydney) falls back to `australia-southeast1-a`, then `-b`; 05 (Ashburn) to `us-east4-c`, then `-a`; 06 (Eemshaven) to `europe-west4-b`, then `-c`; 07 (Singapore) to `asia-southeast1-a`, then `-c`; 10 (Mumbai) to `asia-south1-b`, then `-a`.
+Validators 08 and 09 keep run 1's defaults (`asia-east1-a`, `asia-northeast3-b`).
+Validators 01, 02 and the observer have none.
+Validator 04 (Tokyo) has none either: no other Tokyo zone offers `c3-standard-8-lssd`, so a stockout there stops the deploy at step 2.
+
+### What the deploy does differently
+
+This follows the design; no deploy has run these steps on a live fleet yet.
+
+- Step 2 creates each machine type's nodes in a call of its own; the local-SSD nodes are created with `--maintenance-policy=TERMINATE`.
+- Step 3, after the serial markers and before keygen (step 5) first writes into the data directory, mounts each local-SSD node's first SSD at the data directory, four nodes at a time (`BENCH_NODE_JOBS`).
+  The file system is ext4, made with the probe's options (`mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard`) and mounted with the boot disk's own fstab options for `/`, so the two disk classes differ in the device only.
+  The fstab line carries `nofail`, a drop-in makes `telcoin.service` require the mount, and a marker on the boot disk (`/var/lib/bench-lssd/uuid`) records the file system's UUID.
+  The harness never changes the owner of the data directory: keygen hands the empty mount point to the `telcoin` user.
+- Each node prints one line, `LSSD_MOUNT <inst> dev=<dev> by_id=google-local-nvme-ssd-0 size_bytes=<n> uuid=<uuid> mount=<dir> mkfs=done|kept options=<opts> fstab_root_options=<opts> ra_kb=<n>`, or `LSSD_MOUNT <inst> failed <reason>`.
+  The lines go to `logs/lssd-mount-<UTC>.log` and into the manifest's `instances[].data_disk` (`"class": "local-ssd"`; the other nodes get `"class": "boot"`).
+  A failed or missing line stops the step and names the node, since a node whose data directory silently stayed on the boot disk would spoil the comparison.
+- After the last node: `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 failed=[]`.
+  A re-run of step 3 (`--from 3` or later) finds the mount and reports `mkfs=kept`.
+- A node whose marker exists but whose data directory is not that file system fails `lost`: its SSD was wiped (a stop, a suspend or a host error).
+  Step 3 never formats it again, so the node never starts on an empty data directory; its keys and database are gone, and it is out for the run.
+- Step 7's pre-start session first checks the mount on each local-SSD node and fails with `PRECFG_FAIL <inst> local SSD not mounted at <dir>` otherwise, before the fsync probe and the host probe run.
+- The deploy's plan (no `--yes`) prints the step-3 lines, and `benchmark-deploy.sh --print-lssd-mount <instance>` prints one node's mount script without a call.
+
+Never stop, suspend or reset a local-SSD node by hand: a stop or a suspend wipes its SSD, and with it the node's keys and database.
+What a reset, or a host maintenance event under `TERMINATE`, does to the SSD is not verified.
+The harness itself never stops or reboots a node VM; the arm tool restarts the container.
+
+### Segments
+
+Every `arms` launch carries `--plan benchmark/launch/bench6-run1-lssd.plan`: without it, run-arms walks run 1's nine-arm plan.
+The `ARMS_RESUME` line after a stop already carries it.
+
+| # | launch | wait for | read before the next segment |
+|---|---|---|---|
+| 1 | `launch.sh <run1b.env> deploy12` | `== deploy12 rc=0`, `BENCH_DEPLOY_RESULT rc=0` | `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 failed=[]` and the six `LSSD_MOUNT` lines; `instances[].data_disk` in the manifest; `HOST_PROBE_SUMMARY ... uniform=no` and `FSYNC_PROBE_SUMMARY ... slow=[...]` naming one disk class are expected warnings; the image gate lines, `OBS_READY` |
+| 2 | `launch.sh <run1b.env> arms --dry-run --plan benchmark/launch/bench6-run1-lssd.plan` | `== arms rc=0` | the walk: `DRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)` |
+| 3 | `launch.sh <run1b.env> arms --plan benchmark/launch/bench6-run1-lssd.plan` | `== arms rc=` | `ARMS_DONE arms=3 blasts=5`; on `ARMS_STOPPED`, as in run 1 |
+| 4 | `launch.sh <run1b.env> step15` | `== step15 rc=0` | `BENCH_DEPLOY_RESULT rc=0`, `metrics.json` |
+| 5 | `launch.sh <run1b.env> teardown-dry` | `TEARDOWN_DONE ... dry_run=1` | this run's resources only |
+| 6 | `launch.sh <run1b.env> teardown` | `TEARDOWN_DONE run=<run> deleted=<n> left=0` | `left=0`; the pulled logs |
+| 7 | `launch.sh <run1b.env> archive` | `== archive-run run=<run> rc=0` | the `ARCHIVE_REMOTE` line |
+| 8 | `launch.sh <run1b.env> reindex` | `== reindex rc=0` | `INDEX.md` |
+| 9 | `launch.sh <run1b.env> arms-summary` | `== arms-summary rc=0` | `results/<run>/analysis/arms.md` and its "By disk class" table |
+
+Before the deploy, on top of the pre-launch checklist: run 1's teardown at `left=0`; the deploy's plan with this env's values (the per-node machine types, the step-3 lines, the `LOCAL_SSD_TOTAL_GB` quota line); `--print-lssd-mount` read for one node.
+
+### The walk
+
+| k | arm | steps |
+|---|---|---|
+| 0 | `a0-control` | I, L, M4, M16 |
+| 1 | `p1-mdbx-advice` | M16 |
+| 2 | `a0-prime` | M16 |
+
+`a0-control` is the fleet as deployed, never restarted and with no eviction.
+`p1-mdbx-advice` restarts every node with `mdbx_random_advice true` and `host evict-mdbx`; `a0-prime` restarts every node at the defaults with `host evict-mdbx`.
+Each arm keeps its run-1 steps, in run 1's relative order, so each row pairs with run 1's row for the same arm, and `a0-prime` still brackets `p1-mdbx-advice` for the arm summary's drift correction (it takes the first and the last control arm of a blast type).
+Five blasts and one idle window in all.
+
+### Fleet time
+
+From this README's figures: the deploy about 46 minutes and the teardown about 35; a light blast (L, M4) 12 minutes (the 150-s light start lead, the generator's 90-s preamble, 60 / 360 / 60 s); an M16 1,350 s; an apply with `host evict-mdbx` about 10 minutes; the idle step 5.
+The "few minutes" after each blast (the fund, the results, the blaster deletes, the health check) is taken as 4.
+The same figures, with half an epoch's wait for `M16@epoch`, give run 1's walk about 7.4 hours, close to the 7 hours at the top of this file.
+
+| segment | minutes |
+|---|---|
+| deploy to step 12: 46, plus two waves of mkfs (six nodes, four at a time, up to 2 minutes each) | about 50 |
+| `a0-control`: 5 + 12 + 12 + 22.5, plus 3 × 4 | about 63 |
+| `p1-mdbx-advice`: 10 + 22.5 + 4 | about 37 |
+| `a0-prime`: 10 + 22.5 + 4 | about 37 |
+| step 15 (an estimate) | about 10 |
+| teardown | about 35 |
+| total: 50 + 63 + 37 + 37 + 10 + 35 = 232 | about 3 h 50 min |
+
+### What the comparison can and cannot show
+
+It can show how the two disk classes behave under the same load at the same time.
+The cleanest pair is the six local-SSD validators against validators 01 and 02: the same family, vCPU count and memory, a different device.
+The arm summary's "By disk class" table gives each (disk class, machine type) group's medians of the engine, amplification, refault and disk columns, and `p1-mdbx-advice` and `a0-prime` show each class's response to the advice and to the eviction.
+On a local-SSD node the provisioned-cap shares and binds read `n/a`; its measured rates stay.
+
+It cannot separate the disk from everything else that differs between the groups:
+
+- The groups are small and sit in different regions: two validators (Los Angeles, London) in the 32-GiB boot-disk group, whose median is the mean of the two, two (Hong Kong, Seoul) in the 16-GiB group, and six elsewhere on local SSDs.
+- Against run 1, nine of the eleven nodes have twice the memory and six a different disk, so a difference between paired rows mixes memory and disk, and the days differ.
+  Only validators 08 and 09 have the same shape and disk in both runs.
+- The fleet's throughput and latency are those of a mixed fleet; they do not say what ten validators on local SSDs would reach.
+
 ## Run 2: the headline
 
 Before the deploy, `benchmark/arms/final.arm` must hold the configuration chosen at G3, committed.
@@ -328,7 +452,7 @@ done
 - The node image probed by digest (`benchmark-deploy.sh --probe-node-image <repo>@sha256:<d>`: the switch flags, the `node switches` line).
 - The generator image built and probed.
 - The harness gate (`benchmark/tests/gate.sh`) run alone, rc 0 on record.
-- Dry runs: `--print-prestart` with `final.arm`, `params-apply.sh --dry-run` on every arm file, `launch.sh <env> arms --dry-run` (run 1), the probe's plan, and the teardown dry run.
+- Dry runs: `--print-prestart` with `final.arm`, `params-apply.sh --dry-run` on every arm file, `launch.sh <env> arms --dry-run` (run 1; run 1b adds `--plan benchmark/launch/bench6-run1-lssd.plan`), the probe's plan, and the teardown dry run.
 - No heavy peer jobs on the host (`pgrep`); a test suite that runs the bench drivers also blocks a launch.
 - The obs-devnet disk gate.
 - Bench 5's results archived.

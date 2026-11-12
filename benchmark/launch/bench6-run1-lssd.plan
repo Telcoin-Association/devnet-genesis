@@ -1,0 +1,10 @@
+# bench6-run1-lssd.plan — the walk of run 1b, the local-SSD deployment (bench6-run1-lssd.env). Launch it with
+# `launch.sh <env> arms --plan benchmark/launch/bench6-run1-lssd.plan`: without --plan, run-arms walks
+# bench6-run1.plan. The format is that file's (and README.md, "The plan").
+#
+# The control without and with the eviction, and the advice arm, with run 1's own steps for those arms and
+# in run 1's relative order, so each row pairs with run 1's row; a0-prime brackets p1 for the drift correction.
+
+a0-control      I L M4 M16
+p1-mdbx-advice  M16
+a0-prime        M16
