@@ -79,3 +79,23 @@ The orchestrator is the only writer. Verdict column: filled from the analysis un
 | 77 | U6c | sealed-keep | — (a replacement that took a candidate's nonce holds back the sender's later nonces) | 75460dff9 | 8b23bb608 | #1807 | | |
 | 78 | U6c | sealed-keep | — (the orphan pass fences late marks with the ticket floor) | ead6f624b | c8659e2fa | #1807 | | |
 | 79 | orch (U6c's patch + test) | sealed-keep | — (the env builds the worker pool with its sealed_tx_keep: without it the raised limits never applied) | — | 80a0c76c0 | #1807 | | |
+| (in) | orch | pipelined-persist | pipelined_persist — **INTEGRATED 2026-11-12** (G1 answer 2: gates 5 and 6 passed): b6/pipe-stack-2's 19 commits cherry-picked onto 80a0c76c0 with no conflict as b6/pipe-stack-3, and bench/bench6-2026-11 fast-forwarded to its tip. The diff of the new tip against the old one equals d91d65d3e..80a0c76c0 (same patch-id). Rows 80-98 map each old commit to its integrated one. | d91d65d3e..d30bb1809 (19) | 80a0c76c0..2df831e3c | — | | |
+| 80 | stack | pipelined-persist | — (feat(tn-reth): pin one read snapshot per output for the layered state root) | 5472d5ee1 | 86d86d910 | — | | |
+| 81 | stack | pipelined-persist | — (refactor(engine): split output execution into build and commit halves) | ceab12841 | 49d4356aa | — | | |
+| 82 | stack | pipelined-persist | — (feat(engine): pipelined persist core behind PersistPipeline) | cbe6e1af0 | a4a1f0962 | — | | |
+| 83 | stack | pipelined-persist | — (feat(engine): pipelined persist metrics) | 81e5f7144 | da6e4c90c | — | | |
+| 84 | stack | pipelined-persist | — (test(tn-reth): persist delay hook for engine pipeline tests) | 70c553f44 | 07a3008ac | — | | |
+| 85 | stack | pipelined-persist | — (feat(engine): run the pipelined persist behind pipelined_persist) | 9b3a4cbfc | e83e6799b | — | | |
+| 86 | stack | pipelined-persist | — (docs(tn-reth): atomicity contract with a pipelined engine) | ff5cd2185 | 93c5c3abd | — | | |
+| 87 | stack | pipelined-persist | — (docs(engine): queued recovery jobs share the recovery pool when one is set) | a3d266304 | 02c704c96 | — | | |
+| 88 | stack | pipelined-persist | — (fix(engine): pipelined loop fails closed with nothing to wait on) | 3e314c545 | 1b583ca2c | — | | |
+| 89 | stack | pipelined-persist | — (docs(engine): pipelined persist series export zero on a sequential node) | 466d6174c | df2d19936 | — | | |
+| 90 | stack | pipelined-persist | — (test(engine): apply the execution delay hook in the pipelined build task) | 7276103fd | e82405057 | — | | |
+| 91 | stack | pipelined-persist | — (test(engine): differential and persist-fault tests of the pipelined persist) | 181320d5f | 0015715e8 | — | | |
+| 92 | stack | pipelined-persist | — (test(engine): cycle bench of the pipelined persist (go/no-go gate 5)) | 9bcbf8bc4 | dc80cd040 | — | | |
+| 93 | stack | pipelined-persist | — (test(types): TN_TEST_PERSIST_DELAY_MS holds every persist for e2e tests) | 71ae39958 | f8ae2459e | — | | |
+| 94 | stack | pipelined-persist | — (test(e2e): pipelined and sequential validators build the same chain) | c76114d64 | 9c87e8cef | — | | |
+| 95 | stack | pipelined-persist | — (test(e2e): pipelined validators close an epoch under load) | c6240f467 | 330913184 | — | | |
+| 96 | stack | pipelined-persist | — (test(e2e): SIGKILL a pipelined validator mid-pipeline and replay) | f61988587 | 2c6454432 | — | | |
+| 97 | stack | pipelined-persist | — (test(reth): read the persist delay hook where the persist runs) | 86956df51 | 9409c2db5 | — | | |
+| 98 | stack | pipelined-persist | — (test(reth): log the persist delay hook when the environment is created) | d30bb1809 | 2df831e3c | — | | |
