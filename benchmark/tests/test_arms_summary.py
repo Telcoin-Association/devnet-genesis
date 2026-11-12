@@ -13,6 +13,8 @@ Blocks: one a second over each mixed phase, 1000 tx (L: 50). Outputs every 10 s 
 cow pages. Persist CSVs (v01-v03; v04 has none) every 30 s: the disk writes 245,760 B/s (amplification
 2.0), 122,880 B/s during p1 (1.0). Drift (chain Mtx at the window midpoints): a0 0.24, p1 0.72, v M16
 1.218, a0b 1.698, so the slope is 30 / 1.458 us/tx per Mtx and a0 -> a0b moved +30 %.
+With disk=<node_disk> the CSVs also carry the diskstats counters of disk_rate() against 20,000 IOPS / 800 MiB/s
+(H18): a0 IOPS-bound, p1 throughput-bound, v far from both, a0b mixed; v03's CSV has no tick columns.
 """
 import ast
 import csv
@@ -73,11 +75,13 @@ def arm(name, b, e, sw=None, **extra):
     return d
 
 
-def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, hand=False, bench6=False):
+def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, hand=False, bench6=False, disk=None):
     """The synthetic run under <root>/r20261112-0000; returns its path. hand=True: every blast run by hand,
     as run-arms runs them in bench 6 run 1 (benchmark-blast.sh fund/run): no blasts[], a blast_runs[] `run`
     entry per index (and one more, index 6, rc 1, that left no blasters/ directory), and each archived
-    manifest copy holding its own .blast. bench6=True: the node units' fields and lines (BENCH6 below)."""
+    manifest copy holding its own .blast. bench6=True: the node units' fields and lines (BENCH6 below).
+    disk=<dict>: the manifest's node_disk, and the persist CSVs carry the diskstats counters of disk_rate()
+    (v03's CSV has no tick columns)."""
     S = shapes()
     run = Path(root) / "r20261112-0000"
     (run / "logs").mkdir(parents=True)
@@ -98,6 +102,8 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
                            for i, a, s, f, t, rc, _, _ in BLASTS]}
     if arms:
         manifest["param_arms"] = pa
+    if disk is not None:
+        manifest["node_disk"] = disk
     if hand:
         del manifest["blasts"]
         manifest["blast_runs"] = [{"action": act, "index": i, "started": iso(f - 300), "ended": iso(t + 200),
@@ -215,20 +221,30 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
         header = (TOOLS / "persist-csv-header.txt").read_text().strip().split(",")
         (run / "persist").mkdir()
         for node in VALIDATORS[:3]:
+            cols = [c for c in header if disk is None or node != "bench-validator-03" or c not in NO_TICKS]
             with open(str(run / "persist" / (node + ".csv")), "w", newline="") as fh:
                 w = csv.writer(fh)
-                w.writerow(header)
-                disk = 0
+                w.writerow(cols)
+                written = ios = ticks = 0
                 for k in range(0, 7201, 30):
-                    row = dict.fromkeys(header, "")
-                    row.update(ts_unix=T0 + k, pid=4242, disk_wr_bytes_total=disk)
+                    row = dict.fromkeys(cols, "")
+                    row.update(ts_unix=T0 + k, pid=4242, disk_wr_bytes_total=written)
+                    if disk is not None:      # one flush an output (3 per 30 s), 2 ms of device time each
+                        row.update(disk_wr_ios_total=ios, disk_wr_ticks_ms_total=ticks, disk_flush_ios_total=k // 10,
+                                   disk_flush_ticks_ms_total=k // 5)
                     if bench6:      # 10 refaults and 3 major faults per 30 s; the memcg column stays blank
                         row.update(vm_workingset_refault_file_pages_total=10 * k // 30, vm_pgmajfault_total=3 * k // 30)
                     if k % 300 == 0:
                         row.update(mdbx_dat_vma_bytes=10 ** 9, mdbx_dat_rr_bytes=10 ** 9 if k >= 1800 else 0,
                                    mdbx_dat_size_bytes=5 * 10 ** 8)
-                    w.writerow([row[c] for c in header])
-                    disk += 30 * (122880 if 1800 <= k < 3600 else 245760)
+                    w.writerow([row[c] for c in cols])
+                    if disk is None:
+                        written += 30 * (122880 if 1800 <= k < 3600 else 245760)
+                    else:
+                        iops, kib, ms = disk_rate(node, k)
+                        ios += 30 * iops
+                        written += 30 * iops * kib * 1024
+                        ticks += int(round(30 * iops * ms))
     if bench6:
         (run / "metrics.json").write_text(json.dumps({"prometheus": {"series": {
             "tn_reth_sealed_txs_marked": {"by_node": {"bench-validator-01": {
@@ -244,6 +260,23 @@ def make_run(root, page_fields=True, persist=True, arms=True, a0b_control=True, 
 # bench6=True: arm a0b turns on sealed keep, parent grace, the admission bound, pipelined persist and the recovery pool.
 A0B_BENCH6 = {"sealed_tx_keep": "true", "parent_grace": "150ms", "rpc_admission_backlog_outputs": "2",
               "pipelined_persist": "true", "recovery_threads": "3"}
+
+
+NO_TICKS = ("disk_wr_ticks_ms_total", "disk_flush_ticks_ms_total")
+CAPS = {"size_gb": 100, "type": "hyperdisk-balanced", "provisioned_iops": 20000, "provisioned_throughput": 800}
+
+
+def disk_rate(node, k):
+    """(write IOPS, KiB per write, device ms per write) of a node's 30-s step from T0 + k, against CAPS: a0 at 90 % of
+    the IOPS cap (v02 at 26,000 for the step from 900: its peak), p1 at 93.75 % of the throughput cap in 256-KiB
+    writes, v far from both, a0b mixed (90 / 60 / 30 % of the IOPS cap)."""
+    if k < 1800:
+        return (26000 if node == "bench-validator-02" and k == 900 else 18000), 4, 1.3
+    if k < 3600:
+        return 3000, 256, 59
+    if k < 5400:
+        return 2000, 8, 1.5
+    return {"bench-validator-01": 18000, "bench-validator-02": 12000}.get(node, 6000), 4, 1.3
 
 
 def bench6_pages(node, ts, cn):
@@ -585,6 +618,125 @@ class ArmsSummaryTests(unittest.TestCase):
         self.assertIsNone(mod.counter_total(prom, first, name, 7000.0, 8000.0))
         self.assertIsNone(mod.counter_total(prom, first, "tn_absent_total", a, b))
 
+    DISK = ("wr_ops_per_output", "wr_kib_per_op", "flush_ops_per_output", "wr_iops", "wr_mibps", "wr_iops_peak",
+            "wr_mibps_peak", "wr_ms_per_op", "flush_ms_per_op", "iops_pct_of_cap", "mibps_pct_of_cap", "binds",
+            "cap_floor_ms_per_output")
+
+    def disk(self, row, node):
+        return tuple(row["engine_by_node"][node][k] for k in self.DISK)
+
+    def test_disk_writes_against_the_caps(self):
+        """H18 (D84): per node the write operations, sizes and flushes per output, the sustained and peak rates, the
+        device time per operation and the shares of the provisioned caps; binds, the row medians, one reading a row."""
+        doc, md = self.summary(make_run(self.tmp, disk=dict(CAPS)), "--no-stages")
+        rows = self.rows(doc)
+        a0, p1, v, a0b = rows["a0/M16"], rows["p1/M16"], rows["v/M16"], rows["a0b/M16"]
+        # an IOPS-bound arm: 18,000 writes/s of 4 KiB, 90 % of 20,000; 48 outputs between the samples at 600 and 1080
+        self.assertEqual(self.disk(a0, "bench-validator-01"),
+                         (180000.0, 4.0, 1.0, 18000.0, 70.31, 18000.0, 70.31, 1.3, 2.0, 90.0, 8.8, "iops", 9000.0))
+        # v02's step from 900 ran at 26,000: its peak, and 18,500 sustained over the 480 s
+        self.assertEqual(self.disk(a0, "bench-validator-02"),
+                         (185000.0, 4.0, 1.0, 18500.0, 72.27, 26000.0, 101.56, 1.3, 2.0, 92.5, 9.0, "iops", 9250.0))
+        # a throughput-bound arm: 256-KiB writes at 750 MiB/s, 93.75 % of 800, 15 % of the IOPS cap
+        self.assertEqual(self.disk(p1, "bench-validator-01"),
+                         (30000.0, 256.0, 1.0, 3000.0, 750.0, 3000.0, 750.0, 59.0, 2.0, 15.0, 93.8, "throughput", 9375.0))
+        # far from both caps
+        self.assertEqual(self.disk(v, "bench-validator-01"),
+                         (20000.0, 8.0, 1.0, 2000.0, 15.62, 2000.0, 15.62, 1.5, 2.0, 10.0, 2.0, "neither", 1000.0))
+        # v03's CSV has no tick columns: its device time per operation is n/a, the rest is measured
+        v03 = a0["engine_by_node"]["bench-validator-03"]
+        self.assertEqual((v03["wr_ms_per_op"], v03["flush_ms_per_op"]), (
+            "n/a (missing: two persist samples with disk_wr_ios_total and disk_wr_ticks_ms_total in the window)",
+            "n/a (missing: two persist samples with disk_flush_ios_total and disk_flush_ticks_ms_total in the window)"))
+        self.assertEqual((v03["wr_iops"], v03["binds"]), (18000.0, "iops"))
+        self.assertEqual(set(self.disk(a0, "bench-validator-04")), {"n/a (missing: persist/bench-validator-04.csv)"})
+        # the row medians over the nodes that have the value, and how many nodes each cap binds
+        self.assertEqual([a0[k + "_median"] for k in ("wr_ops_per_output", "wr_iops", "wr_iops_peak", "wr_ms_per_op",
+                                                      "iops_pct_of_cap", "mibps_pct_of_cap", "cap_floor_ms_per_output")],
+                         [180000.0, 18000.0, 18000.0, 1.3, 90.0, 8.8, 9000.0])
+        self.assertEqual([r["binds_nodes"] for r in (a0, p1, v, a0b)],
+                         [{"iops": 3, "throughput": 0, "neither": 0}, {"iops": 0, "throughput": 3, "neither": 0},
+                          {"iops": 0, "throughput": 0, "neither": 3}, {"iops": 1, "throughput": 0, "neither": 2}])
+        self.assertEqual(doc["disk_caps"], {"iops": 20000, "iops_from": "manifest node_disk.provisioned_iops", "mibps": 800,
+                                            "mibps_from": "manifest node_disk.provisioned_throughput"})
+        tail = "; not measured on bench-validator-04"
+        readings = {
+            "a0/M16": "write IOPS within 20 % of the provisioned 20,000 IOPS on 3 of 3 nodes (sustained over the window; "
+                      "median 90.0 % of the cap): the disk's IOPS cap bounds this arm" + tail,
+            "p1/M16": "write MiB/s within 20 % of the provisioned 800 MiB/s on 3 of 3 nodes (sustained over the window; "
+                      "median 93.8 % of the cap): the disk's throughput cap bounds this arm" + tail,
+            "v/M16": "no node above 50 % of either cap (sustained over the window; median 10.0 % of 20,000 IOPS, 2.0 % of "
+                     "800 MiB/s)" + tail,
+            "a0b/M16": "1 of 3 nodes within 20 % of a cap (IOPS 1), the highest 90.0 % of the IOPS cap on bench-validator-01 "
+                       "(sustained over the window; median 60.0 % of 20,000 IOPS, 5.9 % of 800 MiB/s): no cap bounds most "
+                       "nodes" + tail}
+        for rid, want in readings.items():
+            self.assertEqual(rows[rid]["disk_reading"], want, rid)
+            self.assertIn("\nDisk: %s.\n" % want, md)
+        self.assertIn("| node | write ops / output | KiB / op | flushes / output | write IOPS (peak) | write MiB/s (peak) | "
+                      "ms / write | ms / flush | % of IOPS cap | % of MiB/s cap | binds | cap floor ms / output |", md)
+        self.assertIn("| bench-validator-02 | 185,000.0 | 4.000 | 1.000 | 18,500.0 (26,000.0) | 72.3 (101.6) | 1.300 | "
+                      "2.000 | 92.5 | 9.000 | iops | 9,250.0 |", md)
+
+    def test_disk_caps_unknown_partial_or_given(self):
+        """H18: without the provisioning every share, binds and the floor are n/a (never 0) while the rates stay
+        measured; --disk-iops / --disk-mibps give the caps; a cap the manifest leaves null is n/a on its own."""
+        run = make_run(self.tmp, disk={})
+        doc, md = self.summary(run, "--no-stages")
+        a0 = self.rows(doc)["a0/M16"]
+        e = a0["engine_by_node"]["bench-validator-01"]
+        iops_na = "n/a (missing: the provisioned IOPS (manifest node_disk.provisioned_iops, or --disk-iops))"
+        mibps_na = "n/a (missing: the provisioned MiB/s (manifest node_disk.provisioned_throughput, or --disk-mibps))"
+        self.assertEqual((e["iops_pct_of_cap"], e["mibps_pct_of_cap"], e["binds"], e["cap_floor_ms_per_output"]),
+                         (iops_na, mibps_na, iops_na, iops_na))
+        self.assertEqual((e["wr_iops"], e["wr_ops_per_output"]), (18000.0, 180000.0))
+        self.assertEqual((a0["iops_pct_of_cap_median"], a0["binds_nodes"]), (iops_na, iops_na))
+        self.assertEqual(a0["disk_reading"], iops_na + " against the caps; sustained write IOPS 18,000.0, MiB/s 70.3 "
+                                                       "(median of 3 nodes); not measured on bench-validator-04")
+        self.assertEqual((doc["disk_caps"]["iops"], doc["disk_caps"]["iops_from"]), (iops_na, None))
+        given, _ = self.summary(run, "--no-stages", "--disk-iops", "20000", "--disk-mibps", "800")
+        g = self.rows(given)["a0/M16"]
+        self.assertEqual(self.disk(g, "bench-validator-01"),
+                         (180000.0, 4.0, 1.0, 18000.0, 70.31, 18000.0, 70.31, 1.3, 2.0, 90.0, 8.8, "iops", 9000.0))
+        self.assertTrue(g["disk_reading"].startswith("write IOPS within 20 % of the provisioned 20,000 IOPS on 3 of 3"))
+        self.assertEqual((given["disk_caps"]["iops_from"], given["disk_caps"]["mibps_from"]), ("--disk-iops", "--disk-mibps"))
+        part, _ = self.summary(make_run(self.tmp / "part", disk={"provisioned_iops": 20000, "provisioned_throughput": None}),
+                               "--no-stages")
+        e = self.rows(part)["a0/M16"]["engine_by_node"]["bench-validator-01"]
+        self.assertEqual((e["iops_pct_of_cap"], e["mibps_pct_of_cap"], e["binds"], e["cap_floor_ms_per_output"]),
+                         (90.0, mibps_na, mibps_na, mibps_na))
+        _, p = self.summary(run, "--no-stages", "--disk-iops", "0", rc=2)
+        self.assertIn("--disk-iops must be positive", p.stderr)
+
+    def test_disk_columns_without_the_counters(self):
+        """H18: bench 5's persist CSV shape (bytes only) leaves every disk column n/a with the counter it lacks; a
+        counter that goes back is n/a; the peak is the busiest step between consecutive samples, whatever its length."""
+        doc, md = self.summary(make_run(self.tmp), "--no-stages")
+        a0 = self.rows(doc)["a0/M16"]
+        e = a0["engine_by_node"]["bench-validator-01"]
+        why = "n/a (missing: two persist samples with disk_wr_ios_total and disk_wr_bytes_total in the window)"
+        self.assertEqual((e["wr_iops"], e["wr_ops_per_output"], e["iops_pct_of_cap"], e["binds"]), (why, why, why, why))
+        self.assertEqual(e["flush_ops_per_output"], "n/a (missing: two persist samples with disk_flush_ios_total in the window)")
+        reading = why + "; no node measured (0 of 4)"
+        self.assertEqual((a0["wr_iops_median"], a0["binds_nodes"], a0["disk_reading"]), (why, why, reading))
+        self.assertIn("\nDisk: %s.\n" % reading, md)
+        self.assertNotIn("| node | write ops / output", md)
+        mod = load("arms_summary_disk", TOOL)
+        node = type("N", (), {"name": "n1", "persisted": [(15.0,), (45.0,), (75.0,)]})()
+        caps = mod.disk_caps({"node_disk": CAPS})
+
+        def rows(ios):
+            return [dict(c_ts=t, c_wr_ios=x, c_disk_wr=x * 4096, c_wr_ticks=x, c_flush_ios=None, c_flush_ticks=None)
+                    for t, x in zip((0.0, 30.0, 90.0), ios)]
+        d = mod.disk_row(node, rows((0, 300, 1500)), 0.0, 90.0, caps)      # 10 writes/s for 30 s, 20/s for 60 s
+        self.assertEqual((d["wr_iops"], d["wr_iops_peak"], d["wr_ops_per_output"]), (16.7, 20.0, 500.0))
+        self.assertEqual(d["flush_ms_per_op"], "n/a (missing: two persist samples with disk_flush_ios_total and "
+                                               "disk_flush_ticks_ms_total in the window)")
+        d = mod.disk_row(node, rows((0, 300, 100)), 0.0, 90.0, caps)       # a reboot restarted /proc/diskstats
+        self.assertEqual((d["wr_iops"], d["wr_ms_per_op"]), (
+            "n/a (missing: a monotonic disk_wr_ios_total (it went back at 1970-01-01T00:01:30Z))",
+            "n/a (missing: a monotonic disk_wr_ios_total (it went back at 1970-01-01T00:01:30Z))"))
+
     def test_field_names_live_only_in_the_table(self):
         src = TOOL.read_text()
         lines = src.splitlines()
@@ -610,7 +762,7 @@ class ArmsSummaryTests(unittest.TestCase):
         self.assertEqual(found, [])
         # every frozen persist CSV column the tool reads is in the header file
         header = (TOOLS / "persist-csv-header.txt").read_text().strip().split(",")
-        for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size"):
+        for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size", "c_wr_ios", "c_wr_ticks", "c_flush_ios", "c_flush_ticks"):
             self.assertIn(mod.F[k], header)
 
     def test_self_check_refuses_to_write_under_results(self):

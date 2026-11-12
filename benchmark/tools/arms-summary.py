@@ -4,6 +4,7 @@
 Usage:
   arms-summary.py --run-dir results/<run> [--out-dir DIR] [--prefiltered DIR] [--cache-dir DIR]
                   [--types T[,T...]] [--drift-axis chain-mtx|wall-min] [--no-stages] [--jobs N]
+                  [--disk-iops N] [--disk-mibps N]
   arms-summary.py --self-check [--results-root DIR] [--out-dir DIR] [--no-stages] [--jobs N]
 
 Writes <out-dir>/arms.md and <out-dir>/arms.json (default out-dir: <run-dir>/analysis).
@@ -80,6 +81,22 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
     cycle        commit_interval_ms (median gap between 'persisted output' lines, validators' median) on every row:
                  a pipelined arm (pipelined) is compared on it, not on task us/tx (D55); its proc_written_bytes
                  carries proc_written_bytes_upper_bound (D56)
+    disk         (D84) per node, from the persist CSV's /proc/diskstats counters between the first and the last sample in
+                 the window that carry them (the sampler's 30-s rows): wr_ops_per_output (write operations / 'persisted
+                 output' lines between the samples), wr_kib_per_op, flush_ops_per_output, wr_iops and wr_mibps (the
+                 increase / the seconds between the samples: sustained, as the probe's cycle_iops), wr_iops_peak and
+                 wr_mibps_peak (the busiest step between two consecutive samples: a 30-s mean, not an instant),
+                 wr_ms_per_op and flush_ms_per_op (device ticks / operations), iops_pct_of_cap and mibps_pct_of_cap
+                 (the sustained rates against the provisioned caps), binds (iops | throughput: the larger share when it
+                 is >= 80 %; neither below), cap_floor_ms_per_output (the least device time the caps allow one output's
+                 writes); <column>_median over the nodes, binds_nodes, and disk_reading, one line with the thresholds
+                 named ("no node above 50 % of either cap" when every share is <= 50). The caps are --disk-iops /
+                 --disk-mibps, else the manifest's node_disk (the provisioning the deploy asked for), else n/a. The
+                 counters are the whole disk under the sampler's data dir (/var/lib/telcoin, its st_dev's disk, a
+                 partition's parent; PERSIST_DISK overrides): on the fleet the boot disk, so logs, the consensus DB and
+                 every other writer on it count too, and wr_ops_per_output is an upper bound for the persist's own.
+                 The probe's commit_iops (operations / commit seconds) is not used: it reads 4-8x the cap on the probe
+                 itself, so it is not a device rate.
   verdict        the CHECKS rows that apply to the arm's role (from the topic of the switches it
                  turned on, switches.tsv) and the row's type: "<threshold>: <value> met|not met", or
                  n/a with the missing input. No other judgement.
@@ -151,6 +168,10 @@ F = {
     "c_ts": "ts_unix", "c_disk_wr": "disk_wr_bytes_total", "c_vma": "mdbx_dat_vma_bytes", "c_rr": "mdbx_dat_rr_bytes",
     "c_size": "mdbx_dat_size_bytes", "c_refault": "vm_workingset_refault_file_pages_total",
     "c_majfault": "vm_pgmajfault_total", "c_memcg_refault": "memcg_workingset_refault_file_pages_total",
+    "c_wr_ios": "disk_wr_ios_total", "c_wr_ticks": "disk_wr_ticks_ms_total", "c_flush_ios": "disk_flush_ios_total",
+    "c_flush_ticks": "disk_flush_ticks_ms_total",
+    # manifest node_disk (bench-lib.sh bench_manifest_init: the requested NODE_DISK_IOPS / NODE_DISK_THROUGHPUT, MiB/s)
+    "m_node_disk": "node_disk", "m_prov_iops": "provisioned_iops", "m_prov_tput": "provisioned_throughput",
     # switches.tsv columns
     "s_key": "key", "s_default": "default", "s_topic": "topic",
     # manifest (benchmark/arms/MANIFEST-FIELDS.md)
@@ -231,7 +252,18 @@ SELF_CHECK_RUN = "r20261107-1504"
 BENCH6_ONLY = ("amp_fleet_median", "rr_vma_min", "evict_resident_after_max", "resends_total", "late_secs_max",
                "gen_silent_max_s", "tail_landed_late", "switch_set", "prefault_ratio_min", "prefault_on_all",
                "refault_per_min_median", "sealed_marked_peak", "admission_refused", "gen_dropped", "grace_share_pct",
-               "exec_policy_pct", "exec_lag_p50")
+               "exec_policy_pct", "exec_lag_p50", "wr_ops_per_output_median", "wr_iops_median", "wr_mibps_median",
+               "iops_pct_of_cap_median", "mibps_pct_of_cap_median", "binds_nodes", "disk_reading")
+# Device writes against the disk's caps (H18): per node, (column, decimals), in table order. binds = the cap whose
+# sustained share is the larger when it is at least DISK_BINDS_PCT, else "neither"; the row's reading says "no node
+# above DISK_LOW_PCT" when every node is below it on both caps.
+DISK_COLS = (("wr_ops_per_output", 1), ("wr_kib_per_op", 1), ("flush_ops_per_output", 2), ("wr_iops", 1),
+             ("wr_mibps", 2), ("wr_iops_peak", 1), ("wr_mibps_peak", 2), ("wr_ms_per_op", 3), ("flush_ms_per_op", 3),
+             ("iops_pct_of_cap", 1), ("mibps_pct_of_cap", 1), ("cap_floor_ms_per_output", 1))
+DISK_BINDS_PCT = 80.0
+DISK_LOW_PCT = 50.0
+BINDS = ("iops", "throughput", "neither")
+MIB = 1048576.0
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
@@ -745,7 +777,8 @@ def persist_rows(path):
     with open(path) as fh:
         for r in csv.DictReader(fh):
             row = {}
-            for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size", "c_refault", "c_majfault", "c_memcg_refault"):
+            for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size", "c_refault", "c_majfault", "c_memcg_refault",
+                      "c_wr_ios", "c_wr_ticks", "c_flush_ios", "c_flush_ticks"):
                 v = (r.get(F[k]) or "").strip()
                 row[k] = float(v) if v else None
             if row["c_ts"] is not None:
@@ -920,6 +953,145 @@ def amp_row(nd, csv_rows, a, b):
         rrd = {"rr_vma": round(last["c_rr"] / last["c_vma"], 4), "rr_bytes": int(last["c_rr"]),
                "vma_bytes": int(last["c_vma"]), "dat_bytes": None if last["c_size"] is None else int(last["c_size"])}
     return amp, rrd
+
+
+def disk_caps(manifest, iops=None, mibps=None):
+    """The disk's provisioned caps (IOPS, MiB/s) and where each came from: an option wins over the manifest's
+    node_disk (what the deploy asked for); a cap that neither gives is n/a, never a type default."""
+    nd = manifest.get(F["m_node_disk"])
+    nd = nd if isinstance(nd, dict) else {}
+    out = collections.OrderedDict()
+    for key, opt, field, flag, unit in (("iops", iops, "m_prov_iops", "--disk-iops", "IOPS"),
+                                        ("mibps", mibps, "m_prov_tput", "--disk-mibps", "MiB/s")):
+        v = nd.get(F[field])
+        if opt is not None:
+            out[key], out[key + "_from"] = opt, flag
+        elif isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[key], out[key + "_from"] = v, "manifest %s.%s" % (F["m_node_disk"], F[field])
+        else:
+            out[key] = na("the provisioned %s (manifest %s.%s, or %s)" % (unit, F["m_node_disk"], F[field], flag))
+            out[key + "_from"] = None
+    return out
+
+
+def disk_span(rows, a, b, ks):
+    """(samples, None): the persist samples in [a, b] that carry every counter in <ks>, sorted; or (None, n/a) with
+    fewer than two of them, or when a counter went back between two of them (a reboot restarts /proc/diskstats)."""
+    have = [r for r in rows if a <= r["c_ts"] <= b and all(r[k] is not None for k in ks)]
+    if len(have) < 2 or have[-1]["c_ts"] <= have[0]["c_ts"]:
+        return None, na("two persist samples with %s in the window" % " and ".join(F[k] for k in ks))
+    for x, y in zip(have, have[1:]):
+        back = [k for k in ks if y[k] < x[k]]
+        if back:
+            return None, na("a monotonic %s (it went back at %s)" % (F[back[0]], iso(y["c_ts"])))
+    return have, None
+
+
+def disk_row(nd, csv_rows, a, b, caps):
+    """One node's device writes in [a, b] against the disk's caps, from the persist CSV's /proc/diskstats counters
+    (the whole disk under the data dir, every writer on it), between the first and the last sample in the window
+    that carry the counters a column needs. Each value is n/a with what is missing, never 0 for it."""
+    v = {}
+    if csv_rows is None:
+        miss = na("persist/%s.csv" % nd.name)
+        return collections.OrderedDict([(k, miss) for k, _ in DISK_COLS] + [("binds", miss)])
+    no_out = na("'%s' lines between the samples" % F["msg_persisted"])
+
+    def outputs(have):
+        return len([p for p in nd.persisted if have[0]["c_ts"] < p[0] <= have[-1]["c_ts"]])
+    have, why = disk_span(csv_rows, a, b, ("c_wr_ios", "c_disk_wr"))
+    if have is None:
+        for k in ("wr_ops_per_output", "wr_kib_per_op", "wr_iops", "wr_mibps", "wr_iops_peak", "wr_mibps_peak",
+                  "iops_pct_of_cap", "mibps_pct_of_cap", "cap_floor_ms_per_output"):
+            v[k] = why
+    else:
+        x, y, n = have[0], have[-1], outputs(have)
+        secs, ops, byt = y["c_ts"] - x["c_ts"], y["c_wr_ios"] - x["c_wr_ios"], y["c_disk_wr"] - x["c_disk_wr"]
+        v["wr_ops_per_output"] = ops / n if n else no_out
+        v["wr_kib_per_op"] = byt / ops / 1024.0 if ops else na("write operations between the samples")
+        v["wr_iops"], v["wr_mibps"] = ops / secs, byt / secs / MIB
+        # the peak: the busiest step between two consecutive samples (the sampler's cadence, 30 s, bounds it)
+        steps = [(q["c_ts"] - p["c_ts"], q["c_wr_ios"] - p["c_wr_ios"], q["c_disk_wr"] - p["c_disk_wr"])
+                 for p, q in zip(have, have[1:]) if q["c_ts"] > p["c_ts"]]
+        v["wr_iops_peak"] = max(o / s for s, o, _ in steps)
+        v["wr_mibps_peak"] = max(w / s / MIB for s, _, w in steps)
+        v["iops_pct_of_cap"] = caps["iops"] if is_na(caps["iops"]) else v["wr_iops"] * 100.0 / caps["iops"]
+        v["mibps_pct_of_cap"] = caps["mibps"] if is_na(caps["mibps"]) else v["wr_mibps"] * 100.0 / caps["mibps"]
+        # the least device time the caps allow one output's writes: back-to-back persists run no faster than this
+        cap_na = next((caps[k] for k in ("iops", "mibps") if is_na(caps[k])), None)
+        v["cap_floor_ms_per_output"] = cap_na or (no_out if not n else 1000.0 * max(
+            ops / float(n) / caps["iops"], byt / float(n) / MIB / caps["mibps"]))
+    have, why = disk_span(csv_rows, a, b, ("c_wr_ios", "c_wr_ticks"))
+    if have is None:
+        v["wr_ms_per_op"] = why
+    else:
+        ops = have[-1]["c_wr_ios"] - have[0]["c_wr_ios"]
+        v["wr_ms_per_op"] = ((have[-1]["c_wr_ticks"] - have[0]["c_wr_ticks"]) / ops if ops
+                             else na("write operations between the samples"))
+    have, why = disk_span(csv_rows, a, b, ("c_flush_ios",))
+    if have is None:
+        v["flush_ops_per_output"] = why
+    else:
+        n = outputs(have)
+        v["flush_ops_per_output"] = (have[-1]["c_flush_ios"] - have[0]["c_flush_ios"]) / float(n) if n else no_out
+    have, why = disk_span(csv_rows, a, b, ("c_flush_ios", "c_flush_ticks"))
+    if have is None:
+        v["flush_ms_per_op"] = why
+    else:
+        fl = have[-1]["c_flush_ios"] - have[0]["c_flush_ios"]
+        v["flush_ms_per_op"] = ((have[-1]["c_flush_ticks"] - have[0]["c_flush_ticks"]) / fl if fl
+                                else na("flush operations between the samples"))
+    ip, mp = v["iops_pct_of_cap"], v["mibps_pct_of_cap"]
+    if is_na(ip) or is_na(mp):
+        binds = ip if is_na(ip) else mp
+    elif max(ip, mp) < DISK_BINDS_PCT:
+        binds = BINDS[2]
+    else:
+        binds = BINDS[0] if ip >= mp else BINDS[1]
+    return collections.OrderedDict([(k, v[k] if is_na(v[k]) else round(v[k], d)) for k, d in DISK_COLS] +
+                                   [("binds", binds)])
+
+
+def cap_text(c):
+    return "{:,}".format(int(c)) if float(c) == int(c) else str(c)
+
+
+def disk_reading(per_node, caps):
+    """The row's one line on its nodes' sustained write rates against the disk's caps, with the thresholds named."""
+    got = [(n, e) for n, e in per_node.items() if not is_na(e["wr_iops"])]
+    if not got:
+        return ("%s; no node measured (0 of %d)" % (next(iter(per_node.values()))["wr_iops"], len(per_node)) if per_node
+                else na("node logs"))
+    absent = [n for n in per_node if is_na(per_node[n]["wr_iops"])]
+    tail = "; not measured on %s" % ", ".join(absent) if absent else ""
+    meas = [(n, e) for n, e in got if e["binds"] in BINDS]
+    if not meas:
+        return "%s against the caps; sustained write IOPS %s, MiB/s %s (median of %d nodes)%s" % (
+            got[0][1]["binds"], cell(r1(median([e["wr_iops"] for _, e in got]))),
+            cell(round(median([e["wr_mibps"] for _, e in got]), 2)), len(got), tail)
+    near = 100.0 - DISK_BINDS_PCT
+    cnt = dict((x, len([1 for _, e in meas if e["binds"] == x])) for x in BINDS)
+    med_i, med_m = r1(median([e["iops_pct_of_cap"] for _, e in meas])), r1(median([e["mibps_pct_of_cap"] for _, e in meas]))
+    medians = "median %.1f %% of %s IOPS, %.1f %% of %s MiB/s" % (med_i, cap_text(caps["iops"]), med_m,
+                                                                 cap_text(caps["mibps"]))
+    top = BINDS[0] if cnt[BINDS[0]] >= cnt[BINDS[1]] else BINDS[1]
+    if cnt[top] * 2 > len(meas):
+        iops = top == BINDS[0]
+        return ("write %s within %g %% of the provisioned %s %s on %d of %d nodes (sustained over the window; median "
+                "%.1f %% of the cap): the disk's %s cap bounds this arm%s" % (
+                    "IOPS" if iops else "MiB/s", near, cap_text(caps["iops"] if iops else caps["mibps"]),
+                    "IOPS" if iops else "MiB/s", cnt[top], len(meas), med_i if iops else med_m,
+                    "IOPS" if iops else "throughput", tail))
+    share = dict((n, max(e["iops_pct_of_cap"], e["mibps_pct_of_cap"])) for n, e in meas)
+    if max(share.values()) <= DISK_LOW_PCT:
+        return "no node above %g %% of either cap (sustained over the window; %s)%s" % (DISK_LOW_PCT, medians, tail)
+    hi = max(meas, key=lambda ne: share[ne[0]])
+    k = cnt[BINDS[0]] + cnt[BINDS[1]]
+    which = ", ".join("%s %d" % ("IOPS" if x == BINDS[0] else "throughput", cnt[x]) for x in BINDS[:2] if cnt[x])
+    return ("%d of %d nodes within %g %% of a cap%s, the highest %.1f %% of the %s cap on %s (sustained over the window; "
+            "%s): no cap bounds most nodes%s" % (
+                k, len(meas), near, " (%s)" % which if which else "", share[hi[0]],
+                "IOPS" if hi[1]["iops_pct_of_cap"] >= hi[1]["mibps_pct_of_cap"] else "throughput", hi[0], medians, tail))
 
 
 def commit_fit(nds, validators, a, b):
@@ -1184,7 +1356,7 @@ def bench6_cols(nds, validators, a, b, r, prom, first):
 
 # ---------------------------------------------------------------- the report
 
-def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis):
+def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis, caps):
     t_first = blocks[0][0] if blocks else None
     cum = []
     acc = 0
@@ -1232,6 +1404,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             amp, rr = amp_row(nds[n], csv_cache.get(n), a, b)
             e.update(amp)
             e.update(rr)
+            e.update(disk_row(nds[n], csv_cache.get(n), a, b, caps))
             if "proc_written_bytes" in e and switch_on(r["arm_rec"], F["sw_pipelined"]):
                 e["proc_written_bytes_upper_bound"] = True     # D56: pipelined persists overlap the next build
             per_node[n] = e
@@ -1250,6 +1423,14 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         rrs = [v["rr_vma"] for v in per_node.values() if not is_na(v["rr_vma"])]
         m["rr_vma_min"] = min(rrs) if rrs else next((v["rr_vma"] for v in per_node.values()), na("node logs"))
         m["rr_vma_median"] = round(median(rrs), 4) if rrs else m["rr_vma_min"]
+        # device writes against the disk's caps (H18): every node's median, how many nodes each cap binds, one line
+        for k, d in DISK_COLS:
+            vals = [v[k] for v in per_node.values() if not is_na(v[k])]
+            m[k + "_median"] = round(median(vals), d) if vals else next((v[k] for v in per_node.values()), na("node logs"))
+        bl = [v["binds"] for v in per_node.values() if v["binds"] in BINDS]
+        m["binds_nodes"] = (collections.OrderedDict((x, bl.count(x)) for x in BINDS) if bl
+                            else next((v["binds"] for v in per_node.values()), na("node logs")))
+        m["disk_reading"] = disk_reading(per_node, caps)
         ev = [res.get(F["m_res_after"]) for h in r["arm_rec"]["host_steps"] if h.get(F["m_step"]) == F["m_evict"]
               for res in (h.get(F["m_nodes"]) or {}).values() if isinstance(res, dict)]
         ev = [x for x in ev if isinstance(x, (int, float))]
@@ -1517,6 +1698,17 @@ def to_markdown(doc, rows, drift, axis):
             dict_cell(m["prefault_ratio_by_node"]), dict_cell(dict((n, e["refault_per_min"]) for n, e in
                                                                    m["engine_by_node"].items())),
             dict_cell(m["votes_refused_behind"]))]
+        if any(not is_na(e["wr_iops"]) for e in m["engine_by_node"].values()):
+            out += ["", "| node | write ops / output | KiB / op | flushes / output | write IOPS (peak) | write MiB/s (peak) "
+                    "| ms / write | ms / flush | % of IOPS cap | % of MiB/s cap | binds | cap floor ms / output |",
+                    "|---|" + "---:|" * 9 + "---|---:|"]
+            for n, e in m["engine_by_node"].items():
+                out.append("| %s | %s | %s | %s | %s (%s) | %s (%s) | %s | %s | %s | %s | %s | %s |" % (
+                    n, cell(e["wr_ops_per_output"]), cell(e["wr_kib_per_op"]), cell(e["flush_ops_per_output"]),
+                    cell(e["wr_iops"]), cell(e["wr_iops_peak"]), cell(e["wr_mibps"]), cell(e["wr_mibps_peak"]),
+                    cell(e["wr_ms_per_op"]), cell(e["flush_ms_per_op"]), cell(e["iops_pct_of_cap"]),
+                    cell(e["mibps_pct_of_cap"]), cell(e["binds"]), cell(e["cap_floor_ms_per_output"])))
+        out += ["", "Disk: %s." % m["disk_reading"]]
         out += ["", "Stages (p50 ms): %s." % (st if is_na(st) else ", ".join(
             "%s %s" % (k, cell(v["median_ms"])) for k, v in st.items())),
             "Votes: lock_ms p95 %s; behind refusals per header, max %s. Commit fit: %s." % (
@@ -1633,8 +1825,9 @@ def summarize(a):
     else:
         notes.append("stages: skipped (--no-stages)")
     blocks = block_table([g["docs"] for g in groups])
+    caps = disk_caps(manifest, a.disk_iops, a.disk_mibps)
     measure(run_dir, manifest, rows, nds, validators, os.path.join(run_dir, "persist"), cert_doc, stage_doc, blocks,
-            a.drift_axis)
+            a.drift_axis, caps)
     drift = apply_drift(rows)
     apply_checks(rows)
     for x in arms:
@@ -1660,7 +1853,7 @@ def summarize(a):
                                                    ("utc_from", iso(r["from"])), ("utc_to", iso(r["to"])),
                                                    ("seconds", int(r["to"] - r["from"])), ("window_basis", r["basis"])]
                                                   + list(r["m"].items())) for r in rows]),
-        ("log_files", dict((n, nd.files) for n, nd in nds.items()))])
+        ("log_files", dict((n, nd.files) for n, nd in nds.items())), ("disk_caps", caps)])
     return (doc, to_markdown(doc, rows, drift, a.drift_axis)), 0
 
 
@@ -1702,7 +1895,12 @@ def parse_args(argv):
                    help="the drift coordinate: cumulative chain transactions in millions (default) or wall minutes")
     p.add_argument("--no-stages", action="store_true", help="skip the stage-latency pass")
     p.add_argument("--jobs", type=int, default=4, help="log files filtered at once (default 4)")
+    p.add_argument("--disk-iops", type=float, help="the disk's provisioned IOPS (default: manifest node_disk)")
+    p.add_argument("--disk-mibps", type=float, help="the disk's provisioned MiB/s (default: manifest node_disk)")
     a = p.parse_args(argv)
+    for k in ("disk_iops", "disk_mibps"):
+        if getattr(a, k) is not None and not getattr(a, k) > 0:
+            p.error("--%s must be positive" % k.replace("_", "-"))
     if a.self_check:
         if a.run_dir:
             p.error("--self-check takes no --run-dir")
