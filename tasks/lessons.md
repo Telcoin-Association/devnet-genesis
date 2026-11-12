@@ -1562,3 +1562,18 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Rules: (1) when two figures are compared in one sentence, check each one's divisor at its source (1e3 or 1024) and write both in
   one unit; (2) a brief that hands an agent a figure names the file and line it comes from, and the read list includes that file;
   (3) an agent's "could not verify" line is read and resolved before anything it wrote is published.
+
+## 2026-11-12 — a detached launch keeps its wrapper shell alive, and the wrapper's command line is everything typed in that call
+- What happened: I launched a detached e2e job with `L=… && nohup setsid bash job.sh … > "$L" 2>&1 < /dev/null &` and, in the SAME
+  tool call, appended a checkpoint note whose text named the other session's `attest-retry` scripts. The `&&` list made bash keep a
+  subshell as the job's parent; that subshell's command line is the whole call, note included. The e2e lane waits while
+  `pgrep -f` finds an attest script, found my own wrapper for as long as the job lived, and the job was waiting for the lane: a
+  deadlock that only showed three hours later, when the foreign jobs were gone and nothing started. The permission system then
+  refused the `kill` of the wrapper.
+- Rules: (1) a detached launch is its own tool call and nothing else: `nohup setsid bash -c 'echo $$ > pidfile; exec <script> …'
+  > log 2>&1 < /dev/null &` with no `&&` list before it, so no shell of mine stays behind (check with `pgrep -P 1 -f` after);
+  (2) no command of mine carries the words another script's `pgrep -f` waits on; notes go into files in a separate call;
+  (3) a wait loop keyed on `pgrep -f <words>` should match the process NAME or a pid file, not words that can appear in any shell's
+  command line (to fix in `tasks/bench6/e2e-lane.sh` when nothing is running through it);
+  (4) when a queue that should have moved has not, look at what its wait condition matches before assuming it is still the other
+  party.
