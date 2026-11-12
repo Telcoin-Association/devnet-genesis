@@ -7,6 +7,17 @@ Checkpoint: `tasks/checkpoint-bench6-L1d.md`.
 `benchmark/benchmark-deploy.sh` and the new `benchmark/tests/test_node_deploy.py`.
 `benchmark/config.sh` (L1a, done: it gives you `NODE_MACHINE_TYPES[]`, `NODE_DATADIR_LSSD[]`, `BENCH_CREATE_MACHINE_TYPE`, `BENCH_NODE_ZONES`) and `benchmark/bench-lib.sh` (L1b, done) are read-only for you. If you need a change there, stop that item and describe the hunk in your hand-back.
 
+## From the units before you (binding)
+- L1a (config.sh, committed): all four knobs are read as `${X:-}`, never assigned; `NODE_MACHINE_TYPES[]` and `NODE_DATADIR_LSSD[]` always exist (eleven entries); `BENCH_CREATE_MACHINE_TYPE` makes `MACHINE_TYPE` that type and unsets the other nodes' `INSTANCE_NAMES` entries (sparse array). **Pass it per call only (`BENCH_CREATE_MACHINE_TYPE=<type> create-instances.sh …`), never export it** (a leak would make a later script see part of the fleet), **and never give it an `-lssd` type** (those nodes are yours to create). `config.sh` refuses to be sourced by an ad-hoc `bash`: run drivers the way `tests/test_node_shapes.py` does.
+- L1a: **step 2 writes `zones.env` whenever `BENCH_NODE_ZONES` is set**, not only after a stockout; otherwise a later teardown run without the knob in its environment addresses a moved node in its old zone. Test it.
+- L1b (bench-lib.sh, being finished: read-only for you): `bench_cpu_quota_metric` maps `c4) echo C4_CPUS`, and `bench_cpu_quota_unlisted <metric>` prints a reason for a metric that `regions describe` does not list (empty otherwise). The hunk it asks of `quota_check` (add `why` to its `local` list; replace `if [ -z "${have}" ] || [ "${need}" = "?" ]; then` by):
+  ```
+  why="$(bench_cpu_quota_unlisted "${m}")"
+  if [ -n "${why}" ] && [ -z "${have}" ]; then bench_warn "${r}: ${m} not checked (need ${need}): ${why}"
+  elif [ -z "${have}" ] || [ "${need}" = "?" ]; then
+  ```
+- L1b's builders (`bench_lssd_mount_script`, `bench_lssd_mount_record`, `bench_lssd_check_script`) are NOT yours to call: step 3 and step 7 belong to L1c.
+
 ## Sections (checkpoint after each)
 1. **Read**, in ranges (grep first; never the whole file): step 0's `machine_type_check`, `zone_fallback_check`, `region_needs`, `quota_check`, `machine_vcpus` and the `fleet` line; step 2's create call, `create_failed_names`, `create_fail_log`, the stockout rounds, `zone_fallback_record`, `zones.env`, and where `instances[]` is written into the manifest; `print_plan`'s lines for steps 0 and 2; `common/create-instances.sh:150-190` (read-only: the argv you must mirror); `benchmark/benchmark-probe.sh:490-505` (the live-proven create of a `-lssd` VM).
 2. **Helpers**: `node_machine_type <index>`, `machine_groups` (distinct types in index order), `type_zones <type>`; `machine_vcpus` strips a trailing `-lssd`.
