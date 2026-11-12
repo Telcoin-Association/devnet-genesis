@@ -22,14 +22,19 @@
 #    0  preflight        auth + tools + python3 PyYAML + TN_NODE_SCRIPTS_REF a full 40-hex sha +
 #                        no leftover bench-*/benchmark=1 resources + accounts file +
 #                        empty benchmark/genesis + firewall/tag hygiene +
-#                        MACHINE_TYPE in every fleet zone, the first blaster type in every validator
+#                        each machine type in its nodes' zones (BENCH_NODE_MACHINE_TYPES; a fallback
+#                        zone against its node's type), the first blaster type in every validator
 #                        zone and BENCH_OBS_MACHINE_TYPE in BENCH_OBS_ZONE + a hyperdisk-* disk type
 #                        offered in every fleet zone + quota headroom per region (vCPUs per family
-#                        metric, addresses, disk; the bench-obs VM counted in its region); one die lists
+#                        metric per node, addresses, disk, a -lssd node's local SSD; C4 vCPUs "not checked":
+#                        regions describe lists no C4 metric; the bench-obs VM counted in its region); one die lists
 #                        every failure; pre-snapshots. obs-devnet is not read: the bench has its own obs VM
 #    1  image            :blast-v2-<sha> exists, else Cloud Build builds it (synchronous);
 #                        `IMAGE blast --help` must carry every contract flag (when docker exists)
-#    2  instances        common/create-instances.sh on the bench profile (-> logs/create-instances-<UTC>.log);
+#    2  instances        common/create-instances.sh on the bench profile (-> logs/create-instances-<UTC>.log;
+#                        several machine types: one call per type with BENCH_CREATE_MACHINE_TYPE, and the
+#                        -lssd nodes by bench_create_node with --maintenance-policy=TERMINATE; BENCH_NODE_ZONES:
+#                        zones.env + manifest.zone_overrides[] first);
 #                        on a stockout that node moves to its next BENCH_ZONE_FALLBACKS zone (zones.env,
 #                        manifest.zone_fallbacks[]) and the create runs again, at most 3 rounds; assert tag
 #                        bench-node + label benchmark=1 on every node; label boot disks; manifest.instances[],
@@ -296,6 +301,83 @@ fleet_zones() {
     printf '%s' "${z% }"
 }
 
+# node_machine_type <index> — node <index>'s machine type (config.sh NODE_MACHINE_TYPES: its
+# BENCH_NODE_MACHINE_TYPES item, else MACHINE_TYPE).
+node_machine_type() { printf '%s' "${NODE_MACHINE_TYPES[$1]}"; }
+
+# machine_groups — the fleet's distinct machine types in index order (each at its first node),
+# space-separated. Every knob unset: MACHINE_TYPE alone.
+machine_groups() {
+    local i g
+    g="$(for i in "${!INSTANCE_NAMES[@]}"; do node_machine_type "${i}"; echo; done | awk '!seen[$0]++' | tr '\n' ' ')"
+    printf '%s' "${g% }"
+}
+
+# type_nodes <machine-type> — the indices of the nodes of that type, space-separated, in order.
+type_nodes() {
+    local i n=""
+    for i in "${!INSTANCE_NAMES[@]}"; do [ "$(node_machine_type "${i}")" != "$1" ] || n="${n} ${i}"; done
+    printf '%s' "${n# }"
+}
+
+# lssd_nodes — the indices of the nodes whose machine type ends in -lssd, space-separated, in order.
+lssd_nodes() {
+    local i n=""
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        case "$(node_machine_type "${i}")" in *-lssd) n="${n} ${i}" ;; esac
+    done
+    printf '%s' "${n# }"
+}
+
+# create_plain — 0 when step 2 creates the fleet with one plain common/create-instances.sh call: every
+# node is MACHINE_TYPE and it is not a -lssd type (every knob unset).
+create_plain() {
+    [ "$(machine_groups)" = "${MACHINE_TYPE}" ] || return 1
+    case "${MACHINE_TYPE}" in *-lssd) return 1 ;; esac
+}
+
+# type_zones <machine-type> — the distinct zones of the nodes of that type, space-separated, sorted
+# (one machine type: fleet_zones).
+type_zones() {
+    local i z
+    z="$(for i in $(type_nodes "$1"); do echo "${ZONES[$i]}"; done | sort -u | tr '\n' ' ')"
+    printf '%s' "${z% }"
+}
+
+# fleet_desc — the fleet's shape for step 0 and the plan. One machine type: "<n> x <type>, <boot
+# disk>" (as before the per-node types). Several: "<n> nodes: <k> x <type>[ (data dir ...)], ...,
+# <boot disk> boot disk", in machine_groups order; a -lssd type says where its nodes' data
+# directory is (NODE_DATADIR_LSSD).
+fleet_desc() {
+    local groups t n i lssd out=""
+    groups="$(machine_groups)"
+    case "${groups}" in
+        *" "*) ;;
+        *) printf '%s x %s, %s' "${#INSTANCE_NAMES[@]}" "${groups}" "$(disk_desc)"; return 0 ;;
+    esac
+    for t in ${groups}; do
+        n=0; lssd=0
+        for i in $(type_nodes "${t}"); do n=$((n + 1)); [ "${NODE_DATADIR_LSSD[$i]}" != 1 ] || lssd=1; done
+        out="${out}${n} x ${t}"
+        case "${t}:${lssd}" in
+            *-lssd:1) out="${out} (data dir on local SSD)" ;;
+            *-lssd:0) out="${out} (data dir on the boot disk; its local SSD unused)" ;;
+        esac
+        out="${out}, "
+    done
+    printf '%s nodes: %s%s boot disk' "${#INSTANCE_NAMES[@]}" "${out}" "$(disk_desc)"
+}
+
+# node_type_checks — machine_type_check once per machine type, over the zones of that type's nodes.
+node_type_checks() {
+    local t knob
+    for t in $(machine_groups); do
+        knob=BENCH_NODE_MACHINE_TYPES
+        [ "${t}" != "${MACHINE_TYPE}" ] || knob=BENCH_MACHINE_TYPE
+        machine_type_check "${t}" "${knob}" "$(type_zones "${t}")"
+    done
+}
+
 # validator_zones — the distinct zones of the validators (each validator's blaster runs in its zone).
 validator_zones() {
     local i z
@@ -398,52 +480,61 @@ boot_image_check() {
     echo "    ✓ boot image ${n} (${p}): READY${dep:+, deprecation state ${dep}}"
 }
 
-# zone_fallback_zones — the distinct BENCH_ZONE_FALLBACKS zones, space-separated, sorted.
+# zone_fallback_zones [<machine-type>] — the distinct BENCH_ZONE_FALLBACKS zones (only the items of
+# that type's nodes, when given), space-separated, sorted.
 zone_fallback_zones() {
     local item z
-    z="$(for item in ${BENCH_ZONE_FALLBACKS:-}; do printf '%s\n' "${item#*:}" | tr ',' '\n'; done | sort -u | tr '\n' ' ')"
+    z="$(for item in ${BENCH_ZONE_FALLBACKS:-}; do
+            [ -z "${1:-}" ] || [ "${NODE_MACHINE_TYPES[${item%%:*}]}" = "$1" ] || continue
+            printf '%s\n' "${item#*:}" | tr ',' '\n'
+        done | sort -u | tr '\n' ' ')"
     printf '%s' "${z% }"
 }
 
-# zone_fallback_check — every BENCH_ZONE_FALLBACKS zone should offer MACHINE_TYPE: a fallback is tried
-# only after a stockout, in the middle of step 2, so a zone that cannot host the type is reported now.
+# zone_fallback_check — every BENCH_ZONE_FALLBACKS zone should offer the machine type of the node it
+# is for (one check per machine type, over its nodes' fallback zones): a fallback is tried only after a
+# stockout, in the middle of step 2, so a zone that cannot host the type is reported now.
 # One alarmed describe per zone; each failure is a warning (⚠), never a stop — the run needs its planned
 # zones, not these. A dry run (the plan) prints the query and calls nothing.
 zone_fallback_check() {
-    local zones z rc out bad=0 n=0
-    zones="$(zone_fallback_zones)"
-    if [ -z "${zones}" ]; then
+    local t zones z rc out bad n
+    if [ -z "$(zone_fallback_zones)" ]; then
         echo "    no zone fallbacks (BENCH_ZONE_FALLBACKS is empty): a stockout in step 2 stops the run"
         return 0
     fi
-    echo "    zone fallbacks ${BENCH_ZONE_FALLBACKS}: ${MACHINE_TYPE} should exist in ${zones} (warning only)"
-    if [ "${BENCH_APPLY}" != "1" ]; then
-        echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe ${MACHINE_TYPE} --zone=<each fallback zone> --project=${PROJECT_ID} --format='value(name)'"
-        echo "      (dry run — not executed)"
-        return 0
-    fi
-    for z in ${zones}; do
-        rc=0; n=$((n + 1))
-        out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "${MACHINE_TYPE}" --zone="${z}" \
-            --project="${PROJECT_ID}" --format='value(name)' </dev/null 2>&1)" || rc=$?
-        [ "${rc}" -ne 0 ] || continue
-        case "${rc}:${out}" in
-            142:*) out="no answer within 60 s" ;;
-            *"was not found"*) out="not offered in this zone" ;;
-            *) out="describe failed (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200)" ;;
-        esac
-        bad=$((bad + 1))
-        bench_warn "zone fallback ${z}: ${MACHINE_TYPE} ${out} — a stockout that falls back there would fail again; fix BENCH_ZONE_FALLBACKS"
+    for t in $(printf '%s\n' "${NODE_MACHINE_TYPES[@]}" | awk '!seen[$0]++'); do
+        zones="$(zone_fallback_zones "${t}")"
+        [ -n "${zones}" ] || continue
+        echo "    zone fallbacks ${BENCH_ZONE_FALLBACKS}: ${t} should exist in ${zones} (warning only)"
+        if [ "${BENCH_APPLY}" != "1" ]; then
+            echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe ${t} --zone=<each fallback zone> --project=${PROJECT_ID} --format='value(name)'"
+            echo "      (dry run — not executed)"
+            continue
+        fi
+        bad=0; n=0
+        for z in ${zones}; do
+            rc=0; n=$((n + 1))
+            out="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "${t}" --zone="${z}" \
+                --project="${PROJECT_ID}" --format='value(name)' </dev/null 2>&1)" || rc=$?
+            [ "${rc}" -ne 0 ] || continue
+            case "${rc}:${out}" in
+                142:*) out="no answer within 60 s" ;;
+                *"was not found"*) out="not offered in this zone" ;;
+                *) out="describe failed (rc ${rc}): $(printf '%s' "${out}" | tr -s '\n' ' ' | cut -c1-200)" ;;
+            esac
+            bad=$((bad + 1))
+            bench_warn "zone fallback ${z}: ${t} ${out} — a stockout that falls back there would fail again; fix BENCH_ZONE_FALLBACKS"
+        done
+        [ "${bad}" -gt 0 ] || echo "    ✓ ${t} offered in all ${n} fallback zones"
     done
-    [ "${bad}" -gt 0 ] || echo "    ✓ ${MACHINE_TYPE} offered in all ${n} fallback zones"
 }
 
 # machine_vcpus <machine-type> <zone> — its vCPU count: from the name when the name carries it
-# (<family>-custom-<vcpus>-<mb>, <family>-<class>-<vcpus>), else (--yes only) from an alarmed
-# describe in <zone>; "" when unknown.
+# (<family>-custom-<vcpus>-<mb>, <family>-<class>-<vcpus>, either with a trailing -lssd: the local-SSD
+# shape of the same vCPU count), else (--yes only) from an alarmed describe in <zone>; "" when unknown.
 machine_vcpus() {
-    local n
-    case "$1" in *-custom-*) n="${1#*-custom-}"; n="${n%%-*}" ;; *) n="${1##*-}" ;; esac
+    local n t="${1%-lssd}"
+    case "${t}" in *-custom-*) n="${t#*-custom-}"; n="${n%%-*}" ;; *) n="${t##*-}" ;; esac
     case "${n}" in ''|*[!0-9]*) n="" ;; esac
     if [ -z "${n}" ] && [ "${BENCH_APPLY}" = "1" ]; then
         n="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "$1" --zone="$2" \
@@ -452,29 +543,50 @@ machine_vcpus() {
     printf '%s' "${n}"
 }
 
+# lssd_gb <machine-type> <zone> — the GB of local SSD a -lssd type brings with it: its
+# bundledLocalSsds.partitionCount x 375, from an alarmed describe in <zone> (--yes only); "" when unknown.
+lssd_gb() {
+    local n=""
+    if [ "${BENCH_APPLY}" = "1" ]; then
+        n="$(perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe "$1" --zone="$2" \
+            --project="${PROJECT_ID}" --format='value(bundledLocalSsds.partitionCount)' </dev/null 2>/dev/null || true)"
+    fi
+    case "${n}" in ''|*[!0-9]*) n="" ;; esac
+    printf '%s' "${n:+$(( n * 375 ))}"
+}
+
 # region_needs <region> — "<quota metric> <need>" lines: what the fleet's nodes in <region> and their
 # blasters (one per validator, in its zone, on the first BENCH_BLASTER_MACHINE_TYPES type) take from
-# the region's quotas. vCPUs count against each type's family metric (bench_cpu_quota_metric), one sum
-# when nodes and blasters share it; every node and blaster holds one external address; the blasters'
+# the region's quotas. vCPUs count against each type's family metric (bench_cpu_quota_metric), one line
+# per node (its own machine type) and one sum when nodes and blasters share a metric; every node and
+# blaster holds one external address; the blasters'
 # pd-balanced boot disks count against SSD_TOTAL_GB; the node disks against HDB_TOTAL_{GB,IOPS,
 # THROUGHPUT} (hyperdisk-balanced; the IOPS/throughput only when provisioned), SSD_TOTAL_GB (pd-ssd,
-# pd-balanced) or DISKS_TOTAL_GB (pd-standard). The bench-obs VM (BENCH_OBS_MACHINE_TYPE in
+# pd-balanced) or DISKS_TOTAL_GB (pd-standard); a -lssd node's bundled local SSDs against
+# LOCAL_SSD_TOTAL_GB (lssd_gb). The bench-obs VM (BENCH_OBS_MACHINE_TYPE in
 # BENCH_OBS_ZONE) counts in its own region: its vCPUs, one external address, its pd-balanced boot disk
 # (obs_boot_gb: bench_obs_create's fixed 20 GB) and BENCH_OBS_DISK_GB pd-ssd data disk against
-# SSD_TOTAL_GB. A need is "?" when a vCPU count is unknown.
+# SSD_TOTAL_GB. A need is "?" when a vCPU count (or a local SSD size) is unknown.
 region_needs() {
-    local region="$1" i z="" nodes=0 vals=0 bt nc bc oc obs_boot_gb=20
+    local region="$1" i t z="" nodes=0 vals=0 bt nc bc oc obs_boot_gb=20 cpu="" lssd="" g
     for i in "${!ZONES[@]}"; do
         [ "$(tn_region_from_zone "${ZONES[$i]}")" = "${region}" ] || continue
         z="${ZONES[$i]}"; nodes=$((nodes + 1))
         [ "${NODE_ROLES[$i]}" != "validator" ] || vals=$((vals + 1))
+        t="${NODE_MACHINE_TYPES[$i]}"
+        nc="$(machine_vcpus "${t}" "${z}")"
+        cpu="${cpu}$(bench_cpu_quota_metric "${t}") ${nc:-?}
+"
+        case "${t}" in
+            *-lssd) g="$(lssd_gb "${t}" "${z}")"; lssd="${lssd}LOCAL_SSD_TOTAL_GB ${g:-?}
+" ;;
+        esac
     done
     bt="${BENCH_BLASTER_MACHINE_TYPES%% *}"
-    nc="$(machine_vcpus "${MACHINE_TYPE}" "${z}")"; nc="${nc:+$(( nodes * nc ))}"
     bc="$(machine_vcpus "${bt}" "${z}")"; bc="${bc:+$(( vals * bc ))}"
     {
         if [ "${nodes}" -gt 0 ]; then   # a region with bench-obs alone (quota_regions) has no node lines
-            echo "$(bench_cpu_quota_metric "${MACHINE_TYPE}") ${nc:-?}"
+            printf '%s' "${cpu}"
             [ "${vals}" -eq 0 ] || echo "$(bench_cpu_quota_metric "${bt}") ${bc:-?}"
             echo "IN_USE_ADDRESSES $(( nodes + vals ))"
             case "${NODE_DISK_TYPE}" in
@@ -485,6 +597,7 @@ region_needs() {
                 pd-ssd|pd-balanced) echo "SSD_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
                 pd-standard) echo "DISKS_TOTAL_GB $(( nodes * NODE_DISK_SIZE ))" ;;
             esac
+            printf '%s' "${lssd}"
             [ "${vals}" -eq 0 ] || echo "SSD_TOTAL_GB $(( vals * BENCH_BLASTER_BOOT_DISK_GB ))"
         fi
         if [ "$(tn_region_from_zone "${BENCH_OBS_ZONE}")" = "${region}" ]; then
@@ -527,11 +640,13 @@ hdb_headroom() {
 # CPU family metrics, IN_USE_ADDRESSES and SSD_TOTAL_GB/DISKS_TOTAL_GB come from `gcloud compute
 # regions describe`, which lists no hyperdisk quota: the HDB_TOTAL_* limits come from the Cloud
 # Quotas API (HDB-TOTAL-{GB,IOPS,THROUGHPUT}-per-project-region) and their usage from the disks
-# list. Every shortfall is listed in one die; a quota that cannot be read is a warning. Every gcloud
+# list. A headroom of 2^53 or more (LOCAL_SSD_TOTAL_GB's limit is 9.2e18, which jq prints as 9.2e+18, no
+# integer for the shell) is "unlimited".
+# Every shortfall is listed in one die; a quota that cannot be read is a warning. Every gcloud
 # call is under an alarm. A dry run (the plan) prints the needs and the queries and calls nothing.
 # The regions are the fleet's plus bench-obs's (quota_regions).
 quota_check() {
-    local regions r m need have json qgb="" qiops="" qtput="" disks="[]" q qj ok short=""
+    local regions r m need have why json qgb="" qiops="" qtput="" disks="[]" q qj ok short=""
     regions="$(quota_regions)"
     echo "    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator (and ${BENCH_OBS_INSTANCE} in $(tn_region_from_zone "${BENCH_OBS_ZONE}")):"
     for r in ${regions}; do
@@ -539,6 +654,9 @@ quota_check() {
     done
     if [ "${BENCH_APPLY}" != "1" ]; then
         echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute regions describe <each region> --project=${PROJECT_ID} --format=json"
+        case " ${NODE_MACHINE_TYPES[*]} " in
+            *"-lssd "*) echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud compute machine-types describe <each -lssd node's type> --zone=<its zone> --project=${PROJECT_ID} --format='value(bundledLocalSsds.partitionCount)'   (x 375 GB: LOCAL_SSD_TOTAL_GB)" ;;
+        esac
         if [ "${NODE_DISK_TYPE}" = "hyperdisk-balanced" ]; then
             echo "    + perl -e 'alarm shift; exec @ARGV' 60 gcloud beta quotas info describe HDB-TOTAL-<GB|IOPS|THROUGHPUT>-per-project-region --service=compute.googleapis.com --project=${PROJECT_ID} --format=json"
             echo "    + perl -e 'alarm shift; exec @ARGV' 120 gcloud compute disks list --project=${PROJECT_ID} --format=json"
@@ -568,9 +686,13 @@ quota_check() {
                 HDB_TOTAL_IOPS) have="$(hdb_headroom "${m}" "${r}" "${qiops}" "${disks}")" ;;
                 HDB_TOTAL_THROUGHPUT) have="$(hdb_headroom "${m}" "${r}" "${qtput}" "${disks}")" ;;
                 *) have="$(printf '%s' "${json}" | jq -r --arg q "${m}" \
-                       '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor][0] // empty' 2>/dev/null || true)" ;;
+                       '[.quotas[]? | select(.metric == $q) | (.limit - .usage) | floor
+                         | if . >= 9007199254740992 then "unlimited" else . end][0] // empty' 2>/dev/null || true)" ;;
             esac
-            if [ -z "${have}" ] || [ "${need}" = "?" ]; then
+            why="$(bench_cpu_quota_unlisted "${m}")" || why=""
+            if [ -n "${why}" ] && [ -z "${have}" ]; then
+                bench_warn "${r}: ${m} not checked (need ${need}): ${why}"
+            elif [ -z "${have}" ] || [ "${need}" = "?" ]; then
                 bench_warn "${r}: ${m} not checked (need ${need}, headroom ${have:-not readable})"
             elif [ "${have}" = "unlimited" ] || [ "${have}" -ge "${need}" ]; then
                 ok="${ok}, ${m} ${need}/${have}"
@@ -631,7 +753,7 @@ obs_or_die() {
 # ================================ steps ==============================================
 step_0() {
     echo ">>> Step 0: preflight"
-    echo "    fleet: ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), node image ${DOCKER_IMAGE} (git $(run_expect sha), forks $(run_expect forks); image probed at gate)"
+    echo "    fleet: $(fleet_desc), node image ${DOCKER_IMAGE} (git $(run_expect sha), forks $(run_expect forks); image probed at gate)"
     bench_require_tools gcloud cast jq python3 curl docker git openssl || bench_die "missing tools"
     [ "${WITH_CONTRACTS}" -eq 0 ] || bench_require_tools forge || bench_die "forge needed for --with-contracts"
     local p7; p7="$(step7_local_problems)"
@@ -669,7 +791,7 @@ step_0() {
     echo "    ✓ no non-bench firewall rule targets bench-node"
     # No obs-devnet read: the bench ships metrics only, to its own bench-obs VM (step 2 creates it, step 8
     # brings it up); a bench-obs left by an earlier run is a leftover above, like any bench-*.
-    machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+    node_type_checks
     machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
     machine_type_check "${BENCH_OBS_MACHINE_TYPE}" BENCH_OBS_MACHINE_TYPE "${BENCH_OBS_ZONE}"
     zone_fallback_check
@@ -750,28 +872,32 @@ zone_fallback_next() {
     return 0
 }
 
-# zone_fallback_record <index> <from> <to> — node <index> moves to zone <to> after a stockout in <from>:
-# ZONES here, manifest zone_fallbacks[] {inst, from, to, reason: "stockout", ts} and a note (the run's
-# latency figures for that node are not the planned zone's).
+# zone_fallback_record <index> <from> <to> — node <index> moves to zone <to> after a stockout in <from>
+# (of the node's own machine type): ZONES here, manifest zone_fallbacks[] {inst, from, to, reason: "stockout",
+# ts} and a note (the run's latency figures for that node are not the planned zone's).
 zone_fallback_record() {
-    local inst="${INSTANCE_NAMES[$1]}" ts
+    local inst="${INSTANCE_NAMES[$1]}" ts t
     ts="$(bench_now_iso)"
+    t="$(node_machine_type "$1")"
     ZONES[$1]="$3"
-    bench_warn "${inst}: ${2} is out of ${MACHINE_TYPE} (stockout) — it moves to ${3} (BENCH_ZONE_FALLBACKS)"
+    bench_warn "${inst}: ${2} is out of ${t} (stockout) — it moves to ${3} (BENCH_ZONE_FALLBACKS)"
     bench_manifest_jq --arg i "${inst}" --arg f "$2" --arg t "$3" --arg ts "${ts}" \
         '.zone_fallbacks = ((.zone_fallbacks // []) + [{inst: $i, from: $f, to: $t, reason: "stockout", ts: $ts}])' \
         || bench_die "could not record zone_fallbacks in $(bench_manifest)"
-    bench_manifest_note "zone fallback: ${inst} runs in ${3}, not ${2} (${MACHINE_TYPE} stockout, ${ts}); its latency is that zone's, a comparability caveat" \
+    bench_manifest_note "zone fallback: ${inst} runs in ${3}, not ${2} (${t} stockout, ${ts}); its latency is that zone's, a comparability caveat" \
         || bench_die "could not add a note to $(bench_manifest)"
 }
 
 # zones_env_write — ${BENCH_RESULTS_DIR}/zones.env from ZONES (replaced atomically): the
 # BENCH_ZONES_USED line benchmark/config.sh reads into ZONES for every later script of the run.
+# Written after a stockout fallback, and before the first create whenever BENCH_NODE_ZONES is set: a later
+# script run without that knob in its environment (the teardown) still finds a moved node in its zone.
 zones_env_write() {
-    local f="${BENCH_RESULTS_DIR}/zones.env" tmp
+    local f="${BENCH_RESULTS_DIR}/zones.env" tmp why="stockout fallback"
+    [ -z "${BENCH_NODE_ZONES:-}" ] || why="BENCH_NODE_ZONES, stockout fallback"
     tmp="$(mktemp "${f}.XXXXXX")" || bench_die "cannot write ${f}"
-    if printf '# benchmark-deploy.sh step 2 (stockout fallback): the zone of each INSTANCE_NAMES entry, in order\nBENCH_ZONES_USED=%s\n' \
-            "${ZONES[*]}" > "${tmp}" && mv -f "${tmp}" "${f}"; then
+    if printf '# benchmark-deploy.sh step 2 (%s): the zone of each INSTANCE_NAMES entry, in order\nBENCH_ZONES_USED=%s\n' \
+            "${why}" "${ZONES[*]}" > "${tmp}" && mv -f "${tmp}" "${f}"; then
         echo "    ✓ ${f}: BENCH_ZONES_USED=${ZONES[*]}"
     else
         rm -f "${tmp}"
@@ -788,21 +914,146 @@ zones_used_record() {
     bench_manifest_jq --argjson z "${z}" '.zones_used = $z' || bench_die "could not record zones_used in $(bench_manifest)"
 }
 
+# zone_overrides_record — with BENCH_NODE_ZONES, once per run (while the manifest has no zone_overrides):
+# manifest zone_overrides[] {inst, from, to, reason: "BENCH_NODE_ZONES", ts} and a note for every node the
+# knob moves. <from> is the node's zone without the knob: config.sh loaded again in a fresh bash with
+# BENCH_NODE_ZONES empty. That load reads zones.env too, so a zone zones.env already holds (it wins over the
+# knob in config.sh) is no move. Runs before step 2 first writes zones.env.
+zone_overrides_record() {
+    local planned item i from ts recs="[]" notes="" note
+    [ -n "${BENCH_NODE_ZONES:-}" ] || return 0
+    [ "$(jq -r 'has("zone_overrides")' "$(bench_manifest)" 2>/dev/null || true)" != true ] || return 0
+    planned="$(BENCH_NODE_ZONES="" BENCH_CREATE_MACHINE_TYPE="" bash -c '. "$1" >/dev/null && printf "%s\n" "${ZONES[@]}"' \
+        benchmark-deploy.sh "${CONFIG_FILE}")" || bench_die "cannot load ${CONFIG_FILE} without BENCH_NODE_ZONES (the zones it moves nodes from)"
+    ts="$(bench_now_iso)"
+    for item in ${BENCH_NODE_ZONES}; do
+        i="${item%%:*}"
+        from="$(printf '%s\n' "${planned}" | sed -n "$((i + 1))p")"
+        [ -n "${from}" ] && [ "${from}" != "${ZONES[$i]}" ] || continue
+        recs="$(printf '%s' "${recs}" | jq -c --arg i "${INSTANCE_NAMES[$i]}" --arg f "${from}" --arg t "${ZONES[$i]}" --arg ts "${ts}" \
+            '. + [{inst: $i, from: $f, to: $t, reason: "BENCH_NODE_ZONES", ts: $ts}]')" || bench_die "could not build zone_overrides"
+        note="zone override: ${INSTANCE_NAMES[$i]} runs in ${ZONES[$i]}, not ${from} (BENCH_NODE_ZONES); its latency is that zone's, a comparability caveat"
+        notes="${notes}${note}
+"
+        echo "    ${note}"
+    done
+    # zone_overrides first: it marks the record made, so a re-run never adds the notes twice.
+    bench_manifest_jq --argjson a "${recs}" '.zone_overrides = $a' || bench_die "could not record zone_overrides in $(bench_manifest)"
+    while IFS= read -r note; do
+        [ -z "${note}" ] || bench_manifest_note "${note}" || bench_die "could not add a note to $(bench_manifest)"
+    done <<EOF
+${notes}
+EOF
+}
+
+# bench_create_node <index> — create node <index>, a -lssd machine type (its local SSDs come with the type;
+# no flag asks for them), with the argv common/create-instances.sh gives that node (create-instances.sh:166-185:
+# name, zone, description, network interface, metadata, startup script, service account, scopes, tags, labels,
+# boot disk, shielded VM, reservation affinity) except --machine-type=<its type> and
+# --maintenance-policy=TERMINATE, the host-maintenance policy benchmark-probe.sh created its -lssd VM with
+# (create-instances.sh hard-codes MIGRATE, untried on a local-SSD shape). bench_run prints the argv before it
+# runs. test_node_deploy.py compares this argv with the real create-instances.sh's for the same node.
+bench_create_node() {
+    local i="$1" inst
+    local -a labels
+    inst="${INSTANCE_NAMES[$i]}"
+    labels=()
+    [ -z "${INSTANCE_LABELS:-}" ] || labels=(--labels="${INSTANCE_LABELS},tn-role=${NODE_ROLES[$i]}")
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    bench_run gcloud beta compute instances create "${inst}" \
+        --project="${PROJECT_ID}" \
+        --zone="${ZONES[$i]}" \
+        --description="${NODE_ROLES[$i]} node $((i + 1))" \
+        --machine-type="$(node_machine_type "${i}")" \
+        --network-interface="network-tier=PREMIUM,subnet=default,nic-type=GVNIC,stack-type=IPV4_ONLY" \
+        --metadata="EXECUTION_ADDRESS=${EXECUTION_ADDRESSES[$i]},NODE_NAME=${NODE_NAMES[$i]},DOCKER_IMAGE=${DOCKER_IMAGE},PROJECT_ID=${PROJECT_ID},PRIMARY_UDP_PORT=${DEFAULT_PRIMARY_UDP_PORT},WORKER_UDP_PORT=${DEFAULT_WORKER_UDP_PORT},HEALTHCHECK_TCP_PORT=${DEFAULT_HEALTHCHECK_TCP_PORT},BASE_DOMAIN=${BASE_DOMAIN}${TN_NODE_SCRIPTS_REF:+,tn-scripts-ref=${TN_NODE_SCRIPTS_REF}}" \
+        --metadata-from-file="startup-script=${STARTUP_SCRIPT_PATH}" \
+        --maintenance-policy=TERMINATE \
+        --provisioning-model=STANDARD \
+        --service-account="${SERVICE_ACCOUNT}" \
+        --scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/trace.append \
+        --tags="${INSTANCE_TAGS:-validator,http-server,https-server,lb-health-check}" \
+        ${labels[@]+"${labels[@]}"} \
+        --create-disk="auto-delete=yes,boot=yes,device-name=${inst},image=${IMAGE},mode=rw,size=${NODE_DISK_SIZE:-100},type=${NODE_DISK_TYPE:-pd-ssd}${NODE_DISK_IOPS:+,provisioned-iops=${NODE_DISK_IOPS}}${NODE_DISK_THROUGHPUT:+,provisioned-throughput=${NODE_DISK_THROUGHPUT}}" \
+        --no-shielded-secure-boot \
+        --shielded-vtpm \
+        --shielded-integrity-monitoring \
+        --reservation-affinity=any
+}
+
+# bench_create_nodes <index...> — bench_create_node for each of these nodes side by side, each job's output
+# in its own log (logs/create-<inst>-<UTC>.log), reported as create-instances.sh reports: a node that exists
+# is skipped ("Instance <inst> already exists in <zone> — skipping."), a failed one is named on
+# "❌ Error: Failed to create instance <inst> - See <log> for details" (step 2's create_failed_names and
+# create_fail_log read that line) with the log's last lines. rc 1 when any failed.
+bench_create_nodes() {
+    local i inst log p rc=0
+    local -a pids
+    pids=()
+    for i in "$@"; do
+        inst="${INSTANCE_NAMES[$i]}"
+        if gcloud compute instances describe "${inst}" --project="${PROJECT_ID}" --zone="${ZONES[$i]}" \
+                --format='value(name)' </dev/null >/dev/null 2>&1; then
+            echo "Instance ${inst} already exists in ${ZONES[$i]} — skipping."
+            continue
+        fi
+        log="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" "create-${inst}")" || bench_die "cannot create a log in ${BENCH_RESULTS_DIR}/logs"
+        bench_create_node "${i}" > "${log}" 2>&1 &
+        pids[${#pids[@]}]="$!:${i}:${log}"
+        echo "Started creation of ${inst} ($(node_machine_type "${i}") in ${ZONES[$i]}, PID: $!, Log: ${log})"
+    done
+    for p in ${pids[@]+"${pids[@]}"}; do
+        i="${p#*:}"; log="${i#*:}"; i="${i%%:*}"; inst="${INSTANCE_NAMES[$i]}"
+        if wait "${p%%:*}"; then
+            echo "Successfully created instance ${inst}"
+        else
+            echo "❌ Error: Failed to create instance ${inst} - See ${log} for details"
+            echo "   Last 10 lines of log:"
+            tail -10 "${log}" | sed 's/^/   /'
+            rc=1
+        fi
+    done
+    return "${rc}"
+}
+
 # step_2 — common/create-instances.sh, its output copied to logs/create-instances-<UTC>.log per round.
-# When it fails, every instance it names must have failed on a stockout (bench_is_stockout; any other
+# A fleet of one machine type that is not -lssd (every knob unset): one create-instances.sh call per round.
+# Otherwise each round makes one create-instances.sh call per other machine type, with
+# BENCH_CREATE_MACHINE_TYPE=<type> in that call's environment only (config.sh narrows the fleet to that
+# type's nodes), and creates the -lssd nodes with bench_create_nodes; every call goes to the round's log.
+# When a round fails, every instance it names must have failed on a stockout (bench_is_stockout; any other
 # failure stops the step): each moves to its next BENCH_ZONE_FALLBACKS zone (zone_fallbacks[] + note),
 # zones.env is written, and the create runs again — it skips the instances that exist — for at most
-# ZONE_FALLBACK_MAX_ROUNDS rounds. manifest.zones_used records where every node was created.
+# ZONE_FALLBACK_MAX_ROUNDS rounds. manifest.zones_used records where every node was created. With
+# BENCH_NODE_ZONES, zone_overrides_record and zones.env come first.
 ZONE_FALLBACK_MAX_ROUNDS=3
 step_2() {
     echo ">>> Step 2: create the bench instances (common/create-instances.sh, bench profile)"
-    local i inst zone j bad=0 round=0 rc rlog clog name idx from to failed
+    local i inst zone j bad=0 round=0 rc rlog clog name idx from to failed t lssd
+    lssd="$(lssd_nodes)"
+    if [ -n "${BENCH_NODE_ZONES:-}" ]; then
+        zone_overrides_record
+        zones_env_write
+    fi
     while :; do
         round=$((round + 1))
         rlog="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" create-instances)" || bench_die "cannot create a log in ${BENCH_RESULTS_DIR}/logs"
-        echo "    + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/common/create-instances.sh   (copy: ${rlog})"
         rc=0
-        "${REPO_ROOT}/common/create-instances.sh" 2>&1 | tee -a "${rlog}" || rc=$?
+        if create_plain; then
+            echo "    + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/common/create-instances.sh   (copy: ${rlog})"
+            "${REPO_ROOT}/common/create-instances.sh" 2>&1 | tee -a "${rlog}" || rc=$?
+        else
+            for t in $(machine_groups); do
+                case "${t}" in *-lssd) continue ;; esac
+                echo "    + BENCH_CREATE_MACHINE_TYPE=${t} CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/common/create-instances.sh   (copy: ${rlog})"
+                BENCH_CREATE_MACHINE_TYPE="${t}" "${REPO_ROOT}/common/create-instances.sh" 2>&1 | tee -a "${rlog}" || rc=$?
+            done
+            if [ -n "${lssd}" ]; then
+                echo "    + bench_create_nodes ${lssd}   (-lssd: create-instances.sh's argv, --maintenance-policy=TERMINATE; copy: ${rlog})"
+                # shellcheck disable=SC2086  # node indices
+                bench_create_nodes ${lssd} 2>&1 | tee -a "${rlog}" || rc=$?
+            fi
+        fi
         [ "${rc}" -ne 0 ] || break
         failed="$(create_failed_names "${rlog}")"
         [ -n "${failed}" ] || bench_die "common/create-instances.sh exited ${rc} without naming a failed instance (${rlog})"
@@ -817,7 +1068,7 @@ step_2() {
             idx="$(bench_index_of "${name}")" || bench_die "create-instances.sh named '${name}', not a bench instance (${rlog})"
             from="${ZONES[$idx]}"
             to="$(zone_fallback_next "${idx}")"
-            [ -n "${to}" ] || bench_die "${name}: ${from} is out of ${MACHINE_TYPE} (stockout) and BENCH_ZONE_FALLBACKS has no zone left for index ${idx} — add one and re-run with --from 2"
+            [ -n "${to}" ] || bench_die "${name}: ${from} is out of $(node_machine_type "${idx}") (stockout) and BENCH_ZONE_FALLBACKS has no zone left for index ${idx} — add one and re-run with --from 2"
             zone_fallback_record "${idx}" "${from}" "${to}"
         done
         zones_env_write
@@ -2068,13 +2319,39 @@ plan_harness() {
     printf '%s%s' "${sha}" "${st:+,dirty}"
 }
 
+# plan_create_lines — step 2's create lines in the plan (the first carries the step's label): one plain
+# create-instances.sh call (create_plain), or one per machine type that is not -lssd and a
+# bench_create_node line per -lssd node; with BENCH_NODE_ZONES, what step 2 writes before them.
+plan_create_lines() {
+    local lead="   2  instances      " t i names
+    if [ -n "${BENCH_NODE_ZONES:-}" ]; then
+        echo "${lead}BENCH_NODE_ZONES (${BENCH_NODE_ZONES}): first ${BENCH_RESULTS_DIR}/zones.env, manifest.zone_overrides[] + a note per moved node"
+        lead="                     "
+    fi
+    if create_plain; then
+        echo "${lead}CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh -> ${BENCH_RESULTS_DIR}/logs/create-instances-<utc>.log"
+        return 0
+    fi
+    for t in $(machine_groups); do
+        case "${t}" in *-lssd) continue ;; esac
+        names=""
+        for i in $(type_nodes "${t}"); do names="${names} ${INSTANCE_NAMES[$i]}"; done
+        echo "${lead}BENCH_CREATE_MACHINE_TYPE=${t} CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh (${names# }) -> ${BENCH_RESULTS_DIR}/logs/create-instances-<utc>.log"
+        lead="                     "
+    done
+    for i in $(lssd_nodes); do
+        echo "${lead}bench_create_node ${i}: ${INSTANCE_NAMES[$i]}, $(node_machine_type "${i}") in ${ZONES[$i]}: create-instances.sh's argv with --maintenance-policy=TERMINATE (local SSDs come with the type) -> ${BENCH_RESULTS_DIR}/logs/create-${INSTANCE_NAMES[$i]}-<utc>.log"
+        lead="                     "
+    done
+}
+
 print_plan() {
     local i
     bench_obs_urls   # no gcloud: BENCH_OBS_INTERNAL_IP (or manifest.obs.internal_ip, else the placeholder)
     cat <<EOP
 PLAN for run ${BENCH_RUN_ID} (nothing below has been executed):
 
-  fleet    ${#INSTANCE_NAMES[@]} x ${MACHINE_TYPE}, $(disk_desc), tag ${INSTANCE_TAGS}, labels ${INSTANCE_LABELS}
+  fleet    $(fleet_desc), tag ${INSTANCE_TAGS}, labels ${INSTANCE_LABELS}
   chain    ${CHAIN_ID} (${CHAIN_ID_HEX}), epoch ${EPOCH_DURATION_SECS}s, image ${DOCKER_IMAGE}${BENCH_DOCKER_IMAGE:+ (BENCH_DOCKER_IMAGE)}
   probe    $(plan_probe_line)
   params   ${PARAMETERS_FILE}: max_header_delay $(bench_params_ms "${PARAMETERS_FILE}" max_header_delay) ms, min_header_delay $(bench_params_ms "${PARAMETERS_FILE}" min_header_delay) ms, max_batch_delay $(bench_params_ms "${PARAMETERS_FILE}" max_batch_delay) ms
@@ -2103,7 +2380,7 @@ EOP
                      pre-snapshots -> ${BENCH_RESULTS_DIR}/pre-{instances,firewall}.json, manifest.json
 EOP
     {
-        machine_type_check "${MACHINE_TYPE}" BENCH_MACHINE_TYPE "$(fleet_zones)"
+        node_type_checks
         machine_type_check "${BENCH_BLASTER_MACHINE_TYPES%% *}" BENCH_BLASTER_MACHINE_TYPES "$(validator_zones)"
         machine_type_check "${BENCH_OBS_MACHINE_TYPE}" BENCH_OBS_MACHINE_TYPE "${BENCH_OBS_ZONE}"
         zone_fallback_check
@@ -2115,7 +2392,7 @@ EOP
    1  image          ${BENCH_TXGEN_IMAGE:-<unresolved: ${BENCH_TXGEN_IMAGE_ERROR}>}
                      if absent: gcloud builds submit --config=${BENCH_TXGEN_CLOUDBUILD} --substitutions=_IMAGE=${BENCH_TXGEN_IMAGE_REPO},_TAG=${BENCH_TXGEN_TAG:-blast-v2-<sha>},_GIT_SHA=${BENCH_TXGEN_SHA:-<sha>} ${BENCH_TXGEN_REPO}
                      then docker run --rm --platform linux/amd64 <image> blast --help must list: ${BENCH_TXGEN_CONTRACT_FLAGS}
-   2  instances      CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/common/create-instances.sh -> ${BENCH_RESULTS_DIR}/logs/create-instances-<utc>.log
+$(plan_create_lines)
                      stockout: that node moves to its next zone of BENCH_ZONE_FALLBACKS (${BENCH_ZONE_FALLBACKS:-none}), zones.env,
                      create again (existing nodes skipped; at most ${ZONE_FALLBACK_MAX_ROUNDS} rounds); any other failure stops; manifest.zones_used
                      assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=${BENCH_LABELS},tn-role=<role>

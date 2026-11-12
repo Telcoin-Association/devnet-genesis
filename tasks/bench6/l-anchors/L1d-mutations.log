@@ -1,0 +1,15 @@
+KILLED  machine_vcpus without the -lssd strip -> test_node_deploy.QuotaTests.test_one_cpu_line_per_node_and_local_ssd
+KILLED  region_needs back to MACHINE_TYPE for every node -> test_node_deploy.QuotaTests.test_one_cpu_line_per_node_and_local_ssd
+KILLED  zone_fallback_check against MACHINE_TYPE -> test_node_deploy.StockoutTests.test_a_fallback_zone_without_the_nodes_type_is_reported_by_step_0
+KILLED  bench_create_node with MIGRATE -> test_node_deploy.OptionETests.test_bench_argv_is_create_instances_argv_but_the_maintenance_policy
+KILLED  a -lssd type also sent through create-instances.sh -> test_node_deploy.OptionETests.test_two_create_instances_calls_and_six_bench_creates
+KILLED  the live guard before the bench create removed -> test_node_deploy.OptionETests.test_the_live_guard_makes_a_dry_bench_create_print_and_call_nothing
+KILLED  zones.env not written up front with BENCH_NODE_ZONES -> test_node_deploy.ZoneOverrideTests.test_overrides_are_recorded_once_and_zones_env_is_written
+KILLED  zone_fallback_record names MACHINE_TYPE -> test_node_deploy.StockoutTests.test_a_lssd_stockout_moves_that_node_alone
+KILLED  C4 metric checked like any other (L1b's quota_check hunk undone) -> test_node_deploy.QuotaTests.test_c4_cpus_are_not_checked_with_the_reason_and_never_stop
+KILLED  a headroom jq prints as 9.2e+18 compared as an integer -> test_node_deploy.QuotaTests.test_c4_cpus_are_not_checked_with_the_reason_and_never_stop
+KILLED  zone_overrides recorded again on a re-run -> test_node_deploy.ZoneOverrideTests.test_overrides_are_recorded_once_and_zones_env_is_written
+KILLED  the fleet line counts MACHINE_TYPE for every node -> test_node_deploy.OptionETests.test_plan_names_every_type_and_calls_nothing
+KILLED  bench_create_nodes does not skip a node that exists -> test_node_deploy.OptionETests.test_a_rerun_skips_every_node_that_exists
+RESTORED
+EXIT=0
