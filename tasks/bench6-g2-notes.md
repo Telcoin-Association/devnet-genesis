@@ -102,3 +102,13 @@ under the deployment scripts' key generation. Each fails early and loudly if wro
   on `recover_wait` as well as on `finish`, and it counts as confirmed only where the node reports `pool=dedicated`.
   The dedicated pool misses its own criterion in one case of four (two jobs at once, ratio 1.18 against a band of about 1.15).
   The read-cache A/B cannot size E5's share: the lab's EVM lap is a tenth of the fleet's.
+
+## N7. Images and gates as they stand (updated as each lands)
+- Generator: `tn-transaction-generator` main pushed at 62bbd5f; image
+  `us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f` =
+  `sha256:7cefcc505201b2e40361a7d8cfe034778090b76c568cb2400369bf566c605a59` (Cloud Build 6239d78b, 2026-11-12). `BENCH_TXGEN_SHA=62bbd5f`.
+- Node: NOT built for the fleet yet. A local trial build of the re-stacked head 2df831e3c (pipelined persist in) succeeds as
+  `etc/Dockerfile` builds it (release, `faucet`), 329 s, never pushed. The real build waits for gate 6.
+- Harness gate on 88fd9c0, alone on the host: 1,530 of 1,531 tests and 491 of 491 mutation cases; the one failure (a keygen test
+  that asserts a SIGHUP stops its jobs) came from launching the gate under `nohup`; that module's gate re-run without it is clean.
+- Workspace gates on 2df831e3c: fmt, check, clippy clean, 4,388 tests passed (one run; to repeat once before it becomes the head).
