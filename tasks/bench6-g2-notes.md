@@ -30,3 +30,33 @@ local-SSD deployment's shape choice and plan, the image digests, the dry-run res
   the large blocks "is untested" (the local probe measured it: 11x -> 4.3x without the advice, 5.0x -> 1.00x with it); the internal
   report has the same claim twice and a lever line that gives the advice as 1.00x without saying it must be applied before the large
   blocks exist (applied after a read-through: 11.88x).
+
+## N3. The local-SSD deployment (design L0: `benchmark/private/bench6-prep/design/design-local-ssd-deployment.md`)
+- What the harness does today, which changes the premise: a node has NO separate data disk. The 100 GB Hyperdisk Balanced is the boot
+  disk and `/var/lib/telcoin` is a directory on it. The change is to mount the `-lssd` shape's first local SSD at `/var/lib/telcoin`
+  before the node's keys are generated; the sampler, host probe, fsync probe, eviction and folio census follow the data directory.
+- **D-L1, the shape — recommendation (e), a split fleet, not one of the handoff's four options:** validators 03, 04, 05, 06, 07, 10 on
+  `c3-standard-8-lssd` (data directory on the local SSD); validators 01, 02, 08, 09 and the observer on `c3-standard-8` (data directory
+  on the Hyperdisk boot disk); run 1's own zones, nothing moved, one deployment. Every validator executes the same outputs, so commit
+  time, write count, sync count and write size compare the two disk classes at the same load and time, on the same CPU and RAM.
+  Confounds: the disk class follows the region (local SSD: Sydney, Tokyo, Ashburn, Netherlands, Singapore, Mumbai; Hyperdisk: Los
+  Angeles, London, Hong Kong, Seoul), and the fleet's throughput is a mixed fleet's, not an all-local-SSD fleet's.
+  The other options and their confounds: (a) mixed C3/C4 local SSD — two CPU generations and two SSD devices; (b) C4 in eight zones,
+  two validators moved — a C4 CPU against run 1's C3 and two latencies changed; (c) seven validators on C3 local SSD — a committee of
+  seven, not supported by the harness today (about one more unit); (d) other regions — another latency matrix.
+- D-L2: the Hyperdisk leg on the same shape comes inside (e); under (a)-(d) it is a second deployment.
+- D-L3 plan: `a0-control I L M4 M16`, `p1-mdbx-advice M16`, `a0-prime M16` (run 1's steps and relative order, so rows pair with run 1).
+- D-L4 when: after run 1's teardown, before G3, with run 1's image. About 3 h 50 min of fleet time, about $40.
+- D-L5: one local SSD (the first of the two on `c3-standard-8-lssd`), as the probe measured it; no RAID 0.
+- D-L6: `read_ahead_kb` is 128 on both devices (probe r20261112-0024): nothing to set. But `max_sectors_kb` is 256 on the Hyperdisk and
+  2,048 on the local SSD (and `nr_requests` 511 against 1,023): a write can be up to 2 MiB on the local SSD. Left at the defaults and
+  stated; the per-write size is reported per class.
+- D-L7: a local-SSD node keeps the fleet's Hyperdisk boot disk (OS, docker, logs on the same device on every node).
+- D-L8: no page for this deployment; a section of run 1's analysis.
+- Not verified (web access is denied in this session, so the GCE documentation could not be read): whether a local-SSD shape accepts
+  live migration. The harness therefore creates `-lssd` nodes with the TERMINATE policy the probe used live. Consequence to accept: a
+  host maintenance event during the 4-hour deployment would stop that node and blank its SSD; the deploy refuses to re-format a node
+  whose SSD was mounted before (it reports `lost`), so such a node shows as down, never as silently restarted on an empty database.
+- Quota binds nowhere (C3 100-300 vCPUs per region, C4 300, local SSD GB unlimited); `c3-standard-8` and `c3-standard-8-lssd`
+  availability per zone: the handoff's table (the six local-SSD zones have it); `c3-standard-8` in the four Hyperdisk zones and the
+  fallback zones still to read before G2.
