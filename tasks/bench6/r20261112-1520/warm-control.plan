@@ -1,0 +1,3 @@
+# warm-control.plan — one calibration arm after run 1's walk (2026-11-12, orchestrator's addition).
+# Format: benchmark/launch/bench6-run1.plan.
+tasks/bench6/r20261112-1520/a0-warm.arm  M16 M16

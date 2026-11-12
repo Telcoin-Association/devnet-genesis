@@ -1,0 +1,5 @@
+# A0-warm, added by the orchestrator on 2026-11-12 after the walk (not in the plan the user approved at G2).
+# Every switch at its default, as a0-control and a0-prime, and NO host step: the rolling restart keeps the
+# page cache that a0-prime's M16 refilled. Its two M16 blasts give the control at the run's final database
+# size with a warmer cache, to separate the cold cache after an eviction from the database's age.
+name a0-warm
