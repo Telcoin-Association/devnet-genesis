@@ -1064,3 +1064,19 @@ No fleet-level local-SSD deployment in bench 6: on GCE a local SSD makes the com
 45 % of its provisioned IOPS when healthy. Keep the write-count columns (they show which constraint binds), and judge the
 storage arms on commit time and throughput. If the ceiling ever approaches 10,000 tx/s, raise the provisioned IOPS (a
 deploy-time knob) before changing the disk class. A bare-metal NVMe comparison would need a host outside GCE.
+
+## G1 — THE USER'S ANSWERS (2026-11-12 ≈ 01:40Z, through the gate dialog)
+1. **Vote-fix arm (D1): both forms.** Run 1 measures the adaptive arm (`v-vote`, K = 4) and the always-on arm (`v-vote-floor`,
+   K = 0). The headline's form is chosen at G3.
+2. **Pipelined persist (D7): in if both open gates pass.** The orchestrator runs gate 5 (cycle bench, quiet host) and gate 6
+   (switch-off sets on the stack). Both pass → integrate the stack, its arms run, the admission bound is 3 in those arms.
+   Either fails → cut: the image ships without the switch (the three plumbing commits reverted on the image branch) and the
+   four arm files drop it. No further question.
+3. **Disk comparison (D82): ADD A LOCAL-SSD DEPLOYMENT** (the user chose this over the orchestrator's recommendation of none):
+   a short extra deployment on a local-SSD shape for the control and advice arms, about 2-3 h more fleet time, a different
+   machine type from the fleet's `c3-highcpu-8` (confound to state). It needs harness work first (the node's data
+   directory on the local SSD, the shape in every region, an arm plan and env file) and goes to G2 with the run-1 table.
+4. **Bench-5 page: fix and publish directly.** The trigger sentence is corrected (not identified; a re-open alone does not
+   produce it; what the probes showed) and the page is pushed without a further check.
+Everything else follows the recorded recommendations (brief §2 and §6): P2 dropped, P3 not in run 1, no prefault-off
+switch, no stage-step change, parent grace 150 ms with 100 ms as the fallback arm, nothing local pruned.
