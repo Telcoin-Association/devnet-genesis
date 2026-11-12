@@ -21,7 +21,7 @@ res="${ROOT}/tasks/bench6/per-commit-check-${h}.txt"
 touch "${res}"
 export CARGO_INCREMENTAL=0 RUSTFLAGS="-D warnings -D unused_extern_crates" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 mkdir -p "$PWD/target/tmp" && export TMPDIR="$PWD/target/tmp"
-ok=0; fail=0; left=0; state=done
+ok=0; fail=0; left=0; state="done"
 for sha in $(git rev-list --reverse "${base}..${head}"); do
     s="$(git rev-parse --short=9 "${sha}")"
     if grep -q "^OK ${s} " "${res}"; then ok=$((ok + 1)); continue; fi
