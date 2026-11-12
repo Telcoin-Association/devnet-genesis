@@ -1,0 +1,25 @@
+# I-6d — bench-5 page, fourth correction (one sentence: memory pressure is no longer "untested"), re-bundle, site gates
+
+You are unit **I-6d** of the bench-6 program.
+Read `tasks/bench6-agent-rules.md` first (sections "What nobody but the orchestrator does", "Checkpoint, budget, scratch", "Investigations", "HAND BACK").
+Checkpoint: `tasks/checkpoint-bench6-I-6d.md` (on start read your own checkpoint and continue from the first unfinished section; rewrite it after EACH section).
+Output directory: `benchmark/private/bench6-prep/I-6d/`. Scratch: `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/ef19b04c-8e16-4dbc-9365-9cbe3d19bce9/scratchpad/I-6d/`; logs and anything large under `benchmark/work/bench6-scratch/I-6d/`.
+Load the `human-writing` skill before you edit prose. Budget: under 120k tokens. Final answer: at most 25 lines.
+
+You are the ONLY writer of `tasks/bench5-report-r20261107-1504.md` and `benchmark/report/backfill/2026-11-07-main-fixes.json`, and you write nothing else in the repo. You do not commit and you do not push, in any repo.
+
+## Why
+The third pass (unit I-6c, published 2026-11-12 as tn-benchmarks c4c94d8) corrected the trigger passage and listed three statements it had to leave alone. The user has now approved correcting them:
+1. Backfill `caveats[2]`, its last sentence: "Memory pressure is the likely reason r20261105-0803 wrote less (about 75 %); how it undoes the large blocks is untested." A later local test measured it.
+2. The report (`tasks/bench5-report-r20261107-1504.md`), finding 3: "(untested)" in the 2026-11-09 update (about line 499) and "Whether reclaim breaks the large folios up … is untested" in the 2026-11-11 update.
+3. The report's lever lines that give whole-map `MADV_RANDOM` as 1.00× without the condition: the advice gives 1.00× only when it is applied before the large blocks exist; applied after the file was read through, it leaves 11.88×.
+
+## Sections (checkpoint after each)
+1. **Verify the numbers** in `benchmark/private/bench6-prep/I-1r/verdict.md` (lines 17 and 55-71: what memory pressure did to the device-bytes factor with and without the advice; I-6c read "5.0 to 1.00 with the advice, 11 to 4.3 without it, and it stayed there") and in `benchmark/private/bench6-prep/probe/SUMMARY-r20261111-2310.txt` (line 12: the advice applied after a read-through, 11.88). Use the figures the files give; say so if they differ from the ones quoted here. Write old and new text with each figure's file and line to `benchmark/private/bench6-prep/I-6d/corrections-4.md`.
+2. **Backfill**: replace ONLY the clause "how it undoes the large blocks is untested" (keep "Memory pressure is the likely reason r20261105-0803 wrote less (about 75 %)") by one or two plain sentences: in a later test on one machine, memory pressure cut the extra bytes from <a> times to <b> times, and with the random-access hint applied it removed them (<c> times to <d>). The page's voice: no "folio", no "MADV_RANDOM", no "reclaim", no unit names; "large multi-page blocks", "random-access hint", "times"; no em dashes. Append one dated sentence (2026-11-12) to `_comment`. Schema unchanged (same keys, 16 methodology, 20 caveats), valid JSON, nothing else changed; keep a pre-edit copy in scratch and put the pretty-printed diff into `corrections-4.md`.
+3. **Report**: minimal edits for items 2 and 3 in the report's own style and wrapping, and entries in the existing "## Corrections (2026-11-12)" list (add to it; do not open a second list for the same day).
+4. **Re-bundle and gates, exactly as I-6c did**: its record is `tasks/checkpoint-bench6-I-6c.md` and `benchmark/private/bench6-prep/I-6c/corrections-3.md` (the commands; a `git worktree` of devnet-genesis pinned at 149f941 with only the backfill replaced and `benchmark/results` symlinked; tools from a `git archive` of tn-transaction-generator at 6dad96f; `--analysis-sha 6dad96f`; about 3 minutes). BEFORE the bundle: copy the present `runs/r20261107-1504/{run.json,report.html}` of `/home/drtnarg/coding/telcoin/tn-benchmarks` (they equal its HEAD c4c94d8) into your output directory as `before-run.json` and `before-report.html`; and wait while `tasks/bench6/QUIET` exists (an image build holds it now; poll every 30 s, give up after 60 minutes). Marker check on `benchmark/results/` as I-6c did; remove the worktree with `git worktree remove`. Then the five site gates in tn-benchmarks (`build.py --check`, `build.py --check runs/r20261107-1504`, `scrub.py`, `scrub.py runs/r20261107-1504`, `python3 -m unittest discover -s tests`), each with a log ending `EXIT=`.
+5. **The proof that only the text changed**: the new `run.json` differs from `before-run.json` only at `caveats[2]` and `report.sha256`; `report.html` only in its build timestamp. Print every differing key path. If anything else differs, stop and hand back with the list.
+
+## Hand back
+Status; the old and new sentence verbatim; figures that did not check; the differing key paths; each gate's `EXIT=`; `git -C /home/drtnarg/coding/telcoin/tn-benchmarks status --short` and `diff --stat`.
