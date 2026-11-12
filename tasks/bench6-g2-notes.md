@@ -112,3 +112,11 @@ under the deployment scripts' key generation. Each fails early and loudly if wro
 - Harness gate on 88fd9c0, alone on the host: 1,530 of 1,531 tests and 491 of 491 mutation cases; the one failure (a keygen test
   that asserts a SIGHUP stops its jobs) came from launching the gate under `nohup`; that module's gate re-run without it is clean.
 - Workspace gates on 2df831e3c: fmt, check, clippy clean, 4,388 tests passed (one run; to repeat once before it becomes the head).
+
+## G2 — THE USER'S ANSWERS (2026-11-12 ≈ 10:55Z, through the gate dialog)
+1. **Run 1: go as planned.** Nine arms, pipelined persist in; launch after the image is pushed and `gcloud auth login` is fresh.
+2. **Image push: allowed; the session retries** the same `orch-image-cut.sh` call.
+3. **Run 1b: SKIPPED.** No local-SSD deployment in bench 6. The one-VM probe stays the only disk-class evidence. The harness for it
+   (per-node machine types, the mount at deploy step 3, the arm summary by disk class, `bench6-run1-lssd.{env,plan}`) stays in the
+   tree, tested and unused; with its knobs unset the deploy is byte-identical to before.
+4. **Bench-5 page: fix the "untested" sentence and republish.**
