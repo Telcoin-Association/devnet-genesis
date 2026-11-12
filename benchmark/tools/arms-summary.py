@@ -97,6 +97,18 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
                  every other writer on it count too, and wr_ops_per_output is an upper bound for the persist's own.
                  The probe's commit_iops (operations / commit seconds) is not used: it reads 4-8x the cap on the probe
                  itself, so it is not a device rate.
+    local SSD    (bench 6) only when an instance carries data_disk (the deploy with BENCH_NODE_DATADIR_LSSD=1): a node
+                 whose instances[].data_disk.class is local-ssd has no provisioned caps, so its shares, binds and
+                 cap floor read "n/a (local SSD, no provisioned caps)" and its rates stay measured; --disk-iops /
+                 --disk-mibps and node_disk are the boot-disk nodes' caps only (disk_caps; disk_caps_by_node beside
+                 it when a node is local-SSD). Per node disk_class (local-ssd | boot); disk_reading has one clause
+                 per disk class (the boot-disk clause in the wording above) and names the machine types of a class
+                 that spans more than one. When the validators fall into more than one (disk class, machine type)
+                 group (machine type: instances[].machine_type, else the manifest's machine_type), by_disk_class
+                 lists each group's validators and their medians (statistics.median: an even count takes the mean
+                 of the middle two) of the engine, amplification, refault and disk columns, arms.md prints them in
+                 a "by disk class" table and the row heading names the groups; the fleet medians stay over all
+                 validators.
   verdict        the CHECKS rows that apply to the arm's role (from the topic of the switches it
                  turned on, switches.tsv) and the row's type: "<threshold>: <value> met|not met", or
                  n/a with the missing input. No other judgement.
@@ -172,6 +184,11 @@ F = {
     "c_flush_ticks": "disk_flush_ticks_ms_total",
     # manifest node_disk (bench-lib.sh bench_manifest_init: the requested NODE_DISK_IOPS / NODE_DISK_THROUGHPUT, MiB/s)
     "m_node_disk": "node_disk", "m_prov_iops": "provisioned_iops", "m_prov_tput": "provisioned_throughput",
+    # manifest instances[].data_disk and machine_type (bench 6 local SSD, arms/MANIFEST-FIELDS.md "Local-SSD deployment")
+    "m_data_disk": "data_disk", "m_dd_class": "class", "v_lssd": "local-ssd", "v_boot": "boot",
+    "m_machine_type": "machine_type",
+    # arms.json by_disk_class group keys and engine_by_node[].disk_class (they share spellings with the names above)
+    "o_disk_class": "disk_class", "o_machine_type": "machine_type", "o_nodes": "nodes",
     # switches.tsv columns
     "s_key": "key", "s_default": "default", "s_topic": "topic",
     # manifest (benchmark/arms/MANIFEST-FIELDS.md)
@@ -264,6 +281,13 @@ DISK_BINDS_PCT = 80.0
 DISK_LOW_PCT = 50.0
 BINDS = ("iops", "throughput", "neither")
 MIB = 1048576.0
+# A local SSD has no provisioned caps: the text starts with n/a, so is_na holds and nothing divides by it.
+NO_CAPS = "n/a (local SSD, no provisioned caps)"
+DISK_CLASSES = (F["v_lssd"], F["v_boot"])     # the "by disk class" order
+# by_disk_class: the validators' median per (disk class, machine type) group, (column, decimals) in table order
+GROUP_COLS = (tuple((k, 1) for k in ("exec_txps", "execute_us_tx", "persist_us_tx", "commit_us_tx", "commit_ms_output",
+                                     "task_us_tx", "txs_per_output")) + (("amp", 3),) +
+              tuple((k, 1) for k in ("refault_per_min", "majfault_per_min", "memcg_refault_per_min")) + DISK_COLS)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
@@ -974,6 +998,34 @@ def disk_caps(manifest, iops=None, mibps=None):
     return out
 
 
+def node_groups(manifest, names):
+    """{node: (disk class, machine type)} for <names> when an instance carries data_disk (the deploy with
+    BENCH_NODE_DATADIR_LSSD=1), else {} (every run before it). A node whose data_disk.class is not local-ssd, or that
+    has no data_disk, is on the boot disk; its machine type is instances[].machine_type, else the manifest's."""
+    inst = dict((i[F["m_name"]], i) for i in manifest.get(F["m_instances"]) or []
+                if isinstance(i, dict) and i.get(F["m_role"]) in (F["v_validator"], F["v_observer"]) and i.get(F["m_name"]))
+    if not any(isinstance(i.get(F["m_data_disk"]), dict) for i in inst.values()):
+        return {}
+    top = manifest.get(F["m_machine_type"]) or na("%s (manifest %s[].%s or %s)" % (
+        F["m_machine_type"], F["m_instances"], F["m_machine_type"], F["m_machine_type"]))
+    out = collections.OrderedDict()
+    for n in names:
+        i = inst.get(n) or {}
+        dd = i.get(F["m_data_disk"])
+        local = isinstance(dd, dict) and dd.get(F["m_dd_class"]) == F["v_lssd"]
+        out[n] = (F["v_lssd"] if local else F["v_boot"], str(i.get(F["m_machine_type"]) or top))
+    return out
+
+
+def lssd_caps():
+    return collections.OrderedDict([("iops", NO_CAPS), ("mibps", NO_CAPS)])
+
+
+def node_caps(caps, groups, n):
+    """The caps node <n>'s shares are read against: none on a local SSD, else the boot disk's (options or node_disk)."""
+    return lssd_caps() if n in groups and groups[n][0] == F["v_lssd"] else caps
+
+
 def disk_span(rows, a, b, ks):
     """(samples, None): the persist samples in [a, b] that carry every counter in <ks>, sorted; or (None, n/a) with
     fewer than two of them, or when a counter went back between two of them (a reboot restarts /proc/diskstats)."""
@@ -1092,6 +1144,70 @@ def disk_reading(per_node, caps):
             "%s): no cap bounds most nodes%s" % (
                 k, len(meas), near, " (%s)" % which if which else "", share[hi[0]],
                 "IOPS" if hi[1]["iops_pct_of_cap"] >= hi[1]["mibps_pct_of_cap"] else "throughput", hi[0], medians, tail))
+
+
+def lssd_reading(per_node, types):
+    """The local-SSD clause: no caps to read against, so the sustained rates, the write size and the flushes."""
+    head = "local SSD%s, no provisioned caps" % types
+    got = [e for e in per_node.values() if not is_na(e["wr_iops"])]
+    if not got:
+        return "%s: %s; no node measured (0 of %d)" % (head, next(iter(per_node.values()))["wr_iops"], len(per_node))
+    absent = [n for n, e in per_node.items() if is_na(e["wr_iops"])]
+
+    def med(k, d):
+        vals = [e[k] for e in got if not is_na(e[k])]
+        return cell(round(median(vals), d)) if vals else "n/a"
+    return "%s: sustained write IOPS %s, MiB/s %s, %s KiB per write, %s flushes per output (median of %d nodes)%s" % (
+        head, med("wr_iops", 1), med("wr_mibps", 2), med("wr_kib_per_op", 1), med("flush_ops_per_output", 2), len(got),
+        "; not measured on %s" % ", ".join(absent) if absent else "")
+
+
+def class_reading(per_node, caps, groups):
+    """disk_reading with the nodes' disk classes: one clause per class (the boot disk's in disk_reading's wording),
+    naming the machine types of a class that spans more than one; without data_disk, or with every node on one boot
+    disk type, disk_reading itself."""
+    by = collections.OrderedDict()
+    for c in DISK_CLASSES:
+        sub = collections.OrderedDict((n, e) for n, e in per_node.items() if n in groups and groups[n][0] == c)
+        if sub:
+            by[c] = sub
+    types = dict((c, collections.OrderedDict()) for c in by)
+    for c, sub in by.items():
+        for n in sub:
+            types[c][groups[n][1]] = types[c].get(groups[n][1], 0) + 1
+    if not by or (list(by) == [F["v_boot"]] and len(types[F["v_boot"]]) == 1):
+        return disk_reading(per_node, caps)
+    out = []
+    for c, sub in by.items():
+        span = " (%s)" % ", ".join("%d on %s" % (k, t) for t, k in types[c].items()) if len(types[c]) > 1 else ""
+        out.append(lssd_reading(sub, span) if c == F["v_lssd"] else "boot disk%s: %s" % (span, disk_reading(sub, caps)))
+    return "; ".join(out)
+
+
+def group_medians(per_node, validators, groups):
+    """by_disk_class: the validators' median of GROUP_COLS per (disk class, machine type) group, classes in
+    DISK_CLASSES order and machine types in validator order; [] unless the validators fall into two groups or more."""
+    keys = []
+    for c in DISK_CLASSES:
+        for n in validators:
+            if n in groups and groups[n][0] == c and groups[n] not in keys:
+                keys.append(groups[n])
+    if len(keys) < 2:
+        return []
+    out = []
+    for c, t in keys:
+        names = [n for n in validators if groups.get(n) == (c, t)]
+        es = [per_node[n] for n in names if n in per_node]
+        g = collections.OrderedDict([(F["o_disk_class"], c), (F["o_machine_type"], t), (F["o_nodes"], names)])
+        for k, d in GROUP_COLS:
+            vals = [e[k] for e in es if not is_na(e[k])]
+            g[k] = round(median(vals), d) if vals else next((e[k] for e in es), na("validator logs"))
+        out.append(g)
+    return out
+
+
+def group_label(g):
+    return "%s / %s (%d)" % (g[F["o_disk_class"]], g[F["o_machine_type"]], len(g[F["o_nodes"]]))
 
 
 def commit_fit(nds, validators, a, b):
@@ -1356,7 +1472,7 @@ def bench6_cols(nds, validators, a, b, r, prom, first):
 
 # ---------------------------------------------------------------- the report
 
-def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis, caps):
+def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis, caps, groups):
     t_first = blocks[0][0] if blocks else None
     cum = []
     acc = 0
@@ -1404,7 +1520,9 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             amp, rr = amp_row(nds[n], csv_cache.get(n), a, b)
             e.update(amp)
             e.update(rr)
-            e.update(disk_row(nds[n], csv_cache.get(n), a, b, caps))
+            e.update(disk_row(nds[n], csv_cache.get(n), a, b, node_caps(caps, groups, n)))
+            if groups:
+                e[F["o_disk_class"]] = groups[n][0]
             if "proc_written_bytes" in e and switch_on(r["arm_rec"], F["sw_pipelined"]):
                 e["proc_written_bytes_upper_bound"] = True     # D56: pipelined persists overlap the next build
             per_node[n] = e
@@ -1430,7 +1548,10 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         bl = [v["binds"] for v in per_node.values() if v["binds"] in BINDS]
         m["binds_nodes"] = (collections.OrderedDict((x, bl.count(x)) for x in BINDS) if bl
                             else next((v["binds"] for v in per_node.values()), na("node logs")))
-        m["disk_reading"] = disk_reading(per_node, caps)
+        m["disk_reading"] = class_reading(per_node, caps, groups)
+        by_group = group_medians(per_node, validators, groups)
+        if by_group:
+            m["by_disk_class"] = by_group
         ev = [res.get(F["m_res_after"]) for h in r["arm_rec"]["host_steps"] if h.get(F["m_step"]) == F["m_evict"]
               for res in (h.get(F["m_nodes"]) or {}).values() if isinstance(res, dict)]
         ev = [x for x in ev if isinstance(x, (int, float))]
@@ -1683,8 +1804,11 @@ def to_markdown(doc, rows, drift, axis):
     out += ([""] + storage_notes if storage_notes else []) + [""]
     for r in rows:
         m = r["m"]
-        out += ["## %s: %s → %s (%d s; %s; blast index %s)" % (r["row_id"], iso(r["from"]), iso(r["to"]),
-                                                               int(r["to"] - r["from"]), r["basis"], r["blast_idx"]), ""]
+        groups = m.get("by_disk_class") or []
+        out += ["## %s: %s → %s (%d s; %s; blast index %s%s)" % (
+            r["row_id"], iso(r["from"]), iso(r["to"]), int(r["to"] - r["from"]), r["basis"], r["blast_idx"],
+            "; validators in %d groups: %s" % (len(groups), ", ".join(group_label(g) for g in groups)) if groups else ""),
+            ""]
         out += ["| node | exec tx/s | execute | persist | commit | task us/tx | tx/output | commit ms/output | amp | "
                 "rr/vma | certified % | committed % |", "|---|" + "---:|" * 11]
         for n, e in m["engine_by_node"].items():
@@ -1709,6 +1833,25 @@ def to_markdown(doc, rows, drift, axis):
                     cell(e["wr_ms_per_op"]), cell(e["flush_ms_per_op"]), cell(e["iops_pct_of_cap"]),
                     cell(e["mibps_pct_of_cap"]), cell(e["binds"]), cell(e["cap_floor_ms_per_output"])))
         out += ["", "Disk: %s." % m["disk_reading"]]
+        if groups:
+            # the byte ratio (amp) stands beside the commit time, the write and flush counts and the write size
+            out += ["", "By disk class (the validators' median per disk class and machine type; the fleet medians above "
+                    "are over all validators):", "",
+                    "| disk class / machine type (validators) | exec tx/s | execute | persist | commit | task us/tx | "
+                    "tx/output | commit ms/output | amp | write ops / output | flushes / output | KiB / op | write IOPS "
+                    "(peak) | write MiB/s (peak) | ms / write | ms / flush | % of IOPS cap | % of MiB/s cap | cap floor "
+                    "ms / output | refault / majfault / memcg refault per min |", "|---|" + "---:|" * 19]
+            for g in groups:
+                out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s (%s) | %s (%s) | %s | %s | %s "
+                           "| %s | %s | %s / %s / %s |" % (
+                               group_label(g), cell(g["exec_txps"]), cell(g["execute_us_tx"]), cell(g["persist_us_tx"]),
+                               cell(g["commit_us_tx"]), cell(g["task_us_tx"]), cell(g["txs_per_output"]),
+                               cell(g["commit_ms_output"]), cell(g["amp"]), cell(g["wr_ops_per_output"]),
+                               cell(g["flush_ops_per_output"]), cell(g["wr_kib_per_op"]), cell(g["wr_iops"]),
+                               cell(g["wr_iops_peak"]), cell(g["wr_mibps"]), cell(g["wr_mibps_peak"]),
+                               cell(g["wr_ms_per_op"]), cell(g["flush_ms_per_op"]), cell(g["iops_pct_of_cap"]),
+                               cell(g["mibps_pct_of_cap"]), cell(g["cap_floor_ms_per_output"]), cell(g["refault_per_min"]),
+                               cell(g["majfault_per_min"]), cell(g["memcg_refault_per_min"])))
         out += ["", "Stages (p50 ms): %s." % (st if is_na(st) else ", ".join(
             "%s %s" % (k, cell(v["median_ms"])) for k, v in st.items())),
             "Votes: lock_ms p95 %s; behind refusals per header, max %s. Commit fit: %s." % (
@@ -1826,8 +1969,9 @@ def summarize(a):
         notes.append("stages: skipped (--no-stages)")
     blocks = block_table([g["docs"] for g in groups])
     caps = disk_caps(manifest, a.disk_iops, a.disk_mibps)
+    groups = node_groups(manifest, nodes)
     measure(run_dir, manifest, rows, nds, validators, os.path.join(run_dir, "persist"), cert_doc, stage_doc, blocks,
-            a.drift_axis, caps)
+            a.drift_axis, caps, groups)
     drift = apply_drift(rows)
     apply_checks(rows)
     for x in arms:
@@ -1854,6 +1998,8 @@ def summarize(a):
                                                    ("seconds", int(r["to"] - r["from"])), ("window_basis", r["basis"])]
                                                   + list(r["m"].items())) for r in rows]),
         ("log_files", dict((n, nd.files) for n, nd in nds.items())), ("disk_caps", caps)])
+    if any(c == F["v_lssd"] for c, _ in groups.values()):
+        doc["disk_caps_by_node"] = collections.OrderedDict((n, node_caps(caps, groups, n)) for n in groups)
     return (doc, to_markdown(doc, rows, drift, a.drift_axis)), 0
 
 
@@ -1895,8 +2041,10 @@ def parse_args(argv):
                    help="the drift coordinate: cumulative chain transactions in millions (default) or wall minutes")
     p.add_argument("--no-stages", action="store_true", help="skip the stage-latency pass")
     p.add_argument("--jobs", type=int, default=4, help="log files filtered at once (default 4)")
-    p.add_argument("--disk-iops", type=float, help="the disk's provisioned IOPS (default: manifest node_disk)")
-    p.add_argument("--disk-mibps", type=float, help="the disk's provisioned MiB/s (default: manifest node_disk)")
+    p.add_argument("--disk-iops", type=float,
+                   help="the boot disk's provisioned IOPS (default: manifest node_disk); never a local SSD's")
+    p.add_argument("--disk-mibps", type=float,
+                   help="the boot disk's provisioned MiB/s (default: manifest node_disk); never a local SSD's")
     a = p.parse_args(argv)
     for k in ("disk_iops", "disk_mibps"):
         if getattr(a, k) is not None and not getattr(a, k) > 0:

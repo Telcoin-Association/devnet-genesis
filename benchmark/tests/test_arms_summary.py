@@ -15,6 +15,10 @@ cow pages. Persist CSVs (v01-v03; v04 has none) every 30 s: the disk writes 245,
 1.218, a0b 1.698, so the slope is 30 / 1.458 us/tx per Mtx and a0 -> a0b moved +30 %.
 With disk=<node_disk> the CSVs also carry the diskstats counters of disk_rate() against 20,000 IOPS / 800 MiB/s
 (H18): a0 IOPS-bound, p1 throughput-bound, v far from both, a0b mixed; v03's CSV has no tick columns.
+make_split_run() re-casts that run as bench 6's option (e) with instances[].data_disk: six validators on a
+local SSD (c3-standard-8-lssd), two on the boot disk of c3-standard-8 and two on c3-highcpu-8, and the observer
+on c3-standard-8; every node's rates and arm a0's commit_ms are its own (SPLIT). Without data_disk the output
+is the base commit's (BASE_COMMIT), byte for byte.
 """
 import ast
 import csv
@@ -23,6 +27,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -291,6 +297,104 @@ def bench6_pages(node, ts, cn):
     if node == "bench-validator-04" and 5900 <= ts < 6600:
         drop = "mdbx_last_pgno"
     return "".join(" %s=%s" % kv for kv in f if kv[0] != drop)
+
+
+# bench 6 local SSD (tasks/bench6/briefs/l-common.md, option e): (name, machine type, disk class) in index order;
+# v09 records no machine_type of its own, so the manifest's machine_type (c3-highcpu-8) stands in.
+FLEET_E = ([("bench-validator-01", "c3-standard-8", "boot"), ("bench-validator-02", "c3-standard-8", "boot")] +
+           [("bench-validator-0%d" % i, "c3-standard-8-lssd", "local-ssd") for i in range(3, 8)] +
+           [("bench-validator-08", "c3-highcpu-8", "boot"), ("bench-validator-09", None, "boot"),
+            ("bench-validator-10", "c3-standard-8-lssd", "local-ssd"), ("bench-observer-01", "c3-standard-8", "boot")])
+LSSD_DD = {"class": "local-ssd", "by_id": "google-local-nvme-ssd-0", "device": "/dev/nvme1n1", "size_bytes": 402653184000,
+           "uuid": "0b1c2d3e-0000-4000-8000-000000000001", "fstype": "ext4", "mount": "/var/lib/telcoin",
+           "mount_options": "rw,relatime,discard,errors=remount-ro,commit=30",
+           "fstab_root_options": "discard,commit=30,errors=remount-ro", "mkfs": "done", "read_ahead_kb": 128,
+           "provisioned_iops": None, "provisioned_throughput": None, "ts": "2026-11-12T00:00:00Z"}
+BOOT_DD = {"class": "boot", "type": "hyperdisk-balanced", "size_gb": 100, "provisioned_iops": 20000,
+           "provisioned_throughput": 800}
+NO_CAPS = "n/a (local SSD, no provisioned caps)"
+# Per node, constant over the run: (write IOPS, KiB per write, device ms per write, flushes per 30 s, ms per flush,
+# arm a0's commit_ms). The local SSDs write 16 KiB at 28,800-38,400 IOPS with three flushes an output; the observer
+# is the boot disk's outlier, outside every validator median.
+SPLIT = {"bench-validator-01": (18000, 4, 1.3, 3, 2, 100), "bench-validator-02": (15000, 4, 1.3, 3, 2, 120),
+         "bench-validator-08": (9000, 8, 1.5, 3, 2, 150), "bench-validator-09": (12000, 8, 1.5, 3, 2, 170),
+         "bench-observer-01": (3000, 4, 1.0, 3, 2, 300)}
+SPLIT.update(("bench-validator-%02d" % i, (28800 + 1920 * j, 16, 0.1, 9, 1, 60 + 4 * j))
+             for j, i in enumerate((3, 4, 5, 6, 7, 10)))
+
+
+def make_split_run(root, fleet=FLEET_E, no_csv=()):
+    """make_run(disk=CAPS) as a fleet whose instances carry data_disk and machine_type: every node's log is v01's
+    with arm a0's commit_ms (100) set to the node's own, and its persist CSV (none for <no_csv>) carries the node's
+    SPLIT rates, so in a0/M16 (480 s, 48 outputs) a node writes 10 x IOPS per output and amp = IOPS x KiB / 120."""
+    run = make_run(root, disk=dict(CAPS))
+    man = json.loads((run / "manifest.json").read_text())
+    man["machine_type"] = "c3-highcpu-8"
+    man["instances"] = []
+    for name, mt, cls in fleet:
+        inst = {"name": name, "role": "observer" if "observer" in name else "validator",
+                "data_disk": dict(LSSD_DD if cls == "local-ssd" else BOOT_DD)}
+        if mt:
+            inst["machine_type"] = mt
+        man["instances"].append(inst)
+    (run / "manifest.json").write_text(json.dumps(man))
+    text = gzip.decompress((run / "logs" / "bench-validator-01-unit-stdout.log.gz").read_bytes()).decode()
+    for f in list((run / "logs").iterdir()) + list((run / "persist").iterdir()):
+        f.unlink()
+    header = (TOOLS / "persist-csv-header.txt").read_text().strip().split(",")
+    for name, _, _ in fleet:
+        iops, kib, ms, fl, fms, commit = SPLIT[name]
+        (run / "logs" / (name + "-unit-stdout.log.gz")).write_bytes(
+            gzip.compress(text.replace("commit_ms=100 ", "commit_ms=%d " % commit).encode()))
+        if name in no_csv:
+            continue
+        with open(str(run / "persist" / (name + ".csv")), "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(header)
+            for s in range(0, 241):
+                row = dict.fromkeys(header, "")
+                row.update(ts_unix=T0 + 30 * s, pid=4242, disk_wr_bytes_total=s * 30 * iops * kib * 1024,
+                           disk_wr_ios_total=s * 30 * iops, disk_wr_ticks_ms_total=int(round(s * 30 * iops * ms)),
+                           disk_flush_ios_total=s * fl, disk_flush_ticks_ms_total=s * fl * fms)
+                w.writerow([row[c] for c in header])
+    return run
+
+
+def split_node(name):
+    """One node's a0/M16 values by hand from SPLIT (the tool rounds each node's value before any median)."""
+    iops, kib, ms, fl, fms, commit = SPLIT[name]
+    lssd = dict((n, c) for n, _, c in FLEET_E)[name] == "local-ssd"
+    mibps = iops * kib / 1024.0
+    refault = "n/a (missing: two persist samples with %s in the window)"
+    return {"exec_txps": 100.0, "execute_us_tx": 50.0, "persist_us_tx": 120.0, "commit_us_tx": float(commit),
+            "commit_ms_output": float(commit), "task_us_tx": 170.0, "txs_per_output": 1000, "amp": iops * kib / 120.0,
+            "refault_per_min": refault % "vm_workingset_refault_file_pages_total",
+            "majfault_per_min": refault % "vm_pgmajfault_total",
+            "memcg_refault_per_min": refault % "memcg_workingset_refault_file_pages_total",
+            "wr_ops_per_output": iops * 10.0, "wr_kib_per_op": float(kib), "flush_ops_per_output": round(fl / 3.0, 2),
+            "wr_iops": float(iops), "wr_mibps": round(mibps, 2), "wr_iops_peak": float(iops), "wr_mibps_peak": round(mibps, 2),
+            "wr_ms_per_op": ms, "flush_ms_per_op": float(fms),
+            "iops_pct_of_cap": NO_CAPS if lssd else round(iops * 100.0 / 20000, 1),
+            "mibps_pct_of_cap": NO_CAPS if lssd else round(mibps * 100.0 / 800, 1),
+            "cap_floor_ms_per_output": NO_CAPS if lssd else round(1000.0 * max(iops * 10.0 / 20000, iops * 10.0 * kib / 1024.0 / 800), 1)}
+
+
+def mid(xs, d):
+    """The median the tool takes (statistics.median): the middle value, or the mean of the middle two."""
+    xs = sorted(xs)
+    h = len(xs) // 2
+    return round(xs[h] if len(xs) % 2 else (xs[h - 1] + xs[h]) / 2.0, d)
+
+
+# The harness before the local-SSD deployment (tasks/bench6/briefs/l-common.md): without data_disk the tool's
+# arms.md and arms.json are this commit's. RUN_BASE runs a `git show` copy of its tool beside the real siblings.
+BASE_COMMIT = "ae43747"
+RUN_BASE = ("import importlib.util, sys\n"
+            "spec = importlib.util.spec_from_file_location('arms_summary_base', sys.argv[1])\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+            "mod.HERE, mod.BENCH = sys.argv[2], sys.argv[3]\n"
+            "sys.exit(mod.main(sys.argv[4:]))\n")
 
 
 class ArmsSummaryTests(unittest.TestCase):
@@ -736,6 +840,194 @@ class ArmsSummaryTests(unittest.TestCase):
         self.assertEqual((d["wr_iops"], d["wr_ms_per_op"]), (
             "n/a (missing: a monotonic disk_wr_ios_total (it went back at 1970-01-01T00:01:30Z))",
             "n/a (missing: a monotonic disk_wr_ios_total (it went back at 1970-01-01T00:01:30Z))"))
+
+    def test_a_local_ssd_only_fleet(self):
+        """bench 6 local SSD: a node whose data_disk.class is local-ssd has no provisioned caps, so its shares, binds
+        and cap floor are the local-SSD text and nothing divides by it; its rates stay measured; one group, so no
+        by_disk_class; --disk-iops / --disk-mibps never reach it."""
+        run = make_run(self.tmp, disk=dict(CAPS))
+        man = json.loads((run / "manifest.json").read_text())
+        for inst in man["instances"]:
+            inst.update(machine_type="c3-standard-8-lssd", data_disk=dict(LSSD_DD))
+        (run / "manifest.json").write_text(json.dumps(man))
+        for args in ((), ("--disk-iops", "20000", "--disk-mibps", "800")):
+            with self.subTest(args=args):
+                doc, md = self.summary(run, "--no-stages", *args)
+                a0 = self.rows(doc)["a0/M16"]
+                self.assertEqual(self.disk(a0, "bench-validator-01"),
+                                 (180000.0, 4.0, 1.0, 18000.0, 70.31, 18000.0, 70.31, 1.3, 2.0) + (NO_CAPS,) * 4)
+                self.assertEqual(set(e["disk_class"] for e in a0["engine_by_node"].values()), {"local-ssd"})
+                self.assertEqual([a0[k] for k in ("iops_pct_of_cap_median", "mibps_pct_of_cap_median",
+                                                  "cap_floor_ms_per_output_median", "binds_nodes")], [NO_CAPS] * 4)
+                self.assertEqual((a0["wr_iops_median"], a0["wr_ops_per_output_median"]), (18000.0, 180000.0))
+                reading = ("local SSD, no provisioned caps: sustained write IOPS 18,000.0, MiB/s 70.3, 4.000 KiB per "
+                           "write, 1.000 flushes per output (median of 3 nodes); not measured on bench-validator-04")
+                self.assertEqual(a0["disk_reading"], reading)
+                self.assertIn("\nDisk: %s.\n" % reading, md)
+                self.assertIn("| bench-validator-02 | 185,000.0 | 4.000 | 1.000 | 18,500.0 (26,000.0) | 72.3 (101.6) | "
+                              "1.300 | 2.000 | %s | %s | %s | %s |" % ((NO_CAPS,) * 4), md)
+                self.assertNotIn("by_disk_class", a0)
+                self.assertNotIn("By disk class", md)
+                self.assertNotIn("groups:", md)
+                self.assertEqual(doc["disk_caps_by_node"],
+                                 dict((n, {"iops": NO_CAPS, "mibps": NO_CAPS}) for n in VALIDATORS))
+                self.assertEqual((doc["disk_caps"]["iops"], doc["disk_caps"]["mibps"]), (20000, 800))
+
+    def test_a_fleet_split_by_disk_class_and_machine_type(self):
+        """bench 6 option (e): validators in three (disk class, machine type) groups. by_disk_class holds each
+        group's validators and their medians (the observer is in none; two nodes give the mean of the two), arms.md
+        prints one row a group with the byte ratio beside the commit time and the write and flush counts and size,
+        the row heading names the groups, the fleet medians stay over all validators, and the reading has one
+        clause per disk class, naming the boot disk's two machine types."""
+        doc, md = self.summary(make_split_run(self.tmp), "--no-stages")
+        a0 = self.rows(doc)["a0/M16"]
+        groups = [("local-ssd", "c3-standard-8-lssd", ["bench-validator-0%d" % i for i in range(3, 8)] + ["bench-validator-10"]),
+                  ("boot", "c3-standard-8", ["bench-validator-01", "bench-validator-02"]),
+                  ("boot", "c3-highcpu-8", ["bench-validator-08", "bench-validator-09"])]
+        self.assertEqual([(g["disk_class"], g["machine_type"], g["nodes"]) for g in a0["by_disk_class"]], groups)
+        # the headline medians by hand: local SSD (68 + 72) / 2 ms, (4352 + 4608) / 2, (32640 + 34560) / 2 IOPS;
+        # c3-standard-8 (100 + 120) / 2 ms (with the observer's 300 it would be 120), (600 + 500) / 2, 90 and 75 % of
+        # the IOPS cap; c3-highcpu-8 (150 + 170) / 2 ms, (600 + 800) / 2, 45 and 60 %
+        cols = ("commit_ms_output", "commit_us_tx", "amp", "wr_iops", "wr_mibps", "wr_kib_per_op", "flush_ops_per_output",
+                "iops_pct_of_cap", "cap_floor_ms_per_output")
+        self.assertEqual([[g[k] for k in cols] for g in a0["by_disk_class"]],
+                         [[70.0, 70.0, 4480.0, 33600.0, 525.0, 16.0, 3.0, NO_CAPS, NO_CAPS],
+                          [110.0, 110.0, 550.0, 16500.0, 64.45, 4.0, 1.0, 82.5, 8250.0],
+                          [160.0, 160.0, 700.0, 10500.0, 82.03, 8.0, 1.0, 52.5, 5250.0]])
+        # every column, each node's value by hand from SPLIT
+        mod = load("arms_summary_split", TOOL)
+        for g, (_, _, names) in zip(a0["by_disk_class"], groups):
+            want = {}
+            for k, d in mod.GROUP_COLS:
+                vals = [split_node(n)[k] for n in names]
+                want[k] = vals[0] if isinstance(vals[0], str) else mid(vals, d)
+            self.assertEqual(dict((k, g[k]) for k, _ in mod.GROUP_COLS), want, g["machine_type"])
+        # the fleet medians stay over all ten validators: commit (76 + 80) / 2; the cap shares over the boot disks
+        self.assertEqual((a0["commit_us_tx"], a0["commit_ms_output"]), (78.0, 78.0))
+        self.assertEqual((a0["iops_pct_of_cap_median"], a0["binds_nodes"]), (60.0, {"iops": 1, "throughput": 0, "neither": 4}))
+        self.assertEqual(a0["engine_by_node"]["bench-validator-09"]["disk_class"], "boot")
+        self.assertEqual(a0["engine_by_node"]["bench-validator-10"]["disk_class"], "local-ssd")
+        reading = ("local SSD, no provisioned caps: sustained write IOPS 33,600.0, MiB/s 525.0, 16.0 KiB per write, "
+                   "3.000 flushes per output (median of 6 nodes); boot disk (3 on c3-standard-8, 2 on c3-highcpu-8): "
+                   "1 of 5 nodes within 20 % of a cap (IOPS 1), the highest 90.0 % of the IOPS cap on bench-validator-01 "
+                   "(sustained over the window; median 60.0 % of 20,000 IOPS, 8.8 % of 800 MiB/s): no cap bounds most "
+                   "nodes")
+        self.assertEqual(a0["disk_reading"], reading)
+        self.assertIn("\nDisk: %s.\n" % reading, md)
+        self.assertIn("; blast index 0; validators in 3 groups: local-ssd / c3-standard-8-lssd (6), boot / c3-standard-8 "
+                      "(2), boot / c3-highcpu-8 (2))\n", md)
+        head = ("| disk class / machine type (validators) | exec tx/s | execute | persist | commit | task us/tx | tx/output | "
+                "commit ms/output | amp | write ops / output | flushes / output | KiB / op | write IOPS (peak) | write "
+                "MiB/s (peak) | ms / write | ms / flush | % of IOPS cap | % of MiB/s cap | cap floor ms / output | "
+                "refault / majfault / memcg refault per min |")
+        self.assertEqual(md.count(head), len(doc["summary_rows"]))
+        self.assertIn("\n| local-ssd / c3-standard-8-lssd (6) | 100.0 | 50.0 | 120.0 | 70.0 | 170.0 | 1,000.0 | 70.0 | "
+                      "4,480.0 | 336,000.0 | 3.000 | 16.0 | 33,600.0 (33,600.0) | 525.0 (525.0) | 0.100 | 1.000 | "
+                      "%s | %s | %s | n/a (missing: " % ((NO_CAPS,) * 3), md)
+        # % of the MiB/s cap: (8.8 + 11.7) / 2 = 10.25, which round() takes to the even 10.2
+        self.assertIn("\n| boot / c3-highcpu-8 (2) | 100.0 | 50.0 | 120.0 | 160.0 | 170.0 | 1,000.0 | 160.0 | 700.0 | "
+                      "105,000.0 | 1.000 | 8.000 | 10,500.0 (10,500.0) | 82.0 (82.0) | 1.500 | 2.000 | 52.5 | 10.2 | "
+                      "5,250.0 | n/a (missing: ", md)
+        self.assertEqual(sorted(doc["disk_caps_by_node"]), sorted(n for n, _, _ in FLEET_E))
+        self.assertEqual(doc["disk_caps_by_node"]["bench-validator-03"], {"iops": NO_CAPS, "mibps": NO_CAPS})
+        self.assertEqual(doc["disk_caps_by_node"]["bench-observer-01"], doc["disk_caps"])
+        # a node with no persist CSV is not measured in its class's clause and counts in no disk median
+        doc, _ = self.summary(make_split_run(self.tmp / "nc", no_csv=("bench-validator-10",)), "--no-stages")
+        a0 = self.rows(doc)["a0/M16"]
+        self.assertTrue(a0["disk_reading"].startswith(
+            "local SSD, no provisioned caps: sustained write IOPS 32,640.0, MiB/s 510.0, 16.0 KiB per write, 3.000 "
+            "flushes per output (median of 5 nodes); not measured on bench-validator-10; boot disk ("), a0["disk_reading"])
+        self.assertEqual((a0["by_disk_class"][0]["wr_iops"], a0["by_disk_class"][0]["commit_ms_output"]), (32640.0, 70.0))
+
+    def test_the_disk_options_are_the_boot_disks_only(self):
+        """--disk-iops / --disk-mibps give the boot-disk nodes' caps; a local-SSD node stays without caps."""
+        doc, _ = self.summary(make_split_run(self.tmp), "--no-stages", "--disk-iops", "30000", "--disk-mibps", "1000")
+        a0 = self.rows(doc)["a0/M16"]
+        # v01: 18,000 of 30,000 IOPS, 70.3 of 1,000 MiB/s, 180,000 writes an output at 30,000 a second
+        self.assertEqual(self.disk(a0, "bench-validator-01")[9:], (60.0, 7.0, "neither", 6000.0))
+        self.assertEqual(self.disk(a0, "bench-validator-03")[9:], (NO_CAPS,) * 4)
+        self.assertEqual(self.disk(a0, "bench-validator-03")[3], 28800.0)
+        self.assertEqual(doc["disk_caps"], {"iops": 30000, "iops_from": "--disk-iops", "mibps": 1000,
+                                            "mibps_from": "--disk-mibps"})
+        self.assertEqual(doc["disk_caps_by_node"]["bench-validator-08"], doc["disk_caps"])
+        self.assertEqual(doc["disk_caps_by_node"]["bench-validator-10"], {"iops": NO_CAPS, "mibps": NO_CAPS})
+        self.assertEqual([g["iops_pct_of_cap"] for g in a0["by_disk_class"]], [NO_CAPS, 55.0, 35.0])
+
+    def test_the_class_reading_and_groups_by_hand(self):
+        """class_reading: a local-SSD class on two machine types names both; every node on one boot disk type reads
+        as disk_reading; no node measured on a local SSD says so. group_medians: one group gives none."""
+        mod = load("arms_summary_classes", TOOL)
+        caps = mod.disk_caps({"node_disk": CAPS})
+
+        def e(iops, kib, fl):
+            row = dict((k, iops) for k, _ in mod.GROUP_COLS)
+            row.update(wr_iops=float(iops), wr_mibps=iops * kib / 1024.0, wr_kib_per_op=float(kib),
+                       flush_ops_per_output=float(fl), binds=NO_CAPS)
+            return row
+        per = {"a": e(1000, 4, 2), "b": e(3000, 8, 4)}
+        two = {"a": ("local-ssd", "c3-standard-8-lssd"), "b": ("local-ssd", "c4-standard-8-lssd")}
+        self.assertEqual(mod.class_reading(per, caps, two),
+                         "local SSD (1 on c3-standard-8-lssd, 1 on c4-standard-8-lssd), no provisioned caps: sustained "
+                         "write IOPS 2,000.0, MiB/s 13.7, 6.000 KiB per write, 3.000 flushes per output (median of 2 nodes)")
+        self.assertEqual(mod.group_medians(per, ["a", "b"], dict((n, two["a"]) for n in per)), [])
+        self.assertEqual(len(mod.group_medians(per, ["a", "b"], two)), 2)
+        per = {"a": e(1000, 4, 2), "b": e(3000, 8, 4)}
+        for n in per:
+            per[n].update(binds="neither", iops_pct_of_cap=10.0, mibps_pct_of_cap=1.0)
+        boot = dict((n, ("boot", "c3-highcpu-8")) for n in per)
+        self.assertEqual(mod.class_reading(per, caps, boot), mod.disk_reading(per, caps))
+        self.assertEqual(mod.class_reading(per, caps, {}), mod.disk_reading(per, caps))
+        miss = "n/a (missing: persist/a.csv)"
+        self.assertEqual(mod.class_reading({"a": dict(e(0, 4, 0), wr_iops=miss)}, caps, {"a": two["a"]}),
+                         "local SSD, no provisioned caps: %s; no node measured (0 of 1)" % miss)
+
+    def raw(self, run, out, argv, args):
+        p = subprocess.run(argv + ["--run-dir", str(run), "--out-dir", str(out), "--cache-dir",
+                                   str(Path(run).parent / "cache"), "--prefiltered", str(self.tmp / "none")] + list(args),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        self.assertEqual(p.returncode, 0, p.stderr + p.stdout)
+        utc = re.compile(r'"generated_utc": "[^"]*"')
+        return [utc.sub('"generated_utc": "-"', (out / f).read_text()) for f in ("arms.md", "arms.json")]
+
+    def test_without_data_disk_the_output_is_the_base_commits(self):
+        """bench 6 local SSD: with no instances[].data_disk (every run so far) arms.md and arms.json are BASE_COMMIT's,
+        byte for byte (generated_utc aside), on every fixture these tests build and with every option they pass;
+        instances[].machine_type alone changes nothing."""
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+        p = subprocess.run(["git", "-C", str(TESTS), "show", "%s:benchmark/tools/arms-summary.py" % BASE_COMMIT],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if p.returncode != 0:
+            self.skipTest("commit %s is not in this checkout (shallow clone?)" % BASE_COMMIT)
+        base = self.tmp / "base-arms-summary.py"
+        base.write_text(p.stdout)
+
+        def types_only(run):
+            man = json.loads((run / "manifest.json").read_text())
+            for i, inst in enumerate(man["instances"]):
+                inst.update(machine_type="c3-standard-8-lssd" if i % 2 else "c3-highcpu-8", data_disk=None)
+            man["machine_type"] = "c3-highcpu-8"
+            (run / "manifest.json").write_text(json.dumps(man))
+        nos = ("--no-stages",)
+        for name, kw, args, post in (
+                ("plain", {}, nos, None), ("stages", {}, ("--types", "M16"), None), ("hand", {"hand": True}, nos, None),
+                ("wall-min", {}, nos + ("--drift-axis", "wall-min"), None),
+                ("no-page-fields", {"page_fields": False}, nos, None), ("no-persist", {"persist": False}, nos, None),
+                ("one-control", {"a0b_control": False}, nos, None), ("implicit", {"arms": False}, nos + ("--types", "M16"), None),
+                ("bench6", {"bench6": True}, nos, None), ("disk", {"disk": dict(CAPS)}, nos, None),
+                ("disk-unknown", {"disk": {}}, nos, None),
+                ("disk-given", {"disk": {}}, nos + ("--disk-iops", "20000", "--disk-mibps", "800"), None),
+                ("disk-part", {"disk": {"provisioned_iops": 20000, "provisioned_throughput": None}}, nos, None),
+                ("machine-types", {"disk": dict(CAPS)}, nos, types_only)):
+            with self.subTest(fixture=name):
+                root = self.tmp / name
+                root.mkdir()
+                run = make_run(root, **kw)
+                if post:
+                    post(run)
+                want = self.raw(run, root / "base", [sys.executable, "-c", RUN_BASE, str(base), str(TOOLS), str(TOOLS.parent)],
+                                args)
+                self.assertEqual(self.raw(run, root / "now", [sys.executable, str(TOOL)], args), want)
 
     def test_field_names_live_only_in_the_table(self):
         src = TOOL.read_text()
