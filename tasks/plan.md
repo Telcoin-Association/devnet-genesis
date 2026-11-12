@@ -78,7 +78,8 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 - [ ] interim workspace gates on the integration head after each batch of cherry-picks (`tasks/bench6/orch-gates.sh integ <worktree> <commit>`): 256422898 green, 3ee6b629f green (4,331 tests), 27de9976e (stack) one clock-dependent test failed → fixed dc7855cc6 (proof: forced 1.1-s gap passes with the fix, fails without)
 - [ ] node branch gates: per-commit strict check, fmt, clippy ×2, nextest --workspace, public-tests, restarts/epochs/sigkill e2e,
       mixed-switch 2-on/2-off fleet, tn-review per topic, tn-security-eval for U1, U2, U3, U6, U7/U10, U9, U11, U12, final_state check
-- [ ] base re-check (origin tips unchanged or rebase explained hunk by hunk)
+- [x] base re-check — DONE 2026-11-12 (B1, `tasks/bench6/base-recheck-2026-11-12.md`): staging 514bf6687 and follow-ups 165e3fe01 unchanged; `origin/main` moved 6 commits to 6167184c0 (#1759 tn-lmdb engine off by default, a primary-sync fix, an advisory fix); NO rebase for the image (default build unchanged on the persist path; 6 conflict files, 4 of them the base PRs' own); upstream PR #1834 (tn-lmdb default) is a G2 item
+- [x] run-1 plan: `v-vote-floor` added after `v-vote` (H19, 02532ec: nine arms, sixteen blasts, about 7 h); launcher tests walk a frozen fixture
 - [ ] image built and pushed, digest recorded, `--probe-node-image` by digest; generator image, `BENCH_TXGEN_SHA` pinned
 - [ ] harness gate alone on the host; dry runs (prestart per knob, params-apply per arm file, probe, teardown)
 - [ ] **G2**
