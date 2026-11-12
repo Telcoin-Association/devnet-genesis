@@ -43,6 +43,9 @@ Tick list: `tasks/plan.md`. Ledger: `tasks/bench6-cherrypick-ledger.md`. Names c
 - Scratch: only `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/32c51110-7507-4447-a3fb-2d90bd31a117/scratchpad/<unit>/`
   (the scratchpad is shared; `/tmp` is a quota-limited tmpfs: nothing over ~200 MB there). Bigger data (snapshot copies, extracts)
   goes under `/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/<unit>/` (gitignored).
+- **The session changed again on 2026-11-12: write new scratch ONLY under
+  `/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/ef19b04c-8e16-4dbc-9365-9cbe3d19bce9/scratchpad/<unit>/`.**
+  The `32c51110-…` path above and the older `5182cb11-…` path may be read if they exist; write nothing new there.
 - The session changed on 2026-11-11: the scratch path above is the NEW one. Scratch you wrote before that under the old session's
   path (`…/5182cb11-39b0-49d7-92e2-41574ff8f3c2/scratchpad/<unit>/`) may still be read if it exists, but write nothing new there.
 - Read `date -u` before writing a time anywhere. Every poll loop has a deadline and a pattern that cannot match itself.

@@ -118,7 +118,7 @@ pool-local M16@epoch → pipe M4 M16 → bound M4 M16 → gr150 I L M16s → a0-
 
 Settled by the probe (r20261111-2310, one `c3-highcpu-8`, medians per output):
 - The GCE kernel and Hyperdisk do not amplify by themselves (node-like arms 1.00-1.01×): I-1r's leading hypothesis (35 %) is refuted.
-- Bench 5's signature is a read-through: it wrote 222-228 KiB per op from minute 1, as only the read-through arms do (255.6 KiB
+- Bench 5's signature is a read-through: it wrote 222-228 KB (decimal; 217-223 KiB) per op from minute 1, as only the read-through arms do (255.6 KiB
   per op, 11.85-11.88×, commit 411-412 ms). Prefault-off writes 77 KiB ops (9.70×, 243 ms), a foreign opener 8 KiB (1.80×).
   WHAT read `mdbx.dat` (or refaulted it with read-around) on bench 5's nodes is not identified.
 - The fix (whole-map `MADV_RANDOM`) works only before large folios exist: 9.70× and 1.80× → 1.00×; healthy 36 → 36 ms; a
@@ -352,7 +352,7 @@ upstream for one release (I-5), and whether a canary up to N outputs stale is ac
 5. **The bench-5 page needs one more correction before it is republished.** Its text says the likely trigger (about 60 %)
    is the re-open of a database created during staging. Both probes contradict that: a re-open alone writes 1.000× locally
    and 1.00× on a GCE VM of the fleet's shape. The sentence becomes: the trigger is not identified; the write pattern
-   (222-228 KiB per operation) is that of pages that sat in large page-cache blocks before they were changed; a re-open
+   (222-228 KB per operation, decimal) is that of pages that sat in large page-cache blocks before they were changed; a re-open
    alone does not produce it. The page's statement that the disks wrote 470-530 MB/s with peaks at the 800 MiB/s limit
    agrees with the probe (amplified commits are throughput-bound). The orchestrator makes the edit and shows the diff;
    nothing is pushed before your word.
@@ -369,7 +369,7 @@ upstream for one release (I-5), and whether a canary up to N outputs stale is ac
     not a read-through path and not a candidate for the large folios. It stays an upstream issue of its own.
 11. **On 80a0c76c0** the vote-fix and drain e2e modules passed 3 of 3 (902 s) and the sealed-keep and admission modules 7 of
     7; the all-switches-on repo sets on that head are queued behind other sessions' e2e jobs.
-12. **What read `mdbx.dat` on bench 5's nodes** stays open. Two signatures bracket bench 5 (225 KiB per operation at 4.3×):
+12. **What read `mdbx.dat` on bench 5's nodes** stays open. Two signatures bracket bench 5 (225 KB, decimal, = 220 KiB per operation at 4.3×):
     read-through (256 KiB, 11.9×) and prefault-off (77 KiB, 9.7×). Run 1's control arm decides between them from the
     node's own fields: prefault on or off per persist, and the folio census at each blast's start.
 13. **The two-device probe is in (r20261112-0024): on GCE the local NVMe SSD is slower than the fleet's Hyperdisk for an

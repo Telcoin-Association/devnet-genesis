@@ -1553,3 +1553,12 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - Also from the same hour: the probe's first live run stopped at setup because the pinned boot image has no `fincore`, which a
   comment in the harness said the image ships. A tool a script requires on a fresh VM is checked against the PINNED image
   (or carried in the bundle), not against a comment or the developer's machine.
+
+## 2026-11-12 — a figure copied into notes keeps its source's unit: KB is not KiB (bench 6, the bench-5 page)
+- What happened: bench 5's write size, "222-228 KB" in its analysis (device bytes ÷ write ops ÷ 1e3), became "222-228 KiB" in my G1
+  notes, the G1 brief and the handoff, next to the probe's 255.6 KiB (a true KiB). The agent that corrected the published page was
+  briefed with the wrong unit and wrote it into the page text; it flagged that two files disagreed and that the original source was
+  outside its read list. I read the source script before publishing and sent the sentence back. Caught before the push.
+- Rules: (1) when two figures are compared in one sentence, check each one's divisor at its source (1e3 or 1024) and write both in
+  one unit; (2) a brief that hands an agent a figure names the file and line it comes from, and the read list includes that file;
+  (3) an agent's "could not verify" line is read and resolved before anything it wrote is published.

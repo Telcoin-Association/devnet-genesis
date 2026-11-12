@@ -984,7 +984,7 @@ What it settles and what it does not:
 1. **The GCE kernel and Hyperdisk do NOT amplify by themselves.** The node-like arms write 1.00-1.01× (as on the local
    machine). The leading hypothesis of the local analysis ("the GCE kernel or file system builds large folios even with
    prefault on", 35 %) is refuted.
-2. **Bench 5's signature is the read-through one.** Bench 5 wrote 222-228 KiB per operation from the first minute; only the
+2. **Bench 5's signature is the read-through one.** Bench 5 wrote 222-228 KB (decimal, `I-B2/scratch-a/py/buckets.py:27`; = 217-223 KiB) per operation from the first minute; only the
    arms whose database had been read through the page cache write that way (255.6 KiB per operation, 11.9×). Prefault-off
    writes 77 KiB operations (9.7×); a foreign opener 8 KiB (1.8×). So on bench 5's nodes the pages being dirtied sat in
    large folios — something had read `mdbx.dat` (or refaulted it with read-around) before they were dirtied. WHAT did

@@ -85,7 +85,7 @@ from the briefs in `tasks/bench6/briefs/` (see `CONTINUE.md` there).
   0.93 adaptive (0.985 modelled past its ramp), 0.99-1.00 always. Mixed-switch fleets stay one chain.
 - **The probes** (details: `tasks/bench6-g1-notes.md`, the two "PROBE" sections):
   - GCE and Hyperdisk do not amplify by themselves (node-like arms 1.00-1.01×). A re-open alone does not either.
-  - Bench 5's signature (222-228 KiB writes) is that of pages that sat in large page-cache folios before they were dirtied
+  - Bench 5's signature (222-228 KB writes, decimal: 217-223 KiB) is that of pages that sat in large page-cache folios before they were dirtied
     (11.9× in the read-through arms). WHAT did that on a real node is not identified; run 1's control arm must show it.
   - Whole-map `MADV_RANDOM` closes prefault-off (9.7× → 1.00×) and a foreign opener (1.8× → 1.00×), changes nothing when
     healthy, and does NOT repair a cache that already holds large folios — so the advice arm also evicts `mdbx.dat`, and
@@ -105,7 +105,7 @@ from the briefs in `tasks/bench6/briefs/` (see `CONTINUE.md` there).
   Replace with: the trigger is not identified; reopening a database created during staging was the first suspect and did
   not reproduce the extra bytes (1.00× on the test machine and on a cloud VM of the validators' type and disk); in those
   tests the extra bytes appeared only when the file's pages had been read into the page cache before they were changed
-  (11.9×, in writes of about 256 KiB; this run's were 222-228 KiB), when the library's pre-write of new pages was off
+  (11.9×, in writes of about 256 KiB = 262 KB; this run's were 222-228 KB, decimal), when the library's pre-write of new pages was off
   (9.7×), or when another process had opened the database (1.8×). Keep the page's plain voice; change nothing else.
 - Re-bundle exactly as the last correction was bundled (`benchmark/private/bench6-prep/I-6b/corrections-2.md`, line 75, and
   `tasks/checkpoint-bench6-I-6b.md`): `make_bundle.py --run r20261107-1504 --compare r20261105-0803 --floor-blast-dir
