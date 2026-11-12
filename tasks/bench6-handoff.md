@@ -107,10 +107,14 @@ from the briefs in `tasks/bench6/briefs/` (see `CONTINUE.md` there).
   tests the extra bytes appeared only when the file's pages had been read into the page cache before they were changed
   (11.9×, in writes of about 256 KiB; this run's were 222-228 KiB), when the library's pre-write of new pages was off
   (9.7×), or when another process had opened the database (1.8×). Keep the page's plain voice; change nothing else.
-- Re-bundle with the recipe in the memory note `devnet-benchmark-site-publishing.md` (`benchmark/report/make_bundle.py --run
-  r20261107-1504 --compare … --backfill benchmark/report/backfill/2026-11-07-main-fixes.json`; the exact compare arguments
-  are in `tasks/checkpoint-bench6-I-6b.md`; the provenance pass takes 30+ minutes). Check that the diff in `tn-benchmarks`
-  is only text; commit the two files by path (not `.claude/`), push; the site deploys by Actions.
+- Re-bundle exactly as the last correction was bundled (`benchmark/private/bench6-prep/I-6b/corrections-2.md`, line 75, and
+  `tasks/checkpoint-bench6-I-6b.md`): `make_bundle.py --run r20261107-1504 --compare r20261105-0803 --floor-blast-dir
+  blast-0-20261107T163112Z --backfill benchmark/report/backfill/2026-11-07-main-fixes.json --txgen-bench <git archive of
+  tn-transaction-generator 6dad96f>/bench --analysis-sha 6dad96f`, run from a worktree pinned at the harness commit that
+  produced the published numbers (149f941, plus only the backfill text change) with `benchmark/results` symlinked — the
+  harness has changed since, and the page's numbers must not. It took 719 s. Then the gates in `tn-benchmarks` named there
+  (`build.py --check`, `scrub.py`). Check that the diff against the present uncommitted page is only the two text
+  passages; commit the two files by path (never `.claude/`), push; the site deploys by Actions.
 ### 6.2 Run-1 plan: add the always-on vote arm
 `benchmark/launch/bench6-run1.plan` has `v-vote` only; add `v-vote-floor` (arm file exists) after it with the same blast
 types; re-run `test_launch` and the rehearsal. The final arm table is fixed at G2.
@@ -155,9 +159,11 @@ types; re-run `test_launch` and the rehearsal. The final arm table is fixed at G
   know the key and the arm tool refuses an arm that sets it), drop `pipelined_persist` from the arm files `pipe`, `bound`,
   `gr150`, `gr100` and the `pipe` arm from the run-1 plan.
 ### 6.5 e2e on the final head
-Repeat on 80a0c76c0 (or the head after 6.4): `tasks/bench6/orch-e2e-sets.sh <worktree> <commit> 'allon=<the eleven
-switches>'` (the exact parameter string is in `tasks/checkpoint-bench6-orch.md`; grep `allon=`), then check a node log's
-`node switches` line. A queued copy of this run exists (§8).
+Repeat on 80a0c76c0 (or the head after 6.4), then check a node log's `node switches` line (the override accepts a mistyped
+key silently). A queued copy of this run exists (§8).
+```
+bash tasks/bench6/orch-e2e-sets.sh /home/drtnarg/coding/telcoin/tn-b6-u1 80a0c76c0 'allon=quorum_exec_block: true; quorum_exec_block_starved_rounds: 4; vote_queue_fix: true; mdbx_random_advice: true; sealed_tx_keep: true; digest_dedupe: true; recovery_threads: 3; epoch_close_task_drain: true; epoch_record_state_check: true; parent_grace: 150ms; rpc_admission_backlog_outputs: 2'
+```
 ### 6.6 Quiet-host jobs (`tasks/bench6/quiet-host-runbook.md`)
 The engine contention bench (U4b; feeds the I-3 verdict §3b), the pipelined cycle bench (gate 5), the full harness gate
 `bash benchmark/tests/gate.sh --jobs 4`, and the per-commit strict check of the node branch (needed before upstream, not
