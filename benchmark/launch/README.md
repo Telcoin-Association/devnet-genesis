@@ -61,7 +61,7 @@ Knobs the files set, and who reads them:
 | `LAUNCH_PROBE_BIN` | | | `benchmark/work/probe-bin/mdbx-writeback-probe` | launch.sh |
 | `LAUNCH_PROBE_ARMS` | | | (commented out: all arms; `core` is the short run) | launch.sh |
 
-`bench6-run1-lssd.env` (run 1b) sets every run-1 knob to run 1's value and adds the four shape knobs listed under "Run 1b: the local-SSD deployment".
+`bench6-run1-lssd.env` (run 1b) sets every run-1 knob to run 1's value and adds the four shape knobs and `RUN_ARMS_PLAN` listed under "Run 1b: the local-SSD deployment".
 `test_launch.py` checks that every key an env file sets is read by `benchmark/config.sh` or a driver.
 
 ## launch.sh
@@ -114,6 +114,7 @@ benchmark/launch/run-arms.sh [--plan <file>] [--from-arm <k|name> [--from-step <
 
 Exit 0 is `ARMS_DONE` (or a dry run), 1 is `ARMS_STOPPED` with the fleet left as it is, 2 a refusal before anything ran (arguments, plan), and 128 plus the signal's number (143 for TERM) is any `ARMS_STOPPED` after a signal.
 It needs `BENCH_RUN_ID`, which `launch.sh` exports.
+Without `--plan` it walks `RUN_ARMS_PLAN`, and `bench6-run1.plan` when that knob is unset or empty, so an env file can pin its run's plan; `--plan` overrides the knob.
 
 ### The plan
 
@@ -322,6 +323,7 @@ The boot-disk class therefore holds two machine types, and the arm summary group
 | `BENCH_FLEET` | `c3-lssd6-hdb4` (config.sh requires it with `BENCH_NODE_DATADIR_LSSD=1`) | config.sh |
 | `BENCH_ZONE_FALLBACKS` | the zones below | config.sh |
 | `BENCH_MACHINE_TYPE` | unset: `c3-highcpu-8` | config.sh |
+| `RUN_ARMS_PLAN` | `benchmark/launch/bench6-run1-lssd.plan` (the walk below; `--plan` overrides it) | run-arms.sh |
 
 Each stockout fallback zone was read on 2026-11-12 to offer the node's own machine type.
 Validator 03 (Sydney) falls back to `australia-southeast1-a`, then `-b`; 05 (Ashburn) to `us-east4-c`, then `-a`; 06 (Eemshaven) to `europe-west4-b`, then `-c`; 07 (Singapore) to `asia-southeast1-a`, then `-c`; 10 (Mumbai) to `asia-south1-b`, then `-a`.
@@ -354,14 +356,14 @@ The harness itself never stops or reboots a node VM; the arm tool restarts the c
 
 ### Segments
 
-Every `arms` launch carries `--plan benchmark/launch/bench6-run1-lssd.plan`: without it, run-arms walks run 1's nine-arm plan.
-The `ARMS_RESUME` line after a stop already carries it.
+The env file pins the walk (`RUN_ARMS_PLAN=benchmark/launch/bench6-run1-lssd.plan`), so an `arms` launch needs no `--plan`; a `--plan` on the command line overrides the env file.
+The `ARMS_RESUME` line after a stop names the walked plan with `--plan`, so a resume walks the same plan whatever the env file holds.
 
 | # | launch | wait for | read before the next segment |
 |---|---|---|---|
 | 1 | `launch.sh <run1b.env> deploy12` | `== deploy12 rc=0`, `BENCH_DEPLOY_RESULT rc=0` | `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 failed=[]` and the six `LSSD_MOUNT` lines; `instances[].data_disk` in the manifest; `HOST_PROBE_SUMMARY ... uniform=no` and `FSYNC_PROBE_SUMMARY ... slow=[...]` naming one disk class are expected warnings; the image gate lines, `OBS_READY` |
-| 2 | `launch.sh <run1b.env> arms --dry-run --plan benchmark/launch/bench6-run1-lssd.plan` | `== arms rc=0` | the walk: `DRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)` |
-| 3 | `launch.sh <run1b.env> arms --plan benchmark/launch/bench6-run1-lssd.plan` | `== arms rc=` | `ARMS_DONE arms=3 blasts=5`; on `ARMS_STOPPED`, as in run 1 |
+| 2 | `launch.sh <run1b.env> arms --dry-run` | `== arms rc=0` | the walk: `DRY RUN: run-arms walks benchmark/launch/bench6-run1-lssd.plan ...` and `DRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)` |
+| 3 | `launch.sh <run1b.env> arms` | `== arms rc=` | `ARMS_DONE arms=3 blasts=5`; on `ARMS_STOPPED`, as in run 1 |
 | 4 | `launch.sh <run1b.env> step15` | `== step15 rc=0` | `BENCH_DEPLOY_RESULT rc=0`, `metrics.json` |
 | 5 | `launch.sh <run1b.env> teardown-dry` | `TEARDOWN_DONE ... dry_run=1` | this run's resources only |
 | 6 | `launch.sh <run1b.env> teardown` | `TEARDOWN_DONE run=<run> deleted=<n> left=0` | `left=0`; the pulled logs |
@@ -452,7 +454,7 @@ done
 - The node image probed by digest (`benchmark-deploy.sh --probe-node-image <repo>@sha256:<d>`: the switch flags, the `node switches` line).
 - The generator image built and probed.
 - The harness gate (`benchmark/tests/gate.sh`) run alone, rc 0 on record.
-- Dry runs: `--print-prestart` with `final.arm`, `params-apply.sh --dry-run` on every arm file, `launch.sh <env> arms --dry-run` (run 1; run 1b adds `--plan benchmark/launch/bench6-run1-lssd.plan`), the probe's plan, and the teardown dry run.
+- Dry runs: `--print-prestart` with `final.arm`, `params-apply.sh --dry-run` on every arm file, `launch.sh <env> arms --dry-run` (run 1, and run 1b, whose env file pins its plan), the probe's plan, and the teardown dry run.
 - No heavy peer jobs on the host (`pgrep`); a test suite that runs the bench drivers also blocks a launch.
 - The obs-devnet disk gate.
 - Bench 5's results archived.

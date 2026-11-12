@@ -7,7 +7,7 @@
 #
 # Usage: benchmark/launch/run-arms.sh [--plan <file>] [--from-arm <k|name> [--from-step <n>]]
 #                                     [--only-arm <k|name> [--from-step <n>]] [--dry-run]
-#   --plan <file>       the walk [benchmark/launch/bench6-run1.plan]; format in that file and README.md
+#   --plan <file>       the walk [RUN_ARMS_PLAN, else benchmark/launch/bench6-run1.plan]; format in that file and README.md
 #   --from-arm <k>      start at arm k (0 = the plan's first arm line; or the arm's name), then go on
 #   --only-arm <k>      run arm k alone
 #   --from-step <n>     with either: begin that arm at its step n (1 = its first step)
@@ -61,7 +61,8 @@
 # RUN_ARMS_READY_MAX_WAIT_SECS [600], RUN_ARMS_HEALTH_SECS [180; 0 = no health check],
 # RUN_ARMS_MAX_DISK_PCT [BENCH_ABORT_DISK_PCT, 85], RUN_ARMS_STALL_SECS [BENCH_ABORT_STALL_SECS, 120],
 # RUN_ARMS_RPC_URL [http://localhost:18545, the run's RPC tunnel], RUN_ARMS_EPOCH_OFFSET_SECS [half
-# the mixed phase], RUN_ARMS_EPOCH_WAIT_MAX_SECS [1500], RUN_ARMS_FIRST_INDEX [0].
+# the mixed phase], RUN_ARMS_EPOCH_WAIT_MAX_SECS [1500], RUN_ARMS_FIRST_INDEX [0], RUN_ARMS_PLAN [the plan
+# when no --plan is given; unset or empty = benchmark/launch/bench6-run1.plan; an env file pins it].
 # This script cannot source benchmark/config.sh (its caller allowlist): the defaults above that mirror
 # config.sh are checked against it by tests/test_launch.py.
 
@@ -140,7 +141,7 @@ bounded() {
 num_or() { case "${1:-}" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac; }
 
 # --- arguments -------------------------------------------------------------------------------------
-PLAN="benchmark/launch/bench6-run1.plan" FROM_ARM="" ONLY_ARM="" FROM_STEP="" DRY=0
+PLAN="${RUN_ARMS_PLAN:-benchmark/launch/bench6-run1.plan}" FROM_ARM="" ONLY_ARM="" FROM_STEP="" DRY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

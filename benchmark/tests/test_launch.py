@@ -42,7 +42,7 @@ DEFAULT_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M1
 TYPES = {"I", "L", "M4", "M16", "M16s"}
 ENV_FILES = ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env", "bench6-run1-lssd.env")
 # Run 1b, the local-SSD deployment (option e): run 1's arms a0-control, p1-mdbx-advice and a0-prime, and run 1's env
-# plus the four shape knobs below (values as the env file spells them, quotes and all).
+# plus the four shape knobs below (values as the env file spells them, quotes and all) and RUN_ARMS_PLAN=LSSD_PLAN.
 LSSD_PLAN = "benchmark/launch/bench6-run1-lssd.plan"
 LSSD_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M16"]), ("a0-prime", ["M16"])]
 OPTION_E = ("0:c3-standard-8 1:c3-standard-8 2:c3-standard-8-lssd 3:c3-standard-8-lssd 4:c3-standard-8-lssd "
@@ -477,13 +477,15 @@ class LssdLaunchTests(LaunchBase):
         self.t.write(self.lssd, text)
 
     def test_the_walk_dry_run_as_a_segment_reaches_no_driver(self):
-        pid, log = self.started(self.launch(self.lssd, "arms", "--dry-run", "--plan", LSSD_PLAN))
+        # No --plan: the env file's RUN_ARMS_PLAN picks run 1b's walk (the sandbox's default plan has eight arms).
+        pid, log = self.started(self.launch(self.lssd, "arms", "--dry-run"))
         self.assertRegex(self.the_rc_line(log, "arms", 90), r"^== arms rc=0 ")
         text = log.read_text()
         self.assertEqual(self.t.calls(), [])
         self.assertNotIn("REACHED", text)
         self.assertEqual(self.t.lines("gcloud.log"), ["gcloud auth print-access-token"])    # the launcher's token check
-        self.assertIn("== arms command: benchmark/launch/run-arms.sh --dry-run --plan %s\n" % LSSD_PLAN, text)
+        self.assertIn("== arms command: benchmark/launch/run-arms.sh --dry-run\n", text)
+        self.assertIn("\n    RUN_ARMS_PLAN=%s\n" % LSSD_PLAN, text)
         self.assertIn("\nBENCH_NODE_MACHINE_TYPES=%s\n" % OPTION_E, text)
         self.assertIn("DRY RUN: run-arms walks %s on %s; nothing is called\n" % (LSSD_PLAN, RUN), text)
         self.assertIn("\nDRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)\n", text)
@@ -617,6 +619,33 @@ class ArmsWalkTests(ArmsBase):
         p = self.dry_walk_of_the_real(LSSD_PLAN, "--plan", LSSD_PLAN)
         self.assertIn("DRY RUN: run-arms walks %s on %s; nothing is called\n" % (LSSD_PLAN, RUN), p.stdout)
         self.assertRegex(p.stdout, r"(?m)^DRY RUN END: 3 arm\(s\), 6 step\(s\), 5 blast\(s\)$")
+
+    def test_run_arms_plan_is_the_walk_when_no_plan_is_given(self):
+        # An env file pins its run's walk with RUN_ARMS_PLAN; --plan beats it; unset or empty, the default plan walks
+        # with every printed line as before (the empty knob shows only in the inherited environment).
+        def norm(out):
+            return UTC_RE.sub("<UTC>", out)
+        p = self.arms("--dry-run", RUN_ARMS_PLAN=LSSD_PLAN)
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr)
+        self.assertIn("DRY RUN: run-arms walks %s on %s; nothing is called\n" % (LSSD_PLAN, RUN), p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^DRY RUN END: 3 arm\(s\), 6 step\(s\), 5 blast\(s\)$")
+        unset = self.arms("--dry-run")
+        self.assertEqual(unset.returncode, 0, unset.stderr)
+        self.assertIn("DRY RUN: run-arms walks benchmark/launch/bench6-run1.plan on %s; nothing is called\n" % RUN,
+                      unset.stdout)
+        self.assertRegex(unset.stdout, r"(?m)^DRY RUN END: 8 arm\(s\), ")
+        self.assertNotIn("RUN_ARMS_PLAN", unset.stdout)
+        beat = self.arms("--dry-run", "--plan", "benchmark/launch/bench6-run1.plan", RUN_ARMS_PLAN=LSSD_PLAN).stdout
+        self.assertIn("\n    RUN_ARMS_PLAN=%s\n" % LSSD_PLAN, beat)
+        self.assertEqual(norm(beat.replace("    RUN_ARMS_PLAN=%s\n" % LSSD_PLAN, "")), norm(unset.stdout))
+        p = self.arms("--dry-run", "--plan", self.plan("v-vote L\n"), RUN_ARMS_PLAN=LSSD_PLAN)
+        self.assertIn("DRY RUN: run-arms walks tasks/test.plan on %s;" % RUN, p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^DRY RUN END: 1 arm\(s\), 1 step\(s\), 1 blast\(s\)$")
+        empty = self.arms("--dry-run", RUN_ARMS_PLAN="")
+        self.assertEqual(empty.returncode, 0, empty.stderr)
+        self.assertIn("\n    RUN_ARMS_PLAN=\n", empty.stdout)
+        self.assertEqual(norm(empty.stdout.replace("    RUN_ARMS_PLAN=\n", "")), norm(unset.stdout))
+        self.assertEqual(self.t.calls(), [])
 
     def dry_walk_of_the_real(self, rel, *args):
         """run-arms --dry-run [args] on the repo's plan <rel> as it stands (copied to the same path in the sandbox):
@@ -895,6 +924,31 @@ class ArmsResumeTests(ArmsBase):
         self.assertEqual(p.returncode, 0, p.stdout)
         fund = [c for c in self.t.calls() if c["key"] == "blast:fund"]
         self.assertEqual([c["env"]["BENCH_WINDOW"] for c in fund], ["16"])
+
+    def test_the_resume_line_names_the_plan_the_env_picked(self):
+        # A walk of RUN_ARMS_PLAN (no --plan) prints a resume command with --plan <that plan>, so the resume walks the
+        # same plan whatever the variable holds then. Arm 2 of run 1b's plan is a0-prime (v-vote in the sandbox's).
+        fail = {"pa:arm-file": [{"rc": 1, "out": ["PA_FAIL bench-validator-01 x"]}]}
+        self.t.scenario(fail)
+        p = self.arms("--from-arm", "2", LAUNCH_ENV_FILE="tasks/lssd.env", RUN_ARMS_PLAN=LSSD_PLAN)
+        self.stopped(p, "node-failed-bench-validator-01", 2, 0, "a0-prime")
+        self.assertRegex(p.tags[0], r"^ARMS_START plan=%s run=%s arms=2\.\.2 " % (re.escape(LSSD_PLAN), RUN))
+        self.assertEqual(p.stdout.splitlines()[-1],
+                         "ARMS_RESUME benchmark/launch/launch.sh tasks/lssd.env arms --plan %s --from-arm 2" % LSSD_PLAN)
+        self.reset()
+        self.t.scenario(fail)
+        p = self.arms("--from-arm", "2", RUN_ARMS_PLAN=LSSD_PLAN)
+        self.stopped(p, "node-failed-bench-validator-01", 2, 0, "a0-prime")
+        self.assertEqual(p.stdout.splitlines()[-1],
+                         "ARMS_RESUME BENCH_RUN_ID=%s benchmark/launch/run-arms.sh --plan %s --from-arm 2" % (RUN, LSSD_PLAN))
+        # the printed command, with the variable unset, resumes the same walk at the same arm
+        self.reset()
+        self.t.scenario({})
+        p = self.arms("--plan", LSSD_PLAN, "--from-arm", "2")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        applied = [c["argv"] for c in self.t.calls() if c["key"] == "pa:arm-file"]
+        self.assertEqual([a[a.index("--arm") + 1] for a in applied], ["a0-prime"])
+        self.assertRegex(p.tags[-1], r"^ARMS_DONE arms=1 blasts=1 ")
 
     def test_bad_arguments_and_plans_are_refused_before_anything(self):
         bad = [(["--from-arm", "9"], "past the plan's last arm"), (["--from-arm", "nope"], "no arm named"),
@@ -1256,10 +1310,13 @@ class EnvAndPlanTests(unittest.TestCase):
         srcs = [BENCH / "config.sh"] + sorted(BENCH.glob("*.sh")) + sorted((BENCH / "tools").glob("*.sh")) \
             + [LAUNCH / "launch.sh", LAUNCH / "run-arms.sh"]
         text = "\n".join(p.read_text() for p in srcs)
+        checked = set()
         for f in ENV_FILES:
             for k in self.env_keys(f):
+                checked.add(k)
                 with self.subTest(f=f, k=k):
                     self.assertRegex(text, r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % k, "%s sets a knob no source reads" % k)
+        self.assertIn("RUN_ARMS_PLAN", checked)     # run 1b's pin of its walk (run-arms.sh reads it)
 
     def test_the_env_files_hold_the_plan_values(self):
         r1, r2, pr = (self.env_keys(f) for f in ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env"))
@@ -1285,10 +1342,12 @@ class EnvAndPlanTests(unittest.TestCase):
 
     def test_the_lssd_env_is_run_1_with_the_local_ssd_shape(self):
         # Every key of run 1 with run 1's value (image, generator, boot image, measurements: the same placeholders),
-        # plus the four shape knobs; no BENCH_MACHINE_TYPE (validators 08 and 09 keep the default) and no zone moved.
+        # plus exactly five keys: the four shape knobs and the plan pin (an `arms` launch without --plan walks run
+        # 1b's plan); no BENCH_MACHINE_TYPE (validators 08 and 09 keep the default) and no zone moved.
         r1, lssd = self.env_keys("bench6-run1.env"), self.env_keys("bench6-run1-lssd.env")
-        self.assertEqual(set(LSSD_SHAPE) & set(r1), set())
-        self.assertEqual(lssd, dict(r1, **LSSD_SHAPE))
+        extra = dict(LSSD_SHAPE, RUN_ARMS_PLAN=LSSD_PLAN)
+        self.assertEqual((len(extra), set(extra) & set(r1)), (5, set()))
+        self.assertEqual(lssd, dict(r1, **extra))
         for k in ("BENCH_MACHINE_TYPE", "BENCH_NODE_ZONES", "BENCH_ARM_FILE"):
             self.assertNotIn(k, lssd)
         # Tokyo (index 3) has no fallback zone that offers c3-standard-8-lssd, and the file says so
