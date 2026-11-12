@@ -1,6 +1,6 @@
 # Bench 6 launchers
 
-A bench run is a chain of long driver calls against a GCP fleet: the deploy takes about 46 minutes, the teardown about 35, and run 1's arm walk about 6 hours.
+A bench run is a chain of long driver calls against a GCP fleet: the deploy takes about 46 minutes, the teardown about 35, and run 1's arm walk about 7 hours.
 Each call runs as a detached segment that survives the session that started it, with its own pid file and log.
 `benchmark/launch/bench5/` holds the hand-written bench-5 launchers these replace (untracked originals, kept for reference).
 
@@ -138,14 +138,18 @@ The default walk (`bench6-run1.plan`):
 | 0 | `a0-control` | I, L, M4, M16 |
 | 1 | `p1-mdbx-advice` | M16 |
 | 2 | `v-vote` | L, M16 |
-| 3 | `pool-local` | M16@epoch |
-| 4 | `pipe` | M4, M16 |
-| 5 | `bound` | M4, M16 |
-| 6 | `gr150` | I, L, M16s |
-| 7 | `a0-prime` | M16 |
+| 3 | `v-vote-floor` | L, M16 |
+| 4 | `pool-local` | M16@epoch |
+| 5 | `pipe` | M4, M16 |
+| 6 | `bound` | M4, M16 |
+| 7 | `gr150` | I, L, M16s |
+| 8 | `a0-prime` | M16 |
 
-Fourteen blasts in all; `--dry-run` prints every command.
+Sixteen blasts in all; `--dry-run` prints every command.
+`v-vote` and `v-vote-floor` are the two forms of the vote fix (G1): the adaptive one (`quorum_exec_block_starved_rounds 4`) and the always-on one (`0`).
 If the image lacks `pipelined_persist`, drop the `pipelined_persist` line from `pipe.arm`, `bound.arm` and `gr150.arm` (arms/README.md), or drop the `pipe` line here.
+After a hand edit of the plan, update `DEFAULT_WALK` in `test_launch.py`: `test_the_default_plan` pins `bench6-run1.plan`, and `test_the_real_plan_walks_in_a_dry_run` walks it with `--dry-run`.
+The tests that address arms by number walk a frozen copy of the eight-arm walk (`tests/fixtures/launch/walk-8.plan`), so an edit of the plan does not move them.
 
 ### One arm
 
@@ -275,7 +279,7 @@ A value the source does not record reads `n/a`, never 0.
 | # | launch | wait for | read before the next segment |
 |---|---|---|---|
 | 1 | `launch.sh <run1.env> deploy12` | `== deploy12 rc=0`, `BENCH_DEPLOY_RESULT rc=0` | the deploy log's `HOST_PROBE_SUMMARY`, the image gate lines, `OBS_READY` |
-| 2 | `launch.sh <run1.env> arms --dry-run` | `== arms rc=0` | the walk: arm names, indices, the 14 blasts |
+| 2 | `launch.sh <run1.env> arms --dry-run` | `== arms rc=0` | the walk: arm names, indices, the 16 blasts |
 | 3 | `launch.sh <run1.env> arms` | `== arms rc=` | `ARMS_DONE`; on `ARMS_STOPPED`, the reason and the arm tool's or blast's output above it, then gate G3 |
 | 4 | `launch.sh <run1.env> step15` | `== step15 rc=0` | `BENCH_DEPLOY_RESULT rc=0`, `metrics.json` |
 | 5 | `launch.sh <run1.env> teardown-dry` | `TEARDOWN_DONE ... dry_run=1` | the list of what it would delete: this run's resources only |

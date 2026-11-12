@@ -19,6 +19,7 @@
 a0-control      I L M4 M16
 p1-mdbx-advice  M16
 v-vote          L M16
+v-vote-floor    L M16
 pool-local      M16@epoch
 pipe            M4 M16
 bound           M4 M16

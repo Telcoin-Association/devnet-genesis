@@ -1,12 +1,14 @@
 """benchmark/launch/: launch.sh (one detached segment of a bench run) and run-arms.sh (the run-1 arm
 walk), the env files and the default plan.
 
-Every test builds a throwaway git tree with the real launch/ scripts, env files, plan and arm files,
-and fake drivers (fixtures/launch/fake-driver.py behind each driver's path) that record their argv
-and environment, print REACHED and answer from a scenario. Shims on PATH stand in for gcloud (the
-token check), pgrep (the process check: it finds nothing unless a test says so, so the host's own
-processes never make a test refuse) and curl (the pool gate's Prometheus read). Nothing here
-reaches a real project.
+Every test builds a throwaway git tree with the real launch/ scripts, env files and arm files and
+fake drivers (fixtures/launch/fake-driver.py behind each driver's path) that record their argv
+and environment, print REACHED and answer from a scenario. The tree's default plan is the frozen
+eight-arm walk (fixtures/launch/walk-8.plan), so a hand edit of the real plan never moves a test that
+addresses arms by number; test_the_default_plan and the real-plan dry run pin the real plan. Shims
+on PATH stand in for gcloud (the token check), pgrep (the process check: it finds nothing unless a
+test says so, so the host's own processes never make a test refuse) and curl (the pool gate's
+Prometheus read). Nothing here reaches a real project.
 """
 import json
 import os
@@ -31,11 +33,22 @@ SH_DRIVERS = ("benchmark/benchmark-deploy.sh", "benchmark/benchmark-blast.sh", "
 PY_DRIVERS = ("benchmark/report/make_bundle.py", "benchmark/tools/arms-summary.py", "benchmark/recovery-schedule.py")
 UTC_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 FILL = {"<run-id>": RUN, "<image-digest>": "ab" * 32, "<node-sha>": "c0ffee" * 6 + "abcd", "<txgen-sha>": "1234567"}
-# The default walk, plan W4 (a step line per arm: its arm file and its steps).
+# The default walk, plan W4 with both forms of the vote fix (G1): a step line per arm, its arm file and its steps.
+# It pins the real benchmark/launch/bench6-run1.plan; the sandbox walks the frozen fixtures/launch/walk-8.plan.
 DEFAULT_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M16"]), ("v-vote", ["L", "M16"]),
-                ("pool-local", ["M16@epoch"]), ("pipe", ["M4", "M16"]), ("bound", ["M4", "M16"]),
-                ("gr150", ["I", "L", "M16s"]), ("a0-prime", ["M16"])]
+                ("v-vote-floor", ["L", "M16"]), ("pool-local", ["M16@epoch"]), ("pipe", ["M4", "M16"]),
+                ("bound", ["M4", "M16"]), ("gr150", ["I", "L", "M16s"]), ("a0-prime", ["M16"])]
 TYPES = {"I", "L", "M4", "M16", "M16s"}
+
+
+def read_plan(path):
+    """A plan file's walk: [(arm, [step, ...]), ...] in line order, comments and blank lines left out."""
+    walk = []
+    for line in Path(path).read_text().splitlines():
+        w = line.split("#", 1)[0].split()
+        if w:
+            walk.append((w[0], w[1:]))
+    return walk
 
 
 def git(root, *args):
@@ -57,8 +70,9 @@ class Tree:
         for d in ("benchmark/launch", "benchmark/arms", "benchmark/tools", "benchmark/report", "tasks",
                   ".fake/state", ".fake/curl", "benchmark/results/" + RUN, "benchmark/work/probe-bin"):
             (self.root / d).mkdir(parents=True, exist_ok=True)
-        for f in ("launch.sh", "run-arms.sh", "bench6-run1.plan", "bench6-run1.env", "bench6-run2.env", "bench6-probe.env"):
+        for f in ("launch.sh", "run-arms.sh", "bench6-run1.env", "bench6-run2.env", "bench6-probe.env"):
             shutil.copy2(str(LAUNCH / f), str(self.root / "benchmark/launch" / f))
+        shutil.copy2(str(FIX / "walk-8.plan"), str(self.root / "benchmark/launch/bench6-run1.plan"))
         for f in (BENCH / "arms").glob("*.arm"):
             shutil.copy2(str(f), str(self.root / "benchmark/arms" / f.name))
         shutil.copy2(str(BENCH / ".gitignore"), str(self.root / "benchmark/.gitignore"))
@@ -508,6 +522,31 @@ class ArmsWalkTests(ArmsBase):
         out = UTC_RE.sub("<UTC>", p.stdout)
         out = re.sub(r"(?m)^    (FAKE|PATH|HOME|LANG)\S*\n", "", out)
         self.golden("walk-dry.golden", out)
+
+    def test_the_real_plan_walks_in_a_dry_run(self):
+        # The sandbox's default plan is the frozen walk-8; this walks the real one as it stands, hand edits and all.
+        shutil.copy2(str(LAUNCH / "bench6-run1.plan"), str(self.t.root / "benchmark/launch/bench6-run1.plan"))
+        walk = read_plan(LAUNCH / "bench6-run1.plan")
+        p = self.arms("--dry-run")
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:] + p.stderr)
+        self.assertEqual(self.t.calls(), [])
+        want, used = [], set()
+        for arm, _ in walk:
+            f = arm if "/" in arm else "benchmark/arms/%s.arm" % re.sub(r"\.arm$", "", arm)
+            name = re.search(r"(?m)^name (\S+)$", (REPO / f).read_text()).group(1)
+            c, n = name, 1
+            while c in used:  # an arm on a second line is recorded as <name>-r2
+                n += 1
+                c = "%s-r%d" % (name, n)
+            used.add(c)
+            want.append((f, c))
+        applies = re.findall(r"(?m)^  step 0  benchmark/tools/params-apply\.sh --from-config --arm-file (\S+) --arm (\S+);",
+                             p.stdout)
+        self.assertEqual(applies, want)
+        blasts = sum(1 for _, steps in walk for s in steps if s != "I")
+        self.assertEqual(len(re.findall(r"(?m)^ +env .* benchmark/benchmark-blast\.sh run --yes ", p.stdout)), blasts)
+        self.assertRegex(p.stdout, r"(?m)^DRY RUN END: %d arm\(s\), %d step\(s\), %d blast\(s\)$"
+                         % (len(walk), sum(len(steps) for _, steps in walk), blasts))
 
 
 class ArmsStopTests(ArmsBase):
@@ -1148,11 +1187,7 @@ class EnvAndPlanTests(unittest.TestCase):
             self.assertNotIn(k, r2)
 
     def test_the_default_plan(self):
-        walk = []
-        for line in (LAUNCH / "bench6-run1.plan").read_text().splitlines():
-            w = line.split("#", 1)[0].split()
-            if w:
-                walk.append((w[0], w[1:]))
+        walk = read_plan(LAUNCH / "bench6-run1.plan")
         self.assertEqual(walk, DEFAULT_WALK)
         for arm, steps in walk:
             self.assertTrue((BENCH / "arms" / (arm + ".arm")).is_file(), arm)

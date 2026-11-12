@@ -1,0 +1,27 @@
+# walk-8.plan — a frozen copy of the eight-arm run-1 plan (benchmark/launch/bench6-run1.plan at ab7658c).
+# test_launch.py installs it as the sandbox's bench6-run1.plan, so the tests that address arms by number
+# keep their meaning when the real plan is edited by hand. Never edit it to follow the real plan.
+#
+# One arm per line, in run order:  <arm> <step> [<step> ...]
+#   <arm>   an arm file in benchmark/arms/ (".arm" may be left out), or a path from the repo root.
+#           Its `name` line is the arm's recorded name; run-arms numbers the lines from 0 (--from-arm k).
+#   <step>  one of the blast types below, run in order after the arm is ready:
+#     I     5 idle minutes, recorded as the mark idle-<step> (RUN_ARMS_IDLE_SECS)
+#     L     the floor: 8 senders per blaster at window 16; 60 / 360 / 60 s; a light blast
+#     M4    600 x 4; 60 / 360 / 60 s; a light blast
+#     M16   600 x 16; 120 / 480 / 180 s plus the generator's tail scan (BENCH_TAIL_SCAN_SECS); a load blast
+#     M16s  the short M16: 600 x 16; 120 / 300 / 180 s, no tail scan
+#   Every blast: no chaos, no lag injection, its own BENCH_RUN_INDEX (fund, then run).
+#   M16@epoch (or M16s@epoch): the run is launched so that the next epoch boundary falls half-way into
+#   its mixed phase (240 s into the 480 s for M16): run-arms reads the boundary over the RPC tunnel and
+#   waits up to one epoch (1,200 s) before the run.
+# A "#" starts a comment; blank lines are ignored.
+
+a0-control      I L M4 M16
+p1-mdbx-advice  M16
+v-vote          L M16
+pool-local      M16@epoch
+pipe            M4 M16
+bound           M4 M16
+gr150           I L M16s
+a0-prime        M16
