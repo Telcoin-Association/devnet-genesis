@@ -1,0 +1,14 @@
+KILLED  M1 an index past the last node is accepted (BENCH_NODE_MACHINE_TYPES) -> test_node_shapes.RefusalTests.test_machine_types | AssertionError: 0 != 1 : LOADED
+KILLED  M2 a duplicate index is accepted (BENCH_NODE_MACHINE_TYPES) -> test_node_shapes.RefusalTests.test_machine_types | AssertionError: 0 != 1 : LOADED
+KILLED  M3 the unset of the other types' INSTANCE_NAMES entries is dropped -> test_node_shapes.CreateNarrowTests.test_sparse_instance_names | AssertionError: Lists differ: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] != [0, 1, 10]
+KILLED  M3b same, against the real create-instances.sh -> test_node_shapes.CreateNarrowTests.test_create_instances_per_type | AssertionError: Lists differ: ['ben[54 chars]r-02', 'bench-validator-03', 'bench-validator-[131 chars]-10'] != ['ben[54 chars]r-02']
+KILLED  M4 BENCH_NODE_DATADIR_LSSD=1 is accepted without BENCH_FLEET -> test_node_shapes.RefusalTests.test_datadir_lssd | AssertionError: 0 != 1 : LOADED
+KILLED  M5 BENCH_NODE_ZONES is applied after the zones.env block -> test_node_shapes.ZonesEnvTests.test_zones_env_wins | AssertionError: {0: '[99 chars]est1-b', 5: 'europe-west4-a', 6: 'asia-southea[83 chars]2-a'} != {0: '[99 chars]est1-c', 5: 'europe-west4-a', 6: 'asia-southea[83
+KILLED  M6 a scratch variable of the new blocks leaks into the caller -> test_node_shapes.KnobUnsetTests.test_no_scratch_variable_survives | AssertionError: 'LOADED\n_bench_lssd\n' != 'LOADED\n'
+KILLED  M7 the e2/n1 x hyperdisk refusal checks MACHINE_TYPE only -> test_node_shapes.RefusalTests.test_e2_n1_hyperdisk_per_type | AssertionError: 0 != 1 : LOADED
+KILLED  M8 a -lssd node gets its data directory on the SSD with the knob at 0 -> test_node_shapes.OptionETests.test_lssd_nodes_with_the_knob_at_0 | AssertionError: {0: '0', 1: '0', 2: '1', 3: '1', 4: '1', 5: '1', 6: '1', 7: '0[22 chars] '0'} != {0: '0', 1: '0', 2: '0', 3: '0', 4: '0', 5: '0', 6: '0', 7: '0[
+KILLED  M9 the zone check is loosened to <letters>...-<letter> -> test_node_shapes.RefusalTests.test_zones | AssertionError: 0 != 1 : LOADED
+KILLED  M10 the narrowed create keeps the fleet's MACHINE_TYPE -> test_node_shapes.CreateNarrowTests.test_create_instances_per_type | AssertionError: 'c3-highcpu-8' != 'c3-standard-8'
+KILLED  M11 BENCH_CREATE_MACHINE_TYPE is accepted without BENCH_NODE_MACHINE_TYPES -> test_node_shapes.RefusalTests.test_create_machine_type | AssertionError: 0 != 1 : LOADED
+RESULT bad=0 of 12
+EXIT=0

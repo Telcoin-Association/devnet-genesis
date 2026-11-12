@@ -110,6 +110,32 @@ export EXECUTION_ADDRESSES=("0xc7d975abd962345e9a6024aab692f6bf19140f03" "0x9286
 # and 2026-11-03: 3 = validator-04 (Tokyo b -> c), 4 = validator-05 (Ashburn b -> c, a), 7 = validator-08
 # (Hong Kong -> Taiwan), 8 = validator-09 (Seoul a -> b). An empty value turns fallbacks off.
 export BENCH_ZONE_FALLBACKS="${BENCH_ZONE_FALLBACKS-3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b}"
+# Per-node zones (bench 6): space-separated <index>:<zone> items, index = position in INSTANCE_NAMES (0-based),
+# each index once. Each item rewrites ZONES[index] here, before results/<run>/zones.env (below) is read; step 2
+# writes zones.env from these ZONES, so a stockout move after an override keeps both moves. A moved node's
+# BENCH_ZONE_FALLBACKS item still names the zones above: give it one in the new region (or none). Unset or empty
+# (the default): ZONES as listed above.
+case "${BENCH_NODE_ZONES:-}" in
+    *[*?[]*) echo "❌ benchmark/config.sh: BENCH_NODE_ZONES='${BENCH_NODE_ZONES}' holds a glob character." >&2; exit 1 ;;
+esac
+_bench_seen=" "
+for _bench_item in ${BENCH_NODE_ZONES:-}; do
+    _bench_bad=""
+    _bench_idx="${_bench_item%%:*}"
+    _bench_v="${_bench_item#*:}"
+    case "${_bench_item}" in *:?*) ;; *) _bench_bad="not <index>:<zone>" ;; esac
+    case "${_bench_idx}" in ''|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index '${_bench_idx}' is not a number}" ;; esac
+    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${#INSTANCE_NAMES[@]}" ]; then _bench_bad="index ${_bench_idx} is past the last node ($(( ${#INSTANCE_NAMES[@]} - 1 )))"; fi
+    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac
+    _bench_seen="${_bench_seen}${_bench_idx} "
+    if [ -z "${_bench_bad}" ] && ! [[ "${_bench_v}" =~ ^[a-z]+-[a-z]+[0-9]+-[a-z]$ ]]; then
+        _bench_bad="'${_bench_v}' is not a zone name (<region>-<letter>, e.g. us-east4-c)"
+    fi
+    if [ -n "${_bench_bad}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_NODE_ZONES item '${_bench_item}': ${_bench_bad}." >&2; exit 1
+    fi
+    ZONES[_bench_idx]="${_bench_v}"
+done
 
 # Ephemeral external IPs: nothing reserved, nothing to release at teardown.
 export USE_STATIC_IPS=0
@@ -156,6 +182,58 @@ case "${NODE_DISK_TYPE}" in
         export NODE_DISK_IOPS="${BENCH_NODE_DISK_IOPS:-}"
         export NODE_DISK_THROUGHPUT="${BENCH_NODE_DISK_THROUGHPUT:-}" ;;
 esac
+# Per-node machine types (bench 6): space-separated <index>:<machine-type> items, index = position in INSTANCE_NAMES
+# (0-based), each index once. NODE_MACHINE_TYPES holds one type per node: its item's, else MACHINE_TYPE. Deploy step 2
+# creates each type's nodes in a call of their own (BENCH_CREATE_MACHINE_TYPE, the last block of this file). The boot
+# disk (NODE_DISK_*) stays fleet-wide. Unset or empty (the default): every node is MACHINE_TYPE.
+case "${BENCH_NODE_MACHINE_TYPES:-}" in
+    *[*?[]*) echo "❌ benchmark/config.sh: BENCH_NODE_MACHINE_TYPES='${BENCH_NODE_MACHINE_TYPES}' holds a glob character." >&2; exit 1 ;;
+esac
+NODE_MACHINE_TYPES=()
+for _bench_idx in "${!INSTANCE_NAMES[@]}"; do NODE_MACHINE_TYPES[_bench_idx]="${MACHINE_TYPE}"; done
+_bench_seen=" "
+for _bench_item in ${BENCH_NODE_MACHINE_TYPES:-}; do
+    _bench_bad=""
+    _bench_idx="${_bench_item%%:*}"
+    _bench_v="${_bench_item#*:}"
+    case "${_bench_item}" in *:?*) ;; *) _bench_bad="not <index>:<machine-type>" ;; esac
+    case "${_bench_idx}" in ''|*[!0-9]*|0?*) _bench_bad="${_bench_bad:-index '${_bench_idx}' is not a number}" ;; esac
+    if [ -z "${_bench_bad}" ] && [ "${_bench_idx}" -ge "${#INSTANCE_NAMES[@]}" ]; then _bench_bad="index ${_bench_idx} is past the last node ($(( ${#INSTANCE_NAMES[@]} - 1 )))"; fi
+    case "${_bench_seen}" in *" ${_bench_idx} "*) _bench_bad="${_bench_bad:-index ${_bench_idx} appears twice (give each node one item)}" ;; esac
+    _bench_seen="${_bench_seen}${_bench_idx} "
+    if [ -z "${_bench_bad}" ] && ! [[ "${_bench_v}" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]]; then
+        _bench_bad="'${_bench_v}' is not a machine type (lower-case letters, digits and -, e.g. c3-standard-8-lssd)"
+    fi
+    if [ -n "${_bench_bad}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_NODE_MACHINE_TYPES item '${_bench_item}': ${_bench_bad}." >&2; exit 1
+    fi
+    NODE_MACHINE_TYPES[_bench_idx]="${_bench_v}"
+done
+export NODE_MACHINE_TYPES
+# The data directory on a local SSD (bench 6): with BENCH_NODE_DATADIR_LSSD=1, every node whose machine type ends in
+# -lssd gets its first local NVMe SSD mounted at the data directory (deploy, before keygen writes into it).
+# NODE_DATADIR_LSSD holds one 0|1 per node. A -lssd node with the knob at 0 keeps its data directory on the boot
+# disk. With 1 the caller must name the fleet: the label derived below would say <family>-hdb, the boot disk's shape,
+# for a fleet whose data directories are not on Hyperdisk. Unset or empty: 0.
+case "${BENCH_NODE_DATADIR_LSSD:-0}" in
+    0|1) ;;
+    *) echo "❌ benchmark/config.sh: BENCH_NODE_DATADIR_LSSD='${BENCH_NODE_DATADIR_LSSD}' must be 0 or 1." >&2; exit 1 ;;
+esac
+NODE_DATADIR_LSSD=()
+_bench_lssd=0
+for _bench_idx in "${!INSTANCE_NAMES[@]}"; do
+    case "${BENCH_NODE_DATADIR_LSSD:-0}:${NODE_MACHINE_TYPES[_bench_idx]}" in
+        1:*-lssd) NODE_DATADIR_LSSD[_bench_idx]=1; _bench_lssd=$((_bench_lssd + 1)) ;;
+        *)        NODE_DATADIR_LSSD[_bench_idx]=0 ;;
+    esac
+done
+export NODE_DATADIR_LSSD
+if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = "1" ] && [ "${_bench_lssd}" -eq 0 ]; then
+    echo "❌ benchmark/config.sh: BENCH_NODE_DATADIR_LSSD=1 but no node has a local SSD: no machine type ends in -lssd (MACHINE_TYPE='${MACHINE_TYPE}', BENCH_NODE_MACHINE_TYPES='${BENCH_NODE_MACHINE_TYPES:-}')." >&2; exit 1
+fi
+if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = "1" ] && [ -z "${BENCH_FLEET:-}" ]; then
+    echo "❌ benchmark/config.sh: BENCH_NODE_DATADIR_LSSD=1 needs BENCH_FLEET set by the caller: the derived fleet label names the boot disk's shape (<family>-hdb), not the local SSD the data directories are on." >&2; exit 1
+fi
 # Fleet label for the manifest/report, derived from the machine + disk shape: A = e2 baseline
 # on pd-ssd, B = c3 on pd-ssd, <family>-hdb on hyperdisk-balanced (c3-hdb, n4-hdb), else the
 # machine type. An explicit BENCH_FLEET always wins. (The first c3 run was mislabelled "A".)
@@ -625,10 +703,18 @@ case "${BENCH_TUNNEL_MIN_UP_SECS}" in
     ''|*[!0-9]*|0?*) echo "❌ benchmark/config.sh: BENCH_TUNNEL_MIN_UP_SECS='${BENCH_TUNNEL_MIN_UP_SECS}' must be a non-negative integer." >&2; exit 1 ;;
 esac
 
-case "${MACHINE_TYPE}:${NODE_DISK_TYPE}" in
-    e2-*:hyperdisk-*|n1-*:hyperdisk-*)
-        echo "❌ benchmark/config.sh: MACHINE_TYPE='${MACHINE_TYPE}' cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
-esac
+# e2/n1 cannot attach hyperdisk: checked once for each machine type of the fleet (NODE_MACHINE_TYPES).
+_bench_seen=" "
+for _bench_t in "${NODE_MACHINE_TYPES[@]}"; do
+    case "${_bench_seen}" in *" ${_bench_t} "*) continue ;; esac
+    _bench_seen="${_bench_seen}${_bench_t} "
+    _bench_k="MACHINE_TYPE='${_bench_t}'"
+    [ "${_bench_t}" = "${MACHINE_TYPE}" ] || _bench_k="BENCH_NODE_MACHINE_TYPES type '${_bench_t}'"
+    case "${_bench_t}:${NODE_DISK_TYPE}" in
+        e2-*:hyperdisk-*|n1-*:hyperdisk-*)
+            echo "❌ benchmark/config.sh: ${_bench_k} cannot attach a ${NODE_DISK_TYPE} disk; set BENCH_NODE_DISK_TYPE=pd-ssd." >&2; exit 1 ;;
+    esac
+done
 for _bench_knob in NODE_DISK_IOPS NODE_DISK_THROUGHPUT; do
     case "${!_bench_knob}" in
         '') continue ;;
@@ -743,4 +829,25 @@ if [ -n "${BENCH_ARM_FILE}" ]; then
         echo "❌ benchmark/config.sh: BENCH_ARM_FILE='${BENCH_ARM_FILE}' sets the host steps itself (host evict-mdbx, host read-ahead-kb); unset BENCH_NODE_EVICT_MDBX and BENCH_NODE_READ_AHEAD_KB." >&2; exit 1
     fi
 fi
-unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys _bench_zones _bench_zarr
+# BENCH_CREATE_MACHINE_TYPE (internal: deploy step 2 sets it for one common/create-instances.sh call; never an operator
+# knob) narrows the fleet to the nodes of one machine type: MACHINE_TYPE becomes that type and every other node's
+# INSTANCE_NAMES entry is unset. The array is sparse on purpose: create-instances.sh loops over ${!INSTANCE_NAMES[@]}
+# and indexes ZONES, NODE_ROLES, NODE_NAMES and EXECUTION_ADDRESSES by the same index, so each node keeps its zone,
+# role, name, address and "<role> node <n>" description. It is the last block: every check above counts the whole fleet.
+if [ -n "${BENCH_CREATE_MACHINE_TYPE:-}" ]; then
+    if [ -z "${BENCH_NODE_MACHINE_TYPES:-}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_CREATE_MACHINE_TYPE='${BENCH_CREATE_MACHINE_TYPE}' is set but BENCH_NODE_MACHINE_TYPES is empty; it narrows a fleet of several machine types to one (deploy step 2 sets it)." >&2; exit 1
+    fi
+    _bench_t=""
+    for _bench_idx in "${!NODE_MACHINE_TYPES[@]}"; do
+        [ "${NODE_MACHINE_TYPES[_bench_idx]}" != "${BENCH_CREATE_MACHINE_TYPE}" ] || _bench_t=1
+    done
+    if [ -z "${_bench_t}" ]; then
+        echo "❌ benchmark/config.sh: BENCH_CREATE_MACHINE_TYPE='${BENCH_CREATE_MACHINE_TYPE}' is no node's machine type (NODE_MACHINE_TYPES: ${NODE_MACHINE_TYPES[*]})." >&2; exit 1
+    fi
+    export MACHINE_TYPE="${BENCH_CREATE_MACHINE_TYPE}"
+    for _bench_idx in "${!INSTANCE_NAMES[@]}"; do
+        [ "${NODE_MACHINE_TYPES[_bench_idx]}" = "${MACHINE_TYPE}" ] || unset "INSTANCE_NAMES[${_bench_idx}]"
+    done
+fi
+unset _bench_n _bench_arr _bench_name _bench_knob _bench_pdir _bench_seen _bench_item _bench_bad _bench_idx _bench_kvs _bench_kv _bench_k _bench_v _bench_t _bench_keys _bench_zones _bench_zarr _bench_lssd
