@@ -249,6 +249,8 @@ The orchestrator watches what these checks cannot see:
 5. Read `results/<run>/probe/SUMMARY.txt` before gate G1.
 
 The probe has two modes, chosen by `LAUNCH_PROBE_DISKS` in the env file (launch.sh passes it as `--disks`).
+`LAUNCH_PROBE_ZONE` (passed as `--zone`) names the zone when the default (validator-01's) does not offer the shape: `us-west2` has no
+C3 `-lssd` shape, `us-west1-a` has `c3-standard-8-lssd`.
 
 | mode | knob | VM | records | run, start to `DOWN_OK` |
 |---|---|---|---|---|

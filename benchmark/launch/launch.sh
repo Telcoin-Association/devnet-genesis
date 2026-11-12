@@ -7,7 +7,7 @@
 #
 # Segments and the driver call each one starts (from the repo root; R = BENCH_RUN_ID of the env file):
 #   probe         benchmark/benchmark-probe.sh all --bin <LAUNCH_PROBE_BIN> [--arms <LAUNCH_PROBE_ARMS>]
-#                 [--disks <LAUNCH_PROBE_DISKS>]
+#                 [--disks <LAUNCH_PROBE_DISKS>] [--zone <LAUNCH_PROBE_ZONE>]
 #   deploy12      benchmark/benchmark-deploy.sh --yes --with-contracts --to 12
 #   arms          benchmark/launch/run-arms.sh            (the run-1 arm walk, bench6-run1.plan)
 #   blast15       benchmark/benchmark-deploy.sh --yes --from 13 --to 15
@@ -52,7 +52,7 @@
 #
 # Knobs (the env file's value, else the launching shell's): LAUNCH_TOKEN_SECS [30], LAUNCH_PID_WAIT_SECS
 # [10], LAUNCH_LEFT_WAIT_SECS [60]; from the env file only: LAUNCH_PROBE_BIN, LAUNCH_PROBE_ARMS,
-# LAUNCH_PROBE_DISKS.
+# LAUNCH_PROBE_DISKS, LAUNCH_PROBE_ZONE.
 # Docs: benchmark/launch/README.md.
 
 set -euo pipefail
@@ -271,6 +271,8 @@ case "${SEG}" in
         [ -z "${arms}" ] || CMD+=(--arms "${arms}")
         disks="$(env_get LAUNCH_PROBE_DISKS)" || disks=""
         [ -z "${disks}" ] || CMD+=(--disks "${disks}")
+        pzone="$(env_get LAUNCH_PROBE_ZONE)" || pzone=""
+        [ -z "${pzone}" ] || CMD+=(--zone "${pzone}")
         WAIT_TAG="DOWN_OK | DOWN_INCOMPLETE" ;;
     deploy12) CMD=(benchmark/benchmark-deploy.sh --yes --with-contracts --to 12); WAIT_TAG="BENCH_DEPLOY_RESULT" ;;
     arms) CMD=(benchmark/launch/run-arms.sh); WAIT_TAG="ARMS_DONE | ARMS_STOPPED (then ARMS_RESUME)" ;;

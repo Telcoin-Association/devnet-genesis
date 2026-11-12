@@ -374,6 +374,17 @@ class LaunchStartTests(LaunchBase):
         # The shipped probe env file leaves it unset (commented), so a launch of it runs the hyperdisk mode.
         self.assertIn("# LAUNCH_PROBE_DISKS=both\n", (LAUNCH / "bench6-probe.env").read_text())
 
+    def test_the_probe_passes_its_zone_knob(self):
+        # Unset: no --zone (the driver's default, validator-01's zone); set: --zone last, as given.
+        self.assertNotIn("--zone", self.launch("--dry-run", self.envf, "probe").stdout)
+        self.t.write(self.envf, self.t.root.joinpath(self.envf).read_text()
+                     + "LAUNCH_PROBE_DISKS=both\nLAUNCH_PROBE_ZONE=us-west1-a\n")
+        p = self.launch("--dry-run", self.envf, "probe")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("  command: benchmark/benchmark-probe.sh all --bin benchmark/work/probe-bin/mdbx-writeback-probe"
+                      " --disks both --zone us-west1-a\n", p.stdout)
+        self.assertIn("# LAUNCH_PROBE_ZONE=us-west1-a\n", (LAUNCH / "bench6-probe.env").read_text())
+
     def test_the_dry_run_starts_nothing(self):
         p = self.launch("--dry-run", self.envf, "deploy12", FAKE_GCLOUD_MODE="reached")
         self.assertEqual(p.returncode, 0, p.stderr)
