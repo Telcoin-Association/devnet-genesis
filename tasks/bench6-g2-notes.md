@@ -44,7 +44,13 @@ local-SSD deployment's shape choice and plan, the image digests, the dry-run res
   The other options and their confounds: (a) mixed C3/C4 local SSD — two CPU generations and two SSD devices; (b) C4 in eight zones,
   two validators moved — a C4 CPU against run 1's C3 and two latencies changed; (c) seven validators on C3 local SSD — a committee of
   seven, not supported by the harness today (about one more unit); (d) other regions — another latency matrix.
-- D-L2: the Hyperdisk leg on the same shape comes inside (e); under (a)-(d) it is a second deployment.
+  **Corrected after the zone reads (2026-11-12T03:05Z):** `c3-standard-8` does not exist in Hong Kong or Seoul (only `c3-highcpu-8`
+  among the 8-vCPU C3 shapes, there and in their fallback zones). So (e) has three groups: six validators on `c3-standard-8-lssd`
+  (32 GiB, local SSD); validators 01 and 02 and the observer on `c3-standard-8` (32 GiB, Hyperdisk); validators 08 and 09 on run 1's
+  `c3-highcpu-8` (16 GiB, Hyperdisk). The same-RAM Hyperdisk comparison then rests on two validators (Los Angeles, London); the
+  16 GiB pair pairs with run 1 directly and shows what the extra RAM does on the same disk. The summary groups by (disk class,
+  machine type). Alternative for those two: `c4-standard-8` (30 GiB) — a second CPU generation; not recommended.
+- D-L2: the Hyperdisk leg on the same shape comes inside (e) (two validators); under (a)-(d) it is a second deployment.
 - D-L3 plan: `a0-control I L M4 M16`, `p1-mdbx-advice M16`, `a0-prime M16` (run 1's steps and relative order, so rows pair with run 1).
 - D-L4 when: after run 1's teardown, before G3, with run 1's image. About 3 h 50 min of fleet time, about $40.
 - D-L5: one local SSD (the first of the two on `c3-standard-8-lssd`), as the probe measured it; no RAID 0.
