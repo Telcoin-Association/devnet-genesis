@@ -1,0 +1,15 @@
+BASELINE ok: 10 anchored tests pass unmutated
+KILLED  step 3's knob-off early return dropped -> test_local_ssd_deploy.KnobUnsetTests.test_step_3_is_the_serial_markers_alone
+KILLED  a failed LSSD_MOUNT line does not stop step 3 -> test_local_ssd_deploy.OptionEStep3Tests.test_a_lost_node_stops_the_step_naming_it_and_the_others_are_kept
+KILLED  the local-SSD check after the probes instead of before -> test_local_ssd_deploy.OptionEStep7Tests.test_the_check_comes_first_on_the_six_and_nowhere_else
+KILLED  the local-SSD check on the boot-disk nodes too -> test_local_ssd_deploy.OptionEStep7Tests.test_the_check_comes_first_on_the_six_and_nowhere_else
+KILLED  data_disk written under instances[].disks -> test_local_ssd_deploy.OptionEStep2Tests.test_every_instance_gets_its_data_disk_and_none_under_disks
+KILLED  the live guard before the mount session removed -> test_local_ssd_deploy.OptionEStep3Tests.test_the_live_guard_keeps_a_dry_mount_session_from_any_call
+KILLED  step 2's data_disk written with the knob off -> test_local_ssd_deploy.KnobUnsetTests.test_step_2_writes_no_data_disk
+KILLED  a resumed node counted as done -> test_local_ssd_deploy.OptionEStep3Tests.test_a_rerun_keeps_and_resumes
+KILLED  --print-lssd-mount does not refuse a boot-disk node -> test_local_ssd_deploy.DryPathTests.test_print_lssd_mount_refuses_a_boot_disk_node_and_a_stranger
+KILLED  the plan's step-3 lines with the knob off -> test_local_ssd_deploy.DryPathTests.test_a_lssd_node_with_the_knob_off_is_refused
+KILLED  a node's record not merged into instances[].data_disk -> test_local_ssd_deploy.OptionEStep3Tests.test_the_six_are_mounted_recorded_and_summed
+RESTORED
+EXIT=0
+RC=0

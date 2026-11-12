@@ -340,11 +340,12 @@ This follows the design; no deploy has run these steps on a live fleet yet.
   The file system is ext4, made with the probe's options (`mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard`) and mounted with the boot disk's own fstab options for `/`, so the two disk classes differ in the device only.
   The fstab line carries `nofail`, a drop-in makes `telcoin.service` require the mount, and a marker on the boot disk (`/var/lib/bench-lssd/uuid`) records the file system's UUID.
   The harness never changes the owner of the data directory: keygen hands the empty mount point to the `telcoin` user.
-- Each node prints one line, `LSSD_MOUNT <inst> dev=<dev> by_id=google-local-nvme-ssd-0 size_bytes=<n> uuid=<uuid> mount=<dir> mkfs=done|kept options=<opts> fstab_root_options=<opts> ra_kb=<n>`, or `LSSD_MOUNT <inst> failed <reason>`.
+- Each node prints one line, `LSSD_MOUNT <inst> dev=<dev> by_id=google-local-nvme-ssd-0 size_bytes=<n> uuid=<uuid> mount=<dir> mkfs=done|kept|resumed options=<opts> fstab_root_options=<opts> ra_kb=<n>`, or `LSSD_MOUNT <inst> failed <reason>`.
   The lines go to `logs/lssd-mount-<UTC>.log` and into the manifest's `instances[].data_disk` (`"class": "local-ssd"`; the other nodes get `"class": "boot"`).
   A failed or missing line stops the step and names the node, since a node whose data directory silently stayed on the boot disk would spoil the comparison.
-- After the last node: `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 failed=[]`.
+- After the last node: `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 resumed=0 failed=[]`.
   A re-run of step 3 (`--from 3` or later) finds the mount and reports `mkfs=kept`.
+  A first run cut after its mount (a dropped session) is finished by the next one and reports `mkfs=resumed`, but only when the file system holds nothing except an empty `lost+found`.
 - A node whose marker exists but whose data directory is not that file system fails `lost`: its SSD was wiped (a stop, a suspend or a host error).
   Step 3 never formats it again, so the node never starts on an empty data directory; its keys and database are gone, and it is out for the run.
 - Step 7's pre-start session first checks the mount on each local-SSD node and fails with `PRECFG_FAIL <inst> local SSD not mounted at <dir>` otherwise, before the fsync probe and the host probe run.
@@ -361,7 +362,7 @@ The `ARMS_RESUME` line after a stop names the walked plan with `--plan`, so a re
 
 | # | launch | wait for | read before the next segment |
 |---|---|---|---|
-| 1 | `launch.sh <run1b.env> deploy12` | `== deploy12 rc=0`, `BENCH_DEPLOY_RESULT rc=0` | `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 failed=[]` and the six `LSSD_MOUNT` lines; `instances[].data_disk` in the manifest; `HOST_PROBE_SUMMARY ... uniform=no` and `FSYNC_PROBE_SUMMARY ... slow=[...]` naming one disk class are expected warnings; the image gate lines, `OBS_READY` |
+| 1 | `launch.sh <run1b.env> deploy12` | `== deploy12 rc=0`, `BENCH_DEPLOY_RESULT rc=0` | `LSSD_MOUNT_SUMMARY nodes=6 done=6 kept=0 resumed=0 failed=[]` and the six `LSSD_MOUNT` lines; `instances[].data_disk` in the manifest; `HOST_PROBE_SUMMARY ... uniform=no` and `FSYNC_PROBE_SUMMARY ... slow=[...]` naming one disk class are expected warnings; the image gate lines, `OBS_READY` |
 | 2 | `launch.sh <run1b.env> arms --dry-run` | `== arms rc=0` | the walk: `DRY RUN: run-arms walks benchmark/launch/bench6-run1-lssd.plan ...` and `DRY RUN END: 3 arm(s), 6 step(s), 5 blast(s)` |
 | 3 | `launch.sh <run1b.env> arms` | `== arms rc=` | `ARMS_DONE arms=3 blasts=5`; on `ARMS_STOPPED`, as in run 1 |
 | 4 | `launch.sh <run1b.env> step15` | `== step15 rc=0` | `BENCH_DEPLOY_RESULT rc=0`, `metrics.json` |

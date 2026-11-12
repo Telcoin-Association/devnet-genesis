@@ -327,7 +327,7 @@ The script never formats that SSD again; the node's keys and database are gone, 
 After every node, step 3 prints one line for the fleet:
 
 ```
-LSSD_MOUNT_SUMMARY nodes=<n> done=<n> kept=<n> failed=[<inst> ...]
+LSSD_MOUNT_SUMMARY nodes=<n> done=<n> kept=<n> resumed=<n> failed=[<inst> ...]
 ```
 
 ### PRECFG_FAIL for the local SSD

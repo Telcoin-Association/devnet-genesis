@@ -40,7 +40,11 @@
 #                        bench-node + label benchmark=1 on every node; label boot disks; manifest.instances[],
 #                        zones_used; then bench_obs_create: the run's own bench-obs VM (metrics only,
 #                        create-or-keep; one of another run is refused) -> manifest.obs
-#    3  bootstrap        serial-console marker "devnet-startup.sh complete" on every node
+#    3  bootstrap        serial-console marker "devnet-startup.sh complete" on every node; with
+#                        BENCH_NODE_DATADIR_LSSD=1 then, per local-SSD node (BENCH_NODE_JOBS at a time), one IAP
+#                        session (bench_lssd_mount_script): its first local NVMe SSD becomes the data directory
+#                        (ext4, the fstab options of /, fstab + RequiresMountsFor) -> logs/lssd-mount-<UTC>.log;
+#                        LSSD_MOUNT -> manifest.instances[].data_disk; LSSD_MOUNT_SUMMARY; a failed node stops
 #    4  firewall         benchmark-firewall.sh apply --yes
 #    5  keygen           ../devnet-keygen.sh           (bench profile via CONFIG_FILE) -> logs/keygen-<UTC>.log;
 #                        its KEYGEN_DONE lines -> manifest.keygen_timing + node_info_rpc
@@ -50,7 +54,9 @@
 #                                          nodes, rendered under benchmark/genesis/network-config/)
 #                        stage-only        ../devnet-finalize.sh --stage-only (stage + v2 finalize, then
 #                                          stop: unit enabled, inactive) -> logs/finalize-stage-<utc>.log
-#                        pre-start config  per node, ONE IAP session (bench_fsync_probe_script, then
+#                        pre-start config  per node, ONE IAP session (a local-SSD node: bench_lssd_check_script
+#                                          first, PRECFG_FAIL unless the data directory is the SSD; then
+#                                          bench_fsync_probe_script, then
 #                                          bench_prestart_script, on stdin): the datadir fsync probe
 #                                          (FSYNC_PROBE -> node_startup.fsync_probe; never fatal), then
 #                                          --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<port>, the
@@ -126,13 +132,15 @@
 #       bench-obs IP: BENCH_OBS_INTERNAL_IP, else the placeholder bench-obs-internal-ip.invalid)
 #   benchmark/benchmark-deploy.sh --print-obs-bringup             # step 8's bench-obs bring-up (bench_obs_bringup_script)
 #   benchmark/benchmark-deploy.sh --print-postconfig <instance>   # step 9's verify script
+#   benchmark/benchmark-deploy.sh --print-lssd-mount <instance>   # step 3's local-SSD mount script
+#       (BENCH_NODE_DATADIR_LSSD=1; a node whose data directory stays on the boot disk is refused)
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 LAST_STEP=16
 CONFIRM=0; FROM=0; TO="${LAST_STEP}"; ONLY=""; WITH_CONTRACTS=0; WITH_TEARDOWN=0; PRINT_POSTCONFIG=""; PRINT_OBS=""; PRINT_PRESTART=""
-PRINT_OBS_BRINGUP=""
+PRINT_OBS_BRINGUP=""; PRINT_LSSD_MOUNT=""
 PROBE_ONLY=0; PROBE_REF=""; NOTE=""; NOTE_GIVEN=0; RUN_GIVEN=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -153,10 +161,11 @@ while [ $# -gt 0 ]; do
         --print-prestart) PRINT_PRESTART="${2:?--print-prestart needs an instance}"; shift ;;        # review aid: step 7's pre-start config script
         --print-obs-script) PRINT_OBS="${2:?--print-obs-script needs an instance}"; shift ;;       # review aid: step 8's script, placeholder token
         --print-obs-bringup) PRINT_OBS_BRINGUP=1 ;;                                                 # review aid: step 8's bench-obs bring-up script
+        --print-lssd-mount) PRINT_LSSD_MOUNT="${2:?--print-lssd-mount needs an instance}"; shift ;;  # review aid: step 3's local-SSD mount script
         --probe-node-image) PROBE_ONLY=1; case "${2:-}" in ''|-*) ;; *) PROBE_REF="$2"; shift ;; esac ;;
         --probe-node-image=*) PROBE_ONLY=1; PROBE_REF="${1#*=}" ;;
         -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
-        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --note TEXT (with --run), --probe-node-image [REF], --print-prestart INST, --print-obs-script INST, --print-obs-bringup, --print-postconfig INST)" >&2; exit 1 ;;
+        *) echo "❌ unknown argument '$1' (supported: --yes, --from N, --to N, --only N, --with-contracts, --with-teardown, --run ID, --note TEXT (with --run), --probe-node-image [REF], --print-prestart INST, --print-lssd-mount INST, --print-obs-script INST, --print-obs-bringup, --print-postconfig INST)" >&2; exit 1 ;;
     esac
     shift
 done
@@ -188,7 +197,7 @@ deploy_status_write() {
     return 0
 }
 if [ "${CONFIRM}" -eq 1 ] && [ "${PROBE_ONLY}" -eq 0 ] && [ "${NOTE_GIVEN}" -eq 0 ] \
-    && [ -z "${PRINT_POSTCONFIG}${PRINT_PRESTART}${PRINT_OBS}${PRINT_OBS_BRINGUP}" ]; then
+    && [ -z "${PRINT_POSTCONFIG}${PRINT_PRESTART}${PRINT_OBS}${PRINT_OBS_BRINGUP}${PRINT_LSSD_MOUNT}" ]; then
     case "${BENCH_RUN_ID}" in
         ''|r*[!a-z0-9-]*|[!r]*) ;;   # config.sh refuses it (no status file for a run id that cannot exist)
         *)
@@ -327,6 +336,44 @@ lssd_nodes() {
         case "$(node_machine_type "${i}")" in *-lssd) n="${n} ${i}" ;; esac
     done
     printf '%s' "${n# }"
+}
+
+# lssd_datadir_nodes — the indices of the nodes whose data directory step 3 puts on their first local SSD
+# (config.sh NODE_DATADIR_LSSD=1: BENCH_NODE_DATADIR_LSSD=1 and a -lssd type), space-separated, in order;
+# "" with the knob off.
+lssd_datadir_nodes() {
+    local i n=""
+    for i in "${!INSTANCE_NAMES[@]}"; do [ "${NODE_DATADIR_LSSD[$i]}" != 1 ] || n="${n} ${i}"; done
+    printf '%s' "${n# }"
+}
+
+# node_datadir <index> — node <index>'s data directory (the repo config.sh's VALIDATOR_DATA_DIR or
+# OBSERVER_DATA_DIR by its role): the mount point of its local SSD. Passed to the step-3 and step-7
+# builders: /etc/telcoin/.node-meta does not exist before keygen.
+node_datadir() {
+    case "${NODE_ROLES[$1]}" in
+        observer) printf '%s' "${OBSERVER_DATA_DIR}" ;;
+        *) printf '%s' "${VALIDATOR_DATA_DIR}" ;;
+    esac
+}
+
+# data_disk_plan — step 2's half of instances[].data_disk (BENCH_NODE_DATADIR_LSSD=1), one JSON object
+# {<inst>: <data_disk>}: {"class": "local-ssd"} for a node with NODE_DATADIR_LSSD=1 (step 3 merges in the rest
+# from its LSSD_MOUNT line), and for every other node the boot disk the create asks for (the config):
+# {"class": "boot", "type": NODE_DISK_TYPE, "size_gb": NODE_DISK_SIZE, "provisioned_iops": NODE_DISK_IOPS or
+# null, "provisioned_throughput": NODE_DISK_THROUGHPUT or null}. Not under instances[].disks: the collector
+# copies that list into its disk inventory.
+data_disk_plan() {
+    local i
+    for i in "${!INSTANCE_NAMES[@]}"; do printf '%s %s\n' "${INSTANCE_NAMES[$i]}" "${NODE_DATADIR_LSSD[$i]}"; done \
+        | jq -R -s -c --arg t "${NODE_DISK_TYPE}" --arg s "${NODE_DISK_SIZE}" --arg io "${NODE_DISK_IOPS:-}" \
+            --arg th "${NODE_DISK_THROUGHPUT:-}" '
+            def num: if . == "" then null else tonumber end;
+            [split("\n")[] | select(. != "") | split(" ")
+             | {key: .[0], value: (if .[1] == "1" then {class: "local-ssd"}
+                 else {class: "boot", type: $t, size_gb: ($s | tonumber), provisioned_iops: ($io | num),
+                       provisioned_throughput: ($th | num)} end)}]
+            | from_entries'
 }
 
 # create_plain — 0 when step 2 creates the fleet with one plain common/create-instances.sh call: every
@@ -1089,7 +1136,7 @@ step_2() {
         exit 1
     fi
     echo "    ✓ all ${#INSTANCE_NAMES[@]} tagged bench-node + labelled benchmark=1"
-    local insts="[]" disk djson shape
+    local insts="[]" disk djson shape dd
     for i in "${!INSTANCE_NAMES[@]}"; do
         inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
         j="$(bench_instance_json "${inst}" "${zone}")"
@@ -1107,6 +1154,11 @@ step_2() {
                   boot_disk: {name: $d.name, size_gb: ($d.sizeGb|tonumber), type: ($d.type | split("/") | last)},
                   source_image: ($d.sourceImage // null)}]')"
     done
+    if [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ]; then
+        dd="$(data_disk_plan)" && insts="$(printf '%s' "${insts}" | jq -c --argjson m "${dd}" 'map(.data_disk = $m[.name])')" \
+            || bench_die "cannot build manifest.instances[].data_disk (BENCH_NODE_DATADIR_LSSD=1)"
+        echo "    instances[].data_disk: \"local-ssd\" on $(lssd_datadir_nodes | wc -w | tr -d ' ') node(s) (step 3 mounts them and fills it in), \"boot\" on the others"
+    fi
     bench_manifest_jq --argjson a "${insts}" '.instances = $a'
     echo "    ✓ manifest.instances[] recorded (${#INSTANCE_NAMES[@]})"
     # Every boot disk must come from the pinned image (IMAGE; a family would float): the disks describe
@@ -1131,6 +1183,64 @@ step_3() {
             "${BOOTSTRAP_TIMEOUT_SECS}" "${BOOTSTRAP_POLL_SECS}" \
             || bench_die "${INSTANCE_NAMES[$i]} did not finish bootstrap; serial: gcloud compute instances get-serial-port-output ${INSTANCE_NAMES[$i]} --zone=${ZONES[$i]}"
     done
+    lssd_mount_all
+}
+
+# lssd_mount_node <index> — step 3's local-SSD session on one node: bench_lssd_mount_script on the stdin of one
+# IAP session (tn_iap_ssh_stdin), its output (CRs dropped) into ${LSSD_MOUNT_DIR}/<index>.out. Never fails:
+# lssd_mount_all reads that file, and a node without one, or without its LSSD_MOUNT line in it, is a failure
+# lssd_mount_all names.
+LSSD_MOUNT_DIR=""
+lssd_mount_node() {
+    local inst="${INSTANCE_NAMES[$1]}"
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    bench_lssd_mount_script "${inst}" "$(node_datadir "$1")" | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' > "${LSSD_MOUNT_DIR}/$1.out" || true
+}
+
+# lssd_mount_all — step 3's local-SSD sub-step, after the serial markers and before keygen (step 5) first
+# writes into the data directory. With BENCH_NODE_DATADIR_LSSD unset or 0 it returns at once: step 3 is the
+# serial markers alone. Otherwise lssd_mount_node on every node of lssd_datadir_nodes, BENCH_NODE_JOBS at a
+# time (bench_node_jobs_run); then, in index order, each session's output goes to logs/lssd-mount-<UTC>.log
+# under a "== <inst>" line, its LSSD_MOUNT line is printed, and bench_lssd_mount_record turns it into the
+# object merged into that node's instances[].data_disk (over step 2's {"class": "local-ssd"}). A failed line
+# (`failed lost: …` for a wiped SSD), no line or any other shape leaves that node's record as it is and puts
+# it on the failed list; the other nodes' records are written all the same. After every node one line,
+#   LSSD_MOUNT_SUMMARY nodes=<n> done=<n> kept=<n> resumed=<n> failed=[<inst> …]
+# and the step stops naming every failed node: a data directory left on the boot disk would spoil the
+# comparison. A re-run is safe: the script leaves a kept or resumed node's file system as it is and fails a
+# lost one rather than format it again.
+lssd_mount_all() {
+    [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ] || return 0
+    local nodes jobs log i inst out rec mk n=0 nd=0 nk=0 nr=0 failed=""
+    nodes="$(lssd_datadir_nodes)"
+    [ -n "${nodes}" ] || bench_die "step 3: BENCH_NODE_DATADIR_LSSD=1 but no node has its data directory on a local SSD"
+    jobs="${BENCH_NODE_JOBS:-1}"
+    case "${jobs}" in ''|*[!0-9]*|0) jobs=1 ;; esac
+    log="$(deploy_new_log "${BENCH_RESULTS_DIR}/logs" lssd-mount)" || bench_die "cannot create a log in ${BENCH_RESULTS_DIR}/logs"
+    LSSD_MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench-lssd-mount.XXXXXX")" || bench_die "step 3: cannot create a temp directory"
+    echo "    local SSD -> data directory on $(printf '%s' "${nodes}" | wc -w | tr -d ' ') node(s): one IAP session each (bench_lssd_mount_script; review: --print-lssd-mount <instance>)$([ "${jobs}" -le 1 ] || printf ', up to %s at a time' "${jobs}") -> ${log}"
+    # shellcheck disable=SC2086  # node indices
+    bench_node_jobs_run "${jobs}" "local SSD mount (step 3)" lssd_mount_node ${nodes}
+    for i in ${nodes}; do
+        inst="${INSTANCE_NAMES[$i]}"; n=$((n + 1)); out=""
+        [ ! -f "${LSSD_MOUNT_DIR}/${i}.out" ] || out="$(cat "${LSSD_MOUNT_DIR}/${i}.out")"
+        printf '== %s (%s) %s\n%s\n' "${inst}" "${ZONES[$i]}" "$(bench_now_iso)" "${out}" >> "${log}"
+        printf '%s\n' "${out}" | grep -E "^LSSD_MOUNT ${inst} " | sed 's/^/      /' || true
+        if rec="$(printf '%s\n' "${out}" | bench_lssd_mount_record "${inst}" 2>"${LSSD_MOUNT_DIR}/err")"; then
+            bench_manifest_jq --arg n "${inst}" --argjson o "${rec}" '
+                if any(.instances[]?; .name == $n) then .instances |= map(if .name == $n then .data_disk = ((.data_disk // {}) + $o) else . end)
+                else error("no instances[] entry for " + $n + " (step 2 writes it)") end' \
+                || bench_die "${inst}: could not record instances[].data_disk in $(bench_manifest)"
+            mk="$(printf '%s' "${rec}" | jq -r '.mkfs')"
+            case "${mk}" in done) nd=$((nd + 1)) ;; kept) nk=$((nk + 1)) ;; resumed) nr=$((nr + 1)) ;; esac
+        else
+            failed="${failed} ${inst}"
+            echo "      ✗ ${inst}: $(sed 's/^❌ bench_lssd_mount_record: //' "${LSSD_MOUNT_DIR}/err" | head -1)" >&2
+        fi
+    done
+    rm -f "${LSSD_MOUNT_DIR}"/*.out "${LSSD_MOUNT_DIR}/err"; rmdir "${LSSD_MOUNT_DIR}" 2>/dev/null || true; LSSD_MOUNT_DIR=""
+    echo "LSSD_MOUNT_SUMMARY nodes=${n} done=${nd} kept=${nk} resumed=${nr} failed=[${failed# }]"
+    [ -z "${failed}" ] || bench_die "step 3: the data directory is not on the local SSD of${failed} (each node's LSSD_MOUNT line above; sessions in ${log}) — keygen (step 5) must not write into it. Fix the node and re-run with --from 3 (a mounted node is kept), or tear down: a lost node's SSD was wiped and it is out for the run"
 }
 
 step_4()  { echo ">>> Step 4: bench firewall rules"; "${DIR}/benchmark-firewall.sh" apply --yes --run "${BENCH_RUN_ID}"; }
@@ -1289,11 +1399,20 @@ bench_node_jobs_run() {
 # {probe_failed: true, reason}). The host probe (bench_host_probe_script) runs between the two, before
 # any host step: .host from its HOST_PROBE line (bench_host_probe_record), .host_steps from the HOST_STEP
 # lines of the pre-start script's host steps (bench_host_step_record; [] when it ran none).
+#
+# A node whose data directory is on its local SSD (NODE_DATADIR_LSSD=1) starts the session with
+# bench_lssd_check_script, before the fsync probe and the host probe: unless the data directory is the SSD's
+# mount it prints `PRECFG_FAIL <inst> local SSD not mounted at <D>` and ends the session, so neither probe ever
+# measures the boot disk on that node and no PRECFG_OK follows. Every other node's session is unchanged.
 STEP7_RUNNING=""
 prestart_node() {
-    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o hp hs
+    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o hp hs chk=""
     case " ${STEP7_RUNNING}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; return 0 ;; esac
-    out="$({ bench_fsync_probe_script "${inst}"; bench_host_probe_script "${inst}"; bench_prestart_script "${inst}"; } | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
+    if [ "${NODE_DATADIR_LSSD[$1]}" = 1 ]; then
+        chk="$(bench_lssd_check_script "${inst}" "$(node_datadir "$1")")" \
+            || bench_die "${inst}: cannot build its local-SSD check (bench_lssd_check_script) — no node has been started"
+    fi
+    out="$({ [ -z "${chk}" ] || printf '%s\n' "${chk}"; bench_fsync_probe_script "${inst}"; bench_host_probe_script "${inst}"; bench_prestart_script "${inst}"; } | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
     printf '%s\n' "${out}" | grep -E '^FSYNC_PROBE |^HOST_PROBE |^HOST_STEP |PRECFG_(OK|FAIL)' | sed 's/^/      /' || true
     line="$(printf '%s\n' "${out}" | grep -F "PRECFG_OK ${inst} " | tail -1 || true)"
     [ -n "${line}" ] || bench_die "pre-start config failed on ${inst} — no node has been started; fix it and re-run with --from 7 (staged nodes are skipped, flags already set are accepted)"
@@ -2267,6 +2386,32 @@ plan_host_step_line() {
     printf '\n                                       host steps last, before the start (%s): %s; HOST_STEP -> node_startup.host_steps, a failed one is PRECFG_FAIL' "${src}" "${steps}"
 }
 
+# plan_lssd_mount_lines — step 3's local-SSD sub-step (BENCH_NODE_DATADIR_LSSD=1), each line led by a newline;
+# nothing at all with the knob off (step 3's plan is then the serial marker alone). Text only: the script is
+# bench_lssd_mount_script's (--print-lssd-mount <instance>).
+plan_lssd_mount_lines() {
+    [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ] || return 0
+    local i names="" dirs l="                       "
+    for i in $(lssd_datadir_nodes); do names="${names} ${INSTANCE_NAMES[$i]}"; done
+    dirs="$(for i in $(lssd_datadir_nodes); do node_datadir "${i}"; echo; done | sort -u | paste -sd ' ' -)"
+    printf '\n                     local SSD -> data directory (BENCH_NODE_DATADIR_LSSD=1), per node (BENCH_NODE_JOBS=%s at a time), one IAP session, script on stdin (bench_lssd_mount_script; --print-lssd-mount <instance>):' "${BENCH_NODE_JOBS:-1}"
+    printf '\n%s%s' "${l}" "${names# }"
+    printf '\n%sdevice /dev/disk/by-id/google-local-nvme-ssd-0 (only); first time (no marker /var/lib/bench-lssd/uuid): mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard' "${l}"
+    printf '\n%smount at %s with the fstab options of /; fstab UUID=<uuid> <dir> ext4 <options of />,nofail,x-systemd.device-timeout=30s 0 2;' "${l}" "${dirs}"
+    printf '\n%stelcoin.service.d/bench-lssd.conf RequiresMountsFor=<dir>; the owner is left to keygen (step 5, the first writer)' "${l}"
+    printf '\n%sLSSD_MOUNT <instance> ... mkfs=done|kept|resumed -> manifest.instances[].data_disk (step 2 wrote {"class": "local-ssd"} there and {"class": "boot", ...} for the other nodes)' "${l}"
+    printf '\n%s-> %s/logs/lssd-mount-<utc>.log; a failed or missing line stops the step and names the node (failed lost: a wiped SSD, never formatted again)' "${l}" "${BENCH_RESULTS_DIR}"
+    printf '\n%safter every node: LSSD_MOUNT_SUMMARY nodes= done= kept= resumed= failed=[]' "${l}"
+}
+
+# plan_lssd_check_line — step 7's local-SSD check (BENCH_NODE_DATADIR_LSSD=1) on a line of its own, led by a
+# newline; nothing with the knob off.
+plan_lssd_check_line() {
+    [ "${BENCH_NODE_DATADIR_LSSD:-0}" = 1 ] || return 0
+    printf '\n                                       on the %s local-SSD node(s), before anything else: bench_lssd_check_script (the data directory must be the SSD mount, else PRECFG_FAIL <instance> local SSD not mounted at <dir>)' \
+        "$(lssd_datadir_nodes | wc -w | tr -d ' ')"
+}
+
 # plan_step9_lines — step 9's checks that only some runs have (the first-start arm's switch line, the
 # persist sampler), each on a line of its own led by a newline; nothing when neither applies.
 plan_step9_lines() {
@@ -2398,7 +2543,7 @@ $(plan_create_lines)
                      assert tags==[bench-node] + labels.benchmark=1; gcloud compute disks add-labels <boot> --labels=${BENCH_LABELS},tn-role=<role>
                      bench_obs_create: ${BENCH_OBS_INSTANCE} (create-or-keep; one of another run is refused) -> manifest.obs
 $(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
-   3  bootstrap      serial marker 'devnet-startup.sh complete' (${BOOTSTRAP_TIMEOUT_SECS}s/node)
+   3  bootstrap      serial marker 'devnet-startup.sh complete' (${BOOTSTRAP_TIMEOUT_SECS}s/node)$(plan_lssd_mount_lines)
    4  firewall       benchmark/benchmark-firewall.sh apply --yes   (${BENCH_FIREWALL_RULES[*]} -> tag bench-node)
    5  keygen         ${REPO_ROOT}/devnet-keygen.sh           -> ${GENESIS_WORKSPACE}/genesis/{validators,observers}/
                      (-> ${BENCH_RESULTS_DIR}/logs/keygen-<utc>.log; KEYGEN_DONE lines -> manifest.keygen_timing, node_info_rpc)
@@ -2408,7 +2553,7 @@ $(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
                                        (Closed admission on all ${#INSTANCE_NAMES[@]}; rendered under ${GENESIS_WORKSPACE}/genesis/network-config/)
                      stage-only        ${REPO_ROOT}/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
-                     pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):
+                     pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):$(plan_lssd_check_line)
                                        first the datadir fsync probe (200 x write 4 KB + fsync; FSYNC_PROBE <instance> p50_us= p95_us= -> node_startup.fsync_probe, never fatal), then
                                        the host probe (kernel, boot image serial, datadir mount, block queue, THP, vm.dirty_*, memory limit, mdbx.dat; HOST_PROBE <instance> -> node_startup.host, never fatal), then
                                        --http.addr/--ws.addr 0.0.0.0, --metrics 127.0.0.1:<METRICS_PORT>, ${BENCH_NODE_LOG_FILTER:+log filter + max-files, }${BENCH_NODE_DB_SYNC_MODE:+--db.sync-mode ${BENCH_NODE_DB_SYNC_MODE}, }parameters.yaml overrides; PRECFG_OK <instance>$(plan_host_step_line)
@@ -2591,6 +2736,12 @@ fi
 if [ -n "${PRINT_PRESTART}" ]; then
     bench_index_of "${PRINT_PRESTART}" >/dev/null || bench_die "${PRINT_PRESTART} is not a bench instance"
     bench_prestart_script "${PRINT_PRESTART}"
+    exit 0
+fi
+if [ -n "${PRINT_LSSD_MOUNT}" ]; then
+    _i="$(bench_index_of "${PRINT_LSSD_MOUNT}")" || bench_die "${PRINT_LSSD_MOUNT} is not a bench instance"
+    [ "${NODE_DATADIR_LSSD[$_i]}" = 1 ] || bench_die "${PRINT_LSSD_MOUNT} keeps its data directory on the boot disk (machine type $(node_machine_type "${_i}"), BENCH_NODE_DATADIR_LSSD=${BENCH_NODE_DATADIR_LSSD:-0}): step 3 mounts no local SSD on it"
+    bench_lssd_mount_script "${PRINT_LSSD_MOUNT}" "$(node_datadir "${_i}")"
     exit 0
 fi
 if [ -n "${PRINT_OBS}" ]; then
