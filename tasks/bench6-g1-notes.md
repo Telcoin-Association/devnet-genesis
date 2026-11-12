@@ -958,3 +958,58 @@ silently, so this was checked). One epochs test starts its nodes directly and do
   nonce gap after a mid-walk eviction and a partial resend; a possible 250-ms wait at low load; two wrong doc comments;
   the refused-mark counter mixes three causes).
 - **Every commit on the integration head (80a0c76c0) has now been through a review.**
+
+## THE GCE PROBE ON THE FLEET'S SHAPE (run r20261111-2310; `benchmark/private/bench6-prep/probe/SUMMARY-r20261111-2310.txt`)
+One `c3-highcpu-8`, 100 GB Hyperdisk Balanced at 20,000 IOPS / 800 MiB/s, the pinned Ubuntu 24.04 image, 20 arms, all OK,
+VM and disk deleted (`DOWN_OK`; nothing left in the project). The census safety arm passes (the sampler does not disturb
+what it measures). Medians per output:
+
+| arm | what it is | device ÷ MDBX bytes | commit ms | write ops | mean KiB per op | device ms per op |
+|---|---|---|---|---|---|---|
+| g1-node | closest to a node, prefault on | 1.01 | 92 | 14,832 | 4.8 | 1.3 |
+| g5-7default | re-opened DB, growth in the unadvised range, defaults | 1.00 | 36 | 5,628 | 4.3 | 1.5 |
+| g5-7default-mrand | the same + whole-map `MADV_RANDOM` (the fix) | 1.00 | 36 | 5,627 | 4.3 | 1.4 |
+| g5-7pfoff | prefault off (positive control) | **9.70** | **243** | 3,091 | 76.9 | 14.4 |
+| g5-7pfoff-mrand | prefault off + the fix | 1.00 | 35 | 5,627 | 4.3 | 1.4 |
+| g6-peer | another process opened the env without NORDAHEAD | 1.80 | 37 | 5,374 | 8.1 | 1.4 |
+| g6-peer-mrand | the same + the fix | 1.00 | 38 | 5,627 | 4.3 | 1.5 |
+| g0-baseline | no re-open | 1.00 | 105 | 9,462 | 8.2 | 1.3 |
+| g2-readall | the used range READ through the page cache first | **11.85** | **411** | 1,469 | **255.6** | **58.9** |
+| g3-ra16-readall | the same with `read_ahead_kb` 16 | 11.88 | 412 | 1,470 | 255.6 | 56.3 |
+| g4-mrand-readall | the same + the fix applied AFTER the read | 11.88 | 411 | 1,470 | 255.6 | 58.3 |
+| g8-nowritemap | no WRITEMAP | 1.00 | 129 | 9,462 | 8.2 | 1.3 |
+| g8-nowritemap-readall | no WRITEMAP, read through the cache first | 1.00 | 134 | 9,463 | 8.2 | 4.2 |
+
+What it settles and what it does not:
+1. **The GCE kernel and Hyperdisk do NOT amplify by themselves.** The node-like arms write 1.00-1.01× (as on the local
+   machine). The leading hypothesis of the local analysis ("the GCE kernel or file system builds large folios even with
+   prefault on", 35 %) is refuted.
+2. **Bench 5's signature is the read-through one.** Bench 5 wrote 222-228 KiB per operation from the first minute; only the
+   arms whose database had been read through the page cache write that way (255.6 KiB per operation, 11.9×). Prefault-off
+   writes 77 KiB operations (9.7×); a foreign opener 8 KiB (1.8×). So on bench 5's nodes the pages being dirtied sat in
+   large folios — something had read `mdbx.dat` (or refaulted it with read-around) before they were dirtied. WHAT did
+   is still not identified; run 1's control arm records the folio census at each blast's start and the node's own
+   page-operation fields, which will show whether large folios are there at minute 1.
+3. **The fix helps only if it is applied before the folios exist.** `MADV_RANDOM` over the whole map closes prefault-off
+   and the foreign opener (9.7× and 1.8× → 1.00×), changes nothing when nothing is broken (36 ms → 36 ms), and does NOT
+   repair a cache that already holds large folios (11.88× with or without it), nor does `read_ahead_kb` 16. That is why the
+   benchmark's advice arm also evicts `mdbx.dat` from the page cache (`host evict-mdbx`), and why the control pair
+   a0-control / a0-prime (defaults, with and without eviction) matters: eviction alone may be the cure on a fleet node.
+4. **Without WRITEMAP there is no amplification at all** (1.00× even after a read-through), at a cost of about 23 % in commit
+   time when nothing is broken (129 ms against 105 ms) — and 3× faster than WRITEMAP when the cache is polluted (134 ms
+   against 411 ms). Not switchable in bench 6; a design option for upstream (D83).
+5. **D82 answered for this disk (the orchestrator's inference was wrong in direction here):** on the fleet's Hyperdisk the
+   amplified commits are slow because they hit the THROUGHPUT cap, not because of write count — 1,469 operations of 256 KiB
+   are 367 MiB per commit against 800 MiB/s, and each operation takes 59 ms of device time against 1.3 ms for a 4-8 KiB
+   one. The fix raises the operation count (3,091 → 5,627 per commit in the prefault-off pair) and still cuts the commit
+   from 243 ms to 35 ms. In the healthy arms the commit is bound by operations: 5,600-14,800 small writes per commit at
+   about 1.3 ms each through a queue about 128 deep, i.e. commit time grows with the NUMBER of writes, as the user said.
+   Sustained over the whole cycle the probe used about half the provisioned IOPS (≈ 9,800-12,000 of 20,000) and a tenth of
+   the throughput; at a disk provisioned with 4,500 IOPS the same commits (5,600-14,800 operations each) would be bound by
+   the IOPS cap outright.
+6. **D84 — a new question for the execution ceiling:** if a real output dirties about as many pages as the node-like arm
+   (≈ 15,000 write operations), then at 20,000 provisioned IOPS back-to-back persists cannot run faster than about one per
+   0.75 s on this disk, with or without amplification. Bench 5's persist took 1.17 s per output. Run 1 must therefore read,
+   per arm and node, write operations per persist and sustained write IOPS against the provisioned cap (the persist CSV
+   has them; the arm summary gets the column) — the persist ceiling may be the disk's IOPS provisioning, which no node
+   switch changes. Raising the provisioned IOPS for one arm (a deploy-time knob, `BENCH_NODE_DISK_IOPS`) is the direct test.
