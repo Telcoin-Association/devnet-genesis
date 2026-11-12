@@ -113,7 +113,7 @@ under the deployment scripts' key generation. Each fails early and loudly if wro
   that asserts a SIGHUP stops its jobs) came from launching the gate under `nohup`; that module's gate re-run without it is clean.
 - Workspace gates on 2df831e3c: fmt, check, clippy clean, 4,388 tests passed (one run; to repeat once before it becomes the head).
 
-## G2 — THE USER'S ANSWERS (2026-11-12 ≈ 10:55Z, through the gate dialog)
+## G2 — THE USER'S ANSWERS (2026-11-12 ≈ 15:04Z, through the gate dialog; asked at 10:51Z)
 1. **Run 1: go as planned.** Nine arms, pipelined persist in; launch after the image is pushed and `gcloud auth login` is fresh.
 2. **Image push: allowed; the session retries** the same `orch-image-cut.sh` call.
 3. **Run 1b: SKIPPED.** No local-SSD deployment in bench 6. The one-VM probe stays the only disk-class evidence. The harness for it
