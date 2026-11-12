@@ -372,3 +372,14 @@ upstream for one release (I-5), and whether a canary up to N outputs stale is ac
 12. **What read `mdbx.dat` on bench 5's nodes** stays open. Two signatures bracket bench 5 (225 KiB per operation at 4.3×):
     read-through (256 KiB, 11.9×) and prefault-off (77 KiB, 9.7×). Run 1's control arm decides between them from the
     node's own fields: prefault on or off per persist, and the folio census at each blast's start.
+13. **The two-device probe is in (r20261112-0024): on GCE the local NVMe SSD is slower than the fleet's Hyperdisk for an
+    MDBX commit in every arm** — 1.5 to 2.4 times the commit time for the same bytes and the same number of writes (the
+    node-like arm 95 ms on Hyperdisk, 167 ms on NVMe; the amplified arm 241 ms and 580 ms). In a commit burst the Hyperdisk
+    served 137,000-153,000 writes per second, the local SSD 83,000-95,000 (about one GCE local SSD's write limit) and it
+    needs real flushes. One VM, one run per record; a bare-metal NVMe is a different device.
+14. **D84 is answered from bench 4's and bench 5's own snapshots:** healthy (bench 4) the validators wrote 8,200-9,000
+    operations per second, about 45 % of the provisioned IOPS and a quarter of the throughput — the IOPS provisioning was
+    not the ceiling (it would be near 10,000 tx/s); amplified (bench 5) they wrote 500-536 MiB/s sustained with peaks at
+    the 800 MiB/s cap — bound by throughput.
+15. **D82, recommendation:** no fleet-level local-SSD deployment in bench 6; keep the write-count columns; if the ceiling
+    nears 10,000 tx/s raise the provisioned IOPS before changing the disk class.

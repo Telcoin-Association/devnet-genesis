@@ -1020,3 +1020,47 @@ evict step has a mincore fallback (works without `fincore`); D76 restated for 1,
 needs one more correction (the "likely trigger: re-open, about 60 %" is refuted by both probes); D17 and D32: do not build;
 P2 (`read_ahead_kb` 16): drop; P3 (no-WRITEMAP): not in run 1, upstream option D83; D84's column owed (a harness unit);
 D68 is not a read-through path; e2e on 80a0c76c0: exec_block + epoch_drain 3 of 3, sealed_txs + admission 7 of 7.
+
+## THE TWO-DEVICE PROBE: Hyperdisk against a local NVMe SSD on one VM (run r20261112-0024; `benchmark/private/bench6-prep/probe/SUMMARY-r20261112-0024.txt`)
+One `c3-standard-8-lssd` in us-west1-a (us-west2 has no C3 local-SSD shape): the same 100 GB Hyperdisk Balanced boot disk
+(20,000 IOPS / 800 MiB/s) and its first 375 GB local NVMe SSD (ext4, the root's mount options). Six arms on each device, 12
+of 12 OK, VM deleted (`DOWN_OK`; nothing left). Medians per commit, Hyperdisk / NVMe:
+
+| arm | device ÷ MDBX bytes | commit ms | write ops | KiB per op | device ms per op | flushes |
+|---|---|---|---|---|---|---|
+| g1-node (closest to a node) | 1.01 / 1.01 | 94.6 / **167.3** | 14,841 / 14,832 | 4.8 / 4.8 | 1.4 / 3.9 | 0 / 3 |
+| g5-7default | 1.00 / 1.00 | 38.6 / **58.4** | 5,628 / 5,628 | 4.3 / 4.3 | 1.4 / 3.7 | 0 / 3 |
+| g5-7default-mrand (the fix) | 1.00 / 1.00 | 37.7 / 58.5 | 5,627 / 5,627 | 4.3 / 4.3 | 1.5 / 3.8 | 0 / 2 |
+| g5-7pfoff (amplified) | 9.70 / 9.70 | 240.6 / **579.8** | 3,089 / 2,467 | 76.9 / 96.6 | 13.5 / 36.5 | 0 / 3 |
+| g5-7pfoff-mrand | 1.00 / 1.00 | 34.8 / 58.5 | 5,627 / 5,627 | 4.3 / 4.3 | 1.3 / 3.9 | 0 / 2 |
+| g8-nowritemap | 1.00 / 1.00 | 144.7 / 260.3 | 9,462 / 9,459 | 8.2 / 8.2 | 1.7 / 6.5 | 0 / 2 |
+
+1. **On GCE the local NVMe SSD is SLOWER than the fleet's Hyperdisk for an MDBX commit, in every arm: 1.5 to 2.4 times the
+   commit time** for the same bytes and the same number of writes. During a commit the Hyperdisk served 137,000-153,000
+   writes per second (a burst far above its 20,000 provisioning), the local SSD 83,000-95,000 — about the documented write
+   limit of one GCE local SSD — at 3.7-3.9 ms of device time per write against 1.3-1.5 ms. The local SSD also needs real
+   flushes (2-3 per commit); the Hyperdisk reports none.
+2. Amplification is the same in bytes on both (9.70×) and worse in time on the local SSD (580 ms against 241 ms).
+3. The fix behaves the same on both devices: no change when healthy, 9.70× → 1.00× when prefault is off.
+4. Limits of this comparison: one VM, one run per record, one local SSD partition with online discard, a burst workload
+   with idle time between commits (the Hyperdisk's sustained cap is not tested here), 32 GB of RAM against the fleet's 16.
+   A bare-metal NVMe (the user's "quaker") is not a GCE local SSD: this result is about the cloud's local SSD only.
+
+## D84 answered from data that already existed (GCP's per-instance disk metrics in the bench-4 and bench-5 snapshots)
+Per validator under load, one-minute averages (p90 over the collection window):
+- **Bench 4** (r20261105-0803, healthy, 4,578 tx/s): 8,200-9,000 write operations per second (peaks to 10,200), 174-209 MiB/s
+  (one node 281) — about **45 % of the provisioned IOPS and a quarter of the throughput**; about 21 KiB per operation.
+  One-second peaks reached 42,000-47,000 operations.
+- **Bench 5** (r20261107-1504, amplified, 3,449 tx/s): 2,500-3,000 operations per second (fewer, larger), **500-536 MiB/s
+  sustained with peaks of 552-573** — two thirds of the throughput cap on a minute average, at the cap inside the minute;
+  about 200 KiB per operation.
+- So the disk's IOPS provisioning was NOT the ceiling in bench 4 (the orchestrator's arithmetic in D84 over-estimated the
+  writes per output: the probe's workload writes more pages per transaction than the node does). Scaled linearly, 20,000
+  IOPS would be reached near 10,000 tx/s. Bench 5 was bound by throughput because of the amplification, as the probe shows.
+- No throttling series had points in either snapshot (the metric exists but was empty), so "never throttled" is not proven.
+
+## D82 — the orchestrator's recommendation after both probes
+No fleet-level local-SSD deployment in bench 6: on GCE a local SSD makes the commit slower, not faster, and the fleet is at
+45 % of its provisioned IOPS when healthy. Keep the write-count columns (they show which constraint binds), and judge the
+storage arms on commit time and throughput. If the ceiling ever approaches 10,000 tx/s, raise the provisioned IOPS (a
+deploy-time knob) before changing the disk class. A bare-metal NVMe comparison would need a host outside GCE.
