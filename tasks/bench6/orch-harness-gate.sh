@@ -4,7 +4,10 @@
 #   tasks/bench6/orch-harness-gate.sh [gate.sh arguments; default --jobs 4]
 # Output: HARNESS-GATE start …, the gate's own lines (the last is `GATE unittest= isolated= mutations= load= secs=`),
 # HARNESS-GATE rc=<rc>. The gate's logs go to benchmark/work/bench6-scratch/gate-<UTC>/ (not /tmp: quota).
-# Launch it detached and alone in its call:  nohup setsid bash tasks/bench6/orch-harness-gate.sh > <log> 2>&1 < /dev/null &
+# Launch it detached and alone in its call, WITHOUT nohup:  setsid bash tasks/bench6/orch-harness-gate.sh > <log> 2>&1 < /dev/null &
+# (nohup makes SIGHUP ignored in every child, and test_keygen's signal test asserts that a SIGHUP stops the node
+# jobs: the gate of 2026-11-12T08:22Z failed on exactly that one subtest for this reason. setsid alone is enough:
+# a process with no controlling terminal is sent no SIGHUP when the session that started it ends.)
 set -uo pipefail
 ROOT=/home/drtnarg/coding/telcoin/devnet-genesis
 QUIET="${ROOT}/tasks/bench6/QUIET"

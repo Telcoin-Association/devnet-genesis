@@ -1577,3 +1577,8 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   command line (to fix in `tasks/bench6/e2e-lane.sh` when nothing is running through it);
   (4) when a queue that should have moved has not, look at what its wait condition matches before assuming it is still the other
   party.
+- Added the same day: `nohup` is not a neutral way to detach. It makes SIGHUP ignored in every descendant, and the harness gate
+  holds a test that asserts a SIGHUP stops the keygen jobs (rc 129): launched under `nohup setsid`, the full gate failed on that
+  one subtest, in the suite and again alone, and passed it when run plainly. Rule: detach a test run with `setsid … < /dev/null`
+  alone (no controlling terminal, so no SIGHUP arrives), never with `nohup`; and when a gate fails only on a signal test, read the
+  launcher's signal dispositions (`grep SigIgn /proc/self/status`) before reading the code.
