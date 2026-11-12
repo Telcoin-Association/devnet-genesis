@@ -267,6 +267,82 @@ The name ends in `.txt` so that `persist/*.csv` matches only the 30-s files.
 | `folios` | resident folios of that order |
 | `dirty_folios`, `writeback_folios`, `active_folios` | the ones of them flagged dirty, under writeback, or on the active LRU |
 
+## Local-SSD deployment
+
+With `BENCH_NODE_DATADIR_LSSD=1`, deploy step 3 puts the data directory of each node with a local SSD (a machine type ending in `-lssd`) on that node's first local NVMe SSD, before keygen writes into it.
+The top-level `machine_type` and `node_disk` keep their meaning: the default machine type, and the boot disk the create asks for.
+With `BENCH_NODE_MACHINE_TYPES` set, a node's own machine type is its `instances[].machine_type`.
+No CSV column is new, and the host probe's frozen keys do not change: on a local-SSD node `datadir_mount_source` is the SSD's namespace and `disk` its name, and the persist CSV's `disk_*` columns count the SSD alone.
+On a boot-disk node they still count the whole boot disk (the logs, docker and the OS as well as the databases), so its write counts are an upper bound on the database's own.
+
+### instances[].data_disk
+
+New, written by deploy step 2 (boot-disk nodes) and step 3 (local-SSD nodes), only with `BENCH_NODE_DATADIR_LSSD=1`.
+A local-SSD node's object comes from its `LSSD_MOUNT` line (below), through `bench_lssd_mount_record`:
+
+| field | type | meaning |
+|---|---|---|
+| `class` | `"local-ssd"` | the data directory is on the node's local SSD |
+| `by_id` | string | `google-local-nvme-ssd-0`, the only device the mount script uses (`c3-standard-8-lssd` has a second one, `-1`, which nothing touches) |
+| `device` | string | the NVMe namespace that id resolves to, a whole disk (for example `/dev/nvme1n1`) |
+| `size_bytes` | int | the device's size from `lsblk -b` |
+| `uuid` | string | the file system's UUID; the fstab line and the marker hold the same value |
+| `fstype` | `"ext4"` | |
+| `mount` | string | the data directory, `/var/lib/telcoin` |
+| `mount_options` | string | the mount's options as `findmnt` reads them |
+| `fstab_root_options` | string | the fstab options of `/`, which the mount uses, so the two disk classes differ in the device only |
+| `mkfs` | `"done"`, `"kept"` or `"resumed"` | `done`: formatted by this step 3; `kept`: a file system an earlier step 3 finished, found mounted with the marker's UUID; `resumed`: a file system an earlier step 3 made and mounted but stopped before the marker, finished by this one without a new mkfs |
+| `read_ahead_kb` | int | the device's `queue/read_ahead_kb` after the mount |
+| `provisioned_iops`, `provisioned_throughput` | null | a local SSD has no provisioned figures |
+| `ts` | time | when the deploy recorded the line |
+
+A boot-disk node's object comes from the config: `{"class": "boot", "type": "<NODE_DISK_TYPE>", "size_gb": <int>, "provisioned_iops": <int or null>, "provisioned_throughput": <int or null>}`.
+
+### zone_overrides[]
+
+New, written by deploy step 2, only with `BENCH_NODE_ZONES` set: one entry `{"inst", "from", "to", "reason": "BENCH_NODE_ZONES", "ts"}` per node moved out of its configured zone.
+Each also adds a note: `zone override: <inst> runs in <to>, not <from> (BENCH_NODE_ZONES); its latency is that zone's, a comparability caveat`.
+
+### LSSD_MOUNT lines
+
+Step 3 runs `bench_lssd_mount_script` on each local-SSD node in its own session, and the script prints one line:
+
+```
+LSSD_MOUNT <inst> dev=<device> by_id=google-local-nvme-ssd-0 size_bytes=<n> uuid=<uuid> mount=<datadir> mkfs=done|kept|resumed options=<mount options> fstab_root_options=<options of /> ra_kb=<read_ahead_kb>
+LSSD_MOUNT <inst> failed <reason>
+```
+
+The fields of the first form come in this order and no other; `bench_lssd_mount_record` refuses a failed line, a missing line and any other shape.
+The script decides by the marker `/var/lib/bench-lssd/uuid` (root, mode 0600, on the boot disk), which it writes last.
+With no marker, it formats the device (`mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard`, the probe driver's options), mounts it with the options of `/`, writes the fstab line `UUID=<uuid> <datadir> ext4 <options of />,nofail,x-systemd.device-timeout=30s 0 2` and the drop-in `/etc/systemd/system/telcoin.service.d/bench-lssd.conf` (`RequiresMountsFor=<datadir>`), and reloads systemd (`mkfs=done`).
+A re-run rewrites that fstab line and that drop-in, so it leaves one of each.
+It refuses a data directory that is not empty or not owned by root, and a device that is mounted anywhere else; it never unmounts anything and never changes an owner.
+A file system that a stopped run made but never mounted is made again: nothing was ever written into it.
+With no marker and the data directory already an ext4 mount of the device that holds an empty `lost+found` and nothing else, it skips the mkfs and the mount and finishes the rest (`mkfs=resumed`): that is what a first run leaves when its IAP session drops after the mount.
+The same mount with anything more in it fails, since data without a marker is neither formatted again nor adopted, and so does a mount of another device.
+With the marker present and the data directory mounted from the device with the marker's UUID, it writes nothing (`mkfs=kept`).
+With the marker present and anything else, it prints `failed lost: …`: the VM was stopped or its host failed, and the SSD came back blank.
+The script never formats that SSD again; the node's keys and database are gone, and the node is out for the run.
+
+After every node, step 3 prints one line for the fleet:
+
+```
+LSSD_MOUNT_SUMMARY nodes=<n> done=<n> kept=<n> failed=[<inst> ...]
+```
+
+### PRECFG_FAIL for the local SSD
+
+Step 7 starts a local-SSD node's pre-start session with `bench_lssd_check_script`.
+It prints nothing when `findmnt -no SOURCE --mountpoint <datadir>` is the device `google-local-nvme-ssd-0` resolves to; otherwise it prints
+
+```
+PRECFG_FAIL <inst> local SSD not mounted at <datadir>
+```
+
+and ends the session, so no `PRECFG_OK` follows and step 7 stops before any node starts.
+
+The readers of the new keys pass them through: `tools/arms-summary.py` uses `data_disk`, `report/make_bundle.py`, `report/provenance.py` and `report/scrub.py` keep unknown keys, the collector ignores `data_disk`, and the teardown and `bench_leftovers` read names and labels only.
+
 ## What the report tools must learn
 
 `report/make_bundle.py` refuses no unknown manifest key today: it checks unknown keys only in the backfill and in KPI entries.

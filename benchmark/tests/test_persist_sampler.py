@@ -398,6 +398,23 @@ class SamplerTests(SamplerCase):
         (row,) = self.rows()
         self.assertEqual([row[COL[c]] for c in COL if c.startswith("disk_")], [""] * 10)
 
+    def test_whole_disk_data_dir_counts_the_namespace_itself(self):
+        """Bench 6 local SSD: the data dir is an ext4 made on the whole namespace, so its sysfs node has no
+        partition file and DISK is nvme1n1 itself: the CSV counts the SSD alone, not the boot disk."""
+        (link,) = (self.root / "sys" / "dev" / "block").iterdir()
+        link.unlink()
+        (self.root / "sys" / "devices" / "pci0000:00" / "nvme" / "nvme1n1").mkdir(parents=True)
+        os.symlink("../../devices/pci0000:00/nvme/nvme1n1", str(link))
+        (self.root / "proc" / "diskstats").write_text(
+            DISKSTATS + " 259       2 nvme1n1 7 0 56 4 70 0 560 6 1 8 9 0 0 0 0 2 3\n")
+        self.run_sampler(1)
+        (row,) = self.rows()
+        self.assertEqual({c: row[COL[c]] for c in COL if c.startswith("disk_")}, {
+            "disk_rd_ios_total": "7", "disk_rd_bytes_total": str(56 * 512), "disk_rd_ticks_ms_total": "4",
+            "disk_wr_ios_total": "70", "disk_wr_bytes_total": str(560 * 512), "disk_wr_ticks_ms_total": "6",
+            "disk_flush_ios_total": "2", "disk_flush_ticks_ms_total": "3", "disk_in_flight_ios": "1",
+            "disk_io_ticks_ms_total": "8"})
+
     def test_v1_memory_cgroup(self):
         self.add_node(4242, "c0ffee")
         self.docker("c0ffee", 4242)

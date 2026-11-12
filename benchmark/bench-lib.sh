@@ -259,15 +259,27 @@ bench_machine_shape() {
 
 # bench_cpu_quota_metric <machine-type> — the regional quota metric the type's vCPUs count
 # against, by machine family (the part before the first '-'): c3 -> C3_CPUS, c3d -> C3D_CPUS,
-# n2 -> N2_CPUS, n2d -> N2D_CPUS, n4 -> N4_CPUS; e2, n1 and any other family -> CPUS.
+# c4 -> C4_CPUS, n2 -> N2_CPUS, n2d -> N2D_CPUS, n4 -> N4_CPUS; e2, n1 and any other family -> CPUS.
+# C4_CPUS is a name for C4's own sum, not a metric `regions describe` lists (bench_cpu_quota_unlisted).
 bench_cpu_quota_metric() {
     case "${1%%-*}" in
         c3) echo C3_CPUS ;;
         c3d) echo C3D_CPUS ;;
+        c4) echo C4_CPUS ;;
         n2) echo N2_CPUS ;;
         n2d) echo N2D_CPUS ;;
         n4) echo N4_CPUS ;;
         *) echo CPUS ;;
+    esac
+}
+
+# bench_cpu_quota_unlisted <metric> — one line on why `gcloud compute regions describe` cannot give
+# <metric>'s headroom, or nothing when it lists the metric. C4's vCPUs count against a per-VM-family
+# quota that regions describe does not show, so its headroom is "not checked" with this reason: never
+# a pass against another family's metric, never a stop.
+bench_cpu_quota_unlisted() {
+    case "${1:-}" in
+        C4_CPUS) echo "C4 vCPUs count against the per-VM-family quota CPUS-PER-VM-FAMILY-per-project-region (C4), which regions describe does not list" ;;
     esac
 }
 
@@ -3152,6 +3164,216 @@ bench_host_probe_summary() {
     [ -n "${out}" ] || out="⚠ HOST_PROBE_SUMMARY kernel=- image=- ra_kb=- uniform=no differ=[] probe_failed=[] (cannot read ${m})"
     printf '%s\n' "${out}"
     return 0
+}
+
+# --- the local-SSD data directory (bench 6; BENCH_NODE_DATADIR_LSSD) ------------------------------------
+# Pure script builders and a local parser. Deploy step 3 sends bench_lssd_mount_script to each node whose
+# data directory goes on its local SSD and records the LSSD_MOUNT line through bench_lssd_mount_record
+# (instances[].data_disk); step 7 starts that node's pre-start session with bench_lssd_check_script.
+# Manifest names: arms/MANIFEST-FIELDS.md, "Local-SSD deployment". The device id and the mkfs options
+# are the one-VM probe's (benchmark-probe.sh script_setup_nvme and NVME_MKFS, where they ran live on
+# c3-standard-8-lssd); test_local_ssd.py keeps the two copies equal.
+
+# _bench_lssd_dir_ok <dir> — an absolute path of plain characters ([A-Za-z0-9._/-]) that is not /, has no
+# trailing /, no // and no . or .. component: it goes into fstab and a systemd unit as it is.
+_bench_lssd_dir_ok() {
+    case "${1:-}" in /*[!/]) ;; *) return 1 ;; esac
+    case "$1" in *[!A-Za-z0-9._/-]*|*//*|*/./*|*/../*|*/.|*/..) return 1 ;; esac
+}
+
+# bench_lssd_mount_script <inst> <datadir> — the remote script (run as root, `bash -s`, its own session)
+# that puts <datadir> on the node's first local NVMe SSD before keygen (deploy step 5) writes into it.
+# <datadir> is passed in: /etc/telcoin/.node-meta does not exist yet. In order:
+#   1. the device: /dev/disk/by-id/google-local-nvme-ssd-0 and nothing else (c3-standard-8-lssd has two
+#      local SSDs; the probe's fallback to the first nvme_card disk could pick either). It must resolve
+#      to an NVMe namespace (/dev/nvme<c>n<n>, no partition) and must not hold /.
+#   2. O = the fstab options of / (findmnt -s), the boot disk's own, so the two disk classes differ in
+#      the device only.
+#   3. the marker S=/var/lib/bench-lssd/uuid (root 0600, on the boot disk) decides:
+#      - S present, <datadir> an ext4 mount of the device whose UUID (lsblk) is S's: mkfs=kept, nothing
+#        written;
+#      - S present otherwise: fails `lost` (the VM was stopped or its host failed and the SSD came back
+#        blank, §3.1 of the design). It is never formatted again: the node's keys and database are gone.
+#      - S absent, the device mounted nowhere but at <datadir> (it fails rather than unmount anything):
+#        - <datadir> an ext4 mount of the device that holds an empty lost+found and nothing else (a first
+#          run stopped after its mount, before the marker: its session dropped): no mkfs, no mount,
+#          mkfs=resumed. The same mount with anything more in it fails: data without a marker is never
+#          formatted again nor adopted. A mount of another device at <datadir> fails.
+#        - <datadir> absent, or an empty root-owned directory that is not a mount point (first time):
+#          `timeout 600 mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard`, mkdir,
+#          `mount -t ext4 -o <O>`: mkfs=done. A file system a stopped run made but never mounted is made
+#          again; nothing was written into it.
+#        Then, both: the UUID read back with `lsblk -dno UUID` (after `udevadm settle` when the node has
+#        it; up to 10 tries), /etc/fstab's line for <datadir> replaced by
+#        `UUID=<uuid> <datadir> ext4 <O>,nofail,x-systemd.device-timeout=30s 0 2` (the first rewrite
+#        keeps /etc/fstab.bench-lssd.bak), the drop-in /etc/systemd/system/telcoin.service.d/bench-lssd.conf
+#        ([Unit] RequiresMountsFor=<datadir>) rewritten, `systemctl daemon-reload`, and the marker last.
+#        A re-run leaves one fstab line and one drop-in.
+#   Ownership is left alone: the new file system's root stays root:root with lost+found, which v2's
+#   _tn_data_layout_dir hands to the service user at keygen. No blkid (not proven on the boot image).
+# One line on success (exit 0):
+#   LSSD_MOUNT <inst> dev=<NV> by_id=google-local-nvme-ssd-0 size_bytes=<n> uuid=<uuid> mount=<datadir>
+#     mkfs=done|kept|resumed options=<findmnt options of the mount> fstab_root_options=<O> ra_kb=<read_ahead_kb>
+# Any failure: `LSSD_MOUNT <inst> failed <reason>` and exit 1 (`failed lost …` for a wiped SSD).
+# Prints the script only (no GCP call); non-zero and nothing printed for a bad instance name or a
+# <datadir> _bench_lssd_dir_ok refuses.
+bench_lssd_mount_script() {
+    local inst="${1:-}" d="${2:-}"
+    _bench_host_name_ok "${inst}" || { echo "❌ bench_lssd_mount_script: '${inst}' is not an instance name" >&2; return 1; }
+    _bench_lssd_dir_ok "${d}" || { echo "❌ bench_lssd_mount_script: datadir '${d}' is not a plain absolute path" >&2; return 1; }
+    echo '# local-SSD data directory (bench_lssd_mount_script): one LSSD_MOUNT line; exit 1 on failure'
+    echo 'set -euo pipefail'
+    printf 'I=%q\nM=%q\n' "${inst}" "${d}"
+    cat <<'EOS'
+L=/dev/disk/by-id/google-local-nvme-ssd-0
+S=/var/lib/bench-lssd/uuid
+U=/etc/systemd/system/telcoin.service.d/bench-lssd.conf
+F=/etc/fstab
+lf(){ echo "LSSD_MOUNT $I failed $*"; exit 1; }
+uuid_ok(){ case "$1" in ????????-????-????-????-????????????) ;; *) return 1 ;; esac; case "$1" in *[!0-9a-f-]*) return 1 ;; esac; }
+for t in mkfs.ext4 mount findmnt lsblk readlink systemctl timeout stat awk; do
+    command -v "$t" >/dev/null 2>&1 || lf "no $t on the node"
+done
+# 1. the device: the first local NVMe SSD by its id, nothing else
+[ -e "$L" ] || lf "no $L (a machine type without a local SSD?)"
+NV="$(readlink -f "$L")" || lf "readlink -f $L failed"
+case "$NV" in /dev/nvme[0-9]*n[0-9]*) ;; *) lf "$L is '$NV', not an NVMe namespace" ;; esac
+case "${NV#/dev/nvme}" in *[!0-9n]*) lf "$L is '$NV', not an NVMe namespace" ;; esac
+R="$(findmnt -no SOURCE --target / 2>/dev/null || true)"
+[ -n "$R" ] || lf "findmnt gives no source for /"
+case "$R" in "$NV"|"$NV"p[0-9]*) lf "$NV holds / ($R)" ;; esac
+# 2. the fstab options of /, the boot disk's own
+O="$(findmnt -s -no OPTIONS --mountpoint / 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+[ -n "$O" ] || lf "no fstab options for /"
+case "$O" in *[!A-Za-z0-9,=_.:-]*) lf "the fstab options of / ('$O') are not a plain option list" ;; esac
+# 3. the marker decides: kept or lost; without it, resumed or the first time
+MS="$(findmnt -no SOURCE --mountpoint "$M" 2>/dev/null || true)"
+if [ -e "$S" ]; then
+    W="$(cat "$S")" || lf "lost: the marker $S is unreadable"
+    FT="$(findmnt -no FSTYPE --mountpoint "$M" 2>/dev/null || true)"
+    UU="$(lsblk -dno UUID "$NV" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+    if [ "$MS" != "$NV" ] || [ "$FT" != ext4 ] || ! uuid_ok "$W" || [ "$UU" != "$W" ]; then
+        if [ -n "$MS" ]; then G="a mount of $MS ($FT) and $NV has UUID ${UU:-none}"; else G="not a mount"; fi
+        lf "lost: the marker $S holds UUID ${W:-none} but $M is $G: the SSD was wiped (a VM stop or a host failure) and is never formatted again"
+    fi
+    MK=kept
+else
+    [ ! -L "$M" ] || lf "$M is a symlink"
+    T="$(findmnt -no TARGET --source "$NV" 2>/dev/null | awk -v m="$M" '$1 != m { print $1; exit }' || true)"
+    [ -z "$T" ] || lf "$NV is mounted on $T (it is not unmounted here)"
+    if [ -n "$MS" ] && [ "$MS" = "$NV" ]; then
+        # 3a. resumed: an earlier run made and mounted the file system and stopped before the marker (its
+        # session dropped). Nothing writes into the data directory before keygen, so that file system holds
+        # an empty lost+found and nothing else; anything more is data, never formatted again nor adopted.
+        FT="$(findmnt -no FSTYPE --mountpoint "$M" 2>/dev/null || true)"
+        [ "$FT" = ext4 ] || lf "$M is a mount of $NV with file system '${FT:-?}', not ext4, and the marker $S is absent"
+        [ "$(ls -A "$M")" = lost+found ] && [ -d "$M/lost+found" ] && [ ! -L "$M/lost+found" ] \
+            && [ -z "$(ls -A "$M/lost+found")" ] \
+            || lf "$M is a mount of $NV that holds data and the marker $S is absent: it is neither formatted again nor adopted"
+        MK=resumed
+    else
+        if [ -e "$M" ]; then
+            [ -d "$M" ] || lf "$M is not a directory"
+            [ -z "$MS" ] || lf "$M is a mount point (of $MS) and the marker $S is absent"
+            [ "$(stat -c %u "$M")" = 0 ] || lf "$M is not owned by root"
+            [ -z "$(ls -A "$M")" ] || lf "$M is not empty"
+        fi
+        # 3b. the first time. A file system an earlier run made but never mounted (it stopped between the
+        # mkfs and the mount) is made again: nothing was ever written into it, so that is safe.
+        timeout 600 mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$NV" || lf "mkfs.ext4 $NV failed"
+        mkdir -p "$M" || lf "mkdir $M failed"
+        mount -t ext4 -o "$O" "$NV" "$M" || lf "mount $NV on $M failed"
+        [ "$(findmnt -no SOURCE --mountpoint "$M" 2>/dev/null || true)" = "$NV" ] || lf "$M is not a mount of $NV after the mount"
+        MK='done'
+    fi
+    if command -v udevadm >/dev/null 2>&1; then udevadm settle --timeout=30 || true; fi
+    n=0
+    until UU="$(lsblk -dno UUID "$NV" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"; uuid_ok "$UU"; do
+        n=$((n + 1))
+        [ "$n" -lt 10 ] || lf "lsblk gives no UUID for $NV ('$UU')"
+        sleep 1
+    done
+    # 4-6 are idempotent: a resumed run rewrites the fstab line and the drop-in an earlier run left
+    # 4. fstab: one line for M, by UUID; nofail and a 30-s device timeout keep a boot without the SSD going
+    [ -e "$F.bench-lssd.bak" ] || cp -p "$F" "$F.bench-lssd.bak" || lf "cannot back up $F"
+    awk -v m="$M" '!($1 !~ /^#/ && $2 == m)' "$F" > "$F.bench-lssd.tmp" || lf "cannot read $F"
+    printf 'UUID=%s %s ext4 %s,nofail,x-systemd.device-timeout=30s 0 2\n' "$UU" "$M" "$O" >> "$F.bench-lssd.tmp" || lf "cannot write $F.bench-lssd.tmp"
+    chmod 0644 "$F.bench-lssd.tmp" && mv -f "$F.bench-lssd.tmp" "$F" || lf "cannot replace $F"
+    # 5. the unit waits for the mount
+    mkdir -p "${U%/*}" || lf "mkdir ${U%/*} failed"
+    printf '[Unit]\nRequiresMountsFor=%s\n' "$M" > "$U" || lf "cannot write $U"
+    chmod 0644 "$U" || lf "chmod $U failed"
+    systemctl daemon-reload || lf "systemctl daemon-reload failed"
+    # 6. the marker, last: from here on a missing mount is a wiped SSD, never a first time
+    mkdir -p "${S%/*}" && chmod 0700 "${S%/*}" || lf "mkdir ${S%/*} failed"
+    (umask 077 && printf '%s\n' "$UU" > "$S.tmp") && mv -f "$S.tmp" "$S" || lf "cannot write the marker $S"
+fi
+SZ="$(lsblk -bdno SIZE "$NV" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+case "$SZ" in ''|*[!0-9]*) lf "lsblk gives no size for $NV ('$SZ')" ;; esac
+OP="$(findmnt -no OPTIONS --mountpoint "$M" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+[ -n "$OP" ] || lf "findmnt gives no options for $M"
+RA="$(cat "/sys/block/${NV#/dev/}/queue/read_ahead_kb" 2>/dev/null || true)"
+case "$RA" in ''|*[!0-9]*) lf "no read_ahead_kb for ${NV#/dev/} ('$RA')" ;; esac
+echo "LSSD_MOUNT $I dev=$NV by_id=${L##*/} size_bytes=$SZ uuid=$UU mount=$M mkfs=$MK options=$OP fstab_root_options=$O ra_kb=$RA"
+EOS
+}
+
+# bench_lssd_mount_record <inst> — instances[<inst>].data_disk from a step-3 session's output on stdin
+# (CRs dropped): the last line that starts `LSSD_MOUNT <inst> ` must have exactly the success shape of
+# bench_lssd_mount_script, and gives (one compact object, rc 0)
+#   {"class": "local-ssd", "by_id": "google-local-nvme-ssd-0", "device": "/dev/nvme1n1", "size_bytes": <int>,
+#    "uuid": "<fs uuid>", "fstype": "ext4", "mount": "<datadir>", "mount_options": "<options>",
+#    "fstab_root_options": "<O>", "mkfs": "done"|"kept"|"resumed", "read_ahead_kb": <int>, "provisioned_iops": null,
+#    "provisioned_throughput": null, "ts": "<UTC now>"}
+# No such line, a `failed <reason>` line, or any other shape: nothing on stdout, the reason on stderr, rc 1.
+bench_lssd_mount_record() {
+    local inst="${1:-}" line rest out
+    _bench_host_name_ok "${inst}" || { echo "❌ bench_lssd_mount_record: '${inst}' is not an instance name" >&2; return 1; }
+    line="$(tr -d '\r' | awk -v p="LSSD_MOUNT ${inst} " 'index($0, p) == 1 { l = $0 } END { print l }')" || line=""
+    [ -n "${line}" ] || { echo "❌ bench_lssd_mount_record: no 'LSSD_MOUNT ${inst} ' line" >&2; return 1; }
+    rest="${line#"LSSD_MOUNT ${inst} "}"
+    case "${rest}" in
+        "failed "*|failed) echo "❌ bench_lssd_mount_record: ${inst} ${rest}" >&2; return 1 ;;
+    esac
+    out="$(jq -n -c --arg l "${rest}" --arg ts "$(bench_now_iso)" '
+        $l | capture("^dev=(?<device>/dev/nvme[0-9]+n[0-9]+) by_id=google-local-nvme-ssd-0"
+                     + " size_bytes=(?<size>0|[1-9][0-9]{0,14})"
+                     + " uuid=(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+                     + " mount=(?<mount>/[A-Za-z0-9._/-]*) mkfs=(?<mkfs>done|kept|resumed) options=(?<opts>[^ ]+)"
+                     + " fstab_root_options=(?<root>[^ ]+) ra_kb=(?<ra>0|[1-9][0-9]{0,8})$")
+        | {class: "local-ssd", by_id: "google-local-nvme-ssd-0", device, size_bytes: (.size | tonumber),
+           uuid, fstype: "ext4", mount, mount_options: .opts, fstab_root_options: .root, mkfs,
+           read_ahead_kb: (.ra | tonumber), provisioned_iops: null, provisioned_throughput: null, ts: $ts}' 2>/dev/null)" || out=""
+    [ -n "${out}" ] || { echo "❌ bench_lssd_mount_record: unparsed: ${line}" >&2; return 1; }
+    printf '%s\n' "${out}"
+}
+
+# bench_lssd_check_script <inst> <datadir> — deploy step 7's guard, first in a local-SSD node's pre-start
+# session: unless `findmnt -no SOURCE --mountpoint <datadir>` is the device
+# /dev/disk/by-id/google-local-nvme-ssd-0 resolves to, it prints
+#   PRECFG_FAIL <inst> local SSD not mounted at <datadir>
+# and ends the session (exit 1), so no PRECFG_OK follows and step 7 stops before any node starts.
+# Silent when it holds. A subshell: it leaves no variable behind for the scripts after it. Prints the
+# script only (no GCP call); non-zero and nothing printed for a bad instance name or <datadir>.
+bench_lssd_check_script() {
+    local inst="${1:-}" d="${2:-}"
+    _bench_host_name_ok "${inst}" || { echo "❌ bench_lssd_check_script: '${inst}' is not an instance name" >&2; return 1; }
+    _bench_lssd_dir_ok "${d}" || { echo "❌ bench_lssd_check_script: datadir '${d}' is not a plain absolute path" >&2; return 1; }
+    echo '# local-SSD check (bench_lssd_check_script): the datadir must be the local SSD mount, else PRECFG_FAIL ends the session'
+    echo '('
+    printf 'I=%q\nM=%q\n' "${inst}" "${d}"
+    cat <<'EOS'
+L=/dev/disk/by-id/google-local-nvme-ssd-0
+NV=''
+[ ! -e "$L" ] || NV="$(readlink -f "$L" 2>/dev/null || true)"
+case "$NV" in /dev/nvme[0-9]*n[0-9]*) ;; *) NV='' ;; esac
+MS="$(findmnt -no SOURCE --mountpoint "$M" 2>/dev/null || true)"
+if [ -z "$NV" ] || [ "$MS" != "$NV" ]; then
+    echo "PRECFG_FAIL $I local SSD not mounted at $M"
+    exit 1
+fi
+EOS
+    echo ') || exit 1'
 }
 
 # --- the first-start arm (BENCH_ARM_FILE; deploy step 7) -----------------------------------------

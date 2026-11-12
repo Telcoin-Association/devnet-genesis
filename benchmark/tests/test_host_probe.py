@@ -299,6 +299,32 @@ class HostProbeScriptTests(HostCase):
         self.assertEqual(h, host.expected(disk="sdb", read_ahead_kb=4096, max_sectors_kb=512, max_hw_sectors_kb=512,
                                           scheduler="none", nr_requests=64, container_memory_limit_bytes=None))
 
+    def test_probe_on_a_whole_disk_local_ssd(self):
+        """Bench 6 local SSD: the datadir is an ext4 made on the whole namespace (nvme1n1, no partition), so
+        lsblk's PKNAME is null and the disk is the namespace itself, with its own queue; through the device
+        number too (no partition file), when lsblk gives nothing. The boot disk's queue (nvme0n1, here with
+        the Hyperdisk's 256/511) must not leak in."""
+        host = self.host()
+        host.queue("nvme0n1", max_sectors_kb=256, nr_requests=511)
+        host.queue("nvme1n1", read_ahead_kb=128, max_sectors_kb=2048, max_hw_sectors_kb=2048,
+                   scheduler="[none] mq-deadline", nr_requests=1023)
+        opts = "rw,relatime,discard,errors=remount-ro,commit=30"
+        host.put("findmnt", json.dumps({"filesystems": [{"source": "/dev/nvme1n1", "fstype": "ext4", "options": opts}]}))
+        host.put("lsblk", json.dumps({"blockdevices": [{"pkname": None, "kname": "nvme1n1"}]}))
+        ssd = dict(datadir_mount_source="/dev/nvme1n1", disk="nvme1n1", read_ahead_kb=128, max_sectors_kb=2048,
+                   max_hw_sectors_kb=2048, scheduler="none", nr_requests=1023)
+        line, _ = self.probe(host)
+        self.assertEqual(json.loads(line[len("HOST_PROBE %s " % INST):]), host.expected(**ssd))
+        self.assertEqual(host.calls("lsblk"), ["lsblk --json --nodeps --output PKNAME,KNAME /dev/nvme1n1"])
+        (host.root / "state/lsblk").unlink()
+        st = os.stat(str(host.datadir))
+        write(host.root / "sys/devices/pci0000:00/nvme/nvme1/nvme1n1/size", "786432000\n")   # a disk: no partition file
+        link = host.root / "sys/dev/block" / ("%d:%d" % (os.major(st.st_dev), os.minor(st.st_dev)))
+        link.parent.mkdir(parents=True)
+        os.symlink("../../devices/pci0000:00/nvme/nvme1/nvme1n1", str(link))
+        line, _ = self.probe(host)
+        self.assertEqual(json.loads(line[len("HOST_PROBE %s " % INST):]), host.expected(**ssd))
+
     def test_unreadable_host_files_are_null_not_a_failure(self):
         host = self.host()
         for rel in ("etc/cloud/build.info", "proc/sys/vm/swappiness", "sys/kernel/mm/transparent_hugepage/defrag",
