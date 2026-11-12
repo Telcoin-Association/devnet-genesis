@@ -66,3 +66,27 @@ local-SSD deployment's shape choice and plan, the image digests, the dry-run res
 - Quota binds nowhere (C3 100-300 vCPUs per region, C4 300, local SSD GB unlimited); `c3-standard-8` and `c3-standard-8-lssd`
   availability per zone: the handoff's table (the six local-SSD zones have it); `c3-standard-8` in the four Hyperdisk zones and the
   fallback zones still to read before G2.
+
+## N4. Run 1's arm table as it stands (final at G2; `benchmark/launch/bench6-run1.plan`)
+| k | arm | steps | what it adds |
+|---|---|---|---|
+| 0 | `a0-control` | I, L, M4, M16 | the fleet as deployed, every switch at bench 5's behaviour |
+| 1 | `p1-mdbx-advice` | M16 | whole-map random-access advice, with the page-cache eviction |
+| 2 | `v-vote` | L, M16 | the vote fix, adaptive form (4 rounds after a starved header) |
+| 3 | `v-vote-floor` | L, M16 | the vote fix, always-on form (G1 answer 1: both forms) |
+| 4 | `pool-local` | M16@epoch | recovery pool, sealed-transaction keep, digest dedupe, tracker drain |
+| 5 | `pipe` | M4, M16 | pipelined persist — ONLY if gates 5 and 6 pass (G1 answer 2); otherwise the line is dropped |
+| 6 | `bound` | M4, M16 | the admission bound |
+| 7 | `gr150` | I, L, M16s | parent grace 150 ms (100 ms is the fallback arm, not in the walk) |
+| 8 | `a0-prime` | M16 | the closing control, with the eviction |
+Sixteen blasts, about 7 hours of walk (about 6 h 15 min without `pipe`), plus the deploy (46 min) and the teardown (35 min).
+Then run 1b, the local-SSD deployment (N3): three arms, five blasts, about 3 h 50 min including its own deploy and teardown.
+
+## N5. What the harness gained for run 1b (all committed, all with tests; nothing run against the cloud)
+config knobs (b7ee67b), mount builders (b9b023a), arm summary by disk class and machine type (1729bd0), multi-type create (df9e97a),
+the mount at deploy step 3 and the check at step 7 (4e0a42c), launch files and the plan pin (8ae3866, 2e68acc), 71 mutation cases
+and a rehearsal of the data path (cdabcbd). With every new knob unset the deploy's dry plan, its create calls and every pre-start
+session are byte-identical to before. A real defect was found on the way: the quota check would have stopped a live deploy on the
+"unlimited" local-SSD quota (fixed).
+First live use of: the bench-owned create of `-lssd` nodes (TERMINATE policy), the mount script, a mount point as the data directory
+under the deployment scripts' key generation. Each fails early and loudly if wrong (step 2, step 3, step 5).
