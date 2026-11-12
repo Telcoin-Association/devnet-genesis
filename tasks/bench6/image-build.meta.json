@@ -1,0 +1,10 @@
+{
+  "tag": "us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench6-arms-20261112",
+  "digest": "sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745",
+  "ref": "us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745",
+  "node_git_sha": "2df831e3ca34c06a361a7acca10397787e7b332e",
+  "branch": "bench/bench6-2026-11",
+  "worktree": "/home/drtnarg/coding/telcoin/telcoin-network-b6",
+  "cargo_features": "faucet",
+  "built_utc": "2026-11-12T15:07:51Z"
+}

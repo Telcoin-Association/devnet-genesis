@@ -1,0 +1,98 @@
+OK bfc5611ab 61s fix(metrics): give the engine stage histograms sub-millisecond buckets
+OK 3696d49f3 31s feat(config): list the runtime switches in Parameters
+OK 86755c450 35s feat(config): add the quorum_exec_block switches
+OK 82ed5801a 32s feat(config): add the vote_queue_fix switch
+OK de08ef7f1 33s feat(config): add the mdbx_random_advice switch
+OK 1169532a8 34s feat(config): add the sealed_tx_keep switch
+OK 478dd3d23 33s feat(config): add the digest_dedupe switch
+OK 11a1cae01 31s feat(config): add the recovery_threads switch
+OK 901505021 35s feat(config): add the epoch_close_task_drain and epoch_record_state_check switches
+OK 5c1c28720 33s feat(config): add the parent_grace switch
+OK 639817091 36s feat(config): add rpc_admission_backlog_outputs and tn_types::ExecutionBacklog
+OK 8ab9e89e4 34s feat(config): add the pipelined_persist switch
+OK 5ef5152a9 39s fix(types): read the execution backlog from output numbers once both are known
+OK 43158b0d0 31s docs(config): state the tracker-drain switches' scope precisely
+OK 5b9f13b25 34s feat(config): leave switches at their default out of a written parameters.yaml
+OK 93e9d7c21 28s fix(worker): skip a sealed batch whose digest was already reported and is still uncommitted
+OK d4be3a435 20s feat(primary): resolve recent blocks by number and by entries back from the tip
+OK 5d7821dfb 21s feat(primary): name an execution block a quorum holds behind quorum_exec_block
+OK 38b65ff7b 14s test(e2e): start chosen nodes with their own parameters and environment
+OK 4c7e5f032 13s test(e2e): move the node log helpers from restarts to common
+OK d1b6b0ac3 15s test(e2e): add empty modules for the bench 6 e2e tests
+OK b09d65945 17s test(e2e): key fleet overrides by datadir and rebuild parameters per start
+OK 2b9a69925 22s fix(primary): wait for execution before the per-author vote lock
+OK 16695b20a 22s feat(primary): gauge how far behind a node enters an epoch
+OK 9c91263e7 18s feat(node): log the node switches line and export tn_node_switch gauges
+OK f22362090 26s feat(reth): hand the mdbx_random_advice switch to RethEnv
+OK bd4bfe888 17s feat(engine): hand the recovery_threads switch to the executor engine
+OK 5da405afa 18s build(engine): add rayon, proptest and an engine_contention bench target
+OK a00fae8bb 29s feat(batch-builder): hand the sealed_tx_keep switch to the batch builder and the pool side
+OK 74ac00a81 29s feat(engine): share one execution backlog between the node, the engine and the RPC guard
+OK d789015b0 17s feat(engine): hand the pipelined_persist switch to the executor engine
+OK 8d363e368 17s feat(engine): add an empty public persister module for pipelined persist
+OK acd609838 28s feat(reth): add OutputBuildScope::seeded for building on an unpersisted output
+OK 998f84a26 27s fix(engine): start the engine on its reth env's execution backlog
+OK 082179d4d 30s docs(reth): state what OutputBuildScope::seeded's caller vouches for
+OK 7cfe52acd 18s fix(batch-builder): start the batch builder on its reth env's sealed_tx_keep
+OK aa71a50f8 17s feat(engine): recover signers on a dedicated rayon pool behind recovery_threads
+OK 80584c6f6 22s feat(primary): wait a bounded parent grace for last round's authors
+OK 14b55b04c 14s test(primary): pin the voter's answers to an old execution block
+OK edc616c0d 31s feat(reth): keep sealed transactions pooled and marked until their batch executes
+OK 2783dfa79 37s feat(types): track and reap tasks while a future runs
+OK bc20ddf27 20s fix(node): keep the epoch task tracker draining during the epoch close
+OK b77ccbb29 17s feat(node): epoch close gauges and a skipped record vote counter
+OK 42b2a6f39 22s fix(node): halt when a stored epoch record names another final state
+OK d0824a0a4 15s test(engine): bench finish, read cache and root share under recovery contention
+OK dddccd4a6 30s feat(reth): whole-map MADV_RANDOM for mdbx.dat and per-persist storage counters
+OK 8bc341967 30s feat(reth): log the sender of a skipped invalid transaction
+OK 7fdcb9ff5 23s feat(primary): drop a batch digest the proposer already holds
+OK c8e5ae7be 22s fix(primary): keep a digest's first receipt across a re-queue
+OK f792ef186 18s feat(node): record forwarded outputs in the execution backlog
+OK 256422898 28s feat(rpc): refuse raw submissions while execution trails consensus
+OK 2c9b43209 34s docs(config): describe the stored-record check as built
+OK 74662a889 34s docs(config): say who the admission bound gates and which bounds can close
+OK c08d78c33 20s feat(batch-builder): keep sealed transactions pooled until their batch executes
+OK 3bbcbe226 18s fix(node): clear sealed marks of orphaned batches on every worker pool
+OK 3ee6b629f 19s feat(node): tell the batch builder whether its worker seals through a quorum
+OK dc7855cc6 30s test(reth): open the re-open tests' datadir on one fixed genesis time
+OK b89ad570f 33s docs(config): say exactly when digest_dedupe suppresses a seal
+OK 8bd68e514 15s test(e2e): fast executor certification and a mixed-switch fleet
+OK 4e9c19782 17s test(e2e): a loaded epoch close with a slow member
+OK 31ef1149c 16s test(e2e): require only a gain over the control from the adaptive arm
+OK fe86f1658 16s test(e2e): sealed-keep on a live fleet, a mixed fleet and a restart with marks
+OK 1e563ad4c 16s test(e2e): the RPC admission bound refuses, readmits and spares forwards
+OK ae62cc47a 14s test(e2e): report an S9 kill that leaves nothing to resend instead of failing
+OK c88936999 33s fix(reth): log the mdbx advice as applied only when bytes were advised
+OK 341b2a269 17s test(e2e): make the sealed-keep switch-off control pass on the known cliff loss
+OK 20858d28d 22s fix(primary): reset the adaptive exec-block window only after a streak of certified tip headers
+OK 56f66e160 14s test(e2e): require 0.88 from the adaptive exec-block arm
+OK d83f8f79b 23s fix(primary): put a late parent's author back in the parent grace
+OK 79a355f82 36s fix(primary): never hold the next round's leader in a parent grace
+OK 4a9c61886 33s fix(primary): keep a parent grace within G, name its authors, state its cost
+OK f4ee92d92 23s test(primary): pin the order of the grace's round-jump end and its readiness latch
+OK d91d65d3e 19s test(e2e): fleet-wide parameters.yaml entries from TN_E2E_PARAMETERS
+OK 891e2b962 34s fix(reth): double the pending sub-pool limits of a pool that keeps sealed transactions
+OK d2c695797 27s fix(batch-builder): skip a candidate that left the pool after the selection's snapshot
+OK cc022b4d0 28s fix(reth): refuse a sealed mark that lands after its digest was orphaned
+OK 8b23bb608 31s fix(batch-builder): hold back a sender's later nonces when a replacement took the candidate's nonce
+OK c8659e2fa 28s fix(reth): fence late sealed marks at the orphan pass with the ticket floor
+OK 80a0c76c0 32s fix(reth): build the worker pool with the env's sealed_tx_keep
+OK 86d86d910 30s feat(tn-reth): pin one read snapshot per output for the layered state root
+OK 49d4356aa 19s refactor(engine): split output execution into build and commit halves
+OK a4a1f0962 27s feat(engine): pipelined persist core behind PersistPipeline
+OK da6e4c90c 21s feat(engine): pipelined persist metrics
+OK 07a3008ac 26s test(tn-reth): persist delay hook for engine pipeline tests
+OK e83e6799b 20s feat(engine): run the pipelined persist behind pipelined_persist
+OK 93c5c3abd 32s docs(tn-reth): atomicity contract with a pipelined engine
+OK 02c704c96 20s docs(engine): queued recovery jobs share the recovery pool when one is set
+OK 1b583ca2c 17s fix(engine): pipelined loop fails closed with nothing to wait on
+OK df2d19936 20s docs(engine): pipelined persist series export zero on a sequential node
+OK e82405057 20s test(engine): apply the execution delay hook in the pipelined build task
+OK 0015715e8 15s test(engine): differential and persist-fault tests of the pipelined persist
+OK dc80cd040 16s test(engine): cycle bench of the pipelined persist (go/no-go gate 5)
+OK f8ae2459e 40s test(types): TN_TEST_PERSIST_DELAY_MS holds every persist for e2e tests
+OK 9c87e8cef 16s test(e2e): pipelined and sequential validators build the same chain
+OK 330913184 17s test(e2e): pipelined validators close an epoch under load
+OK 2c6454432 15s test(e2e): SIGKILL a pipelined validator mid-pipeline and replay
+OK 9409c2db5 30s test(reth): read the persist delay hook where the persist runs
+OK 2df831e3c 32s test(reth): log the persist delay hook when the environment is created
