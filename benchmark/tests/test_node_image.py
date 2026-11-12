@@ -3250,7 +3250,7 @@ class Bench6KnobTests(BashCase):
         self.assertEqual([r["key"] for r in rows if r["optional"] == "yes"], ["pipelined_persist"])
         self.assertEqual({r["key"]: r["arm_values"] for r in rows if r["type"] != "bool"},
                          {"quorum_exec_block_starved_rounds": "0,4", "recovery_threads": "3",
-                          "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "2"})
+                          "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "3"})
         # config.sh carries the same list (one source of truth, kept equal here) and allows it per node.
         got = self.bench_exports()
         self.assertEqual(got["BENCH_NODE_SWITCH_KEYS"].split(), ["%s:%s" % (r["type"], r["key"]) for r in rows])

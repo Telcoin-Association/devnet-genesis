@@ -1,4 +1,5 @@
-# BOUND: RPC admission bounded at 2 outputs of execution backlog, on top of PIPE.
+# BOUND: RPC admission bounded at 3 outputs of execution backlog, on top of PIPE (3 with the pipelined
+# persist, which holds one more output in flight; the design's value without it is 2).
 # Abort the arm when a validator enters with rounds-behind >= 30.
 # Must show: seen p50 and p95 at M16 against M4; time blocked at the window; tx/s not lower.
 name bound
@@ -12,5 +13,5 @@ param digest_dedupe true
 param recovery_threads 3
 param epoch_close_task_drain true
 param pipelined_persist true
-param rpc_admission_backlog_outputs 2
+param rpc_admission_backlog_outputs 3
 host evict-mdbx

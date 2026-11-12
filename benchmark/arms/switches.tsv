@@ -9,5 +9,5 @@ recovery_threads	int	0	3	recovery-pool	no
 epoch_close_task_drain	bool	false	true	tracker-drain	no
 epoch_record_state_check	bool	false	true	tracker-drain	no
 parent_grace	dur	0ms	150ms,100ms	parent-grace	no
-rpc_admission_backlog_outputs	int	0	2	inflight-bound	no
+rpc_admission_backlog_outputs	int	0	3	inflight-bound	no
 pipelined_persist	bool	false	true	pipelined-persist	yes

@@ -41,7 +41,7 @@ The rows, frozen on 2026-11-10 (renaming one changes the contract with the node 
 | `epoch_close_task_drain` | bool | false | true | tracker-drain | no |
 | `epoch_record_state_check` | bool | false | true | tracker-drain | no |
 | `parent_grace` | dur | 0ms | 150ms, 100ms | parent-grace | no |
-| `rpc_admission_backlog_outputs` | int | 0 | 2 | inflight-bound | no |
+| `rpc_admission_backlog_outputs` | int | 0 | 3 | inflight-bound | no |
 | `pipelined_persist` | bool | false | true | pipelined-persist | yes |
 
 `quorum_exec_block_starved_rounds` matters only when `quorum_exec_block` is true.

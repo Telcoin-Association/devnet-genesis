@@ -1943,7 +1943,7 @@ class ArmFilesTests(ParamsApplyCase):
         self.assertEqual(state["pool-local"][0]["recovery_threads"], "3")
         self.assertEqual(on["pipe"] - on["pool-local"], {"pipelined_persist"})
         self.assertEqual(on["bound"] - on["pipe"], {"rpc_admission_backlog_outputs"})
-        self.assertEqual(state["bound"][0]["rpc_admission_backlog_outputs"], "2")
+        self.assertEqual(state["bound"][0]["rpc_admission_backlog_outputs"], "3")
         self.assertEqual(state["gr150"][0], dict(state["bound"][0], parent_grace="150ms"))
         self.assertEqual(state["gr100"][0], dict(state["bound"][0], parent_grace="100ms"))
         for prev, nxt in (("p1-mdbx-advice", "v-vote"), ("v-vote", "pool-local"), ("pool-local", "pipe"),
