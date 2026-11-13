@@ -1,0 +1,6 @@
+# Preliminary Prometheus read of run r20261113-1351, taken 2026-11-13T16:10:49Z while the fleet was up (tasks/bench6/orch-prom-read.py).
+# Window per blast: mixed.start + 60 s .. mixed.end - 30 s; min/median/max over the ten validators. PRELIMINARY.
+idx arm kind window_s | tx/s | out/s | tx/out | persist_s/out | persist_us/tx | evm_s/out | root_s/out | finish_s/out | busy_ms/s | commit_s | save_s | refused_behind(sum;max) | hdr/s | vote_to | rpc_refused | unpersisted_max | queued_max | exec_lag_max
+0 final light 294 | 698/700/701 | 1.45/1.45/1.45 | 483/483/484 | 0.017/0.020/0.022 | 36/41/45 | 0.012/0.012/0.012 | 0.009/0.010/0.010 | 0.003/0.003/0.003 | 70/74/78 | 0.012/0.014/0.015 | 0.005/0.006/0.007 | 0;0 | 2.84/2.90/2.90 | 0 | n/a | 0/0/0 | 0/1/1 | 0/2/2
+1 final light 318 | 6128/6224/6347 | 1.37/1.42/1.42 | 4315/4413/4491 | 0.171/0.176/0.186 | 39/40/42 | 0.129/0.133/0.140 | 0.276/0.288/0.303 | 0.058/0.077/0.094 | 946/972/990 | 0.084/0.088/0.097 | 0.084/0.087/0.089 | 9;9 | 2.76/2.83/2.84 | 0 | n/a | 0/0/0 | 2/3/8 | 6/7/38
+2 final load 2337 | 4597/5308/5327 | 1.16/1.37/1.37 | 3869/3872/3962 | 0.343/0.370/0.377 | 87/96/97 | 0.107/0.107/0.114 | 0.165/0.169/0.187 | 0.071/0.072/0.076 | 846/996/998 | 0.254/0.290/0.296 | 0.077/0.082/0.089 | 0;0 | 1.68/2.75/2.75 | 0 | n/a | 0/0/0 | 8/8/8 | 46/47/62
