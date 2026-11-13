@@ -104,3 +104,16 @@ Two things I will do unless you say otherwise:
 - Four walk-only harness fixes (an ssh retry, a second eviction try, the switch-line fallback, the epoch-aligned start's slack): needed only before another arm walk (P4).
 - Validator-02 lags at every loaded epoch close, and one close reached its record quorum with exactly seven signers; run 2 kills validator-05 during the blast, so I will watch the first close after the kill.
 - The upstream port and the issues wait for run 2, as planned.
+
+## 6. The user's answers (question dialog, asked 2026-11-13 ≈ 01:12Z, seen answered 03:33Z)
+
+1. Runs: "Run 2, then 50k IOPS (Recommended)": the headline on bench 5's disk, then run 2b with the same configuration at 50,000 provisioned IOPS.
+2. Configuration: "Vote fixes + advice (Recommended)": `quorum_exec_block`, `vote_queue_fix`, `epoch_record_state_check`, `mdbx_random_advice`; every other switch off.
+3. Vote form: "Always-on (Recommended)": `quorum_exec_block_starved_rounds=0`.
+4. Parent grace: "Off (Recommended)".
+
+Learned after the brief was written, from the three investigations (`benchmark/private/bench6-r20261112-1520/I-{7,8,9}/findings.md`):
+- The whole-block writes are not an observer quirk. Every node of run 1 stopped prefaulting in its first process after genesis; the control arm's apply happened to restart the ten validators, which cleared the state, and left the observer running. A fresh deployment that blasts in its first process would amplify on every node unless `mdbx_random_advice` is on before the first start, which the chosen configuration does.
+  So run 1's opening control did not carry bench 5's behaviour on the validators, and the advice is what stands between run 2 and bench 5's write amplification.
+- `sealed_tx_keep` alone causes the pool group's side effects (account density, the transactions that do not execute, the duplicate digests); the other three pool switches have no path to an output's contents.
+- Nothing in the node sizes a consensus output: its size is the executed rate times the commit interval, and the proposer fires on its 350 ms minimum delay without reading the execution state.

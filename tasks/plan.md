@@ -88,7 +88,7 @@ Gates: G1 (after W1 + the GCE probe), G2 (before run 1), G3 (after run 1's analy
 
 ## W4 — run 1: arms (orchestrator only; `tasks/checkpoint-bench6-run1.md`)
 - [ ] deploy → A0 → P1 → V → POOL+LOCAL → PIPE → BOUND → GR150 → A0′ → collect → teardown → archive — run r20261112-1520: walk DONE 2026-11-12 22:53Z (nine arms, sixteen blasts, all rc 0, two stops resumed), step 15 rc 0, teardown rc 0 23:59Z (deleted 12, left 0); archive, reindex, arms-summary running/owed
-- [ ] W5 analysis units A1-A7, A4o, D1 → **G3**
+- [x] W5 analysis units A1-A7, A4o, D1 → **G3** — DONE 2026-11-13: eight units + r1-A8 (writes model) + r1-A7 (verdicts) + I-7/I-8/I-9; brief `tasks/bench6-g3-brief.md`; **G3 ANSWERED 2026-11-13**: run 2 on bench 5's disk then run 2b at 50,000 IOPS; configuration = vote fix (always-on) + vote_queue_fix + epoch_record_state_check + mdbx_random_advice; grace off
 
 ## W6 — run 2: headline (`tasks/checkpoint-bench6-run2.md`)
 - [ ] deploy → idle → blasts → teardown → reindex → archive → bundle
