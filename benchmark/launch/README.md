@@ -228,6 +228,7 @@ The walk stops, leaves the fleet as it is, and ends with `ARMS_STOPPED` and `ARM
 | `epoch-unreadable`, `epoch-wait-too-long` | the boundary could not be read, or lies too far off | the step |
 | `commit-stall` | the blast left a new `.commit_stalls[]` entry longer than `RUN_ARMS_STALL_SECS` (`BENCH_ABORT_STALL_SECS`, 120) | the next step |
 | `disk-<node>-<pct>pct`, `fatal-db-<node>` | the health check after a step | the next step |
+| `health-unparsed` | the health check's status exited 0 and printed `BENCH_STATUS` lines, but the check parsed none of them (a parser fault: the walk would go on blind) | the next step |
 | `signal-TERM` (`-INT`, `-HUP`) | a signal, once the driver call it came during has returned (Stop and resume) | the step it cut short (during the apply or the ready wait: the arm), else the next one; with every step done, the next arm (or the close, after the last arm) |
 
 A resume always re-applies its arm under a new recorded name (`--from-arm k`), so an arm with `host evict-mdbx` restarts every node again (about 10 minutes) and starts from an evicted cache.
@@ -238,6 +239,7 @@ The steps before `--from-step` stay recorded under the arm's first name; `arms-s
 After the apply and after every step, `benchmark-blast.sh status` (read-only serial-console reads, bounded by `RUN_ARMS_HEALTH_SECS`, 180; 0 turns it off) gives each node's newest `BENCH_STATUS` line.
 A root disk above `RUN_ARMS_MAX_DISK_PCT` (`BENCH_ABORT_DISK_PCT`, 85) or `fatal_db` above 0 stops the walk.
 A status it cannot read, or fewer nodes than `nodes.txt`, prints `verdict=unknown` and goes on.
+A status that exits 0 and prints `BENCH_STATUS` lines of which the check parses none stops the walk (`health-unparsed`).
 During a blast the blast driver's own watchers abort on the same signals and on a lost quorum.
 
 The orchestrator watches what these checks cannot see:

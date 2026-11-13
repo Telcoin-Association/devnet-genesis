@@ -11,7 +11,7 @@ driver name for the rest. A response: rc, out (lines; {arm} and {ready} are fill
 the driver's last lines), on_term (seconds of cleanup on a TERM: it prints FAKE_TERM_CLEANUP, waits,
 exits 143), spawn (seconds a `sleep` it starts in the background lives on: a grandchild
 of the launch.sh segment in its process group, outliving the driver), status ({node: [root_pct,
-fatal_db]}), manifest (top-level keys a run sets), stall (an entry a run appends to commit_stalls),
+fatal_db]}; each line in the console's syslog-prefixed form, or the bare form with bare: true), manifest (top-level keys a run sets), stall (an entry a run appends to commit_stalls),
 delta (the schedule's boundary_unix is --earliest-kill + 1 + delta). Blast fund and run keep the
 run's manifest.json the way the real driver does for a hand run (fund.run_index, blast.run_index,
 abort, blast_runs[]).
@@ -107,9 +107,14 @@ def main():
     elif key == "pa:print-state" and out is None:
         out = ["ARM_NAME fake"]
     elif key == "blast:status" and out is None:
+        # the line the console shows: the sampler's journal copy behind its syslog prefix
+        # (bare: the sampler's own line, <node>: BENCH_STATUS ...)
         st = r.get("status", {})
-        out = ["    %s: BENCH_STATUS host=%s ts=%d root_used_pct=%s fatal_db=%s block=100 rss_total_kb=1"
-               % (n, n, int(time.time()), st.get(n, [40, 0])[0], st.get(n, [40, 0])[1]) for n in nodes(argv)]
+        out = []
+        for n in nodes(argv):
+            pre = "" if r.get("bare") else "2026-11-12T16:49:45.123456+00:00 %s bench-node-sampler.sh[1234]: " % n
+            out.append("    %s: %sBENCH_STATUS host=%s ts=%d root_used_pct=%s fatal_db=%s block=100 rss_total_kb=1"
+                       % (n, pre, n, int(time.time()), st.get(n, [40, 0])[0], st.get(n, [40, 0])[1]))
     elif key == "recovery-schedule.py" and out is None:
         b = int(arg_after(argv, "--earliest-kill", "0")) + 1 + int(r.get("delta", 0))
         out = [json.dumps({"epoch": 7, "duration_secs": 1200, "boundary_unix": b})]

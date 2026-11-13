@@ -38,7 +38,8 @@
 #            unless the blast aborted on fleet health; a second failure stops the run.
 #   close    params-apply.sh --from-config --close-arm <name>
 # After step 0 and after every step: the health check (benchmark-blast.sh status: each node's newest
-# BENCH_STATUS line), which stops on a root disk above RUN_ARMS_MAX_DISK_PCT or fatal_db > 0. After a
+# BENCH_STATUS line), which stops on a root disk above RUN_ARMS_MAX_DISK_PCT or fatal_db > 0, and on
+# a status that exits 0 with BENCH_STATUS lines of which none parses (health-unparsed). After a
 # blast: a new manifest .commit_stalls[] entry longer than RUN_ARMS_STALL_SECS stops the run.
 #
 # Lines it prints (tags, at the start of a line):
@@ -49,7 +50,7 @@
 #   ARMS_EPOCH arm=<name> step=<n> boundary=<UTC> launch_at=<UTC> offset=<s> lead=<s>
 #   ARMS_BLAST arm=<name> step=<n> kind=<type> index=<i> attempt=<a> fund_rc=<rc> run_rc=<rc|-> <UTC>
 #   ARMS_RETRY arm=<name> step=<n> kind=<type> index=<i> reason=<...>
-#   ARMS_HEALTH arm=<name> after=<step> verdict=<ok|stop|unknown|off> read=<n>/<m> disk_max=<pct> (<node>) fatal_db=<n> <UTC>
+#   ARMS_HEALTH arm=<name> after=<step> verdict=<ok|stop|unknown|off> read=<n>/<m> disk_max=<pct> (<node>) fatal_db=<n|?> <UTC>
 #   ARMS_STEP arm=<name> step=<n> kind=<apply|I|L|M4|M16|M16s|close> rc=<n> <UTC>
 #   ARMS_DONE arms=<n> blasts=<n> <UTC>
 #   ARMS_STOPPING arm=<name> step=<n> signal=<SIG> after=<what|none> pid=<pid|-> <UTC>
@@ -368,9 +369,14 @@ expected_nodes() {
 }
 
 # health <k> <after-step> — each node's newest BENCH_STATUS line (benchmark-blast.sh status, read-only
-# serial console reads, bounded). An unreadable status never stops the run.
+# serial console reads, bounded). The node is the name before the line's first ": " and its keys are
+# read after "BENCH_STATUS ", wherever the marker sits: the console shows the journal's copy of the
+# line, behind a syslog prefix (<node>: <time> <node> bench-node-sampler.sh[<pid>]: BENCH_STATUS ...),
+# and the bare form (<node>: BENCH_STATUS ...) parses too. An unreadable status never stops the run.
+# A status that exits 0 and prints "<node>: ... BENCH_STATUS" lines of which none parses stops it
+# (health-unparsed): that is a parser fault, and the walk would otherwise go on blind.
 health() {
-    local k="$1" after="$2" at out rc=0 n=0 m pct fatal fsum=0 dmax=-1 dnode="" fnode="" verdict=ok line node
+    local k="$1" after="$2" at out rc=0 n=0 m pct fatal fsum=0 dmax=-1 dnode="" fnode="" verdict=ok line node toks seen=0
     at=$((after + 1)); [ "${after}" != 0 ] || at="${first}"
     sig_point "${k}" "${after}" "${at}"
     if [ "${HEALTH_SECS}" = 0 ]; then echo "ARMS_HEALTH arm=${CUR_NAME} after=${after} verdict=off $(utc)"; return 0; fi
@@ -381,21 +387,29 @@ health() {
     CHILD_PID="" CHILD_WHAT=""
     out="$(cat "${TMP}/health")"
     while IFS= read -r line; do
-        node="$(printf '%s' "${line}" | sed -n 's/^[[:space:]]*\([A-Za-z0-9._-]*\): BENCH_STATUS .*/\1/p')"
-        [ -n "${node}" ] || continue
+        toks="$(printf '%s' "${line}" | sed -n 's/^[[:space:]]*\([A-Za-z0-9._-]\{1,\}\): .*BENCH_STATUS \(.*\)$/\1 \2/p')"
+        [ -n "${toks}" ] || continue
+        node="${toks%% *}" toks="${toks#* }"
         n=$((n + 1))
-        pct="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^root_used_pct=//p' | tail -n 1)"
-        fatal="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^fatal_db=//p' | tail -n 1)"
+        pct="$(printf '%s' "${toks}" | tr ' ' '\n' | sed -n 's/^root_used_pct=//p' | tail -n 1)"
+        fatal="$(printf '%s' "${toks}" | tr ' ' '\n' | sed -n 's/^fatal_db=//p' | tail -n 1)"
         case "${pct}" in ''|*[!0-9]*) ;; *) if [ "${pct}" -gt "${dmax}" ]; then dmax="${pct}"; dnode="${node}"; fi ;; esac
         case "${fatal}" in ''|*[!0-9]*) ;; *) if [ "${fatal}" -gt 0 ]; then fsum=$((fsum + fatal)); fnode="${fnode:-${node}}"; fi ;; esac
     done <<< "${out}"
     m="$(expected_nodes)"
-    if [ "${fsum}" -gt 0 ] || [ "${dmax}" -gt "${MAX_DISK}" ]; then verdict=stop
+    if [ "${rc}" = 0 ] && [ "${n}" = 0 ]; then
+        seen="$(num_or "$(printf '%s\n' "${out}" | grep -cE '^[[:space:]]*[^[:space:]]+:.*BENCH_STATUS' || true)" 0)"
+    fi
+    if [ "${fsum}" -gt 0 ] || [ "${dmax}" -gt "${MAX_DISK}" ] || [ "${seen}" -gt 0 ]; then verdict=stop
     elif [ "${rc}" != 0 ] || [ "${n}" = 0 ] || [ "${n}" -lt "${m}" ]; then verdict=unknown; fi
-    echo "ARMS_HEALTH arm=${CUR_NAME} after=${after} verdict=${verdict} read=${n}/${m} disk_max=$([ "${dmax}" -ge 0 ] && echo "${dmax} (${dnode})" || echo '?') fatal_db=${fsum} $(utc)"
+    echo "ARMS_HEALTH arm=${CUR_NAME} after=${after} verdict=${verdict} read=${n}/${m} disk_max=$([ "${dmax}" -ge 0 ] && echo "${dmax} (${dnode})" || echo '?') fatal_db=$([ "${n}" -gt 0 ] && echo "${fsum}" || echo '?') $(utc)"
     [ "${verdict}" != unknown ] || echo "  (status rc=${rc}; an unreadable node is not a stop; watch it: README.md, Monitor)"
     [ "${fsum}" = 0 ] || stop "${k}" "${after}" "fatal-db-${fnode}" "$((after + 1))"
     [ "${dmax}" -le "${MAX_DISK}" ] || stop "${k}" "${after}" "disk-${dnode}-${dmax}pct" "$((after + 1))"
+    if [ "${seen}" -gt 0 ]; then
+        echo "  (status rc=0 printed ${seen} BENCH_STATUS line(s) and the check parsed none: a parser fault, not the fleet's; README.md, Checks between steps)"
+        stop "${k}" "${after}" health-unparsed "$((after + 1))"
+    fi
     sig_point "${k}" "${after}" "${at}"
     return 0
 }

@@ -720,21 +720,56 @@ class ArmsStopTests(ArmsBase):
         self.assertEqual(self.keys(), ["pa:print-state", "pa:print-state"])
 
     def test_health_between_steps(self):
-        for status, reason in (({"bench-validator-02": [90, 0]}, "disk-bench-validator-02-90pct"),
-                               ({"bench-observer-11": [40, 2]}, "fatal-db-bench-observer-11")):
-            with self.subTest(reason=reason):
-                self.reset()
-                self.t.scenario({"blast:status": [{}, {"status": status}]})
-                p = self.arms("--plan", self.plan("a0-control I L\n"))
-                self.stopped(p, reason, 0, 1)
-                self.assertIn("--from-step 2", p.tags[-1])
-                self.assertNotIn("blast:fund", self.keys())
+        # the console's line (behind the journal's syslog prefix, the fake driver's default) and the bare one
+        for bare in (False, True):
+            for status, reason in (({"bench-validator-02": [90, 0]}, "disk-bench-validator-02-90pct"),
+                                   ({"bench-observer-11": [40, 2]}, "fatal-db-bench-observer-11")):
+                with self.subTest(reason=reason, bare=bare):
+                    self.reset()
+                    self.t.scenario({"blast:status": [{"bare": bare}, {"status": status, "bare": bare}]})
+                    p = self.arms("--plan", self.plan("a0-control I L\n"))
+                    self.stopped(p, reason, 0, 1)
+                    self.assertIn("--from-step 2", p.tags[-1])
+                    self.assertNotIn("blast:fund", self.keys())
+
+    def test_both_status_line_forms_print_the_same_health(self):
+        got = {}
+        for bare in (False, True):
+            self.reset()
+            self.t.manifest({})
+            self.t.scenario({"blast:status": [{"bare": bare}, {"bare": bare}]})
+            p = self.arms("--plan", self.plan(self.ONE))
+            self.assertEqual(p.returncode, 0, p.stdout)
+            got[bare] = [UTC_RE.sub("<UTC>", l) for l in p.tags if l.startswith("ARMS_HEALTH")]
+        self.assertEqual(got[False], got[True])
+        self.assertEqual(got[True], ["ARMS_HEALTH arm=a0-control after=%d verdict=ok read=3/3 disk_max=40 (bench-validator-01) "
+                                     "fatal_db=0 <UTC>" % a for a in (0, 1)])
 
     def test_an_unreadable_health_check_goes_on(self):
         self.t.scenario({"blast:status": [{"rc": 1, "out": ["ERROR: gcloud"]}, {"out": []}]})
         p = self.arms("--plan", self.plan(self.ONE))
         self.assertEqual(p.returncode, 0, p.stdout)
         self.assertEqual([l.split()[3] for l in p.tags if l.startswith("ARMS_HEALTH")], ["verdict=unknown"] * 2)
+
+    def test_a_check_that_read_nothing_prints_no_fatal_db(self):
+        self.t.scenario({"blast:status": [{"rc": 1, "out": ["ERROR: gcloud"]}, {"out": []}]})
+        p = self.arms("--plan", self.plan(self.ONE))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        for l in [l for l in p.tags if l.startswith("ARMS_HEALTH")]:
+            self.assertRegex(l, r" verdict=unknown read=0/3 disk_max=\? fatal_db=\? \S+Z$")
+
+    def test_a_status_that_answers_but_parses_nowhere_stops(self):
+        # rc 0 and a line per node, none in a form the check reads (a tab after the marker): a parser
+        # fault, stopped at the first check (after the apply), before any step
+        lines = ["    %s: 2026-11-12T16:49:45.123456+00:00 %s bench-node-sampler.sh[1234]: BENCH_STATUS\thost=%s "
+                 "root_used_pct=95 fatal_db=3 block=100" % (n, n, n) for n in NODES]
+        self.t.scenario({"blast:status": [{"out": lines}]})
+        p = self.arms("--plan", self.plan(self.ONE))
+        self.stopped(p, "health-unparsed", 0, 0)
+        self.assertRegex(p.tags[-3], r"^ARMS_HEALTH arm=\S+ after=0 verdict=stop read=0/3 disk_max=\? fatal_db=\? \S+Z$")
+        self.assertIn("printed 3 BENCH_STATUS line(s) and the check parsed none", p.stdout)
+        self.assertNotIn("--from-step", p.tags[-1])
+        self.assertEqual(self.keys(), ["pa:print-state", "pa:arm-file", "blast:status"])
 
     def test_the_health_check_is_off_at_zero(self):
         p = self.arms("--plan", self.plan(self.ONE), RUN_ARMS_HEALTH_SECS="0")
