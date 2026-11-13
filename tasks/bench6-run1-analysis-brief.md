@@ -63,6 +63,9 @@ The real phase times are in `manifest.blasts[].phases`; use the mixed phase, and
 These are the orchestrator's preliminary reads (Prometheus and one validator's persist CSV).
 Verify them; do not cite them as results.
 
+**Superseded in part on 2026-11-13 by the wave-1 units** (read `benchmark/private/bench6-r20261112-1520/cross-unit-notes.md` before this section):
+the cold cache is 7-27 % of the fall between the controls, not most of it; every warm M16 minute sits at the disk's provisioned 20,000 write IOPS, so the rate is set by the writes per transaction; the observer did write whole blocks in the opening control; blasts 3 and 15 ran with 3,800 and 4,400 of 6,000 senders.
+
 - **Throughput fell through the run, and the closing control ran at half the opening one**: M16 medians 5,809 tx/s (`a0-control`) and 2,911 tx/s (`a0-prime`), engine busy near 1,000 ms/s in every M16.
 - **Cold cache.** Every arm from `p1` on starts from an evicted page cache (`host evict-mdbx`, by design), and after it the node reads the database back from the Hyperdisk one 4 KiB page per major fault.
   On validator-03, disk reads and major faults per second in the mixed phase: `a0-control` M16 0 and 8; `p1` 24; `v-vote` M16 23; floor M16 80; `pool-local-r2` 184; `pipe` M4 532 and M16 20; `bound` M4 808 and M16 339; `gr150` L 555 and M16s 376; `a0-prime` 801.
@@ -138,6 +141,11 @@ Outputs: `stages-<index>.json`, `stages.md`.
 Inputs: `tasks/bench6/r20261112-1520/*.log`, `tasks/checkpoint-bench6-run1.md`, `logs/deploy-*.log`, `logs/run-arms-*.log`, the teardown log; template bench-5 `A4o/`.
 Timeline against the plan (deploy, each arm, the stops, collect, teardown); faults (IAP, eviction residue, the blind health check); harness defects with the file and line; what run 2 needs fixed before it starts, in order.
 Outputs: `timeline.md`, `faults.md`, `defects.md`, `recommendations.md`.
+
+### r1-A8 — what sets the writes per transaction (added 2026-11-13, after r1-A4p)
+Inputs: r1-A4p's outputs and its per-output extract, the persist CSVs, prom-export `tn_reth_mdbx_used_bytes`; bench 5's `I-B2/` for the comparison.
+Separate output size from database size at output level, then the arithmetic at the 20,000 IOPS ceiling (decay over a 40-minute blast, group commit of 2, 4, 8 outputs, a higher IOPS limit), and bench 5 through the same lens.
+Outputs: `outputs.csv.gz`, `model.json`, `writes-model.md`.
 
 ### r1-A7 — arm verdicts (wave 2, after every wave-1 unit)
 Inputs: the wave-1 outputs only.

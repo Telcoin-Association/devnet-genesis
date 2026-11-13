@@ -1594,3 +1594,12 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   fleet right after the deploy, before the long segment starts, and "unknown on all nodes" is treated as a failed check, not as
   no news; (3) when a running driver's check is found blind, nobody edits the driver: an independent read-only watcher takes
   its place until the segment ends.
+
+## 2026-11-13 — bench 6 run 1: a first reading from one node, and a plateau that is a limit
+
+- **What happened.** After run 1's walk I read one validator's counters, saw 800 page faults a second in the closing control against 8 in the opening one, and wrote "mostly the cold cache" into the checkpoint, the analysis brief and a status to the user. The persist unit then showed, on all ten validators, that the cold cache is 7-27 % of the fall; every warm full-load minute sat at the disk's provisioned 20,000 write operations per second, and the rate is that limit over the writes per transaction. The same one-node reading said "no whole-block writes anywhere"; the observer had them. I also recorded a stop's cost ("about 40 s") at the moment of the resume; its real cost (about 20 minutes, a missed epoch boundary) only showed in the timeline afterwards.
+- **Rules.**
+  - Before blaming a code path for a rate, put every provisioned limit of the machine beside the measured counters (disk IOPS and bytes per second, network, CPU): a counter that sits flat at a round provisioned number across arms is a limit, not a workload.
+  - A reading from one node is written as "validator-NN", never as "the fleet" or "anywhere"; the observer and the far validators are checked before a fleet-wide sentence.
+  - The cost of a stop is written after the step it delayed has run, from the timeline, not at the resume.
+  - A step that reports rc 0 is not a step that did its work: a fund with `still_short` above 0 ran two blasts at reduced load. Read the tool's own result line, not only its exit code.
