@@ -1,0 +1,49 @@
+# ST-E — an end-to-end test across two epoch closes with each vote form and validators held behind
+
+You are test unit **ST-E** of the bench-6 program.
+Rules first: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6-agent-rules.md`, sections "What nobody but the orchestrator does", "Repos and worktrees", "Checkpoint, budget, scratch (every agent)", "Test units (`ST-*`)", "HAND BACK". Load the skills `tn-write-e2e`, `tn-rust-skills`, `tn-domain-epoch`, `tn-domain-consensus` before reading or writing node code.
+
+## Where you work
+- Worktree `/home/drtnarg/coding/telcoin/tn-b6-u2`, branch `b6/st-epoch-close-forms`, created for you at 2df831e3c (the bench-6 node branch's head); its `target/` is warm. Work ONLY there. You may commit on that branch (no push, no attribution of any kind in a commit, no `Co-Authored-By`).
+- You own exactly one new module, `crates/e2e-tests/tests/it/epoch_close_forms.rs`, and its one-line registration in `crates/e2e-tests/tests/it/main.rs`. If you need a helper that belongs in `common.rs`, add it at the end of that file and say so in the hand-back; change no existing helper and no non-test code. If the test cannot be written without a new test hook in non-test code, STOP and hand back with the exact hook you need and why.
+- Every compiling cargo call goes through `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/cargo-slot.sh cargo <args>`.
+- Every e2e run goes through the SECOND lane: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane2.sh <command…>` (the first lane named in the rules is blocked; lane 2 takes a build slot itself, so do not wrap its command in cargo-slot.sh). It waits while any other test run or node process is alive on the machine (another session's test run is active now: expect to wait, up to its six-hour deadline; start your first run in the background with a log and work on while it waits). One e2e job at a time, always.
+
+## Why (the user's requirements of 2026-11-13, in their words)
+- "ensure that the closing epoch vote records include the correct state info that contains the closing epoch block info - the record must match the execution data where the closing epoch calls were executed"
+- "every node should have every closing epoch record at quorum - even if it didn't sign"
+- "include an end-to-end test that crosses two epoch closes with the always-on/adaptive vote form and validators held behind, before the upstream PRs"
+
+Background: the vote fix (`quorum_exec_block`; always-on with `quorum_exec_block_starved_rounds: 0`, adaptive with `4`) changes which execution block a header names. Two investigations read the epoch-record path: `/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/private/bench6-r20261113-1351/E-2/findings.md` (the code path; its §4 "Not covered by any test" lists what is missing; read §1 steps 3-12 and §4) and `E-1/findings.md` (what the fleet runs showed). No existing test crosses an epoch close with the always-on form, none has the fix on with a member lagging past the 8-output floor through a close, and none has a record miss its first vote round and be certified at the next close.
+
+## What exists to build on (read these first)
+- `crates/e2e-tests/tests/it/exec_block.rs`: `test_fast_executor_is_certified` (the three arms control / adaptive / always, slow nodes through the engine's execution-delay test hook `tn_types::test_hooks::execution_delay`, how the switches are passed per node) and `test_mixed_switch_fleet_is_one_chain` (20-s epochs, checks certified records 0-2, final block hashes, no halt line).
+- `crates/e2e-tests/tests/it/epoch_drain.rs`: `test_loaded_close_with_a_slow_member` (a loaded close with one slow member; how it reads the close's log lines and counters).
+- `crates/e2e-tests/tests/it/common.rs`: `fetch_verified_epoch_record` (RPC `tn_epochRecord` returns the record and its certificate), `assert_epoch_records_verify`, the fleet and load helpers.
+- The record: `crates/types/src/primary/epoch.rs` (`EpochRecord`: `final_state`, `final_consensus`, `committee`, `next_committee`, `parent_hash`); where it is built: `crates/node/src/manager/node/close_epoch.rs` (`write_epoch_record`, `check_stored_record_final_state`); the vote round and its window: `crates/node/src/manager/epoch_votes.rs` (2.5-s waits, 25 timed-out waits ≈ 62.5 s, the re-vote of an uncertified previous record at the next close, `:483-501`).
+
+## The test
+One test function per vote form (or one parameterised body with two `#[test]` entries): `always` (`quorum_exec_block: true`, `quorum_exec_block_starved_rounds: 0`) and `adaptive` (`… : 4`), each with `vote_queue_fix: true` and `epoch_record_state_check: true` on every node, as in the benchmark's configuration. Epochs short enough to cross two closes in a few minutes, long enough for scenario B's window (see below). A light transfer load runs through both closes so that outputs carry blocks.
+
+Scenario A, "one member held behind, the record certifies without it": hold one validator behind with the execution-delay hook so that it trails the others by more than the fix's floor of 8 outputs at the first close (measure and assert the lag you actually produced, in outputs or blocks, at the close: a test that claims a lag it did not produce proves nothing). Then release it (or let it catch up) before the second close.
+Assert, for each of the two closed epochs, on EVERY node including the held one:
+1. `tn_epochRecord(epoch)` returns a record and a certificate that verify (the existing helper), and the record's digest is identical on all nodes: every node holds every certified record, whether or not it signed.
+2. The held node did not sign the first record yet holds it: show it from the certificate's signer set if the RPC exposes it, else from the node's own counters or log (`tn_node_epoch_record_vote_skipped_total{reason="certified_before_close"}` at least 1 on the held node; the state check ran and did not halt).
+3. The record's `final_state` is the block in which the epoch-closing calls executed. Establish that block INDEPENDENTLY of the record path: from the chain itself over RPC (for example the block carrying the registry's epoch-conclusion event or state change at that boundary: find what `concludeEpoch` emits or changes in `crates/tn-reth/src/system_calls.rs` and the registry bindings, and read it with `eth_getLogs` or a state read at block N against N−1), and assert number AND hash equal `record.final_state`, on every node; assert that `record.next_committee` equals the committee the registry holds at that block, and that the block after `final_state` belongs to the next epoch (the first block of the next epoch has the closing block as its parent). If the chain offers no independent marker of the closing block, say exactly what is missing in the hand-back (that is itself a finding for the node) and assert the strongest thing available.
+4. One chain: the closing blocks' hashes are equal on all nodes; no node logged a halt line (`stored epoch record's final state is not this node's closing block`), `we have forked`, `unexpected execution result`, or `execution has forked`.
+
+Scenario B, "the first vote round misses its window, the next close certifies it" (the liveness path no test covers): hold enough validators behind at the first close that fewer than a quorum can vote within the collectors' window (with n validators the quorum is floor(2n/3)+1), keep them held until the round has given up (the log line `failed to reach quorum on epoch close`), then release them. Assert that the chain did not stop (the next epoch started and committed), that the first epoch's record is certified at or after the second close on every node (same digest everywhere, `final_state` as in assertion 3), and that the second epoch's record is certified too. Size the epoch to the window: the round gives up after about 62.5 s plus the waits in which a vote arrived, so the epoch must be longer than that with margin; say the numbers you chose and why. If scenario B needs more nodes or more time than an e2e test can afford, implement A fully for both forms first, then B for one form, and say what you left out.
+
+Both forms must pass both scenarios; if a form FAILS an assertion, that is the result: do not weaken the assertion to make it pass. Hand back the failing assertion, the node log lines around it, and whether it reproduces.
+
+## Quality bar
+- Deterministic waits (poll a condition with a deadline), never a bare sleep as the only synchronisation; every poll has a deadline and a message that says what it waited for.
+- The clock trap in the rules: build the genesis once.
+- Run each test at least three times through lane 2 before handing back; report each run's result and duration, and the log path of a passing and (if any) a failing run under the worktree's `target/tmp/`.
+- `cargo fmt --check` and `cargo clippy -p e2e-tests --all-targets -- -D warnings` (through cargo-slot.sh) clean.
+- Comments say what a block of the test proves, not what the code does.
+
+## Hand back
+Status and checkpoint (`/home/drtnarg/coding/telcoin/devnet-genesis/tasks/checkpoint-bench6-ST-E.md`, rewritten after each scenario and each run with a `status:` header; on start read it and continue from the first unfinished section); branch and tip sha, `git log --oneline 2df831e3c..HEAD`; the test names; for each form and scenario: pass or fail over the runs, the lag you produced, the epoch length and the window numbers; what marks the closing block on chain (assertion 3) or what is missing; every helper added to `common.rs`; anything a form failed, verbatim.
+Budget: under 250k tokens; at about 200k finish the current step, commit, checkpoint and hand back with the exact resume point.
+If a Write is refused, do not work around it: return the complete text in your final answer.
