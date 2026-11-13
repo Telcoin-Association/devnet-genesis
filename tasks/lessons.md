@@ -1603,3 +1603,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A reading from one node is written as "validator-NN", never as "the fleet" or "anywhere"; the observer and the far validators are checked before a fleet-wide sentence.
   - The cost of a stop is written after the step it delayed has run, from the timeline, not at the resume.
   - A step that reports rc 0 is not a step that did its work: a fund with `still_short` above 0 ran two blasts at reduced load. Read the tool's own result line, not only its exit code.
+
+## 2026-11-13 — bench 6: two background watchers that outlived their runs
+
+- **What happened.** I started `orch-fleet-health.sh --watch … --until-file <blast15 log>` for runs 2 and 2b. The script's end test only knows the arm walk's `== arms` line, so neither watcher ended. Both kept polling for hours after their fleets were deleted, and because the script finds instances by name they reported the next runs' fleets (run 3 included, driven by another session) under the old run ids. I found them only when the session listed its leftover background tasks. They read serial-port output through the API, so no node was touched, but two run logs now hold another run's numbers after a marked point.
+- **Rules.**
+  - A helper written for one segment is checked against the end line of the segment it is now used with before it is started; "it ended last time" was the arm walk, not the blast.
+  - When a segment's rc line arrives, list the session's background tasks and stop every one that belonged to that segment before the teardown.
+  - A tool that reads a fleet identifies it by run label, not by instance name: names repeat from run to run.
