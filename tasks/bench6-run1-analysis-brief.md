@@ -9,9 +9,15 @@ The fleet is deleted: every input is local and nothing is fetched.
 - Results: `benchmark/results/r20261112-1520/` (read-only; an archive upload may be reading it).
   - `manifest.json`: `param_arms[]` (each arm's name, begin, ready, end, switches, host steps, restart seconds), `blasts[]` (index, arm, kind, senders, window, real phases), `blast_runs[]`, `log_rate[]`, `commit_stalls[]`.
   - `blast-<i>-<UTC>/blasters/bench-blaster-NN.json` and the generator logs of blast `i` (the folder's time is when it was archived, not when the blast ran).
-  - `logs/`: node logs per validator, pulled at the teardown; `persist/<node>.csv` and `<node>.folios.txt` (header: `benchmark/tools/persist-csv-header.txt`); `metrics.json` (Cloud Monitoring); `analysis/` (the harness's own cert-rate, block-rate, `arms.md`).
-  - `logs/run-arms-*.log`: the walk's own record (kind and attempt per index, the two stops and their resume lines).
-- Prefiltered node logs (only the lines the harness readers match): `benchmark/work/prefilter/r20261112-1520/logs/`.
+  - `logs/`: node logs, pulled at the teardown (layout below); `persist/<node>.csv` and `<node>.folios.txt` (header: `benchmark/tools/persist-csv-header.txt`); `metrics.json` (Cloud Monitoring); `analysis/` (the harness's own `cert-rate.md`, `block-rate.md`, `certification.json`, and `arms.md` once the arm summary has run).
+  - `blasters/` and `funder/` at the top level belong to blast 15 (the last blast is not moved into a `blast-15-*` folder).
+  - `logs/run-arms-arms-*.log`: the walk's own record (kind and attempt per index, the two stops and their resume lines).
+- Node log layout in `logs/` (a trap: read this before you grep):
+  - `bench-validator-NN-unit-stdout.log.gz` is the WHOLE node log of the run (15:21:56Z to 23:35:31Z, about 4 GB plain, 540 MB gzipped, one line per event: `ts=… level=… target=… message="…" key=value …`). Use it for anything inside a blast.
+  - `bench-validator-NN-telcoin-pre-arm-<arm>-<UTC>.log.gz` is only the last 12-18 minutes BEFORE the apply of `<arm>` (so it shows the arm before it), and `…-telcoin.log.gz` the last 12 minutes before the teardown. They do not cover the blasts.
+  - `…-telcoin-cert-fail-<UTC>.log.gz`, `…-recovery-*.tgz`, `.logspan`, `.pulled`: the teardown's own snapshots and records.
+- Prefiltered node logs: `benchmark/work/prefilter/r20261112-1520/logs/` with the same file names; `…-unit-stdout.log.gz` there is about 100 MB per validator and keeps only the lines the harness readers match (`vote path timing`, `certificate committed`, `next block executed`, `header proposed`, `quorum reached`, `output queued`, `output executed`, `persisted output`, `output saved`, `subdag committed`, `batch built / sealed / reported`, `signers recovered`, `consensus output ready`, `parent grace armed / ended`, `header uncertified`, `scheduled leader`). Start there; go to the full log only for lines it lacks (warn and error templates, `node switches`, `vote refused`).
+- One pass over a full log costs about half a minute of CPU per node: extract once into your scratch with one `zcat | grep -F -e … -e …`, at most four nodes at a time, then work on the extract.
 - Node metrics exported from the run's Prometheus before the teardown: `benchmark/private/bench6-r20261112-1520/prom-export/<metric>.json.gz` (the body of `query_range`, step 15 s, 15:40Z to the export time; `INDEX.tsv` lists series and points per metric).
   Labels: `node` (bench-validator-01 … -10, bench-observer-11), `region`; a counter resets at every node restart (one per arm), so take rates inside one arm only.
 - Orchestrator's preliminary reads (not results): `tasks/bench6/r20261112-1520/prelim-prom-read.txt`, and the run log `tasks/checkpoint-bench6-run1.md` (gitignored, read-only).
@@ -31,6 +37,8 @@ The fleet is deleted: every input is local and nothing is fetched.
 - Two stops, both in an apply, both resumed within a minute with the walk's own resume line (the arm was re-applied to all eleven nodes under a new recorded name):
   - 18:30:12Z, arm 3: an IAP ssh fault (exit 255) before validator-07 was touched. For about four minutes the observer and validators 01-06 ran `v-vote-floor` and 07-10 still `v-vote`. Recorded arms `v-vote-floor` (failed, no blast) and `v-vote-floor-r2`.
   - 19:17:45Z, arm 4: validator-08's eviction left 8 of 565,013 pages resident and the strict check failed the apply. The observer and validators 01-08 ran `pool-local`, 09-10 still `v-vote-floor`, for about one minute. Recorded arms `pool-local` (failed, no blast) and `pool-local-r2`.
+- Step 15 (collect) 22:54:37Z to 22:59:53Z rc 0; teardown 23:35:15Z to 23:59:30Z rc 0, `deleted=12 left=0`; the results directory holds 2,896 files, 8.5 GB.
+- The teardown's certification check names three validators below 90 % own-header certification: validator-08 27.1 % and validator-09 53.0 % in blast 15's mixed phase, validator-10 47.5 % in blast 8's warmup, with further windows listed in `manifest.cert_failures[]` (blast 2 and 3 warmups, blast 7 and 8 warmups, blast 8 mixed, blast 9 warmup, all of blast 15).
 - The walk's own health check after each step read no node (`verdict=unknown read=0/11`, a parser defect); a separate reader showed 11 of 11 nodes, root disk at most 31 %, `fatal_db` 0 throughout.
 
 Arms in run order (switches are cumulative; `on` lists what differs from the control):
