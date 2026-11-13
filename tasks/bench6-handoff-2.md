@@ -131,7 +131,9 @@ Then: an addendum to the report (`tasks/bench6-report-r20261113-1351.md`, a new 
 
 ## 5. Other work the user asked for, and its state
 
-Three agents were launched at about 20:10-20:20Z and stopped by an interrupt minutes later; the user said to continue them. If the new session does not find their outputs, start them again from the briefs (each brief is complete; each agent reads its own checkpoint first):
+Three agents were launched at about 20:10-20:20Z, stopped by an interrupt minutes later, and started again at about 20:40Z from the same briefs (the user said to continue them).
+They save as they go: each rewrites its checkpoint after every section, E-3 and E-4 also write their full findings text to `tasks/checkpoint-bench6-E-3-findings.md` and `tasks/checkpoint-bench6-E-4-findings.md` (a sub-agent's Write of `findings.md` under `benchmark/private/` has been refused before; copy the text from there to the output path), and ST-E commits on its branch after every step.
+If the new session finds them unfinished, start them again from the briefs (each brief is complete; each agent reads its own checkpoint first):
 
 | unit | brief | checkpoint | output | answers |
 |---|---|---|---|---|
