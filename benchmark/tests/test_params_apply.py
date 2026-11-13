@@ -1868,8 +1868,9 @@ class DryRunTests(ParamsApplyCase):
 
     def test_no_arm_file_reaches_gcloud_in_a_dry_run(self):
         """A gcloud that prints REACHED and exits 9 is first on PATH: no dry run of any arm file in
-        benchmark/arms calls it. Each prints its plan, the phase A script with the host probe and
-        the phase B scripts with the host steps it lists, and ends rc 0."""
+        benchmark/arms calls it. Each prints the plan stated for it below, the phase A script with the
+        host probe and a phase B script with the host steps it lists for every node it restarts, and
+        ends rc 0."""
         shim, hits = self.tmp / "shim", self.tmp / "shim-hits"
         shim.mkdir()
         # The tool sends a call's output to its own files, so the shim also leaves a mark of its own.
@@ -1885,20 +1886,32 @@ class DryRunTests(ParamsApplyCase):
         self.assertNotIn("REACHED", p.stdout + p.stderr)
         self.assertFalse(hits.exists())
         files = sorted(ARMS.glob("*.arm"))
-        self.assertGreaterEqual(len(files), 11)
+        # A new arm file states its plan here: without a record, every node of the fake fleet starts from every
+        # switch at its default. "params": the arm changes a switch; "host": it evicts; None: no node restarts.
+        plans = {"a0-control.arm": None, "a0-prime.arm": "host", "final.arm": "params",
+                 "p1-mdbx-advice.arm": "params,host", "v-vote.arm": "params,host", "v-vote-floor.arm": "params,host",
+                 "pool-local.arm": "params,host", "pipe.arm": "params,host", "bound.arm": "params,host",
+                 "gr150.arm": "params,host", "gr100.arm": "params,host"}
+        self.assertEqual(sorted(f.name for f in files), sorted(plans))
         for f in files:
             p = self.run_tool("--nodes", str(nf), "--arm-file", str(f), "--dry-run", PATH=path)
             self.assertNotIn("REACHED", p.stdout + p.stderr, f.name)
             self.assertFalse(hits.exists(), f.name)
             name = re.search(r"(?m)^name (\S+)$", f.read_text()).group(1)
-            self.assertIn("plan for arm %s:" % name, p.stdout, f.name)
             self.assertEqual(p.returncode, 0, (f.name, p.stderr))
             self.assertEqual(len(re.findall(r"(?m)^r=0; python3 - probe ", p.stdout)), 3, f.name)   # one per phase A script
-            units = re.findall(r"(?s)<<'PA_UNIT_SCRIPT' \|\| rfail \"cannot write \$US\"\n(.*?)\nPA_UNIT_SCRIPT\n", p.stdout)
+            why = plans[f.name]
             evict = bool(re.search(r"(?m)^host evict-mdbx$", f.read_text()))
-            self.assertEqual(len(units), 3 if evict else 0, f.name)   # the eviction restarts every node
+            self.assertEqual(evict, "host" in (why or "").split(","), f.name)
+            self.assertIn("plan for arm %s: %d node(s) to restart one at a time, %d already in it; "
+                          % (name, 3 if why else 0, 0 if why else 3), p.stdout, f.name)
+            node = r"(?m)^  bench-\S+ +(?:validator|observer) +"
+            self.assertEqual(re.findall(node + r".*; restart \(([^)]*)\)", p.stdout), [why] * 3 if why else [], f.name)
+            self.assertEqual(len(re.findall(node + r"no change; not restarted$", p.stdout)), 0 if why else 3, f.name)
+            units = re.findall(r"(?s)<<'PA_UNIT_SCRIPT' \|\| rfail \"cannot write \$US\"\n(.*?)\nPA_UNIT_SCRIPT\n", p.stdout)
+            self.assertEqual(len(units), 3 if why else 0, f.name)
             for u in units:
-                self.assertEqual(u.count("python3 - evict-mdbx "), 1, f.name)
+                self.assertEqual(u.count("python3 - evict-mdbx "), 1 if evict else 0, f.name)
                 self.assertNotIn("python3 - read-ahead-kb ", u, f.name)   # nothing recorded: read-ahead left alone
             self.assertIn("  warning: no read_ahead_kb recorded at deploy for bench-validator-01 bench-validator-02 "
                           "bench-observer-11 (in %s); their read-ahead is left as it is" % (self.tmp / "param-arms.json"),
@@ -1931,7 +1944,9 @@ class ArmFilesTests(ParamsApplyCase):
             self.assertIn(name, state)
         on = {n: {k for k, v in s.items() if v != DEFAULTS[k]} for n, (s, _h) in state.items()}
         self.assertEqual(on["a0-control"], set())
-        self.assertEqual(on["final"], set())
+        # Run 2's arm: v-vote-floor's switches without its eviction (quorum_exec_block_starved_rounds 0 is
+        # written out at its default, so it is not in the set).
+        self.assertEqual(on["final"], {"mdbx_random_advice", "quorum_exec_block", "vote_queue_fix", "epoch_record_state_check"})
         self.assertEqual(on["a0-prime"], set())
         self.assertEqual(on["p1-mdbx-advice"], {"mdbx_random_advice"})
         self.assertEqual(on["v-vote"] - on["p1-mdbx-advice"],

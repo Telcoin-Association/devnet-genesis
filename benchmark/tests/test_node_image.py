@@ -50,9 +50,10 @@ ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh", "benchmark/pull-lib.sh",
         "benchmark/obs-lib.sh", "benchmark/benchmark-deploy.sh", "benchmark/node-sampler.sh",
         "benchmark/node-image-contract.txt",
-        # bench 6 (H3): what deploy steps 7 and 9 read: the switch list, the arm tool (--print-state), two arm
+        # bench 6 (H3): what deploy steps 7 and 9 read: the switch list, the arm tool (--print-state), three arm
         # files, the persist sampler and its folio census.
         "benchmark/arms/switches.tsv", "benchmark/arms/v-vote.arm", "benchmark/arms/final.arm",
+        "benchmark/arms/a0-control.arm",
         "benchmark/tools/params-apply.sh", "benchmark/node-persist-sampler.sh", "benchmark/tools/folio-census.py")
 # What the bench-obs functions (obs-lib.sh) read from the tree: the bundle. The VM's startup script and
 # the Grafana dashboards live in the `common` submodule, which a CI checkout lacks: every test points
@@ -3308,6 +3309,14 @@ V_VOTE_SWITCHES = {"quorum_exec_block": "true", "quorum_exec_block_starved_round
                    "parent_grace": "0ms", "rpc_admission_backlog_outputs": "0", "pipelined_persist": "false"}
 V_VOTE_WRITES = {"quorum_exec_block": "true", "quorum_exec_block_starved_rounds": "4", "vote_queue_fix": "true",
                  "mdbx_random_advice": "true", "epoch_record_state_check": "true"}
+# arms/final.arm (run 2), the same two: v-vote's switches with quorum_exec_block_starved_rounds at its default 0
+# (so step 7 writes four keys), and no host step.
+FINAL_SWITCHES = {"quorum_exec_block": "true", "quorum_exec_block_starved_rounds": "0", "vote_queue_fix": "true",
+                  "mdbx_random_advice": "true", "sealed_tx_keep": "false", "digest_dedupe": "false",
+                  "recovery_threads": "0", "epoch_close_task_drain": "false", "epoch_record_state_check": "true",
+                  "parent_grace": "0ms", "rpc_admission_backlog_outputs": "0", "pipelined_persist": "false"}
+FINAL_WRITES = {"quorum_exec_block": "true", "vote_queue_fix": "true", "mdbx_random_advice": "true",
+                "epoch_record_state_check": "true"}
 EVICTED = {"resident_pages_before": 0, "resident_pages_after": 0}   # evict-mdbx on a datadir with no mdbx.dat yet
 ARM_DUE_ISO = "2026-01-01T00:01:00Z"                                 # Step7Tests.START's due=1767225660
 needs_yaml = unittest.skipUnless(subprocess.run(["python3", "-c", "import yaml"], stdout=subprocess.DEVNULL,
@@ -3650,12 +3659,51 @@ class Step7ArmTests(Step7Mixin, FleetCase):
             "mdbx_random_advice=true epoch_record_state_check=true" % (sha, ARM_DUE_ISO)])
         self.assertLess(self.lines_index(out, lambda l: l.startswith("    start-all: "))[0], rec[0])
 
-    def test_the_control_arm_writes_nothing_and_is_recorded_at_the_defaults(self):
+    def test_final_writes_its_four_switches_before_the_start_with_no_host_step_and_is_recorded(self):
         arm = self.arm("final")
         sha = file_sha256(arm)
         p = self.deploy7(BENCH_ARM_FILE=str(arm))
         self.assertEqual(p.returncode, 0, p.stdout)
-        self.assertIn("    first-start arm final (%s, sha256 %s): writes no switch; host steps: none\n" % (arm, sha), p.stdout)
+        writes = "quorum_exec_block=true vote_queue_fix=true mdbx_random_advice=true epoch_record_state_check=true"
+        self.assertIn("    first-start arm final (%s, sha256 %s): writes %s; host steps: none\n" % (arm, sha, writes), p.stdout)
+        marked = ["%s: %s  # bench-override" % kv for kv in FINAL_WRITES.items()]
+        m = self.m()
+        out = p.stdout.splitlines()
+        for inst, node in self.nodes.items():
+            text = node.yaml.read_text().splitlines()
+            self.assertEqual(text[-4:], marked, inst)
+            self.assertEqual(text[:-4], STEP9_PARAMS.splitlines(), inst)
+            self.assertIn(" params=4 ", self.precfg_ok(p.stdout, inst))
+            self.assertEqual(m["node_startup"][inst]["host_steps"], [], inst)
+            script = (self.spool / (inst + ".sh")).read_text()
+            self.assertIn("# 7c. the switches of arm final (BENCH_ARM_FILE, sha256 %s) away from their default, marked "
+                          "as the overrides are\n" % sha + "".join("setp %s %s\n" % kv for kv in FINAL_WRITES.items()),
+                          script)
+            self.assertEqual([l for l in script.splitlines() if l.startswith(("# 11.", "# 12."))], [], inst)
+            self.assertIn("REF='%s'; NOV=4\n" % scripts_ref(), script)
+        self.assertNotIn("HOST_STEP", p.stdout)
+        # Written before the first start: every node's pre-start session reports before start-all.
+        start_all = self.lines_index(out, lambda l: l.startswith("    start-all: "))
+        self.assertEqual(len(start_all), 1, p.stdout)
+        self.assertLess(max(self.lines_index(out, lambda l: l.startswith("      PRECFG_OK "))), start_all[0])
+        self.assertEqual(m["param_arms"], [{
+            "name": "final", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/final.arm",
+            "sha256": sha, "switches": FINAL_SWITCHES, "nodes": {inst: FINAL_WRITES for inst in NODES},
+            "host": [], "ready": ARM_DUE_ISO}])
+        self.assertEqual(list(m["param_arms"][0]["switches"]), [r["key"] for r in switch_rows()[1]])
+        rec = self.lines_index(out, lambda l: l.startswith("    ✓ manifest.param_arms: final via prestart "))
+        self.assertEqual([out[i] for i in rec], [
+            "    ✓ manifest.param_arms: final via prestart (benchmark/arms/final.arm, sha256 %s), begin = ready = %s; "
+            "writes %s" % (sha, ARM_DUE_ISO, writes)])
+        self.assertLess(start_all[0], rec[0])
+
+    def test_the_control_arm_writes_nothing_and_is_recorded_at_the_defaults(self):
+        arm = self.arm("a0-control")
+        sha = file_sha256(arm)
+        p = self.deploy7(BENCH_ARM_FILE=str(arm))
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertIn("    first-start arm a0-control (%s, sha256 %s): writes no switch; host steps: none\n" % (arm, sha),
+                      p.stdout)
         m = self.m()
         for inst, node in self.nodes.items():
             self.assertEqual(node.yaml.read_text(), STEP9_PARAMS, inst)
@@ -3665,10 +3713,11 @@ class Step7ArmTests(Step7Mixin, FleetCase):
             self.assertEqual([l for l in script.splitlines() if l.startswith(("setp ", "# 7c.", "# 11.", "# 12."))], [], inst)
         self.assertNotIn("HOST_STEP", p.stdout)
         self.assertEqual(m["param_arms"], [{
-            "name": "final", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/final.arm", "sha256": sha,
-            "switches": switch_defaults(), "nodes": {inst: {} for inst in NODES}, "host": [], "ready": ARM_DUE_ISO}])
-        self.assertIn("    ✓ manifest.param_arms: final via prestart (benchmark/arms/final.arm, sha256 %s), begin = ready = "
-                      "%s; writes none (every switch at its default)\n" % (sha, ARM_DUE_ISO), p.stdout)
+            "name": "a0-control", "begin": ARM_DUE_ISO, "via": "prestart", "file": "benchmark/arms/a0-control.arm",
+            "sha256": sha, "switches": switch_defaults(), "nodes": {inst: {} for inst in NODES}, "host": [],
+            "ready": ARM_DUE_ISO}])
+        self.assertIn("    ✓ manifest.param_arms: a0-control via prestart (benchmark/arms/a0-control.arm, sha256 %s), begin = "
+                      "ready = %s; writes none (every switch at its default)\n" % (sha, ARM_DUE_ISO), p.stdout)
 
     def test_a_rerun_keeps_the_recorded_arm_and_refuses_any_other(self):
         arm = self.arm("v-vote")
