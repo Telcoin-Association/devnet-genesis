@@ -36,7 +36,18 @@ Run 2, `r20261113-1351`:
 - Orchestrator's preliminary read (Prometheus, verify): blast 2 executed 4,597 / 5,308 / 5,327 tx/s (min / median / max over validators; the minimum is the killed one), 3,872 transactions per output, persist 0.370 s per output, refused-behind votes 0, vote timeouts 0; blast 1 6,224 tx/s; blast 0 700 tx/s.
 - During the first light blast every node's prefault writes ran at 1.16-1.19 times its newly allocated pages (run 1's skipped-prefault state read 0.25-0.33; investigation I-9).
 
-Run 2b, `r20261113-1630`: filled in by the orchestrator when it ends (same sequence, same checks).
+Run 2b, `r20261113-1630` (the same sequence and checks; node disks confirmed at 50,000 provisioned IOPS, 800 MiB/s):
+- Deploy 16:30:48Z to 17:14:11Z; `final` applied at step 7 (the same sha256), ready 16:50:28Z. Fsync probe median 1,006 µs; validator-06 flagged slow (1,226 µs).
+- Blasts: 0 light 8 × 16; 1 light 600 × 4; 2 load 600 × 16 with the chaos plan (take every phase time from `manifest.blasts[].phases`).
+- Chaos in blast 2: epoch 4 opened 18:02:19Z; validator-05 killed 18:21:20Z, started 18:26:20Z; the outage crossed the boundary (epoch 5 opened 18:22:20Z); observer restarted 18:31:20Z.
+- All ten generators done 18:40:43Z; blast segment rc 0 at 18:51:32Z.
+- Orchestrator's preliminary read (Prometheus, verify): blast 2 executed 6,090 / 7,361 / 7,371 tx/s (min / median / max; the minimum is the killed validator), 5,856 transactions per output, persist 0.260 s per output (commit 0.130, save 0.130), refused-behind votes 266 over the fleet (106 on one validator), vote timeouts 0; blast 1 6,388 tx/s; blast 0 703 tx/s.
+  Run 1's model extrapolated an execution-bound 8,600-10,300 tx/s at this IOPS limit; the measured rate is below it.
+
+Known from the epoch-record investigation of run 1 and run 2 (`benchmark/private/bench6-r20261113-1351/E-1/findings.md`, `E-2/findings.md`; its scripts take a run's extracts and run unchanged on run 2b):
+- Every epoch close of run 2 certified its record with at least 7 of 10 validators on one hash and one closing block; the loaded closes had 7 to 9 signers, the close inside the outage 9.
+- After its five-minute outage validator-05 fetched the certified record, replayed the close onto the fleet's block, and stayed a follower (CvvInactive, 383 `rejoin not ready` lines) until 16:02:39.6Z, about 16 minutes, so it also missed signing the next record.
+- The error line `failed to reach quorum on epoch close` is a false alarm in these runs (9 times at 6 closes of run 1 and run 2; the record was certified by the network each time).
 
 ## 2. What the analysis must answer
 
