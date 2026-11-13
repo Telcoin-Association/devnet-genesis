@@ -60,6 +60,12 @@ NODE_DEPLOY = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/b
                "benchmark/arms/final.arm", "benchmark/tools/params-apply.sh", "benchmark/node-persist-sampler.sh",
                "benchmark/tools/folio-census.py", "benchmark/consensus-parameters.yaml", "benchmark/obs",
                "benchmark/tests/fixtures/node-image", "common/create-instances.sh", "common/wgvpn/wg-config.sh")
+# Bench 5. test_blast_argv.TREE (the blast driver and the startup script run in a copy) plus the goldens;
+# test_fund_short imports test_blast_argv.
+BLAST_ARGV = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
+              "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/recovery-lib.sh",
+              "benchmark/benchmark-blast.sh", "benchmark/blaster-startup.sh",
+              "benchmark/tests/fixtures/blast")
 suites = {
     "test_recovery": ("benchmark/recovery-schedule.py", "benchmark/recovery-lib.sh",
                       "benchmark/node-sampler.sh", "benchmark/benchmark-blast.sh",
@@ -138,11 +144,10 @@ suites = {
     "test_keygen": ("devnet-keygen.sh", "devnet-lib.sh", "benchmark/tests/fixtures/keygen"),
     "test_network_config": ("devnet-network-config.sh", "devnet-network-config.py", "devnet-lib.sh",
                             "benchmark/tests/fixtures/network-config"),
-    # Bench 5. test_blast_argv.TREE (the blast driver and the startup script run in a copy) plus the goldens.
-    "test_blast_argv": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
-                        "benchmark/pull-lib.sh", "benchmark/obs-lib.sh", "benchmark/recovery-lib.sh",
-                        "benchmark/benchmark-blast.sh", "benchmark/blaster-startup.sh",
-                        "benchmark/tests/fixtures/blast"),
+    "test_blast_argv": BLAST_ARGV,
+    # Bench 6 (R1): do_fund's still_short read, cut out of the blast driver by test_blast_argv's helpers, against
+    # run 1's funder logs and do_fund as run 1 had it.
+    "test_fund_short": BLAST_ARGV + ("benchmark/tests/test_blast_argv.py", "benchmark/tests/fixtures/fund-short"),
     "test_stage_latency": ("benchmark/tools/stage-latency.py", "benchmark/tests/fixtures/stage-latency"),
     # test_txgen_probe.TREE (bench-lib.sh sourced from a copy) plus the fake docker and the help texts.
     "test_txgen_probe": ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-lib.sh",
@@ -2432,6 +2437,42 @@ cases = [
      ('    if not inst:\n'
       '        return {}'),
      'test_run1_rehearsal.Run1RehearsalTests.test_the_local_ssd_data_path_into_the_arm_summary'),
+    # R1-R3: the harness fixes run 1 asked for (anchors in tasks/bench6/l-anchors/R1.md, R2.md, R3.md).
+    # R1 a1 do_fund never reads still_short, so a short prepare passes as funded
+    ('benchmark/benchmark-blast.sh',
+     '    short="$(fund_still_short)" || short=0\n',
+     '    short=0\n',
+     'test_fund_short.FundShortTests.test_a_short_prepare_is_warned_recorded_and_run_once_more'),
+    # R1 a2 a second prepare that is still short is accepted
+    ('benchmark/benchmark-blast.sh',
+     '    elif [ "${again}" -gt 0 ]; then\n',
+     '    elif [ "${again}" -lt 0 ]; then\n',
+     'test_fund_short.FundShortTests.test_still_short_after_the_second_prepare_fails_the_step'),
+    # R2 a1 the health parser takes only the bare `<node>: BENCH_STATUS ...` form again
+    ('benchmark/launch/run-arms.sh',
+     '): .*BENCH_STATUS \\(',
+     '): BENCH_STATUS \\(',
+     'test_launch.ArmsStopTests.test_health_between_steps'),
+    # R2 a2 a status that prints BENCH_STATUS lines the check cannot parse no longer stops the walk
+    ('benchmark/launch/run-arms.sh',
+     'stop "${k}" "${after}" health-unparsed "$((after + 1))"',
+     'true',
+     'test_launch.ArmsStopTests.test_a_status_that_answers_but_parses_nowhere_stops'),
+    # R2 a3 a check that read no node prints fatal_db=0 instead of fatal_db=?
+    ('benchmark/launch/run-arms.sh',
+     'fatal_db=$([ "${n}" -gt 0 ] && echo "${fsum}" || echo \'?\')',
+     'fatal_db=${fsum}',
+     'test_launch.ArmsStopTests.test_a_check_that_read_nothing_prints_no_fatal_db'),
+    # R3 a1 stage-latency ignores report_us, so S3 goes unmeasured on a log that has only report_us
+    ('benchmark/tools/stage-latency.py',
+     '                us = num(f, "report_us")',
+     '                us = None',
+     'test_stage_latency.StageLatencyTests.test_s3_reads_report_us_beside_report_ms'),
+    # R3 a2 S12b (the pipelined persist wait) is left out of the sums
+    ('benchmark/tools/stage-latency.py',
+     '    span = ids[ids.index(start):ids.index(upto) + 1]',
+     '    span = [s for s in ids[ids.index(start):ids.index(upto) + 1] if s != "S12b"]',
+     'test_stage_latency.StageLatencyTests.test_pipelined_persist_wait_and_seed_are_s12b_in_the_sums_and_the_sanity_check'),
 ]
 
 
