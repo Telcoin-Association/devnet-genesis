@@ -1,0 +1,2 @@
+2026-11-12T16:47:07.306064Z  INFO tn_transaction_generator::blast::prepare: prepare: funding senders senders=6000 already_funded=0 topping_up=6000 method="multicall3" txs=30 gas_limit=8900118 total_tel=12000.000000000000000000
+2026-11-12T16:47:11.677958Z  INFO tn_transaction_generator::blast::prepare: prepare: every topped-up sender reached the target

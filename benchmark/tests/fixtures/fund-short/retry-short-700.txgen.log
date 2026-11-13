@@ -1,0 +1,2 @@
+2026-11-12T17:32:04.112310Z  INFO tn_transaction_generator::blast::prepare: prepare: funding senders senders=6000 already_funded=3800 topping_up=2200 method="multicall3" txs=11 gas_limit=8900147 total_tel=4400.000000000000000000
+2026-11-12T17:35:10.902114Z  WARN tn_transaction_generator::blast::prepare: prepare: timed out waiting for top-ups to land still_short=700

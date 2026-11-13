@@ -6,7 +6,9 @@
 #            range [RUN_INDEX*100000, +10*BENCH_SENDERS) against bench-validator-01, waits for
 #            BENCH_FUND_DONE on its serial console, copies its bucket prefix
 #            gs://<bucket>/<run>/index-<RUN_INDEX>/funder/ into results/<run>/funder/, then
-#            deletes the VM (unless --keep).
+#            deletes the VM (unless --keep). A prepare that timed out with senders unfunded
+#            (still_short=<n> in its log) runs once more; still short after that, the fund fails
+#            (fund-short-<n>).
 #   run      bench-blaster-01..10, one per validator in the validator's zone, all starting at
 #            BENCH_START_AT=now+BENCH_START_DELAY_SECS. Reads the epoch boundary to schedule
 #            a direct kill and a restart across it, then restarts the observer. The legacy
@@ -804,6 +806,18 @@ do_fund() {
     create_vm "${FUNDER}" "${zone}" fund "${urls}" "${senders}" "${start}" ""
     assert_load_vm "${FUNDER}" "${zone}"
     [ "${BENCH_APPLY}" = "1" ] || { echo "DRY RUN — re-run with --yes."; return 0; }
+    fund_wait "${zone}"
+    fund_short_retry "${zone}" "${urls}" "${senders}" "${start}"
+    echo "    ✓ funded"
+}
+
+# fund_wait <zone> — the funder's run after its create: wait for BENCH_FUND_DONE, copy its bucket prefix
+# into funder/ (.fund; FUND_COPIED=1 once that copy succeeded), delete the VM once its results are safe.
+# Dies unless the marker says rc=0 reason=ok.
+FUND_COPIED=0
+fund_wait() {
+    local zone="$1" rc line
+    FUND_COPIED=0
     bench_serial_wait "${FUNDER}" "${zone}" "BENCH_FUND_DONE rc=" "${BENCH_FUND_TIMEOUT_SECS:-3600}" "${BENCH_FUND_POLL_SECS:-60}" \
         || bench_die "funder did not finish; serial: gcloud compute instances get-serial-port-output ${FUNDER} --zone=${zone}"
     line="$(bench_serial_last "${FUNDER}" "${zone}" "BENCH_FUND_DONE rc=")"
@@ -812,6 +826,7 @@ do_fund() {
     # .fund says funder/ holds this index's output: only a copy that succeeded may claim that.
     if copy_prefix "$(bucket_prefix funder)" funder; then
         bench_manifest_jq --arg i "${BENCH_RUN_INDEX}" --arg p "$(bucket_prefix funder)" '.fund = {run_index: ($i|tonumber), bucket_prefix: $p}'
+        FUND_COPIED=1
     else
         bench_warn "funder/ does not hold index ${BENCH_RUN_INDEX}'s output and .fund is unchanged; copy it by hand: gcloud storage cp -r '$(bucket_prefix funder)/*' ${BENCH_RESULTS_DIR}/funder/"
         bench_manifest_note "fund: copy of $(bucket_prefix funder) into funder/ failed at $(bench_now_iso); .fund not updated" || true
@@ -820,7 +835,51 @@ do_fund() {
     bench_manifest_note "fund: ${line}"
     settle_load_vm "${FUNDER}" "${zone}" funder "${line}" BENCH_FUND_DONE
     [ "${rc:-1}" = "0" ] && [ "$(printf '%s\n' "${line}" | marker_reason BENCH_FUND_DONE)" = "ok" ] || bench_die "funding failed (${line})"
-    echo "    ✓ funded"
+}
+
+# fund_still_short — the senders the last prepare left unfunded: the last still_short=<n> in the newest
+# funder/*.txgen-*.log (a refund of the same index leaves the older logs beside it). The generator logs it
+# when its wait for the top-ups timed out; 0 without one.
+fund_still_short() {
+    local f newest="" n=""
+    for f in "${BENCH_RESULTS_DIR}"/funder/*.txgen-*.log; do [ -f "${f}" ] && newest="${f}"; done
+    [ -z "${newest}" ] || n="$(tr -d '\r' < "${newest}" | sed -n 's/.*still_short=\([0-9][0-9]*\).*/\1/p' | tail -1)"
+    echo "$((10#${n:-0}))"
+}
+
+# fund_short_retry <zone> <urls> <senders> <start> — a prepare that timed out waiting for its top-ups still
+# exits 0, so the funder reports rc=0 reason=ok (run 1: indices 3 and 15 blasted with 2,200 and 1,600 of
+# 6,000 senders unfunded). When the copied log says still_short > 0: a ⚠, .fund.still_short, and the
+# prepare once more on a new funder (it skips the senders already funded and tops up the rest);
+# .fund.still_short_after_retry is what that one left (null when its log was not copied). Any short left
+# fails the step with fund-short-<n>. Without a still_short above 0 it prints and records nothing.
+fund_short_retry() {
+    local zone="$1" urls="$2" senders="$3" start="$4" short again
+    [ "${FUND_COPIED}" = "1" ] || return 0
+    short="$(fund_still_short)" || short=0
+    [ "${short}" -gt 0 ] || return 0
+    bench_warn "fund index ${BENCH_RUN_INDEX}: still_short=${short} of ${senders} senders unfunded when the prepare stopped waiting (funder/ log); running the prepare once more"
+    bench_manifest_jq --argjson s "${short}" '.fund.still_short = $s' || true
+    bench_manifest_note "fund: index ${BENCH_RUN_INDEX} still_short=${short} at $(bench_now_iso); the prepare runs once more" || true
+    if [ -n "$(bench_instance_json "${FUNDER}" "${zone}")" ]; then
+        bench_die "funding failed (fund-short-${short}): ${FUNDER} was not deleted (--keep or a failed delete), so no second prepare ran"
+    fi
+    [ "${BENCH_APPLY}" = "1" ] || return 0
+    create_vm "${FUNDER}" "${zone}" fund "${urls}" "${senders}" "${start}" ""
+    assert_load_vm "${FUNDER}" "${zone}"
+    fund_wait "${zone}"
+    again="null"
+    [ "${FUND_COPIED}" != "1" ] || again="$(fund_still_short)" || again=null
+    bench_manifest_jq --argjson s "${short}" --argjson a "${again}" '.fund.still_short = $s | .fund.still_short_after_retry = $a' || true
+    if [ "${again}" = "null" ]; then
+        bench_manifest_note "fund: fund-short-${short}: the second prepare's log was not copied, so the first count stands" || true
+        bench_die "funding failed (fund-short-${short}): the second prepare's log was not copied, so the first count stands"
+    elif [ "${again}" -gt 0 ]; then
+        bench_manifest_note "fund: fund-short-${again}: the second prepare left ${again} of ${senders} senders unfunded (the first left ${short})" || true
+        bench_die "funding failed (fund-short-${again}): the second prepare left ${again} of ${senders} senders unfunded (the first left ${short})"
+    fi
+    bench_manifest_note "fund: the second prepare funded every sender of index ${BENCH_RUN_INDEX} (the first left ${short})" || true
+    echo "    ✓ second prepare: every sender of index ${BENCH_RUN_INDEX} funded (the first left ${short})"
 }
 
 # ================================ run ================================================
