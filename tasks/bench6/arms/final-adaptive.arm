@@ -1,0 +1,12 @@
+# final-adaptive: the headline configuration with the vote fix in its ADAPTIVE form, for the comparison
+# the user asked for on 2026-11-13 (runs 2 and 2b ran benchmark/arms/final.arm, the always-on form).
+# Identical to final.arm except quorum_exec_block_starved_rounds 4: a header names its proposer's own tip
+# until an own header is cancelled, then the quorum rule for a window of rounds.
+# Kept outside benchmark/arms/ so that the harness tree and its tests stay as they were for runs 2 and 2b.
+# No host step, as final.arm: a node that never started has nothing to evict.
+name final-adaptive
+param mdbx_random_advice true
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 4
+param vote_queue_fix true
+param epoch_record_state_check true
