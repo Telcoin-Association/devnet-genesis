@@ -14,7 +14,7 @@ hold the whole path of every own block (own_tx > 0). Per block:
   S0  RPC accept          own_accept_p50_ms (block table)
   S1  pool wait           "batch built" pool_age_p50_ms (queued_before, pending_before, build_ms: aux)
   S2  seal -> 2f+1 acks   "batch sealed" quorum_ms
-  S3  report              "batch reported" report_ms
+  S3  report              "batch reported" report_us / 1000 (the bench-6 node), else report_ms
   S4  digest wait         first "header proposed" whose digests=[...] holds the batch, minus "batch
                           reported"; else that header's oldest_digest_wait_ms; else "batch sealed" by
                           digest; else the FIFO below (S3 included in the last two)
@@ -32,6 +32,11 @@ hold the whole path of every own block (own_tx > 0). Per block:
   S10 channel + queue     "output execution task finished" forward_wait_ms + queue_wait_ms
   S11 execute             "output executed" execute_ms (recover/evm/root/finish/other_ms: aux)
   S12 persist + announce  "output executed" persist_ms + announce_ms
+  S12b persist wait + seed "output executed" persist_wait_ms + seed_ms: the time a pipelined-persist
+                          output's task spends outside execute and persist (task_ms holds it). The
+                          stage exists only when some node's log carries either field; then an output
+                          line with neither (pipelined persist off) counts 0. Without it, every table
+                          and sum is the one above.
   S13 visibility          seen_ms minus the "output executed" line (an output is on RPC once it is
                           persisted and announced); minus "next block executed" when that is missing
 
@@ -54,7 +59,8 @@ Headline per block: ts = S0..S6a (submit -> leader created), commit = ts + S6b, 
 S7..S13. From the generator: submit = seen_ms - own_submit_p50_ms, then leader created - submit,
 commit - submit and own_submit_p50_ms itself (ts_read = block timestamp - submit, as published).
 When no block has every stage of a sum, "partial" gives the longest measured tail (e.g. from S4).
-Coverage: blocks with every stage and a generator seen; |sum(S0..S13) - own_submit_p50_ms| <= 250 ms.
+Coverage: blocks with every stage and a generator seen; |sum(S0..S13) - own_submit_p50_ms| <= 250 ms
+(S12b in the sum when the report has it).
 Events per node and window (events.<node>.<window>): header_uncertified {lines, sum} and
 digests_resent {lines, sum, by_cause: {<cause>: {lines, sum}}}, sum = the lines' count= total; cause
 is canceled (an own header's certification was cancelled) or committed (the commit path re-queued
@@ -102,9 +108,12 @@ STAGES = (
     ("S9", "pack persist"), ("S10", "channel + engine queue"), ("S11", "execute"),
     ("S12", "persist + announce"), ("S13", "visibility (scanner)"))
 STAGE_IDS = tuple(s for s, _ in STAGES)
+# A report whose logs carry the pipelined-persist fields gets S12b, right before S13 (see main()).
+STAGES_PIPELINED = STAGES[:-1] + (("S12b", "persist wait + seed"),) + STAGES[-1:]
 SPANS = (("ts", "S6a"), ("commit", "S6b"), ("seen", "S13"))
 AUX = ("queued_before", "pending_before", "build_ms", "slots_persist_ms", "depth", "task_ms",
-       "recover_ms", "recover_wait_ms", "evm_ms", "root_ms", "finish_ms", "other_ms")
+       "recover_ms", "recover_wait_ms", "evm_ms", "root_ms", "finish_ms", "other_ms",
+       "persist_wait_ms", "seed_ms")
 
 MSGS = ("batch built", "batch sealed", "batch reported", "header proposed", "quorum reached",
         "header uncertified", "digests resent", "certificate committed", "subdag committed",
@@ -261,7 +270,10 @@ class NodeLog(object):
         elif msg == "batch reported":
             d = d16(f.get("digest"))
             if d:
-                self.reported.setdefault(d, dict(ts=t, report_ms=num(f, "report_ms")))
+                # the bench-6 node logs report_us, older builds report_ms
+                us = num(f, "report_us")
+                self.reported.setdefault(d, dict(ts=t, report_ms=num(f, "report_ms") if us is None else us / 1000.0,
+                                                 basis=None if us is None else "report_us"))
         elif msg == "header proposed":
             key = (num(f, "epoch"), num(f, "round"))
             if key in self.headers:
@@ -319,7 +331,7 @@ class NodeLog(object):
             if c not in self.out:
                 self.out[c] = dict(ts=t, **{k: num(f, k) for k in (
                     "execute_ms", "persist_ms", "announce_ms", "recover_ms", "recover_wait_ms", "evm_ms",
-                    "root_ms", "finish_ms", "other_ms")})
+                    "root_ms", "finish_ms", "other_ms", "persist_wait_ms", "seed_ms")})
                 if num(f, "epoch") is not None:
                     self.cn_by_leader.setdefault((num(f, "epoch"), num(f, "leader_round")), c)
         elif msg == "next block executed":
@@ -332,6 +344,11 @@ class NodeLog(object):
 
     def has(self, msg, field=None):
         return self.msg_count[msg] > 0 and (field is None or field in self.fields[msg])
+
+    @property
+    def pipelined(self):
+        """A pipelined-persist build: some "output executed" line carries persist_wait_ms or seed_ms."""
+        return self.has("output executed", "persist_wait_ms") or self.has("output executed", "seed_ms")
 
 
 # ---------------------------------------------------------------- generator side
@@ -562,7 +579,7 @@ def fifo_slots(log, authority, key, own_numbers):
     return dict(zip(sorted(own_numbers), slots))
 
 
-def join_node(log, blocks, authority):
+def join_node(log, blocks, authority, pipelined=False):
     own = [r for r in blocks.rows.values() if r.get("own_tx")]
     by_leader = collections.defaultdict(list)
     for r in own:
@@ -594,7 +611,7 @@ def join_node(log, blocks, authority):
                 j.put("S2", s["quorum_ms"])
             rep = log.reported.get(d)
             if rep:
-                j.put("S3", rep["report_ms"])
+                j.put("S3", rep["report_ms"], rep["basis"])
             hs = log.digest_headers.get(d) or []
             if hs:
                 h1 = min(hs, key=lambda k: log.headers[k]["ts"])
@@ -662,8 +679,20 @@ def join_node(log, blocks, authority):
             if ox["persist_ms"] is not None:
                 j.put("S12", ox["persist_ms"] + (ox["announce_ms"] or 0),
                       "persist+announce" if ox["announce_ms"] is not None else "persist_ms only")
+            if pipelined:
+                # The node logs both fields only on an output it ran with pipelined persist; without them
+                # the task had no such wait.
+                pw, sd = ox["persist_wait_ms"], ox["seed_ms"]
+                if pw is None and sd is None:
+                    basis = "not_pipelined"
+                elif pw is not None and sd is not None:
+                    basis = "persist_wait+seed"
+                else:
+                    basis = "persist_wait_ms only" if pw is not None else "seed_ms only"
+                j.put("S12b", (pw or 0) + (sd or 0), basis)
             # E2 logged recover_ms; E4 renamed it recover_wait_ms (time blocked on the recovery job).
-            for k in ("recover_ms", "recover_wait_ms", "evm_ms", "root_ms", "finish_ms", "other_ms"):
+            for k in ("recover_ms", "recover_wait_ms", "evm_ms", "root_ms", "finish_ms", "other_ms",
+                      "persist_wait_ms", "seed_ms"):
                 if ox.get(k) is not None:
                     j.aux[k] = ox[k]
         seen = row.get("seen_ms")
@@ -686,10 +715,10 @@ def join_node(log, blocks, authority):
     return out
 
 
-def chain(j, upto, start="S0"):
-    ids = STAGE_IDS[STAGE_IDS.index(start):STAGE_IDS.index(upto) + 1]
-    if all(s in j.st for s in ids):
-        return sum(j.st[s] for s in ids)
+def chain(j, upto, start="S0", ids=STAGE_IDS):
+    span = ids[ids.index(start):ids.index(upto) + 1]
+    if all(s in j.st for s in span):
+        return sum(j.st[s] for s in span)
     return None
 
 
@@ -700,13 +729,15 @@ def why_unmeasured(stage, log, cols):
         "S0": [] if "own_accept_p50_ms" in cols else ["blocks: no own_accept_p50_ms column"],
         "S1": ["log: no `batch built` pool_age_p50_ms"] if not log.has("batch built", "pool_age_p50_ms") else [],
         "S2": ["log: no `batch sealed` quorum_ms"] if not log.has("batch sealed", "quorum_ms") else [],
-        "S3": ["log: no `batch reported` report_ms"] if not log.has("batch reported", "report_ms") else [],
+        "S3": ["log: no `batch reported` report_ms"] if not (log.has("batch reported", "report_ms") or
+                                                             log.has("batch reported", "report_us")) else [],
         "S7": [] if log.f1_build else ["log: no `subdag sequenced` / `waited for execution` line (pre-F1 build)"],
         "S8": ["log: no `consensus output ready` fetch_ms"] if not log.has("consensus output ready", "fetch_ms") else [],
         "S9": ["log: no `output saved` pack_persist_ms"] if not log.has("output saved", "pack_persist_ms") else [],
         "S10": [] if log.has("output execution task finished") else ["log: no `output execution task finished`"],
         "S11": [] if log.has("output executed", "execute_ms") else ["log: no `output executed` execute_ms"],
         "S12": [] if log.has("output executed", "persist_ms") else ["log: no `output executed` persist_ms"],
+        "S12b": [] if log.has("output executed") else ["log: no `output executed`"],
         "S13": [] if "seen_ms" in cols else ["blocks: no seen_ms column"],
     }.get(stage, [])
     if stage in ("S1", "S2", "S3") and not digest:
@@ -735,9 +766,9 @@ def r3s(x):
     return None if x is None else round(x / 1000.0, 3)
 
 
-def stage_table(joined, reasons=None):
+def stage_table(joined, reasons=None, ids=STAGE_IDS):
     out = collections.OrderedDict()
-    for s in STAGE_IDS:
+    for s in ids:
         vals = [j.st[s] for j in joined if s in j.st]
         row = collections.OrderedDict([("count", len(vals)), ("p50_ms", r1(pct(vals, 0.5))),
                                        ("p95_ms", r1(pct(vals, 0.95))), ("unmeasured", len(joined) - len(vals))])
@@ -759,11 +790,11 @@ def aux_table(joined):
     return out
 
 
-def headline(joined):
+def headline(joined, ids=STAGE_IDS):
     h = collections.OrderedDict()
     counts = {}
     for name, upto in SPANS:
-        vals = [v for v in (chain(j, upto) for j in joined) if v is not None]
+        vals = [v for v in (chain(j, upto, ids=ids) for j in joined) if v is not None]
         h["%s_p50_s" % name], h["%s_p95_s" % name] = r3s(pct(vals, 0.5)), r3s(pct(vals, 0.95))
         counts[name] = len(vals)
     h["count"] = counts
@@ -771,8 +802,8 @@ def headline(joined):
     for name, upto in SPANS:
         if counts[name]:
             continue
-        for start in STAGE_IDS[1:STAGE_IDS.index(upto) + 1]:
-            vals = [v for v in (chain(j, upto, start) for j in joined) if v is not None]
+        for start in ids[1:ids.index(upto) + 1]:
+            vals = [v for v in (chain(j, upto, start, ids) for j in joined) if v is not None]
             if vals:
                 partial[name] = {"from": start, "p50_s": r3s(pct(vals, 0.5)), "p95_s": r3s(pct(vals, 0.95)),
                                  "count": len(vals)}
@@ -788,10 +819,10 @@ def headline(joined):
     return h
 
 
-def coverage(joined, tol):
+def coverage(joined, tol, ids=STAGE_IDS):
     diffs = []
     for j in joined:
-        total = chain(j, "S13")
+        total = chain(j, "S13", ids=ids)
         seen = j.row.get("own_submit_p50_ms")
         if total is not None and seen:
             diffs.append(total - float(seen))
@@ -829,7 +860,8 @@ def events_in(log, start, end):
     return out
 
 
-def build_report(run, nodes, windows, boundaries, a):
+def build_report(run, nodes, windows, boundaries, a, stages=STAGES):
+    ids = tuple(s for s, _ in stages)
     doc = collections.OrderedDict()
     doc["schema"] = "stage-latency/v1"
     doc["run"] = run
@@ -838,7 +870,7 @@ def build_report(run, nodes, windows, boundaries, a):
         w = {"start": iso(s), "end": iso(e)} if name != "all" else {"start": None, "end": None}
         w["boundaries_excluded"] = bool(a.exclude_boundaries and fnmatch.fnmatch(name, a.exclude_boundaries))
         doc["windows"][name] = w
-    doc["stages"] = collections.OrderedDict(STAGES)
+    doc["stages"] = collections.OrderedDict(stages)
     doc["nodes"], doc["pooled"] = collections.OrderedDict(), collections.OrderedDict()
     doc["headline"], doc["headline_by_node"] = collections.OrderedDict(), collections.OrderedDict()
     doc["aux"] = {"pooled": collections.OrderedDict(), "nodes": collections.OrderedDict()}
@@ -847,7 +879,7 @@ def build_report(run, nodes, windows, boundaries, a):
     doc["sources"] = collections.OrderedDict()
     pooled = collections.defaultdict(list)
     for name, log, blocks, authority, joined in nodes:
-        reasons = {s: why_unmeasured(s, log, blocks.columns) for s in STAGE_IDS}
+        reasons = {s: why_unmeasured(s, log, blocks.columns) for s in ids}
         doc["sources"][name] = collections.OrderedDict([
             ("logs", log.files), ("lines_read", log.lines), ("truncated_at_max_lines", log.truncated),
             ("blasters", blocks.files), ("authority", authority), ("f1_build", log.f1_build),
@@ -861,16 +893,16 @@ def build_report(run, nodes, windows, boundaries, a):
         for win in windows:
             sel = [j for j in joined if in_window(j, win, boundaries, a.exclude_boundaries, a.boundary_secs)]
             pooled[win[0]].extend(sel)
-            doc["nodes"][name][win[0]] = stage_table(sel, reasons)
-            doc["headline_by_node"][name][win[0]] = headline(sel)
+            doc["nodes"][name][win[0]] = stage_table(sel, reasons, ids)
+            doc["headline_by_node"][name][win[0]] = headline(sel, ids)
             doc["aux"]["nodes"][name][win[0]] = aux_table(sel)
-            doc["coverage"]["nodes"][name][win[0]] = coverage(sel, a.coverage_tolerance_ms)
+            doc["coverage"]["nodes"][name][win[0]] = coverage(sel, a.coverage_tolerance_ms, ids)
             doc["events"][name][win[0]] = events_in(log, *((None, None) if win[0] == "all" else win[1:]))
     for name, _, _ in windows:
-        doc["pooled"][name] = stage_table(pooled[name])
-        doc["headline"][name] = headline(pooled[name])
+        doc["pooled"][name] = stage_table(pooled[name], ids=ids)
+        doc["headline"][name] = headline(pooled[name], ids)
         doc["aux"]["pooled"][name] = aux_table(pooled[name])
-        doc["coverage"]["pooled"][name] = coverage(pooled[name], a.coverage_tolerance_ms)
+        doc["coverage"]["pooled"][name] = coverage(pooled[name], a.coverage_tolerance_ms, ids)
     return doc
 
 
@@ -931,7 +963,7 @@ def to_markdown(doc):
                 for why in r.get("missing") or []:
                     miss.add("%s: %s" % (s, why))
         if miss:
-            out += [""] + ["- unmeasured %s" % m for m in sorted(miss, key=lambda x: (STAGE_IDS.index(x.split(":")[0]), x))]
+            out += [""] + ["- unmeasured %s" % m for m in sorted(miss, key=lambda x: (list(stages).index(x.split(":")[0]), x))]
         aux = doc["aux"]["pooled"][w]
         if aux:
             out += ["", "Aux (p50 / p95): " + "; ".join("%s %s / %s" % (k, cell(v["p50"]), cell(v["p95"]))
@@ -1053,7 +1085,7 @@ def main(argv=None):
                 raise ValueError("no window matches --only %s" % " ".join(a.only))
         if not any(w[0] == "all" for w in windows):
             windows.append(("all", 0.0, 0.0))
-        nodes = []
+        read = []
         for node, blocks in per_node.items():
             files = node_logs(logs_dir, node, a.log_glob) if os.path.isdir(logs_dir) else []
             if not files:
@@ -1065,12 +1097,17 @@ def main(argv=None):
                     break
                 log.read(f, a.max_lines)
             authority = a.authorities.get(node) or (log.auth.most_common(1)[0][0] if log.auth else None)
-            nodes.append((node, log, blocks, authority, join_node(log, blocks, authority)))
+            read.append((node, log, blocks, authority))
+        # One stage list for the whole report, so every node and window has the same rows and sums.
+        pipelined = any(log.pipelined for _, log, _, _ in read)
+        nodes = [(node, log, blocks, authority, join_node(log, blocks, authority, pipelined))
+                 for node, log, blocks, authority in read]
         if not nodes:
             print("stage-latency: no node has both a log in %s and a generator file%s" % (
                 logs_dir, " (--node %s)" % ",".join(a.node) if a.node else ""), file=sys.stderr)
             return 2
-        doc = build_report(run or "?", nodes, windows, sorted(boundaries), a)
+        doc = build_report(run or "?", nodes, windows, sorted(boundaries), a,
+                           STAGES_PIPELINED if pipelined else STAGES)
         if not_measured:
             doc["not_measured"] = not_measured
     except (OSError, ValueError, EOFError, KeyError) as e:

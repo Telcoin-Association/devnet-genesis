@@ -15,6 +15,9 @@ The fixture (T0 = 2026-11-06T10:00:00Z, times below are T0 + ms; header comment 
   block 504  not own, closes_epoch at T0 + 32 s; block 505 own, T0 + 200 s, no log lines.
 Accept p50 6/7/5/4 ms; own_submit_p50_ms 3254/3075/2371/2090 (the last two hide a 400 ms wait the
 log does not show, so coverage is 2 of 4).
+bench6-node-lines.log holds real bench-6 node lines (`batch reported report_us=`, pipelined `output
+executed` with persist_wait_ms and seed_ms). golden.md, golden.json and golden-blocks.ndjson are the
+tool's output on the fixture before it read those fields (f86bda7).
 """
 import gzip
 import importlib.util
@@ -429,6 +432,91 @@ class StageLatencyTests(unittest.TestCase):
         arms.write_text(json.dumps(json.loads((run / "manifest.json").read_text())["param_arms"]))
         listed = self.doc(run, "--windows", str(arms), windows=False)
         self.assertEqual(listed["windows"]["v"]["start"], "2026-11-06T10:00:10Z")
+
+    # ---- bench-6 node fields: report_us, persist_wait_ms + seed_ms ----
+    def test_s3_reads_report_us_beside_report_ms(self):
+        """The bench-6 node logs `batch reported report_us=`; S3 is that / 1000, the same as the older report_ms."""
+        def to_us(line):
+            if 'message="batch reported"' not in line:
+                return line
+            return re.sub(r"report_ms=(\d+)", lambda m: "report_us=%d" % (int(m.group(1)) * 1000), line)
+        us = self.doc(self.make_run(line_filter=to_us))
+        ms = self.doc(self.make_run(name="ms"))
+        self.assertEqual(self.stages(us["pooled"]["load"])["S3"], (4, 5, 6, 0))
+        self.assertEqual(us["pooled"]["load"]["S3"]["basis"], {"report_us": 4})
+        self.assertNotIn("basis", ms["pooled"]["load"]["S3"])
+        self.assertEqual(us["headline"]["load"], ms["headline"]["load"])
+        self.assertEqual(us["coverage"]["pooled"]["load"], ms["coverage"]["pooled"]["load"])
+        self.assertNotIn("S12b", us["stages"])
+        # A line with both fields: report_us wins (block 500's S3 is 7, not 5).
+        both = self.doc(self.make_run(name="both", line_filter=lambda l: l.replace("report_ms=5", "report_ms=5 report_us=7000")
+                                      if 'message="batch reported"' in l and "0xaa11" in l else l))
+        self.assertEqual((self.stages(both["pooled"]["load"])["S3"], both["pooled"]["load"]["S3"]["basis"]),
+                         ((4, 5, 7, 0), {"report_us": 1}))
+        # The real lines: report_us=59 is 0.059 ms, and a log with only report_us measures S3.
+        mod = load_module()
+        log = mod.NodeLog("bench-validator-01")
+        log.read(str(FIX / "bench6-node-lines.log"), None)
+        self.assertEqual([log.reported[d]["report_ms"] for d in ("ba9d179880e0c55d", "032644ab30f4bdda", "e70eef663f778085")],
+                         [0.059, 0.044, 0.039])
+        self.assertEqual(mod.why_unmeasured("S3", log, {"batch_digest_prefix"}), ["no block joined"])
+
+    def test_pipelined_persist_wait_and_seed_are_s12b_in_the_sums_and_the_sanity_check(self):
+        """Output 101's line as the pipelined node logs it (persist_wait_ms, seed_ms and pipelined after
+        max_block_evm_ms, as in bench6-node-lines.log): the 400 ms that blocks 502/503's generator saw and the
+        log did not show is S12b, and the sanity check closes on all four blocks. Output 100's line has neither
+        field (pipelined persist off), so its S12b is 0."""
+        def pipe(line):
+            if 'message="output executed" consensus_number=101 ' not in line:
+                return line
+            return line.replace("max_block_evm_ms=16 ", "max_block_evm_ms=16 persist_wait_ms=400 seed_ms=1 pipelined=true ")
+        run = self.make_run(line_filter=pipe)
+        doc = self.doc(run)
+        self.assertEqual(list(doc["stages"])[-3:], ["S12", "S12b", "S13"])
+        self.assertEqual(doc["stages"]["S12b"], "persist wait + seed")
+        load = doc["pooled"]["load"]
+        self.assertEqual(self.stages(load)["S12b"], (4, 0, 401, 0))
+        self.assertEqual(self.stages(doc["nodes"]["bench-validator-01"]["load"])["S12b"], (4, 0, 401, 0))
+        self.assertEqual(load["S12b"]["basis"], {"not_pipelined": 2, "persist_wait+seed": 2})
+        self.assertEqual((self.stages(load)["S11"], self.stages(load)["S12"]), ((4, 60, 80, 0), (4, 16, 22, 0)))
+        h = doc["headline"]["load"]
+        # seen per block: 3248/3069/1970+401/1681+401 ms; ts and commit end before S12b
+        self.assertEqual((h["ts_p50_s"], h["commit_p50_s"]), (0.583, 1.305))
+        self.assertEqual((h["seen_p50_s"], h["seen_p95_s"], h["count"]["seen"]), (2.371, 3.248, 4))
+        cov = doc["coverage"]["pooled"]["load"]
+        # against own_submit_p50_ms 3254/3075/2371/2090: -6/-6/0/-8 ms (without S12b, 2 of 4 within)
+        self.assertEqual((cov["checked"], cov["within"], cov["pct"], cov["diff_p50_ms"]), (4, 4, 100.0, -6))
+        aux = doc["aux"]["pooled"]["load"]
+        self.assertEqual((aux["persist_wait_ms"], aux["seed_ms"]),
+                         ({"count": 2, "p50": 400, "p95": 400}, {"count": 2, "p50": 1, "p95": 1}))
+        md, blocks = self.tmp / "pipe.md", self.tmp / "pipe.ndjson"
+        p = self.run_tool(run, "--windows", str(FIX / "windows.json"), "--out-md", str(md), "--out-blocks", str(blocks))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("| S12b | persist wait + seed | 4 | 0 | 401 | 0 | not_pipelined 2, persist_wait+seed 2 |\n",
+                      md.read_text())
+        rows = [json.loads(x) for x in blocks.read_text().splitlines()]
+        self.assertEqual([r["stages"].get("S12b") for r in rows], [0, 0, 401, 401, None])
+        # The real pipelined lines parse: output 23918 waited 380 ms for the persist before it.
+        mod = load_module()
+        log = mod.NodeLog("bench-validator-01")
+        log.read(str(FIX / "bench6-node-lines.log"), None)
+        self.assertTrue(log.pipelined)
+        self.assertEqual([(log.out[c]["persist_wait_ms"], log.out[c]["seed_ms"]) for c in (23916, 23917, 23918)],
+                         [(0, 0), (0, 0), (380, 0)])
+
+    def test_without_the_new_fields_the_output_is_byte_identical_to_before(self):
+        """golden.* are the tool's output on this fixture before it read report_us, persist_wait_ms and seed_ms."""
+        run = self.make_run()
+        out = dict((k, self.tmp / ("now" + k)) for k in (".md", ".json", "-blocks.ndjson"))
+        p = self.run_tool(run, "--windows", str(FIX / "windows.json"), "--out-md", str(out[".md"]),
+                          "--out-json", str(out[".json"]), "--out-blocks", str(out["-blocks.ndjson"]))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for k, path in out.items():
+            self.assertEqual(path.read_text(), (FIX / ("golden" + k)).read_text(), k)
+        doc = json.loads(out[".json"].read_text())
+        self.assertNotIn("S12b", doc["stages"])
+        self.assertNotIn("S12b", doc["pooled"]["load"])
+        self.assertFalse(load_module().NodeLog("x").pipelined)
 
 
 if __name__ == "__main__":
