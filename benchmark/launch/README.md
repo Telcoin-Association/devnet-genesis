@@ -14,6 +14,8 @@ Each call runs as a detached segment that survives the session that started it, 
 | `bench6-probe.env` | the one-VM GCE probe |
 | `bench6-run1-lssd.env` | run 1b, the local-SSD deployment: run 1's env file plus four shape knobs |
 | `bench6-run1-lssd.plan` | run 1b's walk: three of run 1's arms |
+| `bench7-always.env` | bench 7, the vote fix always on: run 2's env file with `benchmark/arms/bench7-always.arm` (section "Bench 7") |
+| `bench7-adaptive.env` | bench 7, the adaptive vote fix: the same with `benchmark/arms/bench7-adaptive.arm` |
 
 Tests: `benchmark/tests/test_launch.py` (fake drivers and shims in `benchmark/tests/fixtures/launch/`).
 
@@ -466,9 +468,10 @@ At idle, before the blast (the chain checks the first two and stops at exit 11, 
 - `halt=0` on every node (`tasks/bench7/orch-fleet-health.sh <run>`, one round, exit 0).
 
 `halt=` is new on the samplers' `BENCH_STATUS` line (`... fatal_db=<n> halt=<n> block=<n> ...`).
-It counts the lines of the node's unit log that carry one of the build's fail-stop phrases (the stored-record mismatch, the closing-block check, `epoch record conflict halt:`, the leftover-drain gap, `we have forked!`, a refused `vote_timeout`) since the log began, so a node that halted and restarted stays counted.
+It counts the lines of the node's unit log that carry one of the build's fail-stop phrases (the stored-record mismatch, the closing-block check, `epoch record conflict halt:`, the leftover-drain gap, `we have forked!`, a refused `vote_timeout`, and the re-certify round's conflict when its line carries `stop=true`) since the log began, so a node that halted and restarted stays counted.
 The blast's abort does not read it: a halted validator is a finding of the run, not a reason to stop the blast.
 The watch prints `halt=<sum>` on its `FLEET_HEALTH` line, a `FLEET_HEALTH HALTED <node>=<n> ...` line, and ends with its alarm (exit 3) naming the nodes.
+The count never goes back down, so a watch restarted after a halt alarm takes the sum that alarm printed as `--halt-baseline <n>`: it alarms again only when the sum rises above it, and still prints the real sum and every halted node.
 
 The export's check knows three kinds of must-have series: on every node; on every validator only (the proposer's order-hold series, which the observer never builds); and lazy ones, which exist on a node only after its first count (`status=lazy` lists the nodes without one and never refuses the export).
 

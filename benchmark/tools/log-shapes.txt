@@ -60,7 +60,7 @@ keeps its storage layout
 every later write and commit fails
 the final sync failed
 # bench 7 fail-stops (tasks/bench7-contract.md section 4), for the bench 7 analysis and the fleet-health watch
-# (node-sampler.sh counts the first six as halt=): each is logged on error only, once, and the node stops (the
+# (node-sampler.sh counts the first six as halt=, and the re-certify conflict line when it carries stop=true): each is logged on error only, once, and the node stops (the
 # conflict halt again at every restart); a phrase stops before an apostrophe, which the node writes as \'
 stored epoch record final_state does not match this node
 epoch record final_state is not the block where the epoch-closing calls ran

@@ -894,6 +894,14 @@ health and commit checks read it. The first rule to trip sets `manifest.abort`, 
 blaster (`docker stop txgen`) and allows 10 minutes for the results to upload. A poll that
 would start within `BENCH_CHAOS_GUARD_SECS` of a chaos action waits until the action has run.
 
+The status line is `BENCH_STATUS host=<h> ts=<unix> root_used_pct=<n> fatal_db=<n> halt=<n>
+block=<n> rss_total_kb=<n>`. `fatal_db` counts the node's fatal database lines (`FatalDBFailure`,
+or tn-lmdb's latched store) since the previous status line. `halt` counts the node's fail-stop
+lines (seven phrases of `tasks/bench7-contract.md` section 4, listed in `node-sampler.sh`; the
+re-certify conflict only with `stop=true`) in its unit log since that log began, so a node that
+halted and restarted stays counted. The watchers here do not read `halt`: a halted validator is a finding of the run, not a
+reason to abort. `tasks/bench7/orch-fleet-health.sh` reads it.
+
 | Reason | Trigger |
 |---|---|
 | `disk-full` | a bench node's root disk is above 85 % |

@@ -2629,6 +2629,33 @@ cases = [
      'test_pull_logs.Bench7ShapeTests.test_every_section_2_line_is_kept'),
     ('benchmark/launch/bench7-adaptive.env', 'BENCH_NODE_DISK_IOPS=20000\n', 'BENCH_NODE_DISK_IOPS=10000\n',
      'test_launch.Bench7EnvTests.test_each_is_the_run_that_ran_with_the_bench7_differences'),
+    # Bench 7 HB-5b. The sampler's seventh fail-stop (the re-certify conflict, only with stop=true); the arms summary's
+    # order hold (the next header judged, inside one epoch, a run's release time, the row's window), the vote fix's
+    # certified share by policy, the epoch records, the fail-stop count and the gate on own_parent.
+    ('benchmark/node-sampler.sh', "'index($0, r) == 0 || / stop=true$/ || / stop=true / { c++ }", "'{ c++ }",
+     'test_recovery.SamplerHaltTests.test_a_recertify_conflict_counts_only_with_stop_true'),
+    ('benchmark/tools/arms-summary.py', 'made = sum(1 for h, h2 in judged if h2["f_own_parent"] != F["v_true"]',
+     'made = sum(1 for h, h2 in judged if h["f_own_parent"] != F["v_true"]',
+     'test_arms_summary.ArmsSummaryTests.test_the_order_hold_per_validator'),
+    ('benchmark/tools/arms-summary.py',
+     '    pairs = [(x, y) for x, y in zip(hs, hs[1:]) if x[1]["f_epoch"] == y[1]["f_epoch"]]',
+     '    pairs = list(zip(hs, hs[1:]))', 'test_arms_summary.ArmsSummaryTests.test_the_order_hold_per_validator'),
+    ('benchmark/tools/arms-summary.py', '            runs.append((i - start[0], t - start[1]))',
+     '            runs.append((i - start[0], hs[i - 1][0] - start[1]))',
+     'test_arms_summary.ArmsSummaryTests.test_the_order_hold_per_validator'),
+    ('benchmark/tools/arms-summary.py', '    rs = between(nd.resent, a, b)', '    rs = nd.resent',
+     'test_arms_summary.ArmsSummaryTests.test_the_order_hold_per_validator'),
+    ('benchmark/tools/arms-summary.py', '(p[5]["f_epoch"], p[5]["f_round"]) in formed[n]', 'p[5]["f_round"] in formed[n]',
+     'test_arms_summary.ArmsSummaryTests.test_the_vote_fix_forms_per_validator'),
+    ('benchmark/tools/arms-summary.py', 'e["epochs_without_record"] = sorted(closed - e.pop("_epochs"))',
+     'e["epochs_without_record"] = sorted(set() - e.pop("_epochs"))',
+     'test_arms_summary.ArmsSummaryTests.test_epoch_records_fail_stops_and_hooks'),
+    ('benchmark/tools/arms-summary.py',
+     '(phrase != F["lit_recert_conflict"] or f.get(F["f_stop"]) == F["v_true"])', 'True',
+     'test_arms_summary.ArmsSummaryTests.test_epoch_records_fail_stops_and_hooks'),
+    ('benchmark/tools/arms-summary.py',
+     '    return any(p[5]["f_own_parent"] is not None for n in validators if n in nds for p in nds[n].proposed)',
+     '    return True', 'test_arms_summary.ArmsSummaryTests.test_a_run_whose_headers_lack_the_hold_fields_gets_no_new_block'),
 ]
 
 

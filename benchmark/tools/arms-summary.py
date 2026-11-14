@@ -139,6 +139,32 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
                  request of the same author had arrived), votes_refused_superseded per voter, and the vote gate
                  reads total_ms p95 instead of lock_ms p95 (CHECK_REPLACES), so an arm with the switch on and one
                  with it off are measured alike. A run without the field summarizes as before, byte for byte.
+  order hold     (bench 7) only when a validator's 'header proposed' line carries own_parent; per row, per validator
+                 (order_hold_by_node) and the fleet (order_hold_fleet), from the lines in the window: headers,
+                 headers_with_batches; blocker_created_pct = of the batch-carrying headers followed by another own
+                 header of the same epoch (blocker_pairs), the share whose next header has own_parent=false or a round
+                 above the next (blockers_created); held_headers (held > 0), held_max, held_no_batches (held > 0 and
+                 num_batches = 0); held runs (consecutive headers with held > 0) in headers and in seconds from the
+                 run's first header to the first that holds nothing (to its last when the window ends first);
+                 digests_requeued (count on 'digests resent'), requeued_out_of_order by cause (out_of_order on it, per
+                 re-queue event at the proposer), out_of_order_warnings ('digests re-queued out of order under the
+                 order hold'); interval_held / _free p50 / p95 ms (the gap from the previous own header of the epoch to
+                 a header with held > 0 / = 0); stops and the largest queued_digests, uncommitted_digests,
+                 in_flight_digests on 'proposer stopped'; reports_dropped by reason ('uncertified own header report
+                 dropped'); reasons (the headers' reason field). The fleet sums counts, pools runs and intervals.
+  vote forms     (bench 7, same gate) per validator (vote_forms_by_node): exec_policy_pct, exec_basis_pct,
+                 exec_lag_max (exec_tip - exec_block) and certified_by_policy_pct (per policy, the share of headers whose
+                 (epoch, round) is one of the node's own certificates, cert-rate.py's 'quorum reached' records); the
+                 fleet: exec_basis_pct, exec_lag_max, certified_by_policy_pct beside bench 6's exec_policy_pct.
+  epoch records  (bench 7, same gate; whole run, every node, any time) epoch_records_by_node: epochs_published and
+                 published_by_branch ('epoch record published' epoch, branch), epochs_without_record (the epochs any
+                 node published a record for that this one did not), recertify_rounds, certified_from_kept_votes,
+                 certs_from_peer, recertify_rearmed, walks_past_uncertified, rounds_short ('failed to reach quorum on
+                 epoch close'), rounds_short_certified, conflicts, conflict_halts, recertify_conflicts and
+                 recertify_stops (stop=true); epoch_records_reading says whether every node has every record.
+                 fail_stops: the lines of each fail-stop phrase of tasks/bench7-contract.md section 4 over all nodes
+                 (the re-certify conflict only with stop=true), fail_stop_nodes; test_hook_lines / test_hook_nodes
+                 ('test hook:'; a benchmark image has none).
 
 Logs. Per node the files are stage-latency.py's choice ({node}-unit-stdout*.log*, else every
 {node}-*.log* but stderr). They are read from --prefiltered (default benchmark/work/prefilter/<run>/,
@@ -203,6 +229,32 @@ F = {
     "msg_advice_refused": "mdbx random-access advice not applied; the database works without it",
     "msg_recovered": "signers recovered", "f_pool": "pool", "v_dedicated": "dedicated",
     "msg_pool_failed": "signer recovery pool failed to build - recovering on the global pool",
+    # bench-7 order hold (tasks/bench7-contract.md 2.1, 2.6, 2.7): the 'header proposed' fields, the re-queue line, its
+    # warning, the proposer's stop line and the certifier's dropped report; read by name, any field order
+    "f_num_batches": "num_batches", "f_own_parent": "own_parent", "f_held": "held", "f_held_lanes": "held_lanes",
+    "f_blockers": "blockers", "f_reason": "reason", "f_exec_basis": "exec_basis",
+    "msg_resent": "digests resent", "f_count": "count", "f_cause": "cause", "f_out_of_order": "out_of_order",
+    "msg_ooo_warn": "digests re-queued out of order under the order hold",
+    "msg_stopped": "proposer stopped", "f_queued": "queued_digests", "f_uncommitted": "uncommitted_digests",
+    "f_in_flight": "in_flight_digests", "msg_report_dropped": "uncertified own header report dropped",
+    # bench-7 epoch-record lines (contract 2.3, 2.4): matched as substrings (some messages are format strings)
+    "lit_published": "epoch record published", "f_branch": "branch",
+    "lit_recertify": "epoch record re-certify round", "lit_kept_votes": "epoch record certified from kept votes",
+    "lit_rearm": "re-arming epoch vote rounds to re-certify older epoch records",
+    "lit_walk": "epoch record collector walking past an uncertified epoch",
+    "lit_conflict": "epoch record conflict: this node", "lit_no_quorum": "failed to reach quorum on epoch close",
+    "lit_round_certified": "epoch vote round ended without a local quorum; the record is already certified",
+    "lit_retrieved": "retrieved cert for epoch", "f_stop": "stop",
+    # bench-7 fail-stop phrases (contract section 4; the re-certify conflict stops only with stop=true) and hook lines
+    "lit_stored_mismatch": "stored epoch record final_state does not match this node",
+    "lit_closing_block": "epoch record final_state is not the block where the epoch-closing calls ran",
+    "lit_conflict_halt": "epoch record conflict halt:",
+    "lit_recert_conflict": "own epoch record differs from a certified record in a re-certify round",
+    "lit_forked": "we have forked!",
+    "lit_leftover_gap": "leftover consensus output does not follow the last output forwarded to the engine",
+    "lit_output_gap": "consensus output gap: expected", "lit_base_fee": "close-time base-fee identity",
+    "lit_latched": "every later write and commit fails", "lit_vote_timeout": "must stay below the libp2p request timeout",
+    "lit_hook": "test hook:",
     # metrics.json (deploy step 15) prometheus.series and the generator's error classes (tn-blast nodes[].errors)
     "m_prom": "prometheus", "m_series": "series", "m_by_node": "by_node",
     "p_sealed_marked": "tn_reth_sealed_txs_marked", "p_refused": "tn_reth_rpc_admission_refused_total",
@@ -334,6 +386,19 @@ DISK_CLASSES = (F["v_lssd"], F["v_boot"])     # the "by disk class" order
 GROUP_COLS = (tuple((k, 1) for k in ("exec_txps", "execute_us_tx", "persist_us_tx", "commit_us_tx", "commit_ms_output",
                                      "task_us_tx", "txs_per_output")) + (("amp", 3),) +
               tuple((k, 1) for k in ("refault_per_min", "majfault_per_min", "memcg_refault_per_min")) + DISK_COLS)
+# Bench 7 (a build whose 'header proposed' lines carry own_parent): the fail-stop phrases of the contract's section 4 in
+# its order, the epoch-record lines read per node over the whole run, and one pattern that finds any of them in a line
+# (each line counts once, under the leftmost phrase it holds).
+FAIL_STOPS = tuple(F[k] for k in ("lit_stored_mismatch", "lit_closing_block", "lit_conflict_halt", "lit_recert_conflict",
+                                  "lit_forked", "lit_leftover_gap", "lit_output_gap", "lit_base_fee", "lit_latched",
+                                  "lit_vote_timeout"))
+EPOCH_LINES = tuple(F[k] for k in ("lit_published", "lit_recertify", "lit_kept_votes", "lit_rearm", "lit_walk",
+                                   "lit_conflict", "lit_no_quorum", "lit_round_certified", "lit_retrieved"))
+EVENT_LITS = EPOCH_LINES + FAIL_STOPS + (F["lit_hook"],)
+EVENT_RE = re.compile("|".join(re.escape(x) for x in EVENT_LITS))
+# the order hold's new 'header proposed' fields (read as numbers but own_parent, a bool) and the messages it reads
+HOLD_FIELDS = ("f_num_batches", "f_own_parent", "f_held", "f_held_lanes", "f_blockers", "f_reason", "f_exec_basis")
+HOLD_MSGS = ("msg_resent", "msg_ooo_warn", "msg_stopped", "msg_report_dropped")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
@@ -715,6 +780,7 @@ def literals(sl, cr):
             F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"], F["msg_pool_failed"]]
     lits.append(F["msg_open_db"])
     lits.append(F["msg_switches"])          # its keys tell the run's build (run_switch_list)
+    lits += [F[k] for k in HOLD_MSGS] + list(EVENT_LITS)       # bench 7: the order hold, epoch records, fail-stops
     lits += list(sl.MSGS)
     for part in cr.EVENT_RE.pattern.split("|"):
         if re.search(r"[\\.^$*+?{}\[\]()]", part):
@@ -795,6 +861,10 @@ class NodeData(object):
         self.advice_refused = []        # times of the 'advice not applied' warning, kept at any time (it is at open)
         # (t, pool) per recovered output; times of the recovery pool's build failure, kept at any time (once a process)
         self.recovered, self.pool_failed = [], []
+        # bench 7 order hold, inside the windows: (t, {field: value}) per 'digests resent', out-of-order warning,
+        # 'proposer stopped' and dropped report; and at any time (t or None, phrase, {field: value}) per epoch-record,
+        # fail-stop or test-hook line (EVENT_RE)
+        self.resent, self.ooo_warn, self.stopped, self.dropped, self.events = [], [], [], [], []
         self.task = {}
         self.page_fields = False
         self.backend = None             # the engine the node's last 'opening database' line named (bench 7)
@@ -810,6 +880,8 @@ class NodeData(object):
         want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["msg_proposed"],
                 F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"],
                 F["msg_pool_failed"], F["msg_open_db"], F["msg_switches"])
+        hold = dict(zip((F[k] for k in HOLD_MSGS), (self.resent, self.ooo_warn, self.stopped, self.dropped)))
+        want += tuple(hold)
         anytime = (F["msg_builder"], F["msg_advice_refused"], F["msg_pool_failed"])
         anytime += (F["msg_open_db"], F["msg_switches"])          # bench 7: once per node start, before any window
         with open_bin(path) as fh:
@@ -819,15 +891,16 @@ class NodeData(object):
                 m = MSG_RE.search(line)
                 msg = m.group(1) if m else None
                 if msg not in want and not tracker:
+                    ev = EVENT_RE.search(line)
+                    if ev and not (dedupe and self.seen(line)):
+                        self.events.append((line_ts(line), ev.group(0), dict(
+                            (k, v) for k, v in KV_RE.findall(line[m.end():] if m else line))))
                     continue
                 t = line_ts(line)
                 if t is None or not (msg in anytime or self.inside(t)):
                     continue
-                if dedupe:
-                    h = hash(line)
-                    if h in self._seen:
-                        continue
-                    self._seen.add(h)
+                if dedupe and self.seen(line):
+                    continue
                 if tracker:
                     self.tracker.append(t)
                     continue
@@ -852,8 +925,15 @@ class NodeData(object):
                                        f.get(F["f_outcome"]), num(f.get(F["f_lock_ms"])), num(f.get(F["f_total_ms"])),
                                        num(f.get(F["f_prelock_ms"]))))
                 elif msg == F["msg_proposed"]:
+                    # then bench 7's order-hold and vote-fix fields (None where the line lacks one): round, epoch, ...
+                    extra = dict((k, f.get(F[k])) for k in HOLD_FIELDS + ("f_round", "f_epoch"))
+                    for k in extra:
+                        if k not in ("f_own_parent", "f_reason", "f_exec_basis"):
+                            extra[k] = num(extra[k])
                     self.proposed.append((t, num(f.get(F["f_grace_ms"])), f.get(F["f_exec_policy"]),
-                                          num(f.get(F["f_exec_tip"])), num(f.get(F["f_exec_block"]))))
+                                          num(f.get(F["f_exec_tip"])), num(f.get(F["f_exec_block"])), extra))
+                elif msg in hold:
+                    hold[msg].append((t, f))
                 elif msg == F["msg_grace_ended"]:
                     self.grace_ended.append((t, f.get(F["f_outcome"]), num(f.get(F["f_waited_ms"]))))
                 elif msg == F["msg_builder"]:
@@ -870,10 +950,20 @@ class NodeData(object):
                     self.switch_keys.update(f)
         self.files.append(os.path.basename(path))
 
+    def seen(self, line):
+        """True when the same line came from another copy of the log (then it is skipped)."""
+        h = hash(line)
+        if h in self._seen:
+            return True
+        self._seen.add(h)
+        return False
+
     def finish(self):
         for xs in (self.executed, self.persisted, self.votes, self.tracker, self.proposed, self.grace_ended,
-                   self.builders, self.advice_refused, self.recovered, self.pool_failed):
+                   self.builders, self.advice_refused, self.recovered, self.pool_failed, self.resent, self.ooo_warn,
+                   self.stopped, self.dropped):
             xs.sort(key=lambda x: x[0] if isinstance(x, tuple) else x)
+        self.events.sort(key=lambda x: (x[0] is not None, x[0] or 0.0))
         self._seen = set()
 
 
@@ -1648,9 +1738,225 @@ def bench6_cols(nds, validators, a, b, r, prom, first, prelock_run=False):
     return m
 
 
+# ---------------------------------------------------------------- bench 7: order hold, vote-fix forms, epoch records
+
+def hold_logged(nds, validators):
+    """True when a validator's 'header proposed' line carries own_parent: a bench-7 build (it computes own_parent with
+    the order hold on or off). Only such a run gets the order-hold, vote-form, epoch-record and fail-stop blocks."""
+    return any(p[5]["f_own_parent"] is not None for n in validators if n in nds for p in nds[n].proposed)
+
+
+def shares(xs):
+    """{value: % of xs}, by value; n/a-free (the caller decides what an empty list means)."""
+    c = collections.Counter(xs)
+    return collections.OrderedDict((k, r1(100.0 * v / len(xs))) for k, v in sorted(c.items()))
+
+
+def count_sum(dicts):
+    """The key-wise sum of count dicts, by key."""
+    c = collections.Counter()
+    for d in dicts:
+        c.update(d)
+    return collections.OrderedDict(sorted(c.items()))
+
+
+def hold_node(nd, a, b):
+    """(one validator's order-hold figures in [a, b), its held runs [(headers, seconds)], its header intervals in ms
+    split (held, free)). Pairs of consecutive own headers count only inside the window and inside one epoch."""
+    hs = [(p[0], p[5]) for p in between(nd.proposed, a, b)]
+    pairs = [(x, y) for x, y in zip(hs, hs[1:]) if x[1]["f_epoch"] == y[1]["f_epoch"]]
+    out = collections.OrderedDict()
+    out["headers"] = len(hs)
+    out["headers_with_batches"] = sum(1 for _, h in hs if (h["f_num_batches"] or 0) > 0)
+    # a blocker is created when the header after a batch-carrying one does not cite it (own_parent=false) or skips
+    # its round: the batch-carrying header is then an older own header its lanes wait on
+    judged = [(h, h2) for (_, h), (_, h2) in pairs if (h["f_num_batches"] or 0) > 0 and None not in (
+        h["f_round"], h2["f_round"], h2["f_own_parent"])]
+    made = sum(1 for h, h2 in judged if h2["f_own_parent"] != F["v_true"] or h2["f_round"] > h["f_round"] + 1)
+    out["blocker_pairs"], out["blockers_created"] = len(judged), made
+    out["blocker_created_pct"] = r1(100.0 * made / len(judged)) if judged else na(
+        "a batch-carrying '%s' followed by another in the window and epoch" % F["msg_proposed"])
+    held = [(t, h) for t, h in hs if (h["f_held"] or 0) > 0]
+    out["held_headers"] = len(held)
+    out["held_max"] = max(h["f_held"] for _, h in held) if held else 0
+    out["held_no_batches"] = sum(1 for _, h in held if h["f_num_batches"] == 0)
+    runs, start = [], None
+    for i, (t, h) in enumerate(hs):
+        if (h["f_held"] or 0) > 0:
+            start = (i, t) if start is None else start
+        elif start is not None:         # the run ends at the first header that holds nothing: its time is the release
+            runs.append((i - start[0], t - start[1]))
+            start = None
+    if start is not None:               # still holding at the window's end: up to its last header
+        runs.append((len(hs) - start[0], hs[-1][0] - start[1]))
+    no_run = na("headers with %s > 0" % F["f_held"])
+    out["held_runs"] = len(runs)
+    out["held_run_max_headers"] = max(x for x, _ in runs) if runs else no_run
+    out["held_run_median_headers"] = median([x for x, _ in runs]) if runs else no_run
+    out["held_run_max_s"] = round(max(s for _, s in runs), 3) if runs else no_run
+    out["held_run_median_s"] = round(median([s for _, s in runs]), 3) if runs else no_run
+    rs = between(nd.resent, a, b)
+    out["digests_requeued"] = sum(num(f.get(F["f_count"])) or 0 for _, f in rs)
+    ooo = collections.Counter()
+    for _, f in rs:
+        if f.get(F["f_out_of_order"]) is not None:
+            ooo[f.get(F["f_cause"]) or "?"] += num(f[F["f_out_of_order"]]) or 0
+    out["requeued_out_of_order"] = collections.OrderedDict(sorted(ooo.items()))
+    out["out_of_order_warnings"] = len(between(nd.ooo_warn, a, b))
+    ivs = ([], [])
+    for (t, _), (t2, h2) in pairs:
+        ivs[0 if (h2["f_held"] or 0) > 0 else 1].append(1000.0 * (t2 - t))
+    for k, xs, op in (("interval_held", ivs[0], ">"), ("interval_free", ivs[1], "=")):
+        miss = na("two consecutive '%s' lines, the second with %s %s 0" % (F["msg_proposed"], F["f_held"], op))
+        out[k + "_p50_ms"] = r1(pctl(xs, 0.5)) if xs else miss
+        out[k + "_p95_ms"] = r1(pctl(xs, 0.95)) if xs else miss
+    st = between(nd.stopped, a, b)
+    out["stops"] = len(st)
+    for k in ("f_queued", "f_uncommitted", "f_in_flight"):
+        vals = [num(f.get(F[k])) for _, f in st]
+        vals = [v for v in vals if v is not None]
+        out["stop_%s_max" % F[k]] = max(vals) if vals else na("'%s' lines in the window" % F["msg_stopped"])
+    out["reports_dropped"] = count_sum([{f.get(F["f_reason"]) or "?": 1} for _, f in between(nd.dropped, a, b)])
+    out["reasons"] = count_sum([{h["f_reason"] or "?": 1} for _, h in hs])
+    return out, runs, ivs
+
+
+def hold_rows(nds, validators, a, b):
+    """({validator: hold_node figures}, the fleet's): counts summed, shares of the summed counts, runs and intervals
+    pooled over the validators, maxima over them."""
+    by, runs, ivs = collections.OrderedDict(), [], ([], [])
+    for n in validators:
+        if n in nds:
+            by[n], r, iv = hold_node(nds[n], a, b)
+            runs += r
+            ivs[0].extend(iv[0])
+            ivs[1].extend(iv[1])
+    fl = collections.OrderedDict()
+    for k in ("headers", "headers_with_batches", "blocker_pairs", "blockers_created", "held_headers", "held_no_batches",
+              "held_runs", "digests_requeued", "out_of_order_warnings", "stops"):
+        fl[k] = sum(x[k] for x in by.values())
+    fl["blocker_created_pct"] = r1(100.0 * fl["blockers_created"] / fl["blocker_pairs"]) if fl["blocker_pairs"] else \
+        na("a batch-carrying '%s' followed by another in the window and epoch" % F["msg_proposed"])
+    fl["held_max"] = max([x["held_max"] for x in by.values()] or [0])
+    no_run = na("headers with %s > 0" % F["f_held"])
+    fl["held_run_max_headers"] = max(x for x, _ in runs) if runs else no_run
+    fl["held_run_median_headers"] = median([x for x, _ in runs]) if runs else no_run
+    fl["held_run_max_s"] = round(max(s for _, s in runs), 3) if runs else no_run
+    fl["held_run_median_s"] = round(median([s for _, s in runs]), 3) if runs else no_run
+    fl["requeued_out_of_order"] = count_sum(x["requeued_out_of_order"] for x in by.values())
+    for k, xs, op in (("interval_held", ivs[0], ">"), ("interval_free", ivs[1], "=")):
+        miss = na("two consecutive '%s' lines, the second with %s %s 0" % (F["msg_proposed"], F["f_held"], op))
+        fl[k + "_p50_ms"] = r1(pctl(xs, 0.5)) if xs else miss
+        fl[k + "_p95_ms"] = r1(pctl(xs, 0.95)) if xs else miss
+    for k in ("f_queued", "f_uncommitted", "f_in_flight"):
+        vals = [x["stop_%s_max" % F[k]] for x in by.values() if not is_na(x["stop_%s_max" % F[k]])]
+        fl["stop_%s_max" % F[k]] = max(vals) if vals else na("'%s' lines in the window" % F["msg_stopped"])
+    fl["reports_dropped"] = count_sum(x["reports_dropped"] for x in by.values())
+    fl["reasons"] = count_sum(x["reasons"] for x in by.values())
+    return by, fl
+
+
+def vote_forms(nds, validators, a, b, formed):
+    """({validator: its headers by exec_policy and exec_basis, the largest exec_tip - exec_block, the share certified
+    by policy}, the fleet's basis shares, largest lag and certified share by policy). The fleet's policy shares are
+    bench6_cols' exec_policy_pct. Certified = the header's (epoch, round) is one of the node's own certificates
+    ('quorum reached'), as tools/cert-rate.py read them for the certification columns (<formed>, by node)."""
+    by, pooled, formed = collections.OrderedDict(), [], formed or {}
+    for n in validators:
+        if n not in nds:
+            continue
+        hs = between(nds[n].proposed, a, b)
+        e = collections.OrderedDict([("headers", len(hs))])
+        pol = [p[2] for p in hs if p[2] is not None]
+        bas = [p[5]["f_exec_basis"] for p in hs if p[5]["f_exec_basis"] is not None]
+        e["exec_policy_pct"] = shares(pol) if pol else na("%s on '%s'" % (F["f_exec_policy"], F["msg_proposed"]))
+        e["exec_basis_pct"] = shares(bas) if bas else na("%s on '%s'" % (F["f_exec_basis"], F["msg_proposed"]))
+        lag = [p[3] - p[4] for p in hs if p[3] is not None and p[4] is not None]
+        e["exec_lag_max"] = max(lag) if lag else na("%s / %s on '%s'" % (F["f_exec_tip"], F["f_exec_block"],
+                                                                         F["msg_proposed"]))
+        mine = [(p[2], (p[5]["f_epoch"], p[5]["f_round"]) in formed[n]) for p in hs if p[2] is not None] \
+            if n in formed else None
+        e["certified_by_policy_pct"] = cert_shares(mine) if mine else na(
+            "own certificates read by tools/cert-rate.py and %s on '%s'" % (F["f_exec_policy"], F["msg_proposed"]))
+        pooled += mine or []
+        by[n] = e
+    fl = collections.OrderedDict()
+    bas = [p[5]["f_exec_basis"] for n in validators if n in nds for p in between(nds[n].proposed, a, b)
+           if p[5]["f_exec_basis"] is not None]
+    fl["exec_basis_pct"] = shares(bas) if bas else na("%s on '%s'" % (F["f_exec_basis"], F["msg_proposed"]))
+    lags = [x["exec_lag_max"] for x in by.values() if not is_na(x["exec_lag_max"])]
+    fl["exec_lag_max"] = max(lags) if lags else na("%s / %s on '%s'" % (F["f_exec_tip"], F["f_exec_block"],
+                                                                        F["msg_proposed"]))
+    fl["certified_by_policy_pct"] = cert_shares(pooled) if pooled else na(
+        "own certificates read by tools/cert-rate.py and %s on '%s'" % (F["f_exec_policy"], F["msg_proposed"]))
+    return by, fl
+
+
+def cert_shares(pairs):
+    """{policy: % of its headers certified} from [(policy, certified)]."""
+    tot, ok = collections.Counter(), collections.Counter()
+    for pol, c in pairs:
+        tot[pol] += 1
+        ok[pol] += 1 if c else 0
+    return collections.OrderedDict((k, r1(100.0 * ok[k] / tot[k])) for k in sorted(tot))
+
+
+def epoch_rows(nds):
+    """({node: its epoch-record lines over the whole run}, the reading line): the epochs it published a record for and
+    by which branch, the closed epochs (any node's record) it has none for, re-certify rounds and what certified them,
+    walks past an uncertified epoch, short vote rounds, conflicts and halts."""
+    by, closed = collections.OrderedDict(), set()
+    for n in sorted(nds):
+        evs = nds[n].events
+        c = collections.Counter(e[1] for e in evs)
+        pub = [e[2] for e in evs if e[1] == F["lit_published"]]
+        epochs = set(num(f.get(F["f_epoch"])) for f in pub) - {None}
+        closed |= epochs
+        rc = [e[2] for e in evs if e[1] == F["lit_recert_conflict"]]
+        by[n] = collections.OrderedDict([
+            ("epochs_published", len(epochs)), ("_epochs", epochs),
+            ("published_by_branch", count_sum([{(f.get(F["f_branch"]) or "?").strip('"'): 1} for f in pub])),
+            ("recertify_rounds", c[F["lit_recertify"]]), ("certified_from_kept_votes", c[F["lit_kept_votes"]]),
+            ("certs_from_peer", c[F["lit_retrieved"]]), ("recertify_rearmed", c[F["lit_rearm"]]),
+            ("walks_past_uncertified", c[F["lit_walk"]]), ("rounds_short", c[F["lit_no_quorum"]]),
+            ("rounds_short_certified", c[F["lit_round_certified"]]), ("conflicts", c[F["lit_conflict"]]),
+            ("conflict_halts", c[F["lit_conflict_halt"]]), ("recertify_conflicts", len(rc)),
+            ("recertify_stops", sum(1 for f in rc if f.get(F["f_stop"]) == F["v_true"]))])
+    lacking = []
+    for n, e in by.items():
+        e["epochs_without_record"] = sorted(closed - e.pop("_epochs"))
+        if e["epochs_without_record"]:
+            lacking.append("%s (%s)" % (n, ", ".join(str(x) for x in e["epochs_without_record"])))
+    if not closed:
+        reading = "no node logged '%s': no closed epoch seen" % F["lit_published"]
+    elif lacking:
+        reading = "%d closed epochs (%s to %s, any node's '%s'); without a record of its own: %s" % (
+            len(closed), min(closed), max(closed), F["lit_published"], "; ".join(lacking))
+    else:
+        reading = "every node published a record for each of the %d closed epochs (%s to %s)" % (
+            len(closed), min(closed), max(closed))
+    return by, reading
+
+
+def fail_stop_counts(nds):
+    """({phrase: lines over all nodes} in the contract's order, {node: its fail-stop lines}, 'test hook:' lines,
+    {node: its hook lines}); the re-certify conflict counts only with stop=true."""
+    stops, nodes, hooks, hook_nodes = collections.OrderedDict((p, 0) for p in FAIL_STOPS), {}, 0, {}
+    for n in sorted(nds):
+        for _, phrase, f in nds[n].events:
+            if phrase == F["lit_hook"]:
+                hooks += 1
+                hook_nodes[n] = hook_nodes.get(n, 0) + 1
+            elif phrase in stops and (phrase != F["lit_recert_conflict"] or f.get(F["f_stop"]) == F["v_true"]):
+                stops[phrase] += 1
+                nodes[n] = nodes.get(n, 0) + 1
+    return stops, nodes, hooks, hook_nodes
+
+
 # ---------------------------------------------------------------- the report
 
-def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis, caps, groups):
+def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, stage_doc, blocks, axis, caps, groups,
+            formed=None):
     t_first = blocks[0][0] if blocks else None
     cum = []
     acc = 0
@@ -1666,6 +1972,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
     stores = collections.OrderedDict((n, node_store(nds[n], csv_cache[n])) for n in sorted(nds))
     lmdb_run = F["v_tn_lmdb"] in stores.values()
     prelock_run = prelock_logged(nds, validators)
+    b7_run = hold_logged(nds, validators)
     for r in rows:
         a, b = r["from"], r["to"]
         m = collections.OrderedDict()
@@ -1827,6 +2134,10 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["stages"] = collections.OrderedDict((s, {"median_ms": v.get(F["t_p50ms"]), "n": v.get(F["t_count"])})
                                                   for s, v in sw_["p"].items())
         m.update(bench6_cols(nds, validators, a, b, r, prom, first, prelock_run))
+        if b7_run:      # bench 7: the order hold per validator, the vote fix's forms beside exec_policy_pct
+            m["order_hold_by_node"], m["order_hold_fleet"] = hold_rows(nds, validators, a, b)
+            m["vote_forms_by_node"], fl = vote_forms(nds, validators, a, b, formed)
+            m.update(fl)
         # drift axis position
         mid = (a + b) / 2.0
         if axis == "wall-min":
@@ -1945,6 +2256,110 @@ def verdict_text(vs):
         cell(x["value"]), "met" if x["met"] else "not met")) for x in vs)
 
 
+def hold_legend():
+    """arms.md's words for the bench-7 per-row tables, one sentence a column."""
+    g = dict((k, F[k]) for k in ("msg_proposed", "f_num_batches", "f_own_parent", "f_held", "f_count", "msg_resent",
+                                 "f_out_of_order", "f_cause", "msg_ooo_warn", "msg_stopped", "f_queued",
+                                 "f_uncommitted", "f_in_flight", "msg_report_dropped", "f_reason", "f_exec_policy",
+                                 "f_exec_basis", "f_exec_tip", "f_exec_block"))
+    return [line % g for line in (
+        "Order hold (bench 7; per row, one line per validator and the fleet, from the lines in the window; pairs of "
+        "consecutive own headers count inside one epoch only):",
+        "- headers: own headers built ('%(msg_proposed)s' lines); with batches: of them, %(f_num_batches)s > 0.",
+        "- blocker created %%: of the batch-carrying headers followed by another own header, the share whose next "
+        "header has %(f_own_parent)s=false or skips a round, so that the batch-carrying header becomes an older own "
+        "header its lanes wait on (count / pairs judged).",
+        "- held: headers with %(f_held)s > 0 (digests left queued in held lanes); held, no batches: of them, "
+        "%(f_num_batches)s = 0 (a header built that could carry nothing); held max: the largest %(f_held)s.",
+        "- held run max / median: runs of consecutive own headers with %(f_held)s > 0, in headers, and in seconds from "
+        "the run's first header to the first header after it that holds nothing (to its last header when the window "
+        "ends first).",
+        "- re-queued (out of order): digests re-queued (%(f_count)s on '%(msg_resent)s') and, by %(f_cause)s, those "
+        "that came back behind a newer digest of their lane (%(f_out_of_order)s): counted per re-queue event at the "
+        "proposer, not a confirmed execution inversion.",
+        "- out-of-order warnings: '%(msg_ooo_warn)s' lines (0 expected with the hold on).",
+        "- interval held / free p50 / p95 ms: the time from the previous own header to a header with %(f_held)s > 0, "
+        "and to one with %(f_held)s = 0.",
+        "- at stop, max: the largest %(f_queued)s / %(f_uncommitted)s / %(f_in_flight)s over the '%(msg_stopped)s' "
+        "lines in the window (one an epoch close).",
+        "- reports dropped: '%(msg_report_dropped)s' lines by %(f_reason)s; reasons: the headers by %(f_reason)s (what "
+        "built them).",
+        "",
+        "Vote fix forms (bench 7; per row and validator, from the same headers):",
+        "- policy %% / basis %%: the headers by %(f_exec_policy)s and by %(f_exec_basis)s; the fleet's policy %% is "
+        "the second table's exec policy %%.",
+        "- lag max: the largest %(f_exec_tip)s - %(f_exec_block)s.",
+        "- certified %% by policy: of each policy's headers, the share whose (epoch, round) is one of the node's own "
+        "certificates ('quorum reached', as tools/cert-rate.py read them for the certified %% column).",
+        "")]
+
+
+def hold_tables(m):
+    """The order-hold and vote-form tables of one row (bench 7)."""
+    def hold_line(n, x):
+        return "| %s | %s | %s | %s (%s / %s) | %s | %s | %s | %s / %s | %s / %s | %s (%s) | %s | %s / %s | %s / %s | " \
+               "%s / %s / %s | %s | %s |" % (
+                   n, x["headers"], x["headers_with_batches"], cell(x["blocker_created_pct"]), x["blockers_created"],
+                   x["blocker_pairs"], x["held_headers"], x["held_no_batches"], cell(x["held_max"]),
+                   cell(x["held_run_max_headers"]), cell(x["held_run_median_headers"]), cell(x["held_run_max_s"]),
+                   cell(x["held_run_median_s"]), x["digests_requeued"], dict_cell(x["requeued_out_of_order"]),
+                   x["out_of_order_warnings"], cell(x["interval_held_p50_ms"]), cell(x["interval_held_p95_ms"]),
+                   cell(x["interval_free_p50_ms"]), cell(x["interval_free_p95_ms"]),
+                   cell(x["stop_%s_max" % F["f_queued"]]), cell(x["stop_%s_max" % F["f_uncommitted"]]),
+                   cell(x["stop_%s_max" % F["f_in_flight"]]), dict_cell(x["reports_dropped"]), dict_cell(x["reasons"]))
+    out = ["", "| validator | headers | with batches | blocker created % (n / pairs) | held | held, no batches | held max "
+           "| held run max / median (headers) | held run max / median s | re-queued (out of order) | out-of-order "
+           "warnings | interval held p50 / p95 ms | interval free p50 / p95 ms | at stop, max queued / uncommitted / in "
+           "flight | reports dropped | reasons |", "|---|" + "---:|" * 13 + "---|---|"]
+    for n, x in m["order_hold_by_node"].items():
+        out.append(hold_line(n, x))
+    out.append(hold_line("fleet", m["order_hold_fleet"]))
+    out += ["", "| validator | headers | policy % | basis % | lag max | certified % by policy |", "|---|---:|---|---|---:|---|"]
+    for n, x in m["vote_forms_by_node"].items():
+        out.append("| %s | %s | %s | %s | %s | %s |" % (n, x["headers"], dict_cell(x["exec_policy_pct"]),
+                                                       dict_cell(x["exec_basis_pct"]), cell(x["exec_lag_max"]),
+                                                       dict_cell(x["certified_by_policy_pct"])))
+    out.append("| fleet | %s | %s | %s | %s | %s |" % (
+        m["order_hold_fleet"]["headers"], dict_cell(m["exec_policy_pct"]), dict_cell(m["exec_basis_pct"]),
+        cell(m["exec_lag_max"]), dict_cell(m["certified_by_policy_pct"])))
+    return out
+
+
+def epoch_section(doc):
+    """arms.md's whole-run epoch-record table and the fail-stop and test-hook lines (bench 7)."""
+    g = dict((k, F[k]) for k in ("lit_published", "f_branch", "lit_recertify", "lit_kept_votes", "lit_retrieved",
+                                 "lit_rearm", "lit_walk", "lit_no_quorum", "lit_round_certified", "lit_conflict",
+                                 "lit_conflict_halt", "lit_recert_conflict", "f_stop", "lit_hook"))
+    out = ["## Epoch records, fail-stops and test hooks (whole run, every node)", "",
+           "- epochs published: the epochs on the node's '%(lit_published)s' lines, by %(f_branch)s; without a record: "
+           "the closed epochs (those any node published a record for) it has none for." % g,
+           "- re-certify rounds: '%(lit_recertify)s' lines; certified: from kept votes ('%(lit_kept_votes)s') / from a "
+           "peer ('%(lit_retrieved)s'); re-armed: '%(lit_rearm)s' at a start." % g,
+           "- walks: '%(lit_walk)s' lines." % g,
+           "- short rounds: '%(lit_no_quorum)s' (no certificate held) / '%(lit_round_certified)s'." % g,
+           "- conflicts / halts: '%(lit_conflict)s' (the node keeps its record) / '%(lit_conflict_halt)s'; re-certify "
+           "conflicts: '%(lit_recert_conflict)s' lines, and of them those with %(f_stop)s=true (the node stops)." % g,
+           "", "Every node a record: %s." % doc["epoch_records_reading"], "",
+           "| node | epochs published (by branch) | without a record | re-certify rounds | certified: kept votes / "
+           "peer | re-armed | walks | short rounds: no quorum / already certified | conflicts / halts | re-certify "
+           "conflicts (stop) |", "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for n, e in doc["epoch_records_by_node"].items():
+        out.append("| %s | %s (%s) | %s | %s | %s / %s | %s | %s | %s / %s | %s / %s | %s (%s) |" % (
+            n, e["epochs_published"], dict_cell(e["published_by_branch"]),
+            ", ".join(str(x) for x in e["epochs_without_record"]) or "none", e["recertify_rounds"],
+            e["certified_from_kept_votes"], e["certs_from_peer"], e["recertify_rearmed"], e["walks_past_uncertified"],
+            e["rounds_short"], e["rounds_short_certified"], e["conflicts"], e["conflict_halts"],
+            e["recertify_conflicts"], e["recertify_stops"]))
+    out += ["", "Fail-stop lines over all nodes (tasks/bench7-contract.md section 4; the re-certify conflict only with "
+            "%s=true; 0 expected): %s; nodes with any: %s." % (
+                F["f_stop"], "; ".join("'%s' %d" % (k, v) for k, v in doc["fail_stops"].items()),
+                dict_cell(doc["fail_stop_nodes"])),
+            ("No '%s' line on any node (a benchmark image has none)." % F["lit_hook"]) if not doc["test_hook_lines"] else
+            "%d '%s' lines (%s): this image ran a test hook; a benchmark image must have none." % (
+                doc["test_hook_lines"], F["lit_hook"], dict_cell(doc["test_hook_nodes"])), ""]
+    return out
+
+
 def to_markdown(doc, rows, drift, axis):
     out = ["# Arms summary: %s" % doc["run_name"], ""]
     for s in doc["notes"]:
@@ -2014,6 +2429,9 @@ def to_markdown(doc, rows, drift, axis):
     if vote_path:       # bench 7: the vote lines carry prelock_wait_ms
         out += [VOTE_LEGEND % dict((k, F[k]) for k in ("msg_vote", "f_prelock_ms", "f_total_ms", "f_lock_ms",
                                                        "v_behind", "v_superseded")), ""]
+    hold = any("order_hold_fleet" in r["m"] for r in rows)
+    if hold:            # bench 7: the order hold and the vote fix's forms, per validator
+        out += hold_legend()
     for r in rows:
         m = r["m"]
         groups = m.get("by_disk_class") or []
@@ -2084,12 +2502,18 @@ def to_markdown(doc, rows, drift, axis):
                 m["commit_fit"] if is_na(m["commit_fit"]) else "a %.4f s + b %s s per 1k txs + c %.4f s/min, r2 %s, n %d" % (
                     m["commit_fit"]["a_s"], cell(m["commit_fit"]["b_s_per_1k_txs"]), m["commit_fit"]["c_s_per_min"],
                     m["commit_fit"]["r2"], m["commit_fit"]["n"])), ""]
+        if hold:
+            out += ["Order hold and vote fix forms:"] + hold_tables(m) + [""]
+    if "epoch_records_by_node" in doc:
+        out += epoch_section(doc)
     return "\n".join(out)
 
 
 # ---------------------------------------------------------------- driver
 
-def run_cert(cr, files_by_node, validators, rows):
+def run_cert(cr, files_by_node, validators, rows, formed=None):
+    """cert-rate.py's per-window figures by row id; <formed>, when given, gets each validator's own certificates
+    {(epoch, round)} as cert-rate.py read them ('quorum reached'), for the bench-7 certified share by policy."""
     nodes = []
     for n in validators:
         if not files_by_node.get(n):
@@ -2099,6 +2523,8 @@ def run_cert(cr, files_by_node, validators, rows):
             node.read(p)
         node.finish(None)
         nodes.append(node)
+        if formed is not None:
+            formed[n] = set((e, r) for _, e, r in node.formed)
     if not nodes:
         return {}
     doc = cr.report(nodes, [(r["row_id"], r["from"], r["to"]) for r in rows], [])
@@ -2192,7 +2618,8 @@ def summarize(a):
             x.update(y)
     if manifest.get(F["m_arms"]) and evidence != "manifest":    # a run without param_arms[] has no state to read
         notes.append(switch_list_note(list_name, evidence))
-    cert_doc = run_cert(cr, files_by_node, validators, rows)
+    formed = {}
+    cert_doc = run_cert(cr, files_by_node, validators, rows, formed)
     groups = blast_groups(run_dir, manifest)
     stage_doc = {}
     if not a.no_stages:
@@ -2207,7 +2634,7 @@ def summarize(a):
     caps = disk_caps(manifest, a.disk_iops, a.disk_mibps)
     groups = node_groups(manifest, nodes)
     stores = measure(run_dir, manifest, rows, nds, validators, os.path.join(run_dir, "persist"), cert_doc, stage_doc,
-                     blocks, a.drift_axis, caps, groups)
+                     blocks, a.drift_axis, caps, groups, formed)
     drift = apply_drift(rows)
     apply_checks(rows)
     for x in arms:
@@ -2238,6 +2665,9 @@ def summarize(a):
         doc["store_by_node"] = stores
     if any(c == F["v_lssd"] for c, _ in groups.values()):
         doc["disk_caps_by_node"] = collections.OrderedDict((n, node_caps(caps, groups, n)) for n in groups)
+    if hold_logged(nds, validators):     # bench 7: the epoch records, the fail-stop and test-hook lines, whole run
+        doc["epoch_records_by_node"], doc["epoch_records_reading"] = epoch_rows(nds)
+        doc["fail_stops"], doc["fail_stop_nodes"], doc["test_hook_lines"], doc["test_hook_nodes"] = fail_stop_counts(nds)
     return (doc, to_markdown(doc, rows, drift, a.drift_axis)), 0
 
 

@@ -476,6 +476,108 @@ def make_bench7_run(root, recorded=True, line_keys=None, **kw):
     return run
 
 
+# ---- bench7 HB-5b: the order hold, the vote fix's forms, epoch records, fail-stops ----
+# The bench-7 node's lines (tasks/bench7-contract.md 2.1-2.7, section 4), in the node's logfmt.
+HDR7 = ('ts={ts} level=info target=consensus::metrics message="header proposed" round={round} epoch={epoch} '
+        'num_batches={nb} num_parents=4 created_at_ms=1 reason={reason} digests=[] oldest_digest_wait_ms=0 requeued=0 '
+        'oldest_requeue_wait_ms=0 pending_before=0 exec_block={eb} exec_tip={et} exec_basis={basis} exec_policy={pol} '
+        'own_parent={op} held={held} held_lanes={lanes} blockers={lanes}')
+QUORUM7 = ('ts={ts} level=info target=primary::certifier message="quorum reached" round={round} epoch={epoch} '
+           'voting_power=3 quorum_threshold=3 num_votes=3')
+RESENT7 = ('ts={ts} level=info target=consensus::metrics message="digests resent" count={count} from_round=99 '
+           'round=101 cause={cause} out_of_order={ooo}')
+OOO_WARN7 = ('ts={ts} level=warn target=primary::proposer message="digests re-queued out of order under the order hold" '
+             'count=3 from_round=100 round=103 cause=canceled out_of_order=2')
+STOP7 = ('ts={ts} level=info target=consensus::metrics message="proposer stopped" epoch={epoch} round=108 '
+         'queued_digests={q} proposed_uncommitted=2 uncommitted_digests={u} in_flight_digests={f}')
+DROP7 = ('ts={ts} level=debug target=primary::certifier message="uncertified own header report dropped" round=107 '
+         'digest=0xab reason=shutdown')
+EM = 'ts={ts} level={level} target=epoch-manager message="{msg}"{fields}'
+# v01's own headers in a0's M16 (600-1080): (t, round, epoch, num_batches, own_parent, held, reason, policy, basis, lag)
+HOLD_V01 = [(610.0, 100, 3, 2, "true", 0, "max_delay", "always", "quorum", 10),
+            (611.0, 101, 3, 0, "false", 3, "min_delay", "always", "floor", 21),   # h1 -> h2: own_parent=false
+            (612.5, 102, 3, 0, "true", 5, "min_delay", "always", "quorum", 7),
+            (613.0, 103, 3, 1, "true", 0, "min_delay", "always", "tip", 0),       # releases run 1 (2 headers, 2.0 s)
+            (614.0, 105, 3, 3, "true", 0, "max_delay", "starved", "quorum", 0),   # h4 -> h5: a skipped round
+            (615.0, 106, 3, 1, "true", 2, "min_delay", "starved", "quorum", 0),   # h5 -> h6: no blocker
+            (618.0, 107, 3, 0, "false", 4, "min_delay", "starved", "floor", 0),   # h6 -> h7: own_parent=false
+            (619.0, 108, 3, 1, "true", 0, "min_delay", "starved", "tip", 0),      # releases run 2 (2 headers, 4.0 s)
+            (640.0, 1, 4, 1, "false", 0, "min_delay", "tip", "tip", 0),           # h8 -> h9: another epoch, not judged
+            (641.0, 2, 4, 0, "true", 6, "min_delay", "tip", "tip", 0)]            # run 3 open at the end (1, 0.0 s)
+V01_CERTIFIED = ((3, 100), (3, 101), (3, 103), (3, 106), (3, 107), (4, 1), (3, 999))
+
+
+def make_hold_run(root, own_parent=True):
+    """make_bench7_run() with two validators: v01 holds (HOLD_V01, an out-of-order re-queue, its warning, two proposer
+    stops, a dropped report, epoch-record conflicts, a fork line), v02 is clean (ten batch-carrying headers 2 s apart,
+    every one certified; no record for epoch 3; a conflict halt, a re-certify stop and a test-hook line). Without
+    <own_parent> the 'header proposed' lines lack the bench-7 fields (a bench-6 build) and every other line stays."""
+    run = make_bench7_run(root)
+    man = json.loads((run / "manifest.json").read_text())
+    man["instances"] = [i for i in man["instances"] if i["name"] in VALIDATORS[:2]]
+    (run / "manifest.json").write_text(json.dumps(man))
+    for node in VALIDATORS[2:]:
+        (run / "logs" / (node + "-unit-stdout.log.gz")).unlink()
+    hdrs = {VALIDATORS[0]: HOLD_V01,
+            VALIDATORS[1]: [(700.0 + 2 * k, 200 + k, 3, 1, "true", 0, "min_delay", "always", "quorum", 0)
+                            for k in range(10)]}
+    certified = {VALIDATORS[0]: V01_CERTIFIED, VALIDATORS[1]: tuple((3, 200 + k) for k in range(10))}
+
+    def em(t, msg, fields="", level="info"):
+        return EM.format(ts=stamp(t), level=level, msg=msg, fields=fields)
+    pub = lambda t, e, br: em(t, "epoch record published", " epoch=%d final_state_number=10 final_state_hash=0x1 "
+                              "final_consensus_number=5 final_consensus_hash=0x2 digest=0x3 branch=%s" % (e, br))
+    recert = (" epoch=1 digest=0x3 certified_digest=0x4 signers=%d committee=4 needed=3 peer=16Uiu2 halt=true "
+              "stop=%s")
+    extra = {VALIDATORS[0]: [
+        RESENT7.format(ts=stamp(611.2), count=4, cause="canceled", ooo=1),
+        RESENT7.format(ts=stamp(620.0), count=2, cause="committed", ooo=0),
+        RESENT7.format(ts=stamp(621.0), count=3, cause="canceled", ooo=2),
+        RESENT7.format(ts=stamp(2500.0), count=50, cause="canceled", ooo=50),        # p1/M16's window
+        OOO_WARN7.format(ts=stamp(621.0)),
+        STOP7.format(ts=stamp(630.0), epoch=3, q=7, u=5, f=1), STOP7.format(ts=stamp(650.0), epoch=4, q=3, u=9, f=0),
+        DROP7.format(ts=stamp(630.5)),
+        pub(100, 1, "built"), pub(1500, 2, "built"), pub(2000, 3, "stored_matched"),
+        em(1510, "epoch record re-certify round", " epoch=1 digest=0x3 retained=2 needed=3"),
+        em(1511, "epoch record certified from kept votes", " epoch=1 digest=0x3 signers=3"),
+        em(1512, "retrieved cert for epoch 1: 0x3 from a peer", " peer=16Uiu2 signers=4"),
+        em(1513, "epoch record collector walking past an uncertified epoch", " epoch=1 gaps=1"),
+        em(1514, "failed to reach quorum on epoch close for 0x3 EpochRecord", " signers=2 timeouts=1 missing=[x]",
+           "error"),
+        em(1515, "epoch vote round ended without a local quorum; the record is already certified",
+           " epoch=2 digest=0x5 signers=2 cert_signers=3 timeouts=1 missing=[x]"),
+        em(1516, "epoch record conflict: this node\\'s stored record of epoch 1 differs from a record certified by 2 "
+                 "of the 4 members of the committee the record before it names; this node keeps its own record",
+           " epoch=1", "error"),
+        em(1517, "own epoch record differs from a certified record in a re-certify round", recert % (2, "false"),
+           "error"),
+        em(1518, "Network came to consensus on epoch record 0x4 we expected epoch record 0x3, we have forked!",
+           "", "error")],
+        VALIDATORS[1]: [
+        RESENT7.format(ts=stamp(705.0), count=1, cause="committed", ooo=0),
+        STOP7.format(ts=stamp(730.0), epoch=3, q=0, u=0, f=0),
+        pub(101, 1, "built"), pub(1501, 2, "built"),
+        em(1600, "epoch record conflict halt: this node\\'s stored record of epoch 1 differs from a record certified "
+                 "by 3 of the 4 members of the committee the record before it names; this node stops; do not delete "
+                 "its chain data before the cause is known", " epoch=1", "error"),
+        em(1601, "own epoch record differs from a certified record in a re-certify round", recert % (3, "true"),
+           "error"),
+        em(1602, "test hook: withholding own epoch vote", " epoch=2 round=1")]}
+    for node in VALIDATORS[:2]:
+        log = run / "logs" / (node + "-unit-stdout.log.gz")
+        lines = [l for l in gzip.decompress(log.read_bytes()).decode().split("\n")
+                 if l and "header proposed" not in l and "quorum reached" not in l]
+        for t, rnd, ep, nb, op, held, reason, pol, basis, lag in hdrs[node]:
+            line = HDR7.format(ts=stamp(t), round=rnd, epoch=ep, nb=nb, reason=reason, eb=500 - lag, et=500,
+                               basis=basis, pol=pol, op=op, held=held, lanes=1 if held else 0)
+            lines.append(line if own_parent else line[:line.index(" own_parent=")])
+        lines += [QUORUM7.format(ts=stamp(1000 + k), round=r, epoch=e) for k, (e, r) in enumerate(certified[node])]
+        lines += extra[node]
+        lines.sort()
+        log.write_bytes(gzip.compress(("\n".join(lines) + "\n").encode()))
+    return run
+
+
 def nearest_rank(xs, q):
     """The tool's percentile: the nearest rank (ceil(q x n), 1-based) of the sorted values."""
     xs = sorted(xs)
@@ -1370,6 +1472,115 @@ class ArmsSummaryTests(unittest.TestCase):
         nd = mod.NodeData("bench-validator-01", [(T0, T0 + 10)])
         nd.read(str(log), False)
         self.assertEqual([x[4:] for x in nd.votes], [("created", 5, 5, None), ("superseded", 7, 1017, 1000)])
+
+    # ---- bench7 HB-5b: the order hold, the vote fix's forms, epoch records, fail-stops ----
+    def test_the_order_hold_per_validator(self):
+        """Bench 7, a0's M16 (600-1080): v01's headers (HOLD_V01) and v02's clean ones, every figure by hand. Judged
+        pairs on v01: h1->h2 (own_parent=false), h4->h5 (round 103 -> 105), h6->h7 (own_parent=false) create a
+        blocker, h5->h6 and h9->h10 do not, h8->h9 crosses into epoch 4 and is not judged: 3 of 5. Held runs: h2-h3
+        released by h4 (2 headers, 613.0 - 611.0 s), h6-h7 released by h8 (2, 4.0 s), h10 open at the end (1, 0.0 s).
+        Intervals inside an epoch, to a held header 1000, 1500, 1000, 3000, 1000 ms; to a free one 500, 1000, 1000 ms;
+        v02's nine 2000 ms. The re-queue at 2500 s is in another row's window (p1/M16)."""
+        doc, md = self.summary(make_hold_run(self.tmp), "--no-stages")
+        row = self.rows(doc)["a0/M16"]
+        na_run = "n/a (missing: headers with held > 0)"
+        v01 = {"headers": 10, "headers_with_batches": 6, "blocker_pairs": 5, "blockers_created": 3,
+               "blocker_created_pct": 60.0, "held_headers": 5, "held_max": 6, "held_no_batches": 4, "held_runs": 3,
+               "held_run_max_headers": 2, "held_run_median_headers": 2, "held_run_max_s": 4.0, "held_run_median_s": 2.0,
+               "digests_requeued": 9, "requeued_out_of_order": {"canceled": 3, "committed": 0},
+               "out_of_order_warnings": 1, "interval_held_p50_ms": 1000.0, "interval_held_p95_ms": 3000.0,
+               "interval_free_p50_ms": 1000.0, "interval_free_p95_ms": 1000.0, "stops": 2,
+               "stop_queued_digests_max": 7, "stop_uncommitted_digests_max": 9, "stop_in_flight_digests_max": 1,
+               "reports_dropped": {"shutdown": 1}, "reasons": {"max_delay": 2, "min_delay": 8}}
+        no_held = "n/a (missing: two consecutive 'header proposed' lines, the second with held > 0)"
+        v02 = {"headers": 10, "headers_with_batches": 10, "blocker_pairs": 9, "blockers_created": 0,
+               "blocker_created_pct": 0.0, "held_headers": 0, "held_max": 0, "held_no_batches": 0, "held_runs": 0,
+               "held_run_max_headers": na_run, "held_run_median_headers": na_run, "held_run_max_s": na_run,
+               "held_run_median_s": na_run, "digests_requeued": 1, "requeued_out_of_order": {"committed": 0},
+               "out_of_order_warnings": 0, "interval_held_p50_ms": no_held, "interval_held_p95_ms": no_held,
+               "interval_free_p50_ms": 2000.0, "interval_free_p95_ms": 2000.0, "stops": 1,
+               "stop_queued_digests_max": 0, "stop_uncommitted_digests_max": 0, "stop_in_flight_digests_max": 0,
+               "reports_dropped": {}, "reasons": {"min_delay": 10}}
+        self.assertEqual(row["order_hold_by_node"], {"bench-validator-01": v01, "bench-validator-02": v02})
+        fleet = {"headers": 20, "headers_with_batches": 16, "blocker_pairs": 14, "blockers_created": 3,
+                 "held_headers": 5, "held_no_batches": 4, "held_runs": 3, "digests_requeued": 10,
+                 "out_of_order_warnings": 1, "stops": 3, "blocker_created_pct": 21.4, "held_max": 6,
+                 "held_run_max_headers": 2, "held_run_median_headers": 2, "held_run_max_s": 4.0, "held_run_median_s": 2.0,
+                 "requeued_out_of_order": {"canceled": 3, "committed": 0}, "interval_held_p50_ms": 1000.0,
+                 "interval_held_p95_ms": 3000.0, "interval_free_p50_ms": 2000.0, "interval_free_p95_ms": 2000.0,
+                 "stop_queued_digests_max": 7, "stop_uncommitted_digests_max": 9, "stop_in_flight_digests_max": 1,
+                 "reports_dropped": {"shutdown": 1}, "reasons": {"max_delay": 2, "min_delay": 18}}
+        self.assertEqual(row["order_hold_fleet"], fleet)
+        self.assertIn("| bench-validator-01 | 10 | 6 | 60.0 (3 / 5) | 5 | 4 | 6 | 2 / 2 | 4.000 / 2.000 | 9 (canceled 3, "
+                      "committed 0) | 1 | 1,000.0 / 3,000.0 | 1,000.0 / 1,000.0 | 7 / 9 / 1 | shutdown 1 | max_delay 2, "
+                      "min_delay 8 |\n", md)
+        self.assertIn("| fleet | 20 | 16 | 21.4 (3 / 14) | 5 | 4 | 6 | 2 / 2 | 4.000 / 2.000 | 10 (canceled 3, committed 0) "
+                      "| 1 | 1,000.0 / 3,000.0 | 2,000.0 / 2,000.0 | 7 / 9 / 1 | shutdown 1 | max_delay 2, min_delay 18 |\n", md)
+        self.assertIn("- re-queued (out of order): digests re-queued (count on 'digests resent') and, by cause, those that "
+                      "came back behind a newer digest of their lane (out_of_order): counted per re-queue event at the "
+                      "proposer, not a confirmed execution inversion.\n", md)
+        self.assertEqual(md.count("Order hold (bench 7; per row"), 1)
+
+    def test_the_vote_fix_forms_per_validator(self):
+        """Bench 7: headers by exec_policy and exec_basis, the largest exec_tip - exec_block, and per policy the share
+        whose (epoch, round) is among the node's own certificates as cert-rate.py read them (v01: always 3 of 4,
+        starved 2 of 4, tip 1 of 2; v02 10 of 10); the fleet's policy share is bench 6's exec_policy_pct."""
+        doc, md = self.summary(make_hold_run(self.tmp), "--no-stages")
+        row = self.rows(doc)["a0/M16"]
+        self.assertEqual(row["vote_forms_by_node"], {
+            "bench-validator-01": {"headers": 10, "exec_policy_pct": {"always": 40.0, "starved": 40.0, "tip": 20.0},
+                                   "exec_basis_pct": {"floor": 20.0, "quorum": 40.0, "tip": 40.0}, "exec_lag_max": 21,
+                                   "certified_by_policy_pct": {"always": 75.0, "starved": 50.0, "tip": 50.0}},
+            "bench-validator-02": {"headers": 10, "exec_policy_pct": {"always": 100.0}, "exec_basis_pct": {"quorum": 100.0},
+                                   "exec_lag_max": 0, "certified_by_policy_pct": {"always": 100.0}}})
+        self.assertEqual((row["exec_policy_pct"], row["exec_basis_pct"], row["exec_lag_max"],
+                          row["certified_by_policy_pct"]),
+                         ({"always": 70.0, "starved": 20.0, "tip": 10.0}, {"floor": 10.0, "quorum": 70.0, "tip": 20.0}, 21,
+                          {"always": 92.9, "starved": 50.0, "tip": 50.0}))
+        self.assertIn("| fleet | 20 | always 70.0, starved 20.0, tip 10.0 | floor 10.0, quorum 70.0, tip 20.0 | 21 | always "
+                      "92.9, starved 50.0, tip 50.0 |\n", md)
+
+    def test_epoch_records_fail_stops_and_hooks(self):
+        """Bench 7, whole run, every node: records by branch, the closed epoch v02 has no record for, the re-certify,
+        walk, short-round and conflict lines; the fail-stop phrases over all nodes (v01's re-certify conflict with
+        stop=false is not one, v02's with stop=true is); the test-hook line."""
+        doc, md = self.summary(make_hold_run(self.tmp), "--no-stages")
+        zero = dict.fromkeys(("recertify_rounds", "certified_from_kept_votes", "certs_from_peer", "recertify_rearmed",
+                              "walks_past_uncertified", "rounds_short", "rounds_short_certified", "conflicts",
+                              "conflict_halts", "recertify_conflicts", "recertify_stops"), 0)
+        v01 = dict(zero, epochs_published=3, published_by_branch={"built": 2, "stored_matched": 1}, recertify_rounds=1,
+                   certified_from_kept_votes=1, certs_from_peer=1, walks_past_uncertified=1, rounds_short=1,
+                   rounds_short_certified=1, conflicts=1, recertify_conflicts=1, epochs_without_record=[])
+        v02 = dict(zero, epochs_published=2, published_by_branch={"built": 2}, conflict_halts=1, recertify_conflicts=1,
+                   recertify_stops=1, epochs_without_record=[3])
+        self.assertEqual(doc["epoch_records_by_node"], {"bench-validator-01": v01, "bench-validator-02": v02})
+        self.assertEqual(doc["epoch_records_reading"], "3 closed epochs (1 to 3, any node's 'epoch record published'); "
+                                                       "without a record of its own: bench-validator-02 (3)")
+        stops = [0] * 10
+        stops[2] = stops[3] = stops[4] = 1          # the conflict halt, the re-certify stop, the fork
+        self.assertEqual(list(doc["fail_stops"].values()), stops)
+        self.assertEqual(list(doc["fail_stops"])[3], "own epoch record differs from a certified record in a re-certify round")
+        self.assertEqual((doc["fail_stop_nodes"], doc["test_hook_lines"], doc["test_hook_nodes"]),
+                         ({"bench-validator-01": 1, "bench-validator-02": 2}, 1, {"bench-validator-02": 1}))
+        self.assertIn("| bench-validator-02 | 2 (built 2) | 3 | 0 | 0 / 0 | 0 | 0 | 0 / 0 | 0 / 1 | 1 (1) |\n", md)
+        self.assertIn("'epoch record conflict halt:' 1; 'own epoch record differs from a certified record in a re-certify "
+                      "round' 1; 'we have forked!' 1; ", md)
+        self.assertIn("1 'test hook:' lines (bench-validator-02 1): this image ran a test hook; a benchmark image must "
+                      "have none.\n", md)
+
+    def test_a_run_whose_headers_lack_the_hold_fields_gets_no_new_block(self):
+        """The same lines with 'header proposed' cut before own_parent (a bench-6 build): no new key on a row or the
+        document and no new text, though the epoch-record, fail-stop and test-hook lines are there."""
+        doc, md = self.summary(make_hold_run(self.tmp, own_parent=False), "--no-stages")
+        for row in doc["summary_rows"]:
+            for k in ("order_hold_by_node", "order_hold_fleet", "vote_forms_by_node", "exec_basis_pct", "exec_lag_max",
+                      "certified_by_policy_pct"):
+                self.assertNotIn(k, row)
+        for k in ("epoch_records_by_node", "epoch_records_reading", "fail_stops", "fail_stop_nodes", "test_hook_lines",
+                  "test_hook_nodes"):
+            self.assertNotIn(k, doc)
+        for text in ("Order hold", "Vote fix forms", "Epoch records", "Fail-stop", "test hook"):
+            self.assertNotIn(text, md)
 
 
 class ArmWindowToolsTests(unittest.TestCase):

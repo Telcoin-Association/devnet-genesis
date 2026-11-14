@@ -43,10 +43,12 @@ INVENTORY="${OUT_DIR}/${HOST}.epochs.txt"
 # halt=: lines carrying one of the build's fail-stop phrases (tasks/bench7-contract.md section 4: the
 # stored-record mismatch, the closing-block check, the conflict halt, the leftover-drain gap, the fork
 # and the startup refusal of a vote_timeout), counted over the unit's log files from their start and
-# kept across status lines, apart from fatal_db. The files outlive the container: `docker run --rm`
-# removes a halted node's container, and its log with it, within seconds. Each status line reads on
-# from where the last one stopped; when logrotate's copytruncate has cut a file, the unread end is in
-# <file>.1. Only when no file is readable does it read the container log since the last status line.
+# kept across status lines, apart from fatal_db. The seventh stop is the re-certify round's conflict:
+# its line counts only with the field stop=true (stop=false only reports). The files outlive the
+# container: `docker run --rm` removes a halted node's container, and its log with it, within seconds.
+# Each status line reads on from where the last one stopped; when logrotate's copytruncate has cut a
+# file, the unread end is in <file>.1. Only when no file is readable does it read the container log
+# since the last status line.
 # The node writes an apostrophe as \', so a phrase stops before one; no phrase may hold a quote.
 HALT_PHRASES='stored epoch record final_state does not match this node
 epoch record final_state is not the block where the epoch-closing calls ran
@@ -54,6 +56,7 @@ epoch record conflict halt:
 leftover consensus output does not follow the last output forwarded to the engine
 we have forked!
 must stay below the libp2p request timeout'
+HALT_RECERTIFY='own epoch record differs from a certified record in a re-certify round'
 NODE_LOGS="${SAMPLER_NODE_LOGS:-/var/log/telcoin/telcoin.log /var/log/telcoin/telcoin-error.log}"
 halt=0
 halt_offs=()
@@ -106,8 +109,11 @@ block_number() {
     [ -n "${hex}" ] && printf '%d' "0x${hex}"
 }
 
-# halt_count — the lines on stdin that carry a halt phrase.
-halt_count() { grep -c -F -e "${HALT_PHRASES}" || true; }
+# halt_count — the lines on stdin that carry a halt phrase, or the re-certify conflict with stop=true.
+halt_count() {
+    { grep -F -e "${HALT_PHRASES}" -e "${HALT_RECERTIFY}" || true; } \
+        | awk -v r="${HALT_RECERTIFY}" 'index($0, r) == 0 || / stop=true$/ || / stop=true / { c++ } END { print c + 0 }'
+}
 
 # halt_scan <since> — adds to halt the halt lines logged since the last scan.
 halt_scan() {

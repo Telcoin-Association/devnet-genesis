@@ -1049,6 +1049,28 @@ class SamplerHaltTests(unittest.TestCase):
         line = self.sample({"telcoin.log": "noise\n"}, docker_text=self.HALTS[2] + "\n")[0]
         self.assertEqual(self.field(line, "halt"), ["0"])
 
+    # ---- bench7 re-certify stop (HB-5b) ----
+    RECERTIFY = ("ts=2026-11-14T20:00:03Z level=error target=epoch-manager message=\"own epoch record differs from a "
+                 "certified record in a re-certify round\" epoch=3 digest=0xab certified_digest=0xcd signers=%d "
+                 "committee=10 needed=7 peer=16Uiu2HAm halt=%s stop=%s%s")
+
+    def test_a_recertify_conflict_counts_only_with_stop_true(self):
+        stop = self.RECERTIFY % (7, "true", "true", "")
+        stop_mid = self.RECERTIFY % (7, "true", "true", " span=epoch")
+        report = self.RECERTIFY % (3, "true", "false", "")
+        report_off = self.RECERTIFY % (7, "false", "false", "")
+        for text, want in ((stop, "1"), (stop_mid, "1"), (report, "0"), (report_off, "0")):
+            with self.subTest(line=text[-40:]):
+                line = self.sample({"telcoin.log": "noise\n" + text + "\n"}, docker_text=text + "\n")[0]
+                self.assertEqual((self.field(line, "halt"), self.field(line, "fatal_db")), ([want], ["0"]), line)
+        # stop=true without the message is not a halt; the reports and a stop add up with the other six phrases
+        other = "ts=2026-11-14T20:00:04Z level=info target=epoch-manager message=\"node stopped\" stop=true"
+        line = self.sample({"telcoin.log": "\n".join([report, other, self.HALTS[4], stop, report_off]) + "\n"})[0]
+        self.assertEqual(self.field(line, "halt"), ["2"])
+        lines = self.sample({"telcoin.log": report + "\n", "telcoin-error.log": ""},
+                            rounds=[{"telcoin.log": stop + "\n"}, {"telcoin.log": report_off + "\n"}])
+        self.assertEqual([self.field(l, "halt")[0] for l in lines], ["0", "1", "1"])
+
 
 if __name__ == "__main__":
     unittest.main()

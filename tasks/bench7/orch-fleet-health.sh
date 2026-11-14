@@ -6,7 +6,8 @@
 # halt= sums the samplers' halt= (the build's fail-stop lines in each node's log since it began; a status line
 # without the key, from an older sampler, adds nothing); a node with halt > 0 is named on a
 # "FLEET_HEALTH HALTED <node>=<n> ..." line.
-#   tasks/bench7/orch-fleet-health.sh <run> [--watch <secs> --disk-max <pct> --until-file <segment log> --max-secs <n>]
+#   tasks/bench7/orch-fleet-health.sh <run> [--watch <secs> --disk-max <pct> --until-file <segment log> --max-secs <n>
+#                                            --halt-baseline <n>]
 # The instances are the run's manifest's (.zones_used), and each must belong to the run before it is read:
 # one `gcloud compute instances list` per round gives every bench instance's run label (bench-run=<run id>,
 # INSTANCE_LABELS in benchmark/config.sh). An instance of the same name with another run's label is
@@ -14,13 +15,16 @@
 # watch ends with "FLEET_HEALTH run=<run> gone <UTC>". A failed list call reads nothing that round
 # ("FLEET_HEALTH run=<run> list-failed <UTC>") and is never taken for a gone fleet.
 # With --watch it repeats every <secs> and ends:
-#   3 when a node's disk is at or above --disk-max [80], any fatal_db > 0 or any halt > 0 ("FLEET_HEALTH ALARM ...",
-#     naming the halted nodes);
+#   3 when a node's disk is at or above --disk-max [80], any fatal_db > 0 or the fleet's halt sum is above
+#     --halt-baseline [0] ("FLEET_HEALTH ALARM ...", naming the halted nodes);
 #   0 when the file named by --until-file holds a segment's end line, "== <segment> rc=" or
 #     "== <segment> LEFT_RUNNING " ("FLEET_HEALTH the walk ended (<that line>)"), or the fleet is gone;
 #   4 after --max-secs [10800] whatever else ("FLEET_HEALTH run=<run> max-secs=<n> reached <UTC>").
 # Without --watch: one round; exit 0, 3 (alarm), 4 (gone) or 5 (the list call failed).
 # A halt alarm is the run's finding, not a fault of the harness: the blast goes on (its abort reads fatal_db only).
+# A sampler's halt= never goes back down, so a watch restarted after a halt alarm passes the sum the alarm
+# printed as --halt-baseline: it alarms again only on a new halt line. FLEET_HEALTH and HALTED still print the
+# real sum and every node with halt > 0.
 # Knobs (environment): FLEET_HEALTH_ROOT (else CHAIN_ROOT, else the repo), FLEET_HEALTH_PROJECT,
 # FLEET_HEALTH_RUN_LABEL [bench-run].
 set -uo pipefail
@@ -30,18 +34,19 @@ PROJECT="${FLEET_HEALTH_PROJECT:-tn-devnet}"
 RUN_LABEL_KEY="${FLEET_HEALTH_RUN_LABEL:-bench-run}"
 utc() { date -u +%FT%TZ; }
 run="${1:?run id}"; shift
-watch=0; dmaxlim=80; until_file=""; max_secs=10800
+watch=0; dmaxlim=80; until_file=""; max_secs=10800; halt_base=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --watch) watch="${2:?}"; shift 2 ;;
         --disk-max) dmaxlim="${2:?}"; shift 2 ;;
         --until-file) until_file="${2:?}"; shift 2 ;;
         --max-secs) max_secs="${2:?}"; shift 2 ;;
+        --halt-baseline) halt_base="${2:?}"; shift 2 ;;
         *) echo "unknown argument $1" >&2; exit 64 ;;
     esac
 done
-for v in "${watch}" "${dmaxlim}" "${max_secs}"; do
-    case "${v}" in ''|*[!0-9]*) echo "--watch, --disk-max and --max-secs take whole numbers ('${v}')" >&2; exit 64 ;; esac
+for v in "${watch}" "${dmaxlim}" "${max_secs}" "${halt_base}"; do
+    case "${v}" in ''|*[!0-9]*) echo "--watch, --disk-max, --max-secs and --halt-baseline take whole numbers ('${v}')" >&2; exit 64 ;; esac
 done
 man="${ROOT}/benchmark/results/${run}/manifest.json"
 [ -f "${man}" ] || { echo "no manifest for ${run}" >&2; exit 2; }
@@ -90,7 +95,7 @@ once() {
     if [ "${ours}" = 0 ]; then echo "FLEET_HEALTH run=${run} gone $(utc)"; return 4; fi
     echo "FLEET_HEALTH run=${run} nodes=${n}/${m} disk_max=${dmax} (${dnode}) fatal_db=${fsum} halt=${hsum} block_min=${bmin:-?} block_max=${bmax:-?} $(utc)"
     if [ -n "${HALTED}" ]; then echo "FLEET_HEALTH HALTED ${HALTED} (fail-stop lines in the node log: node-sampler.sh halt=)"; fi
-    if [ "${fsum}" -gt 0 ] || [ "${hsum}" -gt 0 ] || [ "${dmax}" -ge "${dmaxlim}" ]; then return 3; fi
+    if [ "${fsum}" -gt 0 ] || [ "${hsum}" -gt "${halt_base}" ] || [ "${dmax}" -ge "${dmaxlim}" ]; then return 3; fi
     return 0
 }
 
@@ -107,7 +112,7 @@ stop_if_done() {
 if [ "${watch}" = 0 ]; then once; exit $?; fi
 while :; do
     once; rc=$?
-    [ "${rc}" != 3 ] || { echo "FLEET_HEALTH ALARM (disk >= ${dmaxlim} % or fatal_db > 0 or halt > 0)${HALTED:+ halted: ${HALTED}}"; exit 3; }
+    [ "${rc}" != 3 ] || { echo "FLEET_HEALTH ALARM (disk >= ${dmaxlim} % or fatal_db > 0 or halt > ${halt_base})${HALTED:+ halted: ${HALTED}}"; exit 3; }
     [ "${rc}" != 4 ] || exit 0
     stop_if_done
     left=$(( max_secs - ($(date +%s) - t0) ))

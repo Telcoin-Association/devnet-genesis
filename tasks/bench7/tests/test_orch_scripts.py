@@ -601,6 +601,37 @@ class TestWatch(SandboxCase):
         self.assertIn("  bench-validator-02: root_used_pct=20 fatal_db=0 halt=? block=100\n", out)
         self.assertIn(" fatal_db=0 halt=0 block_min=100 ", out)
 
+    # ---- bench7 halt baseline (HB-5b) ----
+    def test_a_restarted_watch_alarms_only_above_the_halt_baseline(self):
+        serial = {n: serial_line(n) for n in NODES}
+        serial["bench-validator-03"] = serial_line("bench-validator-03", halt=1)
+        serial["bench-validator-07"] = serial_line("bench-validator-07", halt=2)
+        self.sb.write_json("gcloud.json", gcloud_fleet(serial=serial))
+        halted = "FLEET_HEALTH HALTED bench-validator-03=1 bench-validator-07=2 ("
+        # at the baseline: the real sum and the halted nodes are printed, no alarm
+        rc, out = self.watch("--halt-baseline", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"(?m)^FLEET_HEALTH run=%s nodes=11/11 \S+ \(bench-validator-01\) fatal_db=0 halt=3 " % RUN)
+        self.assertIn(halted, out)
+        self.end_segment("== blast15 rc=0 2026-11-14T16:35:00Z")
+        rc, out = self.watch("--watch", "1", "--max-secs", "20", "--until-file", self.until, "--halt-baseline", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("ALARM", out)
+        self.assertIn(halted, out)
+        self.assertIn("FLEET_HEALTH the walk ended (", out)
+        # one new halt line above the baseline alarms again
+        rc, out = self.watch("--watch", "1", "--max-secs", "20", "--until-file", self.until, "--halt-baseline", "2")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("FLEET_HEALTH ALARM (disk >= 80 % or fatal_db > 0 or halt > 2) halted: bench-validator-03=1 "
+                      "bench-validator-07=2\n", out)
+        # the baseline never hides the other alarms
+        serial["bench-validator-04"] = serial_line("bench-validator-04", fatal=1)
+        self.sb.write_json("gcloud.json", gcloud_fleet(serial=serial))
+        rc, out = self.watch("--halt-baseline", "9")
+        self.assertEqual(rc, 3, out)
+        rc, out = self.watch("--halt-baseline", "x")
+        self.assertEqual(rc, 64, out)
+
 
 # ---- orch-prom-export.py -----------------------------------------------------------------------------
 
