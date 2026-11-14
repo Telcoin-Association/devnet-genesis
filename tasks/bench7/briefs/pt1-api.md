@@ -18,7 +18,8 @@ Library items live in `crates/e2e-tests/src/lib.rs` (`use e2e_tests::{...}`); st
 - `TN_E2E_PARAMETERS='key: value; key: value'`: entries split on `;`, each split at its first `:`, key and value trimmed, empty entries skipped, unset or blank = no entries.
 - A value cannot hold `;`; it may hold `:` and spaces (`nested: {x: 1}`).
 - Merged into every node a start helper starts (validators, restarts, observers, `spawn_local_testnet`), before the test's own `FleetOverrides`.
-- A malformed list, or a merged file the node's loader refuses, fails the start with an error naming the variable.
+- A malformed or non-unicode value, or a merged file the node's loader refuses, fails the start with an error naming the variable.
+- Restarting a node through a helper that takes no fleet drops its own entries and variables (the fleet-wide ones stay); restart a node whose overrides matter with the same fleet.
 - Not covered: nodes a test spawns with its own `bin.command()` (`epochs.rs` `test_epoch_observer_forwards_to_second_worker`) and the `db` subcommands.
 
 ## Start helpers (`tests/it/common.rs`, `pub(crate)`)
