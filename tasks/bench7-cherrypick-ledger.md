@@ -24,7 +24,7 @@ Kept by the orchestrator; a row is ticked when its head is assembled, formatted,
 | 00 | `feat/bench6-switches-obs` | switches, observability | 1-9, 20, 21, 22 = `b7/pt0` (12 commits) | **done: 8a42fec57** (= the unit branch; R-00 approved) |
 | 01 | `test/bench6-e2e-scaffold` | e2e scaffold | 10-14, 26, 27 = `b7/pt1` (7 commits, picked from the unit branch, no conflict) | **done: 9ef55c989** (fmt 0; e2e crate equal to the integration head's; check EXIT=0; 160 tests of the scaffold and config packages passed, EXIT=0; branch moved) |
 | 02 | `fix/1804-vote-queue` | `vote_queue_fix` (footer slug `voter-lock`) | af19b5354 (phase A's test), **b543f3a0d from the unit branch** (integration's d8fa97940 conflicts in `node.rs`), 932211375, 0db541464, af7159c58, 5e2197ce7, then the follow-ups f6b7b6666, d64f8b02a, 7c09db756 | **assembled: 6dae7520f** (M+28; fmt 0; topic files identical to integration's; check + tests running) |
-| 03 | `fix/epoch-record-closing-block-check` | closing-block check, no switch | 18, 19, 33 (NOT 42) | waits for 02 |
+| 03 | `fix/epoch-record-closing-block-check` | closing-block check, no switch | 0f7917f29, 14372820d (from integration, clean), **0ec490341 from the unit branch** (integration's d5944d1be conflicts in `close_epoch.rs`: the orphan counters' tests surround it there); NOT b10180cfc | **assembled: 8f7e4357a** (M+31; fmt 0; `close_epoch.rs` and `run_epoch.rs` identical to the unit branch's; gates queued behind head 02's) |
 | 04 | `fix/epoch-record-collector-hardening` | observability, walk, conflict halt, re-certify, hook, e2e | 15-17 (E2), 23-25 (E4), 43-44 (E3), 54-55 (E5a) + R-04's follow-ups + ECF + E5b | waits for R-04, ECF, E5b |
 | — | `fix/epoch-loop-output-drop` | main's output drop (no switch) | 45-47 + XF-1b's follow-ups (running) | after 04; its PR needs the user's word |
 | 05 | `fix/1804-quorum-exec-block` | both vote forms | 34-41 (PT-3a) + PT-3v + PT-3b + R-05's follow-ups | PR after bench 7 |
@@ -37,3 +37,5 @@ Order of topics that share a file (must hold in the stack as it held between the
 - 00: 8a42fec57, M+12. Gates: the unit's (PT-0) and R-00.
 - 01: 9ef55c989, M+19. fmt EXIT=0; `cargo check --locked --all-targets -p e2e-tests -p tn-config -p tn-node` EXIT=0; nextest `-p e2e-tests --lib -p tn-config` 160 passed, EXIT=0 (`tn-b7-stack/target/tmp/head01-9ef55c989.log`).
 - 02: 6dae7520f, M+28. fmt EXIT=0. Gates: `tn-b7-stack/target/tmp/head02-6dae7520f.log`.
+- 03: 8f7e4357a, M+31. fmt EXIT=0. Gates: `tn-b7-stack/target/tmp/head03-8f7e4357a.log`.
+- Rule added: the stack worktree is not moved while a gate runs in it unless the new commits touch none of the packages under test (head 03 was assembled while head 02's gate ran: it touches only `crates/node` and a README, and head 02's gate covers primary, config and network-libp2p).
