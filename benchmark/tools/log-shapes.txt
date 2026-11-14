@@ -51,3 +51,11 @@ parent grace armed
 batch digest already queued
 batch digest already reported
 kept sealed transactions in the pool
+# bench 7 node lines (tn-lmdb store; tools/arms-summary.py reads the first, its backend= names the engine): the
+# engine and the storage layout at open, then tn-lmdb's failure lines (an I/O error or damage latches every later
+# write and commit; the final sync at close)
+opening database
+reth datadir: storage layout
+keeps its storage layout
+every later write and commit fails
+the final sync failed

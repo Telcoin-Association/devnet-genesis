@@ -247,6 +247,10 @@ Counters (`_total`) are cumulative as the kernel reports them; `pid` changes at 
 | `mdbx_dat_size_bytes`, `mdbx_dat_resident_pages` | every 300 s, blank on the other rows: the size of `mdbx.dat` and its fincore resident pages |
 | `mdbx_dat_vma_bytes`, `mdbx_dat_rr_bytes` | every 300 s, blank on the other rows: the summed `Size` of the node's `mdbx.dat` mappings in `/proc/<pid>/smaps`, and the part whose `VmFlags` carry `rr` |
 | `mdbx_dat_resident_past_used_pages` | every 300 s, blank on the other rows and whenever the used size cannot be read: resident pages of `mdbx.dat` past the database's used size, which the sampler reads from the node's `tn_reth_mdbx_used_bytes` gauge (last column, added after the first freeze) |
+| `tn_lmdb_dat_size_bytes`, `tn_lmdb_dat_allocated_bytes` | bench 7 (storage v2), appended after the freeze; every row: the size of `db/tn-lmdb.dat` and its allocated bytes (`st_blocks` × 512). On a tn-lmdb node the five `mdbx_dat_*` cells stay empty; on an MDBX node these eight do |
+| `static_files_size_bytes`, `static_files_files_total` | bench 7, every row: the summed size and the count of the regular files under `static_files/` (reth's static files; on storage layout v2 the change sets and senders live there, not in the page file) |
+| `tn_lmdb_used_bytes` | bench 7, every row: `sum(reth_db_table_size)` + `reth_db_freelist` × `reth_db_page_size` from the node's metrics, the pages reth's tables and the free list hold (the node exports no exact used-size gauge for tn-lmdb) |
+| `tn_lmdb_dat_resident_pages`, `tn_lmdb_dat_vma_bytes`, `tn_lmdb_dat_rr_bytes` | bench 7, every 300 s, blank on the other rows: the fincore resident pages of `tn-lmdb.dat`, and the summed `Size` of the node's mappings of it in `/proc/<pid>/smaps` and the part whose `VmFlags` carry `rr`, as for `mdbx.dat` |
 
 No MDBX reader runs beside the node: page operations come from the node's own `persisted output` line and metrics, not from `mdbx_stat`.
 
@@ -356,3 +360,36 @@ So the new keys pass through make_bundle unchanged; what the readers should lear
 - `tools/cert-rate.py`, `tools/stage-latency.py`, `tools/block-rate.py` and `tools/propose-latency.py` read an arm window as `begin`/`start` to `end`; they should start it at `ready` when present, and may add `marks[]` as sub-windows.
 - `report/make_bundle.py` `consensus_block`: if deploy step 7 records the final arm (`via: "prestart"`), `arm_rows` puts it into the published run's `consensus.param_arms` rows; decide whether a headline run shows it.
 - `report/scrub.py`: no new rule as long as the remote archive record stays under `archive`.
+
+## Bench 7: the node build and the storage engine
+
+Added 2026-11-14 for bench 7 (upstream `main` from 45dce8947: storage v2 with tn-lmdb, the faucet guard).
+The same rules as above: additive, and a reader treats a missing field as "not recorded".
+Other units' scripts read `storage_engine` and must tolerate its absence (a run probed before bench 7).
+
+| name | status | meaning |
+|---|---|---|
+| `storage_engine` | new (bench 7) | `"tn-lmdb"` or `"mdbx"`, from the node image's own `--version` line `Reth Database: tn-lmdb` or `Reth Database: MDBX` (gate probe, `bench_node_probe_manifest`); `null` when the line is absent. Never read from the store. With `"tn-lmdb"`, deploy step 0 refuses `BENCH_NODE_EVICT_MDBX` (it targets `db/mdbx.dat`); `BENCH_NODE_DB_SYNC_MODE` stays valid (main maps `--db.sync-mode durable\|safe-no-sync` onto tn-lmdb) and `db_sync_mode` is recorded as before |
+| `node_probe.build_features` | new (bench 7) | the `--version` line `Build Features: <list>` as printed (`"faucet"` for the bench image); `null` when absent |
+| `node_probe.faucet_env` | new (bench 7) | the image's own `TN_ALLOW_FAUCET_ON_CHAIN` value (lower case), read only for a faucet build with the guard while `BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1`, which then requires a true value; `null` otherwise. Why the image must carry it: see "The faucet opt-in" below |
+| `node_startup[inst].node_build` | new (bench 7) | the node's startup line `node build: faucet=<bool> adiri=<bool> chain_id=<n> genesis_hash=<0x..>` (target `cli`) as `{faucet, adiri, chain_id, genesis_hash}`, read by deploy step 9 from the coordinated start (the container's `StartedAt`; the unit file's block after its last `starting` line when the container log rotated); `null` when no parsable line was found. Recorded only when the probed image carries the line (`node_probe.strings["node build: faucet="]` > 0) |
+| `node_build` | new (bench 7) | the one `node_startup[].node_build` every node recorded, after step 9; `null` (with a warning) when none did; step 9 stops when two nodes differ |
+| `reserved_ports` | new (bench 7) | the node's listener ports deploy step 7 reserved on every node before the staging start (`BENCH_NODE_RESERVE_PORTS=1`), as numbers in the order primary UDP, worker UDP, healthcheck TCP (the root `config.sh`'s `DEFAULT_PRIMARY_UDP_PORT`, `DEFAULT_WORKER_UDP_PORT`, `DEFAULT_HEALTHCHECK_TCP_PORT`); absent at 0 |
+| `node_startup[inst].reserve_ports` | new (bench 7) | that node's host step `reserve-ports`, as `bench_host_step_record` gives it: `{step: "reserve-ports", value: "<ports>", result: {ports_reserved_before, ports_reserved_after}}` (how many of the ports `net.ipv4.ip_local_reserved_ports` held before and after; step 7 stops unless after = all of them); absent at 0 |
+| `node_startup[inst].ip_local_reserved_ports` | new (bench 7) | the kernel's reserved list as the pre-start config read it (`/proc/sys/net/ipv4/ip_local_reserved_ports`, its `reserved=` field on the PRECFG_OK line), right before the coordinated start; the pre-start config fails the node when a reserved port is missing from it; absent at 0 |
+
+The PRECFG_OK line of the pre-start config gains ` faucet=allowed` when `BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1` (the bare `--allow-faucet-on-chain` is on the launch line and was read back).
+With `BENCH_NODE_RESERVE_PORTS=1` it also gains ` reserved=<the kernel's list>`.
+The reservation persists across a reboot of the VM: `/etc/sysctl.d/90-bench-reserved-ports.conf` holds the whole list (the kernel's entries plus the node's ports), and a second run of the step changes nothing.
+
+### The faucet opt-in
+
+The bench image is a `faucet` build, and a faucet build of main refuses every chain but adiri unless the operator opts in (#1716).
+A bench node starts twice in deploy step 7, and each start gets the opt-in a different way:
+
+1. The staging start (`devnet-finalize.sh --stage-only`) runs the launch line the v2 finalize writes, before the pre-start config exists, and its `docker run` passes the container none of the harness's variables.
+   Only the image's own environment reaches it, so the bench image is the upstream image plus one layer, `ENV TN_ALLOW_FAUCET_ON_CHAIN=true`.
+   The gate's image probe refuses a faucet build that has the guard (its binary names `TN_ALLOW_FAUCET_ON_CHAIN`) when the image's `Config.Env` does not set that variable to a true value (`1`, `true`, `yes`, `on`, `t`, `y`, any case), and names the fix; the value it read is `node_probe.faucet_env`.
+2. The coordinated start runs the launch line after the pre-start config, which puts the bare `--allow-faucet-on-chain` on it (`tn_launch_flag_set`) and reads it back, so that start does not depend on the image's environment.
+
+`BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=0` turns off both checks and the flag: the pre-start script is then byte-identical to bench 6's.

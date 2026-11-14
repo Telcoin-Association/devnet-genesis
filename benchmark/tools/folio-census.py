@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Folio-order census of one file's page cache that never faults a page of the file in.
+"""Folio-order census of a store's page cache that never faults a page of its files in.
 
-The bench-6 persist sampler (benchmark/node-persist-sampler.sh) runs it as root every 900 s against the
-node's mdbx.dat and appends the rows to <host>.folios.txt. Columns (frozen in
-benchmark/tools/folio-census-header.txt):
+The persist sampler (benchmark/node-persist-sampler.sh) runs it as root every 900 s against the node's
+execution store and appends the rows to <host>.folios.txt: on bench 7's tn-lmdb the page file
+db/tn-lmdb.dat with every file under static_files/ summed in (storage layout v2 keeps the change sets and
+senders there), on bench 6's MDBX db/mdbx.dat alone. Columns (frozen in
+benchmark/tools/folio-census-header.txt; the names are bench 6's, the figures are the census's targets):
 
     ts_unix,census_secs,mdbx_dat_size_bytes,mdbx_dat_resident_pages,unresolved_pages,
     folio_order,folios,dirty_folios,writeback_folios,active_folios
 
 One row per folio order found, orders ascending; ts_unix, census_secs, the size, resident and unresolved
-pages repeat on every row of one census. A census that resolves no folio (no resident page, or none it
-could resolve) writes one row with the five order columns empty, so every census leaves at least one row.
-A field that could not be read is empty.
+pages (sums over the targets) repeat on every row of one census, and the folio counts are the targets'
+sums. A census that resolves no folio (no resident page, or none it could resolve: the node down, no
+root) writes one row with the five order columns empty, so every census leaves at least one row; that
+row carries no folio data and a reader skips it (an empty folio_order means exactly that). A field that
+could not be read is empty; every other cell is a decimal number, so every row parses. The store file
+missing makes the row empty past census_secs, whatever the static files hold.
 
 How it reads the page cache without touching it:
 - Residency: mincore(2) on this process's own PROT_NONE, MAP_PRIVATE mapping of the file, one 1 GiB
@@ -39,10 +44,14 @@ shape): 0.45-0.48 s and 69 MB of memory (kpageflags is read whole, 8 bytes per f
 host has at most 32 GiB; otherwise in 4 KiB blocks on demand).
 
 Usage:
-    folio-census.py --file PATH [--pid PID] [--proc DIR] [--out FILE | --header] [--deadline-secs S]
-    folio-census.py --file PATH --resident-only [--from-bytes N]
+    folio-census.py (--file PATH [--static-dir DIR] | --data-dir DIR) [--pid PID] [--proc DIR]
+                    [--out FILE | --header] [--deadline-secs S]
+    folio-census.py (--file PATH | --data-dir DIR) --resident-only [--from-bytes N]
 
---out FILE appends the rows to FILE and writes the header first when FILE is new or empty (a FILE whose
+--file is the store's page file; --static-dir adds every regular file under DIR as a second target,
+summed into the same row. --data-dir picks them as the sampler does, by what the data dir holds:
+DIR/db/tn-lmdb.dat with DIR/static_files when it exists, else DIR/db/mdbx.dat alone (neither: the empty
+row). --resident-only counts the page file alone. --out FILE appends the rows to FILE and writes the header first when FILE is new or empty (a FILE whose
 first line is another header is moved aside to FILE.old-<ts>). Without --out the rows go to stdout,
 after the header when --header is given. --resident-only prints the number of resident pages (from byte
 --from-bytes on, rounded up to a page) and nothing else; an empty line and exit 1 when residency cannot
@@ -61,6 +70,11 @@ from itertools import compress
 
 HEADER = ("ts_unix,census_secs,mdbx_dat_size_bytes,mdbx_dat_resident_pages,unresolved_pages,"
           "folio_order,folios,dirty_folios,writeback_folios,active_folios")
+NCOLS = len(HEADER.split(","))
+ORDER_COL = HEADER.split(",").index("folio_order")
+CELL_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
+# The store's files under a node data dir: tn-lmdb's page file wins over MDBX's (a migrated datadir may keep both).
+LMDB_FILE, MDBX_FILE, STATIC_DIR = os.path.join("db", "tn-lmdb.dat"), os.path.join("db", "mdbx.dat"), "static_files"
 
 # /proc/kpageflags bits (include/uapi/linux/kernel-page-flags.h).
 KPF_DIRTY = 1 << 4
@@ -147,16 +161,23 @@ def residency(fd, size, ps, deadline=None):
     return out
 
 
-def writer_mappings(proc, pid, st, path, ps):
-    """[(vaddr_start, vaddr_end, first_file_page)] of the writer's mappings of the file, from its maps."""
+def maps_lines(proc, pid):
+    """The writer's /proc/<pid>/maps lines, or [] when they cannot be read."""
+    try:
+        with open(os.path.join(proc, str(pid), "maps")) as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+
+
+def writer_mappings(proc, pid, st, path, ps, lines=None):
+    """[(vaddr_start, vaddr_end, first_file_page)] of the writer's mappings of the file, from its maps
+    (lines: the maps already read, for a census of several files)."""
     maps = []
     suffix = "/" + os.path.basename(path)
     want_dev = (os.major(st.st_dev), os.minor(st.st_dev))
-    try:
-        with open(os.path.join(proc, str(pid), "maps")) as f:
-            lines = f.read().splitlines()
-    except OSError:
-        return maps
+    if lines is None:
+        lines = maps_lines(proc, pid)
     for line in lines:
         parts = line.split(None, 5)
         if len(parts) < 6:
@@ -360,51 +381,109 @@ def open_or_none(path):
         return None
 
 
-def census(path, pid, proc, deadline_secs):
-    """The rows (lists of strings) of one census of path."""
+def static_files(directory):
+    """Every regular file under directory (not a link), sorted; [] when it is absent or unreadable."""
+    out = []
+    for root, _dirs, files in os.walk(directory):
+        for name in files:
+            p = os.path.join(root, name)
+            if os.path.isfile(p) and not os.path.islink(p):
+                out.append(p)
+    return sorted(out)
+
+
+def store_targets(data_dir):
+    """(page file, [static files]) of a node data dir, picked by what it holds: tn-lmdb.dat and the static
+    files, else mdbx.dat alone; (None, []) when it holds neither."""
+    lmdb = os.path.join(data_dir, LMDB_FILE)
+    if os.path.isfile(lmdb):
+        return lmdb, static_files(os.path.join(data_dir, STATIC_DIR))
+    mdbx = os.path.join(data_dir, MDBX_FILE)
+    return (mdbx, []) if os.path.isfile(mdbx) else (None, [])
+
+
+def clean(row):
+    """A row every reader parses: NCOLS cells, each a decimal number or empty, and a row without a folio
+    order carries no folio count."""
+    row = [c if CELL_RE.match(c) else "" for c in (list(row) + [""] * NCOLS)[:NCOLS]]
+    if not row[ORDER_COL]:
+        row[ORDER_COL:] = [""] * (NCOLS - ORDER_COL)
+    return row
+
+
+def census(path, pid, proc, deadline_secs, extra=()):
+    """The rows (lists of strings) of one census of path, with the files in extra summed in."""
     t0 = time.time()
     m0 = time.monotonic()
     deadline = m0 + deadline_secs
     size = resident = unresolved = ""
     counts = {}
     ps = page_size()
+    lines = maps_lines(proc, pid) if pid and path else []
+    shared = {}       # the writer's pagemap and the kpageflags table, opened once for every target
+    sizes, size_ok, res_ok, total, done, opened = 0, True, True, 0, 0, 0
     try:
-        fd = open_noatime(path)
-    except OSError:
-        fd = None
-    if fd is not None:
-        try:
-            st = os.fstat(fd)
-            size = str(st.st_size)
-            if mincore_trusted(path, st):
+        for i, p in enumerate(([path] if path else []) + list(extra)):
+            try:
+                fd = open_noatime(p)
+            except OSError:
+                if i == 0:
+                    break       # the store file itself is missing: the empty row
+                continue        # a static file removed between the listing and the open
+            opened += 1
+            try:
+                try:
+                    st = os.fstat(fd)
+                except OSError:
+                    size_ok = res_ok = False
+                    continue
+                sizes += st.st_size
+                if not res_ok or not mincore_trusted(p, st):
+                    res_ok = False
+                    continue
                 windows = residency(fd, st.st_size, ps, deadline)
-                if windows is not None:
-                    total = sum(v.count(1) for _, v in windows)
-                    resident = str(total)
-                    pm_fd = flags_fd = None
-                    try:
-                        maps = writer_mappings(proc, pid, st, path, ps) if pid else []
-                        if maps and total:
-                            pm_fd = open_or_none(os.path.join(proc, str(pid), "pagemap"))
-                            flags_fd = open_or_none(os.path.join(proc, "kpageflags"))
+                if windows is None:
+                    res_ok = False
+                    continue
+                n = sum(v.count(1) for _, v in windows)
+                total += n
+                maps = writer_mappings(proc, pid, st, p, ps, lines) if pid else []
+                if maps and n:
+                    if not shared:
+                        shared["pm"] = open_or_none(os.path.join(proc, str(pid), "pagemap"))
+                        shared["kf"] = open_or_none(os.path.join(proc, "kpageflags"))
                         try:
-                            flags = KpageFlags(flags_fd) if flags_fd is not None else None
-                            counts, done = resolve(windows, maps, pm_fd, flags, ps, deadline)
-                        except OSError:  # a /proc file that cannot be read: nothing resolved
-                            counts, done = {}, 0
-                    finally:
-                        for x in (pm_fd, flags_fd):
-                            if x is not None:
-                                os.close(x)
+                            shared["flags"] = KpageFlags(shared["kf"]) if shared["kf"] is not None else None
+                        except OSError:
+                            shared["flags"] = None
+                    try:
+                        c, d = resolve(windows, maps, shared["pm"], shared["flags"], ps, deadline)
+                    except OSError:  # a /proc file that cannot be read: nothing of this file resolved
+                        c, d = {}, 0
+                    done += d
+                    for o, xs in c.items():
+                        acc = counts.setdefault(o, [0, 0, 0, 0])
+                        for k in range(4):
+                            acc[k] += xs[k]
+                if res_ok:
+                    resident = str(total)
                     unresolved = str(total - done)
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
+            except OSError:     # residency could not be read: the sizes stand, the page counts do not
+                res_ok = False
+            finally:
+                os.close(fd)
+    finally:
+        for k in ("pm", "kf"):
+            if shared.get(k) is not None:
+                os.close(shared[k])
+    size = str(sizes) if opened and size_ok else ""
+    if not (size and res_ok):   # a target's residency unread: the sums of page counts are unknown
+        resident = unresolved = ""
+        counts = {}
     secs = "%.3f" % (time.monotonic() - m0)
     lead = [str(int(t0)), secs, size, resident, unresolved]
     rows = [lead + [str(o)] + [str(x) for x in counts[o]] for o in sorted(counts)]
-    return rows or [lead + ["", "", "", "", ""]]
+    return [clean(r) for r in rows or [lead + ["", "", "", "", ""]]]
 
 
 def resident_only(path, from_bytes):
@@ -455,7 +534,9 @@ def append_rows(out, text, ts):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Folio-order census of a file's page cache (never faults a page in).")
-    ap.add_argument("--file", required=True, help="the file (the node's mdbx.dat)")
+    ap.add_argument("--file", default="", help="the store's page file (the node's db/tn-lmdb.dat or db/mdbx.dat)")
+    ap.add_argument("--static-dir", default="", help="sum every regular file under this directory into the census")
+    ap.add_argument("--data-dir", default="", help="pick --file and --static-dir by what this node data dir holds")
     ap.add_argument("--pid", default="", help="the process that maps the file (the node); empty = none")
     ap.add_argument("--proc", default="/proc", help="where to read <pid>/maps, <pid>/pagemap and kpageflags")
     ap.add_argument("--out", default="", help="append the rows here (header first when new or empty)")
@@ -466,11 +547,17 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.pid and not args.pid.isdigit():
         ap.error("--pid must be a number")
+    if bool(args.file) == bool(args.data_dir) or (args.data_dir and args.static_dir):
+        ap.error("give --file (with --static-dir or not) or --data-dir")
+    if args.data_dir:
+        path, extra = store_targets(args.data_dir)
+    else:
+        path, extra = args.file, static_files(args.static_dir) if args.static_dir else []
     if args.resident_only:
-        n = resident_only(args.file, max(0, args.from_bytes))
+        n = resident_only(path, max(0, args.from_bytes)) if path else None
         print("" if n is None else n)
         return 0 if n is not None else 1
-    rows = census(args.file, args.pid, args.proc, max(0.0, args.deadline_secs))
+    rows = census(path, args.pid, args.proc, max(0.0, args.deadline_secs), extra)
     text = "".join(",".join(r) + "\n" for r in rows)
     if args.out:
         append_rows(args.out, text, int(rows[0][0]))

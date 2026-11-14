@@ -19,7 +19,9 @@ relocate() {
         -e "s#/var/lib/telcoin-alloy/#${R}/var/lib/telcoin-alloy/#g" \
         -e "s#/tmp/bench-obs#${R}/tmp/bench-obs#g" \
         -e "s#/usr/local/bin/bench-persist-sampler.sh#${R}/usr/local/bin/bench-persist-sampler.sh#g" \
-        -e "s#/usr/local/bin/bench-folio-census.py#${R}/usr/local/bin/bench-folio-census.py#g"
+        -e "s#/usr/local/bin/bench-folio-census.py#${R}/usr/local/bin/bench-folio-census.py#g" \
+        -e "s#/etc/sysctl.d/#${R}/etc/sysctl.d/#g" \
+        -e "s#/proc/sys/net/ipv4/ip_local_reserved_ports#${R}/proc/sys/net/ipv4/ip_local_reserved_ports#g"
 }
 keep=()
 while IFS='=' read -r k _; do

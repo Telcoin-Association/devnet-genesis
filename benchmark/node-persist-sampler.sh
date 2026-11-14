@@ -13,19 +13,34 @@
 # as bytes); /proc/vmstat nr_dirty, nr_writeback, nr_dirtied, nr_written, workingset_refault_file,
 # pgmajfault, thp_file_alloc, thp_file_fallback; /proc/meminfo MemAvailable, Cached, Dirty, Writeback;
 # the node's memory cgroup (memory.current and memory.stat file, file_dirty, file_writeback,
-# workingset_refault_file; cgroup v1 names as a fallback); /proc/<pid>/io. Every
-# PERSIST_MDBX_EVERY_SECS (300) the row also carries mdbx.dat's size, its resident pages (fincore, or
-# the census tool's --resident-only), and the summed Size of the node's mdbx.dat mappings in
-# /proc/<pid>/smaps with the part whose VmFlags carry `rr`, and the resident pages at or past the used
-# size of the database: the node's gauge tn_reth_mdbx_used_bytes, read from PERSIST_METRICS_URL with
-# `curl -s --max-time 3`, then the census tool's --resident-only --from-bytes <used>. On the other rows
-# those five are empty; the last one is also empty whenever the gauge cannot be read (an image without
-# it, a node that is down).
-# Every row has every column: a source that cannot be read leaves its cells empty.
+# workingset_refault_file; cgroup v1 names as a fallback); /proc/<pid>/io (the node's own reads and
+# writes, apart from every other writer on the disk). Then the store's columns, by what the data dir
+# holds, looked at on every tick (never a knob): db/tn-lmdb.dat (bench 7's tn-lmdb) wins over mdbx.dat;
+# a data dir with neither logs one line and leaves every store column and the folio census out.
 #
-# Nothing here reads mdbx.dat or opens the MDBX environment (no mdbx_stat): the file is stat'ed, checked
-# with mincore through a mapping nobody dereferences, and found in the node's smaps and pagemap by inode.
-# Page-operation counts come from the node's own `persisted output` log line and metrics.
+# mdbx.dat (bench 6, unchanged): every PERSIST_MDBX_EVERY_SECS (300) the row carries mdbx.dat's size,
+# its resident pages (fincore, or the census tool's --resident-only), and the summed Size of the node's
+# mdbx.dat mappings in /proc/<pid>/smaps with the part whose VmFlags carry `rr`, and the resident pages
+# at or past the used size of the database: the node's gauge tn_reth_mdbx_used_bytes, read from
+# PERSIST_METRICS_URL with `curl -s --max-time 3`, then the census tool's --resident-only --from-bytes
+# <used>. On the other rows those five are empty; the last one is also empty whenever the gauge cannot
+# be read (an image without it, a node that is down).
+#
+# tn-lmdb.dat (bench 7; the eight columns after mdbx_dat_*, whose five cells stay empty): on every tick
+# the size and allocated bytes (st_blocks x 512) of db/tn-lmdb.dat, the summed size and the count of the
+# regular files under static_files/ (reth's static files: on storage layout v2 the change sets and
+# senders live there, not in the page file), and tn_lmdb_used_bytes = sum(reth_db_table_size) +
+# reth_db_freelist x reth_db_page_size from PERSIST_METRICS_URL (the pages reth's tables and the free
+# list hold: the page file's high-water mark less tn-lmdb's own meta and catalog pages; the node exports
+# no exact counterpart); every PERSIST_MDBX_EVERY_SECS the resident pages of tn-lmdb.dat and its mapping
+# Size and `rr` part in smaps, as for mdbx.dat. tn-lmdb's own I/O counters (commits, syncs) are not
+# exported by the node; the disk's write and flush counts above are the host-level measure.
+# Every row has every column: a source that cannot be read leaves its cells empty, never 0.
+#
+# Nothing here reads a store file or opens a database environment (no mdbx_stat, no `telcoin-network
+# db`): the files are stat'ed, checked with mincore through a mapping nobody dereferences, and found in
+# the node's smaps and pagemap by inode; static_files/ is only listed. Page-operation counts come from
+# the node's own `persisted output` log line and metrics.
 #
 # The node pid is looked up on every tick (a restart changes it): `docker inspect` of PERSIST_CONTAINER
 # gives the container id and State.Pid; the node is State.Pid when its command line contains
@@ -34,8 +49,10 @@
 # PERSIST_PID (fixed) or PERSIST_PID_FILE (read every tick) replace the docker lookup (the one-VM probe).
 #
 # Environment (defaults in brackets):
-#   PERSIST_DATA_DIR [/var/lib/telcoin]       the node's data dir; its device picks the disk
-#   PERSIST_MDBX_FILE [<data dir>/db/mdbx.dat]
+#   PERSIST_DATA_DIR [/var/lib/telcoin]       the node's data dir; its device picks the disk, and
+#                                             db/tn-lmdb.dat, static_files/ and db/mdbx.dat are under it
+#   PERSIST_MDBX_FILE [<data dir>/db/mdbx.dat] where mdbx.dat lies when it is not there (the probe); it
+#                                             never outranks db/tn-lmdb.dat
 #   PERSIST_DISK []                           a block device name (nvme0n1) instead of the lookup
 #   PERSIST_CONTAINER [telcoin]               PERSIST_PID_MATCH [telcoin node]
 #   PERSIST_PID [] / PERSIST_PID_FILE []      fixed pid / file holding the pid
@@ -53,11 +70,13 @@
 
 set -uo pipefail
 
-HEADER="ts_unix,pid,disk_rd_ios_total,disk_rd_bytes_total,disk_rd_ticks_ms_total,disk_wr_ios_total,disk_wr_bytes_total,disk_wr_ticks_ms_total,disk_flush_ios_total,disk_flush_ticks_ms_total,disk_in_flight_ios,disk_io_ticks_ms_total,vm_nr_dirty_pages,vm_nr_writeback_pages,vm_nr_dirtied_pages_total,vm_nr_written_pages_total,vm_workingset_refault_file_pages_total,vm_pgmajfault_total,vm_thp_file_alloc_total,vm_thp_file_fallback_total,mem_available_kb,mem_cached_kb,mem_dirty_kb,mem_writeback_kb,memcg_current_bytes,memcg_file_bytes,memcg_file_dirty_bytes,memcg_file_writeback_bytes,memcg_workingset_refault_file_pages_total,proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,proc_write_bytes_total,proc_cancelled_write_bytes_total,mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes,mdbx_dat_resident_past_used_pages"
+HEADER="ts_unix,pid,disk_rd_ios_total,disk_rd_bytes_total,disk_rd_ticks_ms_total,disk_wr_ios_total,disk_wr_bytes_total,disk_wr_ticks_ms_total,disk_flush_ios_total,disk_flush_ticks_ms_total,disk_in_flight_ios,disk_io_ticks_ms_total,vm_nr_dirty_pages,vm_nr_writeback_pages,vm_nr_dirtied_pages_total,vm_nr_written_pages_total,vm_workingset_refault_file_pages_total,vm_pgmajfault_total,vm_thp_file_alloc_total,vm_thp_file_fallback_total,mem_available_kb,mem_cached_kb,mem_dirty_kb,mem_writeback_kb,memcg_current_bytes,memcg_file_bytes,memcg_file_dirty_bytes,memcg_file_writeback_bytes,memcg_workingset_refault_file_pages_total,proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,proc_write_bytes_total,proc_cancelled_write_bytes_total,mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes,mdbx_dat_resident_past_used_pages,tn_lmdb_dat_size_bytes,tn_lmdb_dat_allocated_bytes,static_files_size_bytes,static_files_files_total,tn_lmdb_used_bytes,tn_lmdb_dat_resident_pages,tn_lmdb_dat_vma_bytes,tn_lmdb_dat_rr_bytes"
 
 ROOT="${PERSIST_ROOT:-}"
 DATA_DIR="${PERSIST_DATA_DIR:-/var/lib/telcoin}"
 MDBX="${PERSIST_MDBX_FILE:-${DATA_DIR}/db/mdbx.dat}"
+LMDB="${DATA_DIR}/db/tn-lmdb.dat"
+STATIC_DIR="${DATA_DIR}/static_files"
 DISK="${PERSIST_DISK:-}"
 CONTAINER="${PERSIST_CONTAINER:-telcoin}"
 MATCH="${PERSIST_PID_MATCH:-telcoin node}"
@@ -229,20 +248,37 @@ cur && $1 == "Size:" { sz = $2 * 1024; vma += sz }
 cur && $1 == "VmFlags:" { for (i = 2; i <= NF; i++) if ($i == "rr") { rr += sz; break } }
 END { if (NR > 0) printf "%.0f %.0f\n", vma, rr }'
 
+# resident_pages FILE — its resident page count (fincore, else the census tool's --resident-only), or nothing.
+resident_pages() {
+    local out
+    if [ -n "${FINCORE}" ] && command -v "${FINCORE}" >/dev/null 2>&1; then
+        out="$(timeout "${TO}" "${FINCORE}" -n -r -o PAGES "$1" 2>/dev/null)" || out=""
+    else
+        out="$(timeout "${TO}" python3 "${CENSUS}" --file "$1" --resident-only 2>/dev/null)" || out=""
+    fi
+    out="${out//[[:space:]]/}"
+    case "${out}" in ''|*[!0-9]*) ;; *) printf '%s\n' "${out}" ;; esac
+}
+
+# map_bytes FILE ST_DEV INO — "<vma> <rr>": the node's mappings of FILE in its smaps, or nothing.
+map_bytes() {
+    local maj min devstr
+    [ -n "${pid}" ] && [ -r "${ROOT}/proc/${pid}/smaps" ] || return 0
+    maj=$(( (($2 >> 8) & 0xfff) | (($2 >> 32) & ~0xfff) ))
+    min=$(( ($2 & 0xff) | (($2 >> 12) & ~0xff) ))
+    printf -v devstr '%02x:%02x' "${maj}" "${min}"
+    timeout "${TO}" awk -v ino="$3" -v dev="${devstr}" -v sfx="/${1##*/}" "${SMAPS_AWK}" \
+        "${ROOT}/proc/${pid}/smaps" 2>/dev/null
+}
+
 mdbx_columns() {
-    local st dev ino maj min devstr out used
+    local st dev ino out used
     M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""; M_PAST=""
     st="$(stat -L -c '%s %d %i' "${MDBX}" 2>/dev/null)" || st=""
     case "${st}" in *" "*" "*) ;; *) return 0 ;; esac
     M_SIZE="${st%% *}"; st="${st#* }"
     dev="${st%% *}"; ino="${st#* }"
-    if [ -n "${FINCORE}" ] && command -v "${FINCORE}" >/dev/null 2>&1; then
-        out="$(timeout "${TO}" "${FINCORE}" -n -r -o PAGES "${MDBX}" 2>/dev/null)" || out=""
-    else
-        out="$(timeout "${TO}" python3 "${CENSUS}" --file "${MDBX}" --resident-only 2>/dev/null)" || out=""
-    fi
-    out="${out//[[:space:]]/}"
-    case "${out}" in ''|*[!0-9]*) ;; *) M_RES="${out}" ;; esac
+    M_RES="$(resident_pages "${MDBX}")" || M_RES=""
     if [ -n "${METRICS_URL}" ]; then
         used="$(timeout "${TO}" curl -s --max-time 3 "${METRICS_URL}" 2>/dev/null | awk "${USED_AWK}")" || used=""
         case "${used}" in
@@ -251,14 +287,67 @@ mdbx_columns() {
                case "${out}" in ''|*[!0-9]*) ;; *) M_PAST="${out}" ;; esac ;;
         esac
     fi
-    [ -n "${pid}" ] && [ -r "${ROOT}/proc/${pid}/smaps" ] || return 0
-    maj=$(( ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff) ))
-    min=$(( (dev & 0xff) | ((dev >> 12) & ~0xff) ))
-    printf -v devstr '%02x:%02x' "${maj}" "${min}"
-    out="$(timeout "${TO}" awk -v ino="${ino}" -v dev="${devstr}" -v sfx="/${MDBX##*/}" "${SMAPS_AWK}" \
-        "${ROOT}/proc/${pid}/smaps" 2>/dev/null)" || out=""
+    out="$(map_bytes "${MDBX}" "${dev}" "${ino}")" || out=""
     case "${out}" in
         *" "*) M_VMA="${out%% *}"; M_RR="${out#* }" ;;
+    esac
+}
+
+# ---------------------------------------------------------------- the tn-lmdb columns
+L_SIZE=""
+L_ALLOC=""
+S_SIZE=""
+S_FILES=""
+L_USED=""
+L_RES=""
+L_VMA=""
+L_RR=""
+
+# tn_lmdb_used_bytes from the node's gauges (the pre-scrape hook samples them per scrape): every
+# reth_db_table_size series summed, plus reth_db_freelist pages x reth_db_page_size; nothing unless all
+# three are there with numbers (an MDBX image exports them too, but this runs on tn-lmdb.dat only).
+# shellcheck disable=SC2016  # awk program text
+LMDB_USED_AWK='
+substr($0, 1, 1) != "#" {
+    name = $0; sub(/[{ ].*$/, "", name)
+    if (name != "reth_db_table_size" && name != "reth_db_freelist" && name != "reth_db_page_size") next
+    rest = substr($0, length(name) + 1)
+    if (substr(rest, 1, 1) == "{") sub(/^[^}]*\}/, "", rest)
+    split(rest, f, " ")
+    if (f[1] !~ /^[0-9]/) next
+    if (name == "reth_db_table_size") { tables += f[1]; nt++ }
+    else if (name == "reth_db_freelist") { free = f[1]; nf++ }
+    else { ps = f[1]; np++ }
+}
+END { if (nt > 0 && nf > 0 && np > 0) printf "%.0f\n", tables + free * ps }'
+
+# lmdb_columns SLOW — every tick: tn-lmdb.dat's size and allocated bytes, static_files/'s size and file
+# count, the used bytes from the gauges; with SLOW=1 (the 300-s ticks) its residency and mappings too.
+lmdb_columns() {
+    local slow="$1" st size blocks unit dev="" ino="" out
+    L_SIZE=""; L_ALLOC=""; S_SIZE=""; S_FILES=""; L_USED=""; L_RES=""; L_VMA=""; L_RR=""
+    st="$(stat -L -c '%s %b %B %d %i' "${LMDB}" 2>/dev/null)" || st=""
+    read -r size blocks unit dev ino <<< "${st}"
+    case "${size}:${blocks}:${unit}:${dev}:${ino}" in
+        *::*|:*|*:|*[!0-9:]*) dev="" ;;
+        *) L_SIZE="${size}"; L_ALLOC="$(( blocks * unit ))" ;;
+    esac
+    if [ -d "${STATIC_DIR}" ]; then
+        out="$(timeout "${TO}" find "${STATIC_DIR}" -type f -printf '%s\n' 2>/dev/null \
+            | awk '{ n++; s += $1 } END { printf "%d %.0f\n", n, s }')" || out=""
+        case "${out}" in
+            *" "*) S_FILES="${out%% *}"; S_SIZE="${out#* }" ;;
+        esac
+    fi
+    if [ -n "${METRICS_URL}" ]; then
+        L_USED="$(timeout "${TO}" curl -s --max-time 3 "${METRICS_URL}" 2>/dev/null | awk "${LMDB_USED_AWK}")" || L_USED=""
+        case "${L_USED}" in ''|*[!0-9]*) L_USED="" ;; esac
+    fi
+    [ "${slow}" = 1 ] && [ -n "${L_SIZE}" ] || return 0
+    L_RES="$(resident_pages "${LMDB}")" || L_RES=""
+    out="$(map_bytes "${LMDB}" "${dev}" "${ino}")" || out=""
+    case "${out}" in
+        *" "*) L_VMA="${out%% *}"; L_RR="${out#* }" ;;
     esac
 }
 
@@ -321,11 +410,34 @@ BEGIN {
     }
     v["mdbx_dat_size_bytes"] = msize; v["mdbx_dat_resident_pages"] = mres
     v["mdbx_dat_vma_bytes"] = mvma; v["mdbx_dat_rr_bytes"] = mrr; v["mdbx_dat_resident_past_used_pages"] = mpast
+    v["tn_lmdb_dat_size_bytes"] = lsize; v["tn_lmdb_dat_allocated_bytes"] = lalloc
+    v["static_files_size_bytes"] = ssize; v["static_files_files_total"] = sfiles; v["tn_lmdb_used_bytes"] = lused
+    v["tn_lmdb_dat_resident_pages"] = lres; v["tn_lmdb_dat_vma_bytes"] = lvma; v["tn_lmdb_dat_rr_bytes"] = lrr
     n = split(header, col, ",")
     out = ""
     for (i = 1; i <= n; i++) out = out (i > 1 ? "," : "") num(v[col[i]])
     print out
 }'
+
+# ---------------------------------------------------------------- the store: what the data dir holds
+STORE=""
+STORE_SAID="-"
+
+# detect_store — STORE = tn-lmdb (db/tn-lmdb.dat exists), else mdbx (mdbx.dat exists), else none; one
+# line on stderr whenever that changes (the first tick included).
+detect_store() {
+    if [ -f "${LMDB}" ]; then STORE=tn-lmdb
+    elif [ -f "${MDBX}" ]; then STORE=mdbx
+    else STORE=none
+    fi
+    [ "${STORE}" != "${STORE_SAID}" ] || return 0
+    STORE_SAID="${STORE}"
+    case "${STORE}" in
+        tn-lmdb) echo "node-persist-sampler: store tn-lmdb: ${LMDB} and ${STATIC_DIR}" >&2 ;;
+        mdbx) echo "node-persist-sampler: store mdbx: ${MDBX}" >&2 ;;
+        *) echo "node-persist-sampler: neither ${LMDB} nor ${MDBX}: device, memory and process columns only" >&2 ;;
+    esac
+}
 
 # ---------------------------------------------------------------- main loop
 n=0
@@ -335,20 +447,35 @@ while :; do
     CG=""
     [ -n "${pid}" ] && set_cgroup "${pid}"
     resolve_disk
+    detect_store
+    # the 300-s columns ride on every MDBX_TICKS-th tick; mdbx.dat's only there, tn-lmdb.dat's on every tick
     if [ $(( n % MDBX_TICKS )) -eq 0 ]; then
-        mdbx_columns
+        slow=1
+        if [ "${STORE}" = mdbx ]; then mdbx_columns; else M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""; M_PAST=""; fi
     else
+        slow=0
         M_SIZE=""; M_RES=""; M_VMA=""; M_RR=""; M_PAST=""
     fi
+    L_SIZE=""; L_ALLOC=""; S_SIZE=""; S_FILES=""; L_USED=""; L_RES=""; L_VMA=""; L_RR=""
+    [ "${STORE}" != tn-lmdb ] || lmdb_columns "${slow}"
     row="$(timeout "${TO}" awk -v root="${ROOT}" -v ts="${ts}" -v pid="${pid}" -v disk="${DISK}" -v cg="${CG}" \
         -v msize="${M_SIZE}" -v mres="${M_RES}" -v mvma="${M_VMA}" -v mrr="${M_RR}" -v mpast="${M_PAST}" \
+        -v lsize="${L_SIZE}" -v lalloc="${L_ALLOC}" -v ssize="${S_SIZE}" -v sfiles="${S_FILES}" -v lused="${L_USED}" \
+        -v lres="${L_RES}" -v lvma="${L_VMA}" -v lrr="${L_RR}" \
         -v header="${HEADER}" \
         "${ROW_AWK}" < /dev/null 2>/dev/null)" || row=""
     [ -n "${row}" ] || row="${ts},${pid}${BLANK_TAIL}"
     printf '%s\n' "${row}" >> "${OUT}"
 
-    if [ "${CENSUS_TICKS}" -gt 0 ] && [ $(( n % CENSUS_TICKS )) -eq 0 ]; then
-        census_args=(--file "${MDBX}" --proc "${ROOT}/proc" --out "${FOLIOS}" --deadline-secs "$(( TO - 5 > 1 ? TO - 5 : 1 ))")
+    if [ "${CENSUS_TICKS}" -gt 0 ] && [ $(( n % CENSUS_TICKS )) -eq 0 ] && [ "${STORE}" != none ]; then
+        # tn-lmdb: the page file and the static files, summed (storage layout v2 keeps the change sets and
+        # senders there); mdbx: mdbx.dat alone, as in bench 6
+        if [ "${STORE}" = tn-lmdb ]; then
+            census_args=(--file "${LMDB}" --static-dir "${STATIC_DIR}")
+        else
+            census_args=(--file "${MDBX}")
+        fi
+        census_args+=(--proc "${ROOT}/proc" --out "${FOLIOS}" --deadline-secs "$(( TO - 5 > 1 ? TO - 5 : 1 ))")
         [ -n "${pid}" ] && census_args+=(--pid "${pid}")
         timeout "${TO}" python3 "${CENSUS}" "${census_args[@]}" < /dev/null \
             || echo "node-persist-sampler: folio census failed (rc=$?)" >&2

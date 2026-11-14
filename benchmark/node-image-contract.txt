@@ -40,6 +40,17 @@ require Max batch delay set to
 # lacks it and is refused here, by design: a run on it could not show which switches were on.
 require node switches
 
+# Bench 7 (upstream main from 45dce8947): the build line, the faucet guard and the storage engine. An image built
+# before them (bench 6's included) is refused here, so a wrong image cannot reach a fleet.
+# - The startup line `node build: faucet=<bool> adiri=<bool> chain_id=<n> genesis_hash=<0x..>` (target cli, logged
+#   before any guard refuses); deploy step 9 records it per node (manifest node_build).
+require node build: faucet=
+# - The faucet guard (#1716): a faucet build starts on the bench chain only with --allow-faucet-on-chain or this
+#   variable (BENCH_NODE_ALLOW_FAUCET_ON_CHAIN).
+require TN_ALLOW_FAUCET_ON_CHAIN
+# - The storage engine, from the `--version` text (`Reth Database: tn-lmdb` or `Reth Database: MDBX`, storage v2
+#   #1834); the probe reads its value from `--version` into manifest storage_engine.
+require Reth Database:
 # Fork schedule markers (classify the build; see bench_node_image_probe).
 require-if-subsecond subsecond_timestamp active from genesis
 forbid-if-subsecond fork schedule (adiri)

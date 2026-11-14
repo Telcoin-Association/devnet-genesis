@@ -781,6 +781,25 @@ step7_local_problems() {
     fi
 }
 
+# run_storage_engine — the node image's storage engine (tn-lmdb|mdbx): this invocation's gate probe, else the
+# manifest's storage_engine (a resume); "" when neither knows it.
+run_storage_engine() {
+    if [ -n "${BENCH_NODE_STORAGE_ENGINE:-}" ]; then printf '%s' "${BENCH_NODE_STORAGE_ENGINE}"; return 0; fi
+    jq -r '.storage_engine // empty' "$(bench_manifest)" 2>/dev/null || true
+}
+
+# mdbx_knob_problems — one line per MDBX-only knob this run sets while its node image runs tn-lmdb (nothing
+# printed: none, or the engine is not tn-lmdb). Step 0 refuses it before anything exists, instead of a node
+# failing later: evict-mdbx targets <datadir>/db/mdbx.dat, which a tn-lmdb datadir does not have.
+# BENCH_NODE_DB_SYNC_MODE is not one: upstream main maps --db.sync-mode durable|safe-no-sync onto tn-lmdb,
+# so the knob works on either engine and the manifest records db_sync_mode as before.
+mdbx_knob_problems() {
+    [ "$(run_storage_engine)" = tn-lmdb ] || return 0
+    [ "${BENCH_NODE_EVICT_MDBX:-0}" = 0 ] \
+        || echo "BENCH_NODE_EVICT_MDBX=${BENCH_NODE_EVICT_MDBX} evicts <datadir>/db/mdbx.dat and the node image runs tn-lmdb (storage_engine; its file is db/tn-lmdb.dat): unset it"
+    return 0
+}
+
 # obs_or_die <resume hint> <fn> [args] — an obs-lib.sh function (bench-obs create / ensure / require) in a
 # subshell, with errexit in force inside it (it is not the left side of `||`, where bash switches errexit
 # off). When it fails (its own ❌ line is above) this shell dies with <resume hint>, so the EXIT trap
@@ -806,6 +825,9 @@ step_0() {
     local p7; p7="$(step7_local_problems)"
     [ -z "${p7}" ] || bench_die "${p7}"
     echo "    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF ${TN_NODE_SCRIPTS_REF} (step 7)"
+    local se mk; se="$(run_storage_engine)"; mk="$(mdbx_knob_problems)"
+    [ -z "${mk}" ] || bench_die "${mk}"
+    [ -z "${se}" ] || echo "    ✓ storage engine ${se} (node image '--version')$([ "${se}" != tn-lmdb ] || printf ', BENCH_NODE_EVICT_MDBX unset')"
     local acct; acct="$(gcloud config get-value account 2>/dev/null || true)"
     gcloud auth print-access-token >/dev/null || bench_die "gcloud auth failed — gcloud auth login"
     echo "    ✓ gcloud auth (${acct:-unknown account})"
@@ -1406,7 +1428,7 @@ bench_node_jobs_run() {
 # measures the boot disk on that node and no PRECFG_OK follows. Every other node's session is unchanged.
 STEP7_RUNNING=""
 prestart_node() {
-    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o hp hs chk=""
+    local inst="${INSTANCE_NAMES[$1]}" out line lr pb ds fp o hp hs chk="" rv
     case " ${STEP7_RUNNING}" in *" ${inst} "*) echo "      · ${inst}: running — skipped"; return 0 ;; esac
     if [ "${NODE_DATADIR_LSSD[$1]}" = 1 ]; then
         chk="$(bench_lssd_check_script "${inst}" "$(node_datadir "$1")")" \
@@ -1419,6 +1441,7 @@ prestart_node() {
     lr="$(postcfg_field "${line}" logrotate)"; pb="$(postcfg_field "${line}" paramsbak)"
     case "${pb}" in written|kept) ;; *) pb="" ;; esac
     ds="$(postcfg_field "${line}" dbsync)"; ds="${ds:-durable}"
+    rv="$(postcfg_field "${line}" reserved)"
     fp="$(printf '%s\n' "${out}" | bench_fsync_probe_record "${inst}")" || fp=""
     [ -n "${fp}" ] || fp='{"probe_failed":true,"reason":"no record from bench_fsync_probe_record"}'
     hp="$(printf '%s\n' "${out}" | bench_host_probe_record "${inst}")" || hp=""
@@ -1428,6 +1451,9 @@ prestart_node() {
     o="$(jq -n -c --arg lr "${lr}" --arg pb "${pb}" --arg ds "${ds}" --argjson fp "${fp}" --argjson hp "${hp}" --argjson hs "${hs}" '
         def str: if . == "" or . == "-" then null else . end;
         {logrotate_size: ($lr|str), params_bak: ($pb|str), db_sync_mode: $ds, fsync_probe: $fp, host: $hp, host_steps: $hs}')" || bench_die "${inst}: cannot build its node_startup record"
+    # BENCH_NODE_RESERVE_PORTS=1: the kernel's reserved list the pre-start config verified (PRECFG_OK reserved=).
+    [ -z "${rv}" ] || o="$(printf '%s' "${o}" | jq -c --arg rv "${rv}" '. + {ip_local_reserved_ports: $rv}')" \
+        || bench_die "${inst}: cannot build its node_startup record"
     node_startup_merge "${inst}" "${o}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
 }
 
@@ -1492,10 +1518,42 @@ prestart_arm_record() {
     echo "    ✓ manifest.param_arms: ${BENCH_ARM_NAME} via prestart (${rel}, sha256 ${BENCH_ARM_SHA256}), begin = ready = ${begin}; writes $(printf '%s' "${w}" | jq -r 'to_entries | map("\(.key)=\(.value)") | join(" ") | if . == "" then "none (every switch at its default)" else . end')"
 }
 
+# reserve_ports_node <index> — the host step reserve-ports (bench_host_step_script; RESERVE_PORTS, the
+# list bench_reserved_ports prints) on one node over one IAP session, before its first start; dies unless its
+# HOST_STEP line shows every port reserved after it, else records node_startup[<inst>].reserve_ports (the
+# bench_host_step_record entry). Idempotent: a re-run finds the ports reserved and changes nothing.
+RESERVE_PORTS=""
+reserve_ports_node() {
+    local inst="${INSTANCE_NAMES[$1]}" script out rec n
+    script="$(bench_host_step_script "${inst}" reserve-ports "${RESERVE_PORTS}")" \
+        || bench_die "${inst}: cannot build its reserve-ports host step — no node has been started"
+    out="$(printf '%s\n' "${script}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$1]}" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "${out}" | grep -E '^HOST_STEP ' | sed 's/^/      /' || true
+    rec="$(printf '%s\n' "${out}" | bench_host_step_record "${inst}" | jq -c 'last // empty')" || rec=""
+    n="$(printf '%s\n' "${RESERVE_PORTS}" | tr ',' '\n' | grep -c . || true)"
+    [ -n "${rec}" ] && [ "$(printf '%s' "${rec}" | jq -r '.result.ports_reserved_after // empty')" = "${n}" ] \
+        || bench_die "${inst}: reserve-ports ${RESERVE_PORTS} did not hold (HOST_STEP above: ${rec:-no line}) — no node has been started; re-run with --from 7"
+    node_startup_merge "${inst}" "{\"reserve_ports\":${rec}}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+}
+
+# step7_reserve_ports <jobs> — BENCH_NODE_RESERVE_PORTS=1: the node's listener ports (bench_reserved_ports:
+# the root config.sh's DEFAULT_PRIMARY_UDP_PORT, DEFAULT_WORKER_UDP_PORT, DEFAULT_HEALTHCHECK_TCP_PORT) out of
+# the kernel's ephemeral range on every node, before stage-only's staging start binds them (bench 6's R3-D1:
+# a node whose port an outgoing connection held failed to start with "Address already in use"). Then
+# manifest.reserved_ports = those ports, as numbers. Any node that fails stops step 7 before any start.
+step7_reserve_ports() {
+    RESERVE_PORTS="$(bench_reserved_ports)" || bench_die "BENCH_NODE_RESERVE_PORTS=1 and the node's ports are not known (above) — no node has been started"
+    echo "    reserve-ports: per node, one IAP session: ${RESERVE_PORTS} into net.ipv4.ip_local_reserved_ports, now and in /etc/sysctl.d, before the staging start$([ "$1" -le 1 ] || printf ', up to %s at a time' "$1")"
+    bench_node_jobs_run "$1" "reserve-ports (no node has been started; re-run with --from 7)" reserve_ports_node "${!INSTANCE_NAMES[@]}"
+    bench_manifest_jq --argjson p "[${RESERVE_PORTS}]" '.reserved_ports = $p' || bench_die "could not record reserved_ports in $(bench_manifest)"
+    echo "    ✓ manifest.reserved_ports: [${RESERVE_PORTS}]"
+}
+
 # step_7 — the fleet's one coordinated start (D1: no validator runs while the committee is
 # incomplete; no node restarts after the start). Every node is configured while its unit is
 # stopped, then devnet-finalize.sh starts them all at one due time on the nodes' clocks:
 #   network-config    devnet-network-config.sh --yes: Closed admission on every node (nothing restarts)
+#   reserve-ports     BENCH_NODE_RESERVE_PORTS=1: step7_reserve_ports, the listener ports reserved per node
 #   stage-only        devnet-finalize.sh --stage-only: stage + v2 finalize + stop; the unit stays enabled
 #   pre-start config  bench_fsync_probe_script + bench_prestart_script per node over one IAP session
 #                     (PRECFG_OK required; FSYNC_PROBE recorded, never required), then one
@@ -1523,6 +1581,10 @@ step_7() {
     "${REPO_ROOT}/devnet-network-config.sh" --yes \
         || bench_die "devnet-network-config.sh --yes failed — no node has been started; fix it and re-run with --from 7"
 
+    jobs="${BENCH_NODE_JOBS:-1}"
+    case "${jobs}" in ''|*[!0-9]*|0) jobs=1 ;; esac
+    [ "${BENCH_NODE_RESERVE_PORTS:-0}" != 1 ] || step7_reserve_ports "${jobs}"
+
     log="${logs}/finalize-stage-$(date -u +%Y%m%dT%H%M%SZ).log"
     echo "    stage-only: + CONFIG_FILE=${CONFIG_FILE} ${REPO_ROOT}/devnet-finalize.sh --stage-only   (copy: ${log})"
     if ! "${REPO_ROOT}/devnet-finalize.sh" --stage-only 2>&1 | tee -a "${log}"; then
@@ -1537,8 +1599,6 @@ step_7() {
     fi
     [ -z "${running}" ] || bench_warn "stage-only found these units already running after the coordinated start: ${running}— their pre-start config is not repeated (it ran before that start); step 8 refuses a node whose start script lacks it, and step 9 checks what each runs"
 
-    jobs="${BENCH_NODE_JOBS:-1}"
-    case "${jobs}" in ''|*[!0-9]*|0) jobs=1 ;; esac
     echo "    pre-start config: per node, one IAP session (bench_prestart_script; review: --print-prestart <instance>)$([ "${jobs}" -le 1 ] || printf ', up to %s at a time' "${jobs}")"
     STEP7_RUNNING="${running}"
     bench_node_jobs_run "${jobs}" "pre-start config (no node has been started; re-run with --from 7)" prestart_node "${!INSTANCE_NAMES[@]}"
@@ -1756,7 +1816,7 @@ EOS
 # from the running container's command line (- = not set), and back is "-" (no restart, so no
 # downtime to report). step_9 compares them with the run's manifest and this node's overrides.
 postconfig_script() {
-    local inst="$1" b64 t0 lf="" sws="" pss="" arm
+    local inst="$1" b64 t0 lf="" sws="" pss="" arm nbs=""
     bench_index_of "${inst}" >/dev/null || bench_die "postconfig_script: ${inst} is not a bench instance"
     b64="$(base64 < "${DIR}/node-sampler.sh" | tr -d '\n')"
     # The first-start arm (manifest.param_arms via prestart): the `node switches` line of this start,
@@ -1769,6 +1829,16 @@ postconfig_script() {
 swl=\"\$({ docker logs telcoin --since \"\$STARTED\" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -F 'node switches' | tail -n 1 || true)\"
 [ -n \"\$swl\" ] || swl=\"\$({ ufgen | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | awk 'tolower(\$0) ~ /telcoin-network[ \\t]+[^ \\t]+[ \\t]+\\([^() \\t]+\\)[ \\t]+starting/ { n = 0 } { b[++n] = \$0 } END { for (i = 1; i <= n; i++) print b[i] }' | grep -F 'node switches' | tail -n 1; } || true)\"
 echo \"POSTCFG_SWITCHES ${inst} \${swl:--}\""
+    fi
+    # Bench 7: the `node build:` line of this start (the coordinated start: the container's StartedAt), when
+    # the probed image carries it (manifest node_probe.strings), printed for step 9 to record. From the
+    # container's log, else from the unit file's block after its last 'starting' line, as above.
+    if node_build_expected; then
+        nbs="
+# 4c. the \`node build:\` line of this start (step 9 records it: node_startup[].node_build, node_build)
+nbl=\"\$({ docker logs telcoin --since \"\$STARTED\" 2>&1 || true; } | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -F 'node build: faucet=' | tail -n 1 || true)\"
+[ -n \"\$nbl\" ] || nbl=\"\$({ ufgen | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | awk 'tolower(\$0) ~ /telcoin-network[ \\t]+[^ \\t]+[ \\t]+\\([^() \\t]+\\)[ \\t]+starting/ { n = 0 } { b[++n] = \$0 } END { for (i = 1; i <= n; i++) print b[i] }' | grep -F 'node build: faucet=' | tail -n 1; } || true)\"
+echo \"POSTCFG_BUILD ${inst} \${nbl:--}\""
     fi
     # BENCH_PERSIST_SAMPLER=1: the persist sampler and its folio census, a root unit beside the node sampler.
     if [ "${BENCH_PERSIST_SAMPLER:-0}" = 1 ]; then
@@ -1921,7 +1991,7 @@ done
 [ "\$cid" = "${CHAIN_ID_HEX}" ] || fail "eth_chainId on \${IP}:8545 = '\$cid', expected ${CHAIN_ID_HEX}"
 [ -n "\$how" ] || fail "consensus not progressing: block \${b0:-none} -> \${b:-none} and no 'subdag committed|quorum reached' in docker logs since the coordinated start"
 prov   # once more: lines logged after the last poll (the fork schedule, a vote timeout)
-[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF (nor its .1 / .2.gz generation)"${sws}
+[ -n "\$sha" ] || fail "no 'telcoin-network <version> (<sha>) starting' line in docker logs since the container started (\$STARTED) nor in the unit file \$UF (nor its .1 / .2.gz generation)"${sws}${nbs}
 # 5. still the same container and no restart while this ran
 [ "\$(docker inspect -f '{{.State.StartedAt}}' telcoin 2>/dev/null || true)" = "\$STARTED" ] || fail "the telcoin container restarted while step 9 ran"
 # 6. node sampler (systemd, root)
@@ -1944,6 +2014,47 @@ systemctl enable --now bench-node-sampler.service
 systemctl is-active --quiet bench-node-sampler.service || fail "sampler not active"${pss}
 echo "POSTCFG_OK ${inst} chain=\$cid block=\${b:-?} ip=\${IP} progress=\${how} sha=\${sha} mhd=\${mhd:-?} nhd=\${nhd:-?} mbd=\${mbd:-?} vt=\${vt:-?} forks=\${forks:-?} max=\$(ms "\$(pv max_header_delay)") min=\$(ms "\$(pv min_header_delay)") batch=\$(ms "\$(pv max_batch_delay)") thr=\${pthr:--} vote=\$(ms "\$(pv vote_timeout)") filter=\${rf:--} maxfiles=\${rmf:--} back=-"
 EOS
+}
+
+# node_build_expected — rc 0 when the run's probed image carries the `node build:` line (manifest
+# node_probe.strings counts "node build: faucet=" above 0): step 9 then reads and records it. An image probed
+# before bench 7's contract has no such count, and step 9 is what it was.
+node_build_expected() {
+    [ "$(jq -r '(.node_probe.strings["node build: faucet="] // 0) > 0' "$(bench_manifest)" 2>/dev/null || true)" = true ]
+}
+
+# node_build_json <line> — the `node build: faucet=<bool> adiri=<bool> chain_id=<n> genesis_hash=<0x..>` line as
+# {faucet, adiri, chain_id, genesis_hash}, compact; "null" for "-", an empty line or one that does not parse.
+node_build_json() {
+    local l="$1" f a c g
+    f="$(printf '%s\n' "${l}" | sed -nE 's/.*node build: faucet=(true|false)( .*)?$/\1/p' | tail -n 1)"
+    a="$(printf '%s\n' "${l}" | sed -nE 's/.* adiri=(true|false)( .*)?$/\1/p' | tail -n 1)"
+    c="$(printf '%s\n' "${l}" | sed -nE 's/.* chain_id=([0-9]{1,20})( .*)?$/\1/p' | tail -n 1)"
+    g="$(printf '%s\n' "${l}" | sed -nE 's/.* genesis_hash=(0x[0-9a-fA-F]{64})([^0-9a-zA-Z].*)?$/\1/p' | tail -n 1)"
+    if [ -z "${f}" ] || [ -z "${a}" ] || [ -z "${c}" ] || [ -z "${g}" ]; then echo null; return 0; fi
+    jq -n -c --argjson f "${f}" --argjson a "${a}" --argjson c "${c}" --arg g "${g}" \
+        '{faucet: $f, adiri: $a, chain_id: $c, genesis_hash: ($g | ascii_downcase)}'
+}
+
+# node_build_record — after every node's step 9: manifest.node_build = the one node_build all nodes recorded
+# (node_startup[].node_build), null with a warning when none did; dies when two nodes differ (a different
+# build or genesis in one fleet). A no-op unless node_build_expected.
+node_build_record() {
+    local m insts got n
+    node_build_expected || return 0
+    m="$(bench_manifest)"
+    insts="$(printf '%s\n' "${INSTANCE_NAMES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" || bench_die "cannot list the fleet"
+    got="$(jq -c --argjson insts "${insts}" '[$insts[] as $i | .node_startup[$i].node_build // empty] | unique' "${m}")" \
+        || bench_die "cannot read node_startup[].node_build from ${m}"
+    n="$(printf '%s' "${got}" | jq 'length')"
+    case "${n}" in
+        0) bench_manifest_jq '.node_build = null' || bench_die "could not record node_build in ${m}"
+           bench_warn "no node logged a parsable 'node build:' line since its start: manifest.node_build is null" ;;
+        1) bench_manifest_jq --argjson b "$(printf '%s' "${got}" | jq -c '.[0]')" '.node_build = $b' \
+               || bench_die "could not record node_build in ${m}"
+           echo "    ✓ manifest.node_build: $(printf '%s' "${got}" | jq -c '.[0]')" ;;
+        *) bench_die "the nodes logged ${n} different 'node build:' lines (node_startup[].node_build in ${m}): ${got}" ;;
+    esac
 }
 
 # postcfg_field <POSTCFG_OK line> <key> — the value of its last " <key>=<value>" ("" if absent).
@@ -2011,13 +2122,19 @@ step9_node_check() {
 # then step9_node_check against STEP9_W_SHA / STEP9_W_FORKS; dies on the first problem.
 STEP9_W_SHA=""; STEP9_W_FORKS=""; STEP9_ARM=""
 step9_node() {
-    local i="$1" inst="${INSTANCE_NAMES[$1]}" out line sl why
+    local i="$1" inst="${INSTANCE_NAMES[$1]}" out line sl why bl nb
     echo "    ${inst}: running args (http/ws 0.0.0.0, --metrics, log filter), parameters.yaml$( [ -z "$(bench_node_overrides "${i}")" ] || printf ' (%s)' "$(bench_node_overrides "${i}" | paste -sd, -)" ), alloy labels, chain-id ${CHAIN_ID_HEX} on internal IP, progress since the coordinated start, boot lines + readback, sampler"
     out="$(postconfig_script "${inst}" | tn_iap_ssh_stdin "${inst}" "${ZONES[$i]}" 2>&1 | tr -d '\r' || true)"
     printf '%s\n' "${out}" | grep -E 'POSTCFG_(OK|FAIL)' | sed 's/^/      /' || true
     line="$(printf '%s\n' "${out}" | grep -F "POSTCFG_OK ${inst} " | tail -1 || true)"
     [ -n "${line}" ] || bench_die "post-config verification failed on ${inst} (POSTCFG_FAIL above; the whole script: --print-postconfig ${inst}) — stopping step 9; nothing was restarted"
     step9_node_check "${i}" "${line}" "${STEP9_W_SHA}" "${STEP9_W_FORKS}"
+    if node_build_expected; then
+        bl="$(printf '%s\n' "${out}" | sed -n "s/^POSTCFG_BUILD ${inst} //p" | tail -n 1)"
+        nb="$(node_build_json "${bl}")" || nb=null
+        node_startup_merge "${inst}" "{\"node_build\":${nb}}" || bench_die "${inst}: could not record node_startup in $(bench_manifest)"
+        echo "      $([ "${nb}" = null ] && printf '·' || printf '✓') ${inst}: node build ${nb} ('node build:' line of this start)"
+    fi
     [ -n "${STEP9_ARM}" ] || return 0
     # The fleet started in a first-start arm: this start's `node switches` line must show it, by value.
     sl="$(printf '%s\n' "${out}" | sed -n "s/^POSTCFG_SWITCHES ${inst} //p" | tail -n 1)"
@@ -2047,6 +2164,7 @@ step_9() {
     fi
     [ "${BENCH_PERSIST_SAMPLER:-0}" != 1 ] || echo "    and bench-persist-sampler.service installed and active on every node (BENCH_PERSIST_SAMPLER=1)"
     bench_node_jobs_run "${jobs}" "post-config verification (nothing was restarted)" step9_node "${!INSTANCE_NAMES[@]}"
+    node_build_record
 }
 
 # bench_registry_probe — read the ConsensusRegistry over the tunnel with recovery-schedule.py (the
@@ -2371,6 +2489,16 @@ plan_prestart_lines() {
     fi
 }
 
+# plan_reserve_ports_line — step 7's reserve-ports line of the plan (BENCH_NODE_RESERVE_PORTS=1), with its
+# leading newline; nothing at 0, so that plan is bench 6's.
+plan_reserve_ports_line() {
+    local ports
+    [ "${BENCH_NODE_RESERVE_PORTS:-0}" = 1 ] || return 0
+    ports="$(bench_reserved_ports 2>/dev/null)" || ports="? (root config.sh DEFAULT_*_PORT unset)"
+    printf '\n                     reserve-ports     per node, one IAP session (bench_host_step_script <instance> reserve-ports %s): the ports into net.ipv4.ip_local_reserved_ports, now and in /etc/sysctl.d, before the staging start binds them' "${ports}"
+    printf '\n                                       (HOST_STEP -> node_startup.reserve_ports, manifest.reserved_ports; a failed one stops step 7; the pre-start config reads them back: PRECFG_OK reserved=)'
+}
+
 # plan_host_step_line — the pre-start host steps (BENCH_NODE_READ_AHEAD_KB, BENCH_NODE_EVICT_MDBX, or the
 # first-start arm's) on a line of their own, led by a newline; nothing when there are none.
 plan_host_step_line() {
@@ -2550,7 +2678,7 @@ $(bench_obs_plan_lines 2 | sed 's/^[[:space:]]*/                       /')
    6  genesis        ${REPO_ROOT}/devnet-genesis-build.sh    -> ${GENESIS_FILE}
    7  finalize       one coordinated start: every node is configured while stopped, then all start together
                      network-config    CONFIG_FILE=benchmark/config.sh ${REPO_ROOT}/devnet-network-config.sh --yes
-                                       (Closed admission on all ${#INSTANCE_NAMES[@]}; rendered under ${GENESIS_WORKSPACE}/genesis/network-config/)
+                                       (Closed admission on all ${#INSTANCE_NAMES[@]}; rendered under ${GENESIS_WORKSPACE}/genesis/network-config/)$(plan_reserve_ports_line)
                      stage-only        ${REPO_ROOT}/devnet-finalize.sh --stage-only (stage + v2 finalize + stop; unit enabled, inactive)
                                        -> ${BENCH_RESULTS_DIR}/logs/finalize-stage-<utc>.log
                      pre-start config  per node (BENCH_NODE_JOBS=${BENCH_NODE_JOBS:-1} at a time), one IAP session, script on stdin (bench_prestart_script; --print-prestart <instance>):$(plan_lssd_check_line)

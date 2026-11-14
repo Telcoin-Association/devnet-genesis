@@ -19,7 +19,8 @@
 # Every SAMPLER_STATUS_EVERY samples (default 4 = 2 min) it also writes one
 #   BENCH_STATUS host=<h> ts=<unix> root_used_pct=<n> fatal_db=<n> block=<n> rss_total_kb=<n>
 # line to the serial console, so benchmark-blast.sh's abort watchers can read disk, the
-# FatalDBFailure count and chain progress over the GCP REST API instead of polling IAP SSH.
+# fatal database error count (FatalDBFailure, or tn-lmdb's latched store) and chain progress over
+# the GCP REST API instead of polling IAP SSH.
 #
 # SAMPLER_ONCE=1 writes a single row and exits (smoke test).
 
@@ -124,7 +125,11 @@ while :; do
     # First sample, then every STATUS_EVERY-th (0 disables the status line).
     if [ "${STATUS_EVERY}" -gt 0 ] && [ $(( (n - 1) % STATUS_EVERY )) -eq 0 ]; then
         since="${last_status_ts:-$((ts - INTERVAL * STATUS_EVERY))}"
-        fatal="$(docker logs --since "${since}" "${CONTAINER}" 2>&1 | grep -c 'FatalDBFailure' || true)"
+        # fatal_db: the batch builder's FatalDBFailure, and tn-lmdb's latched store (storage v2: the ERROR line
+        # `<cause>; every later write and commit fails`, target tn_lmdb, logged once; later writes and commits
+        # fail with `tn-lmdb: environment failed: <cause>`).
+        fatal="$(docker logs --since "${since}" "${CONTAINER}" 2>&1 | grep -c -F -e 'FatalDBFailure' \
+            -e 'every later write and commit fails' -e 'tn-lmdb: environment failed' || true)"
         line="BENCH_STATUS host=${HOST} ts=${ts} root_used_pct=${rootp:-} fatal_db=${fatal:-0} block=${block} rss_total_kb=${rss_total:-}"
         { [ -w "${CONSOLE}" ] && printf '%s\n' "${line}" > "${CONSOLE}"; } 2>/dev/null || true
         printf '%s\n' "${line}"   # journal copy

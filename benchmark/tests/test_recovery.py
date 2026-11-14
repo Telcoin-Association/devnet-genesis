@@ -887,5 +887,53 @@ bench_pull_recovery_evidence victim zone "$3" "$2"
             self.assertEqual(list(dest.iterdir()), [])
 
 
+# ---- bench7 HB-1 fatal-db ----
+class SamplerFatalDbTests(unittest.TestCase):
+    """BENCH_STATUS fatal_db counts the batch builder's FatalDBFailure and tn-lmdb's latched store."""
+
+    # The node's lines as `docker logs telcoin` shows them (tracing fmt, colour on): tn-lmdb's latch is
+    # one ERROR line at target tn_lmdb; a later write or commit carries the latched error's text.
+    LATCH = ("\x1b[2m2026-11-14T17:00:00.123456Z\x1b[0m \x1b[31mERROR\x1b[0m \x1b[2mtn_lmdb\x1b[0m\x1b[2m:\x1b[0m "
+             "a write, sync or commit failed: tn-lmdb: i/o error: No space left on device (os error 28); "
+             "every later write and commit fails")
+    LATER = ("2026-11-14T17:00:01.000000Z ERROR engine: persist failed: "
+             "tn-lmdb: environment failed: tn-lmdb: i/o error: No space left on device (os error 28)")
+    BUILDER = "2026-11-14T17:00:02.000000Z ERROR batch_builder: batch builder stopped: FatalDBFailure"
+    NOISE = ("2026-11-14T16:59:00.000000Z  INFO tn_reth: opening database backend=tn-lmdb\n"
+             "2026-11-14T16:59:01.000000Z  INFO cli: node build: faucet=true adiri=false chain_id=32286\n")
+
+    def status(self, log_text):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = root / "bin"
+            commands.mkdir()
+            log = root / "docker-logs.txt"
+            log.write_text(log_text)
+            stubs = dict(hostname="echo validator",
+                         docker='[ "$1" = logs ] || exit 1\ncat "%s"' % log,
+                         curl="printf '%s' '{\"result\":\"0x2a\"}'")
+            for name, body in stubs.items():
+                executable = commands / name
+                executable.write_text("#!/usr/bin/env bash\n" + body + "\n")
+                executable.chmod(0o755)
+            env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
+                       SAMPLER_ONCE="1", SAMPLER_OUT_DIR=str(root / "output"),
+                       SAMPLER_DATA_DIR=str(root / "data"), SAMPLER_STATUS_EVERY="1",
+                       SAMPLER_CONSOLE=str(root / "no-console" / "ttyS0"))
+            done = subprocess.run(["bash", str(BENCH / "node-sampler.sh")], env=env,
+                                  check=True, capture_output=True, text=True)
+        lines = [l for l in done.stdout.splitlines() if l.startswith("BENCH_STATUS ")]
+        self.assertEqual(len(lines), 1, done.stdout)
+        return lines[0]
+
+    def test_tn_lmdb_latch_and_its_later_errors_count_as_fatal_db(self):
+        line = self.status(self.NOISE + self.LATCH + "\n" + self.LATER + "\n" + self.LATER + "\n")
+        self.assertIn(" fatal_db=3 ", line)
+
+    def test_fatal_db_failure_still_counts_and_a_clean_log_is_zero(self):
+        self.assertIn(" fatal_db=1 ", self.status(self.NOISE + self.BUILDER + "\n"))
+        self.assertIn(" fatal_db=0 ", self.status(self.NOISE))
+
+
 if __name__ == "__main__":
     unittest.main()

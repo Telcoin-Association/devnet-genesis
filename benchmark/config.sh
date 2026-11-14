@@ -514,6 +514,19 @@ export BENCH_TAIL_SCAN_SECS="${BENCH_TAIL_SCAN_SECS:-0}"
 # BENCH_START_DELAY_SECS, the lead bench 5 gave every blast. The bench-6 runs set 150: the blast tool's late-start
 # guard turns a slow create into one unsent retry rather than a late blaster.
 export BENCH_LIGHT_START_DELAY_SECS="${BENCH_LIGHT_START_DELAY_SECS:-${BENCH_START_DELAY_SECS}}"
+# ---- bench 7 knobs (HB-1). 0 = bench 6's behaviour, byte for byte. ----
+# Faucet opt-in: a `faucet` build of upstream main (#1716) refuses every chain but adiri unless started with
+# --allow-faucet-on-chain (env TN_ALLOW_FAUCET_ON_CHAIN). 1: deploy step 7's pre-start config puts the bare flag on
+# each node's launch line (tn_launch_flag_set), and the gate's image probe requires that `node --help` lists it and,
+# for the staging start of step 7 (the v2 finalize writes and starts the launch line before the pre-start config
+# runs), that the image's own environment sets TN_ALLOW_FAUCET_ON_CHAIN to a true value. 0: no flag, no check.
+export BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="${BENCH_NODE_ALLOW_FAUCET_ON_CHAIN:-1}"
+# Listener ports out of the kernel's ephemeral range (bench 6 defect R3-D1): 1 = deploy step 7 adds the node's
+# DEFAULT_PRIMARY_UDP_PORT, DEFAULT_WORKER_UDP_PORT and DEFAULT_HEALTHCHECK_TCP_PORT (root config.sh) to
+# net.ipv4.ip_local_reserved_ports on every node before its first start, the staging start (host step
+# reserve-ports, persisted under /etc/sysctl.d), and the pre-start config, in the session of the host probe, must
+# read all three back (PRECFG_OK reserved=). 0 = no reservation, no check: step 7 is bench 6's.
+export BENCH_NODE_RESERVE_PORTS="${BENCH_NODE_RESERVE_PORTS:-1}"
 # App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the SAME tn-contracts
 # checkout devnet-contracts.sh uses, on a bench/<run> branch that is never committed to.
 export BENCH_CONTRACTS_SRC_DIR="${BENCH_CONTRACTS_SRC_DIR:-$(cd "${REPO_ROOT}/.." && pwd)/tn-contracts-devnet-relaunch}"
@@ -802,7 +815,7 @@ esac
 if [ -n "${_bench_bad}" ]; then
     echo "❌ benchmark/config.sh: BENCH_NODE_BOOT_IMAGE='${IMAGE}' is not projects/<project>/global/images/<image> (the form the node create takes; a bare name would be looked up in the bench project)." >&2; exit 1
 fi
-for _bench_knob in BENCH_NODE_EVICT_MDBX BENCH_PERSIST_SAMPLER; do
+for _bench_knob in BENCH_NODE_EVICT_MDBX BENCH_PERSIST_SAMPLER BENCH_NODE_ALLOW_FAUCET_ON_CHAIN BENCH_NODE_RESERVE_PORTS; do
     case "${!_bench_knob}" in
         0|1) ;;
         *) echo "❌ benchmark/config.sh: ${_bench_knob}='${!_bench_knob}' must be 0 or 1." >&2; exit 1 ;;

@@ -97,6 +97,18 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
                  every other writer on it count too, and wr_ops_per_output is an upper bound for the persist's own.
                  The probe's commit_iops (operations / commit seconds) is not used: it reads 4-8x the cap on the probe
                  itself, so it is not a device rate.
+    tn-lmdb      (bench 7) only when a node's store is tn-lmdb (its 'opening database' line says backend=tn-lmdb,
+                 else its persist CSV carries tn_lmdb_dat_size_bytes): store_by_node at the top, and per node and
+                 row (the validators' median): wr_ops_per_tx and wr_bytes_per_tx (the device's write count AND
+                 bytes between the first and the last 30-s sample in the window / the transactions on the
+                 'persisted output' lines between them), save_blocks_ms_output (the mean save_blocks_ms of those
+                 lines in the window), store_growth_bytes_per_tx (the increase of tn_lmdb_used_bytes +
+                 static_files_size_bytes between the first and the last sample carrying both / those
+                 transactions); beside the disk columns that hold on any store (wr_kib_per_op, the mean write size;
+                 flush_ops_per_output, the syncs; commit_ms_output). On such a node amp reads n/a (MDBX page
+                 counts, which tn-lmdb does not log) and rr / vma comes from tn_lmdb_dat_rr_bytes /
+                 tn_lmdb_dat_vma_bytes. A run whose stores are all MDBX or unknown summarizes as before, byte
+                 for byte.
     local SSD    (bench 6) only when an instance carries data_disk (the deploy with BENCH_NODE_DATADIR_LSSD=1): a node
                  whose instances[].data_disk.class is local-ssd has no provisioned caps, so its shares, binds and
                  cap floor read "n/a (local SSD, no provisioned caps)" and its rates stay measured; --disk-iops /
@@ -160,6 +172,9 @@ F = {
     "f_author": "author", "f_round": "round", "f_outcome": "outcome", "f_lock_ms": "lock_ms", "v_behind": "behind",
     # bench-6 node lines (tasks/bench6-contract.md "Node log lines and metrics"); read by name, any field order
     "f_last_pgno": "mdbx_last_pgno", "f_advised": "mdbx_advised_bytes",
+    # bench-7 node lines (tn-lmdb store): the engine the node opened, and the persist's save_blocks phase
+    "msg_open_db": "opening database", "f_backend": "backend", "v_tn_lmdb": "tn-lmdb", "v_mdbx": "MDBX",
+    "f_save_ms": "save_blocks_ms",
     "msg_proposed": "header proposed", "f_grace_ms": "grace_ms", "f_exec_policy": "exec_policy",
     "f_exec_tip": "exec_tip", "f_exec_block": "exec_block",
     "msg_grace_ended": "parent grace ended", "f_waited_ms": "waited_ms",
@@ -182,6 +197,9 @@ F = {
     "c_majfault": "vm_pgmajfault_total", "c_memcg_refault": "memcg_workingset_refault_file_pages_total",
     "c_wr_ios": "disk_wr_ios_total", "c_wr_ticks": "disk_wr_ticks_ms_total", "c_flush_ios": "disk_flush_ios_total",
     "c_flush_ticks": "disk_flush_ticks_ms_total",
+    # bench 7 (node-persist-sampler.sh on a tn-lmdb data dir)
+    "c_lmdb_size": "tn_lmdb_dat_size_bytes", "c_lmdb_used": "tn_lmdb_used_bytes", "c_static_size": "static_files_size_bytes",
+    "c_lmdb_vma": "tn_lmdb_dat_vma_bytes", "c_lmdb_rr": "tn_lmdb_dat_rr_bytes",
     # manifest node_disk (bench-lib.sh bench_manifest_init: the requested NODE_DISK_IOPS / NODE_DISK_THROUGHPUT, MiB/s)
     "m_node_disk": "node_disk", "m_prov_iops": "provisioned_iops", "m_prov_tput": "provisioned_throughput",
     # manifest instances[].data_disk and machine_type (bench 6 local SSD, arms/MANIFEST-FIELDS.md "Local-SSD deployment")
@@ -637,6 +655,7 @@ def literals(sl, cr):
     """Every substring a line must hold for this tool, stage-latency.py or cert-rate.py to read it."""
     lits = [F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["lit_tracker"], F["msg_proposed"],
             F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"], F["msg_pool_failed"]]
+    lits.append(F["msg_open_db"])
     lits += list(sl.MSGS)
     for part in cr.EVENT_RE.pattern.split("|"):
         if re.search(r"[\\.^$*+?{}\[\]()]", part):
@@ -719,6 +738,7 @@ class NodeData(object):
         self.recovered, self.pool_failed = [], []
         self.task = {}
         self.page_fields = False
+        self.backend = None             # the engine the node's last 'opening database' line named (bench 7)
         self.files = []
         self._seen = set()
 
@@ -729,8 +749,9 @@ class NodeData(object):
     def read(self, path, dedupe):
         want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["msg_proposed"],
                 F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"],
-                F["msg_pool_failed"])
+                F["msg_pool_failed"], F["msg_open_db"])
         anytime = (F["msg_builder"], F["msg_advice_refused"], F["msg_pool_failed"])
+        anytime += (F["msg_open_db"],)          # bench 7: once per node start, before any window
         with open_bin(path) as fh:
             for raw in fh:
                 line = raw.decode("utf-8", "replace")
@@ -759,7 +780,7 @@ class NodeData(object):
                 elif msg == F["msg_persisted"]:
                     pages = dict((k, num(f.get(F[k]))) for k in ("f_newly", "f_cow", "f_spill", "f_unspill",
                                                                  "f_prefault", "f_wops", "f_msync", "f_proc_write",
-                                                                 "f_last_pgno", "f_advised"))
+                                                                 "f_last_pgno", "f_advised", "f_save_ms"))
                     if pages["f_newly"] is not None and pages["f_cow"] is not None:
                         self.page_fields = True
                     self.persisted.append((t, num(f.get(F["f_txs"])), num(f.get(F["f_commit_ms"])), pages))
@@ -781,6 +802,8 @@ class NodeData(object):
                     self.recovered.append((t, f.get(F["f_pool"])))
                 elif msg == F["msg_pool_failed"]:
                     self.pool_failed.append(t)
+                elif msg == F["msg_open_db"]:
+                    self.backend = (f.get(F["f_backend"]) or "").strip('"') or self.backend
         self.files.append(os.path.basename(path))
 
     def finish(self):
@@ -802,7 +825,8 @@ def persist_rows(path):
         for r in csv.DictReader(fh):
             row = {}
             for k in ("c_ts", "c_disk_wr", "c_vma", "c_rr", "c_size", "c_refault", "c_majfault", "c_memcg_refault",
-                      "c_wr_ios", "c_wr_ticks", "c_flush_ios", "c_flush_ticks"):
+                      "c_wr_ios", "c_wr_ticks", "c_flush_ios", "c_flush_ticks", "c_lmdb_size", "c_lmdb_used",
+                      "c_static_size", "c_lmdb_vma", "c_lmdb_rr"):
                 v = (r.get(F[k]) or "").strip()
                 row[k] = float(v) if v else None
             if row["c_ts"] is not None:
@@ -927,8 +951,8 @@ def summed(ps, k):
         F[k], len(vals) - vals.count(None), len(vals), F["msg_persisted"]))
 
 
-def amp_row(nd, csv_rows, a, b):
-    """(amplification dict, rr dict) of one node in [a, b)."""
+def amp_row(nd, csv_rows, a, b, lmdb=False):
+    """(amplification dict, rr dict) of one node in [a, b); lmdb: a tn-lmdb node (no page counts, its own map)."""
     if csv_rows is None:
         miss = na("persist/%s.csv" % nd.name)
         return {"amp": miss, "refault_per_min": miss, "majfault_per_min": miss, "memcg_refault_per_min": miss}, \
@@ -938,7 +962,8 @@ def amp_row(nd, csv_rows, a, b):
     if len(inside) < 2:
         amp["amp"] = na("two persist samples with %s in the window" % F["c_disk_wr"])
     elif not nd.page_fields:
-        amp["amp"] = na("%s / %s on '%s'" % (F["f_newly"], F["f_cow"], F["msg_persisted"]))
+        amp["amp"] = na("%s / %s on '%s'%s" % (F["f_newly"], F["f_cow"], F["msg_persisted"], (
+            ": MDBX page counts, which a %s node does not log" % F["v_tn_lmdb"]) if lmdb else ""))
     else:
         t1, t2 = inside[0]["c_ts"], inside[-1]["c_ts"]
         dev = inside[-1]["c_disk_wr"] - inside[0]["c_disk_wr"]
@@ -969,14 +994,72 @@ def amp_row(nd, csv_rows, a, b):
             amp[key] = na("two persist samples with %s in the window" % F[k])
         else:
             amp[key] = r1((have[-1][k] - have[0][k]) * 60.0 / (have[-1]["c_ts"] - have[0]["c_ts"]))
-    rr = [r for r in csv_rows if a <= r["c_ts"] <= b and r["c_rr"] is not None and r["c_vma"]]
+    k_rr, k_vma, k_size = ("c_lmdb_rr", "c_lmdb_vma", "c_lmdb_size") if lmdb else ("c_rr", "c_vma", "c_size")
+    rr = [r for r in csv_rows if a <= r["c_ts"] <= b and r[k_rr] is not None and r[k_vma]]
     if not rr:
-        rrd = {"rr_vma": na("a 300-s persist sample with %s in the window" % F["c_rr"])}
+        rrd = {"rr_vma": na("a 300-s persist sample with %s in the window" % F[k_rr])}
     else:
         last = rr[-1]
-        rrd = {"rr_vma": round(last["c_rr"] / last["c_vma"], 4), "rr_bytes": int(last["c_rr"]),
-               "vma_bytes": int(last["c_vma"]), "dat_bytes": None if last["c_size"] is None else int(last["c_size"])}
+        rrd = {"rr_vma": round(last[k_rr] / last[k_vma], 4), "rr_bytes": int(last[k_rr]),
+               "vma_bytes": int(last[k_vma]), "dat_bytes": None if last[k_size] is None else int(last[k_size])}
     return amp, rrd
+
+
+def node_store(nd, csv_rows):
+    """The node's store engine: what its 'opening database' line said, else what its persist CSV sampled (the
+    tn-lmdb columns, else the mdbx.dat ones), else None."""
+    if nd is not None and nd.backend:
+        return nd.backend
+    if csv_rows and any(r["c_lmdb_size"] is not None for r in csv_rows):
+        return F["v_tn_lmdb"]
+    if csv_rows and any(r["c_size"] is not None for r in csv_rows):
+        return F["v_mdbx"]
+    return None
+
+
+STORE_COLS = (("wr_ops_per_tx", 4), ("wr_bytes_per_tx", 1), ("save_blocks_ms_output", 1), ("store_growth_bytes_per_tx", 1))
+
+
+def store_row(nd, csv_rows, a, b):
+    """One tn-lmdb node's store figures in [a, b] (STORE_COLS), each n/a with what is missing, never 0 for it."""
+    v = collections.OrderedDict()
+    saves = [p[3]["f_save_ms"] for p in between(nd.persisted, a, b)]
+    if not saves:
+        v["save_blocks_ms_output"] = na("'%s' lines in the window" % F["msg_persisted"])
+    elif None in saves:
+        v["save_blocks_ms_output"] = na("%s on %d of %d '%s' lines in the window" % (
+            F["f_save_ms"], len(saves) - saves.count(None), len(saves), F["msg_persisted"]))
+    else:
+        v["save_blocks_ms_output"] = sum(saves) / float(len(saves))
+    if csv_rows is None:
+        miss = na("persist/%s.csv" % nd.name)
+        v["wr_ops_per_tx"] = v["wr_bytes_per_tx"] = v["store_growth_bytes_per_tx"] = miss
+        return collections.OrderedDict((k, v[k]) for k, _ in STORE_COLS)
+
+    def txs(have):
+        xs = [p[1] for p in nd.persisted if have[0]["c_ts"] < p[0] <= have[-1]["c_ts"]]
+        if not xs:
+            return None, na("'%s' lines between the samples" % F["msg_persisted"])
+        if None in xs:
+            return None, na("%s on every '%s' line between the samples" % (F["f_txs"], F["msg_persisted"]))
+        return (sum(xs), None) if sum(xs) else (None, na("transactions on the '%s' lines between the samples" %
+                                                         F["msg_persisted"]))
+    have, why = disk_span(csv_rows, a, b, ("c_wr_ios", "c_disk_wr"))
+    if have is None:
+        v["wr_ops_per_tx"] = v["wr_bytes_per_tx"] = why
+    else:
+        n, why = txs(have)
+        v["wr_ops_per_tx"] = why or (have[-1]["c_wr_ios"] - have[0]["c_wr_ios"]) / float(n)
+        v["wr_bytes_per_tx"] = why or (have[-1]["c_disk_wr"] - have[0]["c_disk_wr"]) / float(n)
+    have = [r for r in csv_rows if a <= r["c_ts"] <= b and r["c_lmdb_used"] is not None and r["c_static_size"] is not None]
+    if len(have) < 2 or have[-1]["c_ts"] <= have[0]["c_ts"]:
+        v["store_growth_bytes_per_tx"] = na("two persist samples with %s and %s in the window" % (
+            F["c_lmdb_used"], F["c_static_size"]))
+    else:
+        n, why = txs(have)
+        v["store_growth_bytes_per_tx"] = why or (have[-1]["c_lmdb_used"] + have[-1]["c_static_size"] -
+                                                 have[0]["c_lmdb_used"] - have[0]["c_static_size"]) / float(n)
+    return collections.OrderedDict((k, v[k] if is_na(v[k]) else round(v[k], d)) for k, d in STORE_COLS)
 
 
 def disk_caps(manifest, iops=None, mibps=None):
@@ -1485,6 +1568,8 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
     for name in nds:
         p = os.path.join(persist_dir, "%s.csv" % name)
         csv_cache[name] = persist_rows(p) if os.path.isfile(p) else None
+    stores = collections.OrderedDict((n, node_store(nds[n], csv_cache[n])) for n in sorted(nds))
+    lmdb_run = F["v_tn_lmdb"] in stores.values()
     for r in rows:
         a, b = r["from"], r["to"]
         m = collections.OrderedDict()
@@ -1517,10 +1602,15 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         per_node = collections.OrderedDict()
         for n in sorted(nds):
             e = engine_row(nds[n], a, b)
-            amp, rr = amp_row(nds[n], csv_cache.get(n), a, b)
+            lmdb = stores[n] == F["v_tn_lmdb"]
+            amp, rr = amp_row(nds[n], csv_cache.get(n), a, b, lmdb)
             e.update(amp)
             e.update(rr)
             e.update(disk_row(nds[n], csv_cache.get(n), a, b, node_caps(caps, groups, n)))
+            if lmdb_run:
+                e["store"] = stores[n]
+                e.update(store_row(nds[n], csv_cache.get(n), a, b) if lmdb else collections.OrderedDict(
+                    (k, na("a %s store on this node (%s)" % (F["v_tn_lmdb"], stores[n] or "unknown"))) for k, _ in STORE_COLS))
             if groups:
                 e[F["o_disk_class"]] = groups[n][0]
             if "proc_written_bytes" in e and switch_on(r["arm_rec"], F["sw_pipelined"]):
@@ -1549,6 +1639,11 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         m["binds_nodes"] = (collections.OrderedDict((x, bl.count(x)) for x in BINDS) if bl
                             else next((v["binds"] for v in per_node.values()), na("node logs")))
         m["disk_reading"] = class_reading(per_node, caps, groups)
+        if lmdb_run:     # bench 7: the tn-lmdb figures, the validators' median (count and bytes, always both)
+            for k, d in STORE_COLS:
+                vals = [per_node[n][k] for n in validators if n in per_node and not is_na(per_node[n][k])]
+                m[k + "_median"] = round(median(vals), d) if vals else next(
+                    (per_node[n][k] for n in validators if n in per_node), na("validator logs"))
         by_group = group_medians(per_node, validators, groups)
         if by_group:
             m["by_disk_class"] = by_group
@@ -1643,6 +1738,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         else:
             m["drift_x"] = round(cum[bisect.bisect_left(btimes, mid) - 1] / 1e6, 3) if btimes and mid > btimes[0] else 0.0
         r["m"] = m
+    return stores if lmdb_run else None
 
 
 _KPIS = []
@@ -1802,6 +1898,19 @@ def to_markdown(doc, rows, drift, axis):
             if m.get(k):
                 storage_notes.append("- %s: %s." % (r["row_id"], m[k]))
     out += ([""] + storage_notes if storage_notes else []) + [""]
+    lmdb = doc.get("store_by_node")
+    if lmdb:
+        out += ["Store (%s): %s. Device writes per transaction count AND bytes; the store's growth is %s + %s; the "
+                "validators' median." % (F["v_tn_lmdb"], dict_cell(lmdb), F["c_lmdb_used"], F["c_static_size"]), "",
+                "| row | write ops / tx | write bytes / tx | KiB / op | flushes / output | commit ms / output | save_blocks "
+                "ms / output | store growth bytes / tx |", "|---|" + "---:|" * 7]
+        for r in rows:
+            m = r["m"]
+            out.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                r["row_id"], cell(m["wr_ops_per_tx_median"]), cell(m["wr_bytes_per_tx_median"]),
+                cell(m["wr_kib_per_op_median"]), cell(m["flush_ops_per_output_median"]), cell(m["commit_ms_output"]),
+                cell(m["save_blocks_ms_output_median"]), cell(m["store_growth_bytes_per_tx_median"])))
+        out.append("")
     for r in rows:
         m = r["m"]
         groups = m.get("by_disk_class") or []
@@ -1832,6 +1941,14 @@ def to_markdown(doc, rows, drift, axis):
                     cell(e["wr_iops"]), cell(e["wr_iops_peak"]), cell(e["wr_mibps"]), cell(e["wr_mibps_peak"]),
                     cell(e["wr_ms_per_op"]), cell(e["flush_ms_per_op"]), cell(e["iops_pct_of_cap"]),
                     cell(e["mibps_pct_of_cap"]), cell(e["binds"]), cell(e["cap_floor_ms_per_output"])))
+        if lmdb:
+            out += ["", "| node | store | write ops / tx | write bytes / tx | KiB / op | flushes / output | commit ms / "
+                    "output | save_blocks ms / output | store growth bytes / tx |", "|---|---|" + "---:|" * 7]
+            for n, e in m["engine_by_node"].items():
+                out.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                    n, e["store"] or "–", cell(e["wr_ops_per_tx"]), cell(e["wr_bytes_per_tx"]), cell(e["wr_kib_per_op"]),
+                    cell(e["flush_ops_per_output"]), cell(e["commit_ms_output"]), cell(e["save_blocks_ms_output"]),
+                    cell(e["store_growth_bytes_per_tx"])))
         out += ["", "Disk: %s." % m["disk_reading"]]
         if groups:
             # the byte ratio (amp) stands beside the commit time, the write and flush counts and the write size
@@ -1970,8 +2087,8 @@ def summarize(a):
     blocks = block_table([g["docs"] for g in groups])
     caps = disk_caps(manifest, a.disk_iops, a.disk_mibps)
     groups = node_groups(manifest, nodes)
-    measure(run_dir, manifest, rows, nds, validators, os.path.join(run_dir, "persist"), cert_doc, stage_doc, blocks,
-            a.drift_axis, caps, groups)
+    stores = measure(run_dir, manifest, rows, nds, validators, os.path.join(run_dir, "persist"), cert_doc, stage_doc,
+                     blocks, a.drift_axis, caps, groups)
     drift = apply_drift(rows)
     apply_checks(rows)
     for x in arms:
@@ -1998,6 +2115,8 @@ def summarize(a):
                                                    ("seconds", int(r["to"] - r["from"])), ("window_basis", r["basis"])]
                                                   + list(r["m"].items())) for r in rows]),
         ("log_files", dict((n, nd.files) for n, nd in nds.items())), ("disk_caps", caps)])
+    if stores:
+        doc["store_by_node"] = stores
     if any(c == F["v_lssd"] for c, _ in groups.values()):
         doc["disk_caps_by_node"] = collections.OrderedDict((n, node_caps(caps, groups, n)) for n in groups)
     return (doc, to_markdown(doc, rows, drift, a.drift_axis)), 0

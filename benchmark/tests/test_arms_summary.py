@@ -379,6 +379,51 @@ def split_node(name):
             "cap_floor_ms_per_output": NO_CAPS if lssd else round(1000.0 * max(iops * 10.0 / 20000, iops * 10.0 * kib / 1024.0 / 800), 1)}
 
 
+# ---- bench7 HB-3: a tn-lmdb run ----
+# The tool before the tn-lmdb figures: a bench-6 run summarizes as it did.
+HEAD_COMMIT = "1729bd0"
+OPEN_DB = 'ts={ts} level=info target=tn::reth message="opening database" path="/home/nonroot/db" backend="{backend}"'
+
+
+def make_lmdb_run(root, growth_every=30, drop_save=False, backends=None):
+    """make_run(disk=CAPS) as bench 7 runs it: the node's 'persisted output' lines without MDBX page counts (M's
+    shape: save_blocks_ms=2), an 'opening database' line on v01, v02 and v04 (v03 says nothing: its CSV tells), and
+    the CSVs' tn-lmdb columns instead of the mdbx.dat ones: tn_lmdb_used_bytes grows 3,000 B/s and
+    static_files_size_bytes 1,500 B/s (every <growth_every> s), rr = vma on the 300-s rows. drop_save: v01's line at
+    T0 + 605 has no save_blocks_ms."""
+    run = make_run(root, page_fields=False, disk=dict(CAPS))
+    backends = dict({"bench-validator-01": "tn-lmdb", "bench-validator-02": "tn-lmdb", "bench-validator-04": "tn-lmdb"},
+                    **(backends or {}))
+    for node in VALIDATORS:
+        log = run / "logs" / (node + "-unit-stdout.log.gz")
+        text = gzip.decompress(log.read_bytes()).decode()
+        if drop_save and node == "bench-validator-01":
+            lines = text.split("\n")
+            at = next(i for i, l in enumerate(lines) if l.startswith("ts=" + stamp(605.001)) and "persisted output" in l)
+            lines[at] = lines[at].replace(" save_blocks_ms=2", "")
+            text = "\n".join(lines)
+        if node in backends:
+            text = OPEN_DB.format(ts=stamp(10), backend=backends[node]) + "\n" + text
+        log.write_bytes(gzip.compress(text.encode()))
+    for csv_path in (run / "persist").iterdir():
+        with open(str(csv_path)) as fh:
+            rows = list(csv.DictReader(fh))
+        cols = list(rows[0].keys())
+        with open(str(csv_path), "w", newline="") as fh:
+            w = csv.DictWriter(fh, cols)
+            w.writeheader()
+            for row in rows:
+                k = int(row["ts_unix"]) - T0
+                for c in ("mdbx_dat_vma_bytes", "mdbx_dat_rr_bytes", "mdbx_dat_size_bytes"):
+                    row[c] = ""
+                row["tn_lmdb_dat_size_bytes"] = 2 * 10 ** 9
+                if k % growth_every == 0:
+                    row.update(tn_lmdb_used_bytes=5 * 10 ** 8 + 3000 * k, static_files_size_bytes=10 ** 8 + 1500 * k)
+                if k % 300 == 0:
+                    row.update(tn_lmdb_dat_vma_bytes=10 ** 9, tn_lmdb_dat_rr_bytes=10 ** 9)
+                w.writerow(row)
+    return run
+
 def mid(xs, d):
     """The median the tool takes (statistics.median): the middle value, or the mean of the middle two."""
     xs = sorted(xs)
@@ -1063,6 +1108,77 @@ class ArmsSummaryTests(unittest.TestCase):
                            universal_newlines=True, timeout=60)
         self.assertEqual(p.returncode, 2)
         self.assertIn("never writes under", p.stderr)
+
+    # ---- bench7 HB-3: the tn-lmdb store ----
+    def test_a_bench6_run_summarizes_as_before(self):
+        """The tn-lmdb columns and lines change nothing on a bench-6 run: arms.md and arms.json are HEAD_COMMIT's
+        (the tool before them), byte for byte (generated_utc aside), on the bench-6, disk and split fixtures."""
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+        p = subprocess.run(["git", "-C", str(TESTS), "show", "%s:benchmark/tools/arms-summary.py" % HEAD_COMMIT],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if p.returncode != 0:
+            self.skipTest("commit %s is not in this checkout (shallow clone?)" % HEAD_COMMIT)
+        base = self.tmp / "head-arms-summary.py"
+        base.write_text(p.stdout)
+        for name, make in (("bench6", lambda r: make_run(r, bench6=True, disk=dict(CAPS))),
+                           ("disk", lambda r: make_run(r, disk=dict(CAPS))), ("split", make_split_run)):
+            with self.subTest(fixture=name):
+                root = self.tmp / name
+                root.mkdir()
+                run = make(root)
+                want = self.raw(run, root / "base", [sys.executable, "-c", RUN_BASE, str(base), str(TOOLS),
+                                                     str(TOOLS.parent)], ("--no-stages",))
+                self.assertEqual(self.raw(run, root / "now", [sys.executable, str(TOOL)], ("--no-stages",)), want)
+
+    def test_tn_lmdb_store_figures(self):
+        """Bench 7: every storage figure from a tn-lmdb source (the device counters, the 'persisted output' line,
+        the sampler's tn-lmdb columns) or n/a with the reason; the MDBX-only fields read as absent."""
+        doc, md = self.summary(make_lmdb_run(self.tmp), "--no-stages")
+        self.assertEqual(doc["store_by_node"], dict((n, "tn-lmdb") for n in VALIDATORS))
+        a0 = self.rows(doc)["a0/M16"]
+        e = a0["engine_by_node"]
+        # 600 -> 1080: 480 s at 18,000 IOPS of 4 KiB (v02: 26,000 for the step from 900), 48 outputs of 1,000 txs
+        self.assertEqual([e[n]["wr_ops_per_tx"] for n in VALIDATORS[:3]], [180.0, 185.0, 180.0])
+        self.assertEqual([e[n]["wr_bytes_per_tx"] for n in VALIDATORS[:3]], [737280.0, 757760.0, 737280.0])
+        self.assertEqual((a0["wr_ops_per_tx_median"], a0["wr_bytes_per_tx_median"]), (180.0, 737280.0))
+        self.assertEqual((a0["wr_kib_per_op_median"], a0["flush_ops_per_output_median"], a0["commit_ms_output"]),
+                         (4.0, 1.0, 100.0))
+        self.assertEqual((a0["save_blocks_ms_output_median"], e["bench-validator-04"]["save_blocks_ms_output"]), (2.0, 2.0))
+        self.assertEqual(a0["store_growth_bytes_per_tx_median"], 45.0)     # 3,000 + 1,500 B/s over 100 tx/s
+        for k in ("wr_ops_per_tx", "wr_bytes_per_tx", "store_growth_bytes_per_tx"):
+            self.assertEqual(e["bench-validator-04"][k], "n/a (missing: persist/bench-validator-04.csv)")
+        self.assertEqual(e["bench-validator-03"]["store"], "tn-lmdb")      # from its CSV alone
+        self.assertEqual(self.rows(doc)["a0/I"]["engine_by_node"]["bench-validator-01"]["wr_ops_per_tx"],
+                         "n/a (missing: 'persisted output' lines between the samples)")      # an idle window
+        # the MDBX-only figures: absent, with the reason, never 0
+        self.assertEqual(e["bench-validator-01"]["amp"], "n/a (missing: page_newly / page_cow on 'persisted output': "
+                                                         "MDBX page counts, which a tn-lmdb node does not log)")
+        self.assertEqual(a0["amp_fleet_median"], e["bench-validator-01"]["amp"])
+        self.assertEqual((a0["rr_vma_min"], e["bench-validator-01"]["vma_bytes"]), (1.0, 10 ** 9))
+        for k in ("prefault_on_all", "prefault_ratio_min"):
+            self.assertTrue(str(a0[k]).startswith("n/a (missing: "), (k, a0[k]))
+        # the device's write count AND bytes, side by side, in both tables
+        self.assertIn("| row | write ops / tx | write bytes / tx | KiB / op | flushes / output | commit ms / output | "
+                      "save_blocks ms / output | store growth bytes / tx |", md)
+        self.assertIn("| a0/M16 | 180.0 | 737,280.0 | 4.000 | 1.000 | 100.0 | 2.000 | 45.0 |", md)
+        self.assertIn("| bench-validator-02 | tn-lmdb | 185.0 | 757,760.0 | 4.000 | 1.000 | 100.0 | 2.000 | 45.0 |", md)
+        # a window without two growth samples, and a line without save_blocks_ms
+        man = make_lmdb_run(self.tmp / "thin", growth_every=600, drop_save=True)
+        doc, _ = self.summary(man, "--no-stages")
+        a0 = self.rows(doc)["a0/M16"]
+        self.assertEqual(a0["engine_by_node"]["bench-validator-01"]["store_growth_bytes_per_tx"],
+                         "n/a (missing: two persist samples with tn_lmdb_used_bytes and static_files_size_bytes in the window)")
+        self.assertEqual(a0["engine_by_node"]["bench-validator-01"]["save_blocks_ms_output"],
+                         "n/a (missing: save_blocks_ms on 47 of 48 'persisted output' lines in the window)")
+
+    def test_a_node_on_another_store_in_a_tn_lmdb_run(self):
+        run = make_lmdb_run(self.tmp, backends={"bench-validator-02": "MDBX"})
+        doc, _ = self.summary(run, "--no-stages")
+        self.assertEqual(doc["store_by_node"]["bench-validator-02"], "MDBX")
+        e = self.rows(doc)["a0/M16"]["engine_by_node"]["bench-validator-02"]
+        self.assertEqual(e["wr_ops_per_tx"], "n/a (missing: a tn-lmdb store on this node (MDBX))")
+        self.assertEqual(self.rows(doc)["a0/M16"]["wr_ops_per_tx_median"], 180.0)
 
 
 class ArmWindowToolsTests(unittest.TestCase):

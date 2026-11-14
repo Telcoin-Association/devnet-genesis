@@ -12,3 +12,6 @@ Max header delay set to
 Min header delay set to
 Max batch delay set to
 node switches
+node build: faucet=
+TN_ALLOW_FAUCET_ON_CHAIN
+Reth Database:

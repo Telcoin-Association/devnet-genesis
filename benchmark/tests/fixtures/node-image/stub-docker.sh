@@ -9,7 +9,13 @@ case "${1:-}" in
     info) [ "${STUB_DOCKER_DOWN:-0}" = 1 ] && exit 1; exit 0 ;;
     login) cat > /dev/null; exit 0 ;;
     pull) exit 0 ;;
-    image) exit 1 ;;
+    image)
+        # `image inspect --format <a .Config.Env template> <img>` prints the image's environment from
+        # image-env.txt when the test wrote one (bench 7's faucet check); otherwise there is no local image.
+        case "$*" in
+            *Config.Env*) [ -f "${STUB_IMAGE_DIR:?}/image-env.txt" ] && { cat "${STUB_IMAGE_DIR}/image-env.txt"; exit 0; } ;;
+        esac
+        exit 1 ;;
     run)
         shift; ep=""
         while [ $# -gt 0 ]; do

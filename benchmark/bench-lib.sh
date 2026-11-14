@@ -1392,9 +1392,24 @@ _bench_node_image_probe_run() (
         esac
     fi
     echo "    ✓ version ${version}, git sha ${sha}"
+    # 4b. The storage engine and the build features, as '--version' names them (bench 7: storage v2 prints
+    # `Reth Database: tn-lmdb|MDBX`, every build `Build Features: <list>`). An older build has no engine line:
+    # the contract's `Reth Database:` refuses it below.
+    rdb="$(printf '%s\n' "${lout}" | awk '/^Reth Database:/ { sub(/^Reth Database:[ \t]*/, ""); print $1; exit }')"
+    case "${rdb}" in
+        tn-lmdb) engine=tn-lmdb ;;
+        MDBX|mdbx) engine=mdbx ;;
+        '') engine="" ;;
+        *) bench_die "node image ${img}: '--version' names Reth Database '${rdb}' (want tn-lmdb or MDBX)" ;;
+    esac
+    feats="$(printf '%s\n' "${lout}" | awk '/^Build Features:/ { sub(/^Build Features:[ \t]*/, ""); sub(/[ \t]+$/, ""); print; exit }')"
+    [ -z "${engine}" ] || echo "    ✓ storage engine ${engine}, build features ${feats:-?} ('--version')"
 
-    # 5. The CLI flags the deploy passes.
-    _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_NODE}" node
+    # 5. The CLI flags the deploy passes (BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1 adds --allow-faucet-on-chain,
+    # which `node --help` lists and `node -h` hides).
+    nflags="${BENCH_NODE_FLAGS_NODE}"
+    [ "${BENCH_NODE_ALLOW_FAUCET_ON_CHAIN:-0}" != 1 ] || nflags="${nflags} --allow-faucet-on-chain"
+    _bench_node_help_check "${img}" "${nflags}" node
     _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_GENESIS}" genesis
     _bench_node_help_check "${img}" "${BENCH_NODE_FLAGS_KEYTOOL}" keytool generate validator
     echo "    ✓ flags ok: node, genesis, keytool generate validator --help carry every contract flag"
@@ -1446,11 +1461,27 @@ _bench_node_image_probe_run() (
     echo "    ✓ fork schedule: ${forks}"
     echo "    ✓ ${n} contract strings checked (${nreq} required, all present)"
 
+    # 6b. BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1 and a faucet build with the guard (its binary names
+    # TN_ALLOW_FAUCET_ON_CHAIN): deploy step 7's staging start runs the launch line the v2 finalize writes,
+    # before the pre-start config can add --allow-faucet-on-chain, and that docker run passes the container no
+    # variable of ours. Only the image's own environment reaches that start, so it must set the opt-in.
+    fenv=""
+    if [ "${BENCH_NODE_ALLOW_FAUCET_ON_CHAIN:-0}" = 1 ] && case ",${feats// /}," in *,faucet,*) true ;; *) false ;; esac \
+        && [ "$(LC_ALL=C grep -a -c -F -- TN_ALLOW_FAUCET_ON_CHAIN "${work}/telcoin" || true)" != 0 ]; then
+        fenv="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${img}" 2>/dev/null \
+            | sed -n 's/^TN_ALLOW_FAUCET_ON_CHAIN=//p' | tail -n 1 | tr 'A-Z' 'a-z' || true)"
+        case "${fenv}" in
+            1|true|yes|on|t|y) echo "    ✓ faucet build with the guard: the image sets TN_ALLOW_FAUCET_ON_CHAIN=${fenv} (step 7's staging start)" ;;
+            *) bench_die "node image ${img} is a faucet build with the faucet guard, and its environment does not set TN_ALLOW_FAUCET_ON_CHAIN to a true value (got '${fenv}'): deploy step 7's staging start (devnet-finalize.sh --stage-only, the v2 finalize's own launch line) would refuse the bench chain. Build the bench image with ENV TN_ALLOW_FAUCET_ON_CHAIN=true, or set BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=0 to skip this check and the pre-start flag" ;;
+        esac
+    fi
+
     # 7. Hand the results to bench_node_image_probe.
     printf '%s\t%s\n' BENCH_NODE_PROBE_AT "$(bench_now_iso)" BENCH_NODE_IMAGE_REF "${ref}" \
         BENCH_NODE_IMAGE_DIGEST "${digest}" BENCH_NODE_IMAGE_PINNED "${pinned}" BENCH_NODE_VERSION "${version}" \
         BENCH_NODE_GIT_SHA "${sha}" BENCH_NODE_FORK_SCHEDULE "${forks}" BENCH_NODE_FLAGS_OK 1 \
-        BENCH_NODE_STRINGS_JSON "${strings}" >&3
+        BENCH_NODE_STRINGS_JSON "${strings}" BENCH_NODE_STORAGE_ENGINE "${engine}" \
+        BENCH_NODE_BUILD_FEATURES "${feats}" BENCH_NODE_FAUCET_ENV "${fenv}" >&3
 )
 
 # bench_node_image_probe <ref> — examine the node image the fleet will run; die on any failure.
@@ -1465,7 +1496,10 @@ _bench_node_image_probe_run() (
 # back to a local image of <ref> (tests); unless its repo digest is <digest>, only in a dry run.
 # Exports BENCH_NODE_PROBE_AT, BENCH_NODE_IMAGE_REF, BENCH_NODE_IMAGE_DIGEST,
 # BENCH_NODE_IMAGE_PINNED, BENCH_NODE_VERSION, BENCH_NODE_GIT_SHA, BENCH_NODE_FORK_SCHEDULE,
-# BENCH_NODE_FLAGS_OK=1 and BENCH_NODE_STRINGS_JSON ({"<string>": <count>, ...}).
+# BENCH_NODE_FLAGS_OK=1, BENCH_NODE_STRINGS_JSON ({"<string>": <count>, ...}), BENCH_NODE_STORAGE_ENGINE
+# (tn-lmdb|mdbx from '--version' "Reth Database:", "" without the line), BENCH_NODE_BUILD_FEATURES ("Build
+# Features:") and BENCH_NODE_FAUCET_ENV (the image's TN_ALLOW_FAUCET_ON_CHAIN, read only for a faucet build with
+# the guard while BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1, which then requires it true; else "").
 bench_node_image_probe() {
     local res="" rc=0 k v
     [ -n "${1:-}" ] || bench_die "bench_node_image_probe <image-ref>"
@@ -1475,7 +1509,8 @@ bench_node_image_probe() {
     while IFS="$(printf '\t')" read -r k v; do
         case "${k}" in
             BENCH_NODE_PROBE_AT|BENCH_NODE_IMAGE_REF|BENCH_NODE_IMAGE_DIGEST|BENCH_NODE_IMAGE_PINNED|\
-            BENCH_NODE_VERSION|BENCH_NODE_GIT_SHA|BENCH_NODE_FORK_SCHEDULE|BENCH_NODE_FLAGS_OK|BENCH_NODE_STRINGS_JSON)
+            BENCH_NODE_VERSION|BENCH_NODE_GIT_SHA|BENCH_NODE_FORK_SCHEDULE|BENCH_NODE_FLAGS_OK|BENCH_NODE_STRINGS_JSON|\
+            BENCH_NODE_STORAGE_ENGINE|BENCH_NODE_BUILD_FEATURES|BENCH_NODE_FAUCET_ENV)
                 printf -v "${k}" '%s' "${v}"
                 export "${k?}" ;;
         esac
@@ -1486,7 +1521,8 @@ bench_node_image_probe() {
 
 # bench_node_probe_manifest — record this shell's bench_node_image_probe in the manifest:
 # node_image_ref, node_image_digest, node_image_pinned, node_version, node_git_sha,
-# node_fork_schedule and node_probe {at, flags_ok, strings}. Non-zero when no probe has run.
+# node_fork_schedule, node_probe {at, flags_ok, strings, build_features, faucet_env} and storage_engine
+# (tn-lmdb|mdbx|null, from '--version': what the binary itself says). Non-zero when no probe has run.
 bench_node_probe_manifest() {
     if [ -z "${BENCH_NODE_IMAGE_DIGEST:-}" ] || [ -z "${BENCH_NODE_STRINGS_JSON:-}" ]; then
         echo "❌ bench_node_probe_manifest: no node image probe in this shell (run bench_node_image_probe first)" >&2
@@ -1495,10 +1531,14 @@ bench_node_probe_manifest() {
     bench_manifest_jq --arg ref "${BENCH_NODE_IMAGE_REF}" --arg dg "${BENCH_NODE_IMAGE_DIGEST}" \
         --arg pin "${BENCH_NODE_IMAGE_PINNED}" --arg ver "${BENCH_NODE_VERSION}" --arg sha "${BENCH_NODE_GIT_SHA}" \
         --arg fs "${BENCH_NODE_FORK_SCHEDULE}" --arg at "${BENCH_NODE_PROBE_AT}" --arg ok "${BENCH_NODE_FLAGS_OK:-}" \
-        --argjson strings "${BENCH_NODE_STRINGS_JSON}" '
+        --argjson strings "${BENCH_NODE_STRINGS_JSON}" --arg se "${BENCH_NODE_STORAGE_ENGINE:-}" \
+        --arg bf "${BENCH_NODE_BUILD_FEATURES:-}" --arg fe "${BENCH_NODE_FAUCET_ENV:-}" '
+        def str: if . == "" then null else . end;
         .node_image_ref = $ref | .node_image_digest = $dg | .node_image_pinned = $pin
         | .node_version = $ver | .node_git_sha = $sha | .node_fork_schedule = $fs
-        | .node_probe = {at: $at, flags_ok: ($ok == "1"), strings: $strings}'
+        | .node_probe = {at: $at, flags_ok: ($ok == "1"), strings: $strings, build_features: ($bf|str),
+                         faucet_env: ($fe|str)}
+        | .storage_engine = ($se|str)'
 }
 
 # bench_consensus_params_manifest — record PARAMETERS_FILE in the manifest: consensus_parameters
@@ -1701,7 +1741,7 @@ _bench_index_kind() {
         sampler/*.csv) echo "20|sampler/<node>.csv|node-sampler.sh rows every 30 s (memory, I/O, PSI, disk, block)|benchmark-blast.sh collect" ;;
         sampler/*.epochs.txt) echo "21|sampler/<node>.epochs.txt|epoch-file inventory of the node every minute|benchmark-blast.sh collect" ;;
         persist/*.csv) echo "21|persist/<node>.csv|node-persist-sampler.sh rows every 30 s (data-disk I/O, dirty and writeback pages, refaults, memcg, the node's /proc io; mdbx.dat size and residency every 300 s; BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect" ;;
-        persist/*.folios.txt) echo "21|persist/<node>.folios.txt|folio-order census of the node's mdbx.dat every 900 s (tools/folio-census.py; BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect" ;;
+        persist/*.folios.txt) echo "21|persist/<node>.folios.txt|folio-order census of the node's store (tn-lmdb.dat and the static files, or mdbx.dat) every 900 s (tools/folio-census.py; BENCH_PERSIST_SAMPLER=1)|benchmark-blast.sh collect" ;;
         blasters/*) echo "22|blasters/*|blaster results (<vm>.json), txgen and docker logs|benchmark-blast.sh collect (from the run bucket)" ;;
         funder/*) echo "23|funder/*|funder output (prepare.json) and logs|benchmark-blast.sh collect (from the run bucket)" ;;
         meta/*) echo "24|meta/<vm>/*|arguments and node URLs each load VM was created with|benchmark-blast.sh fund/run" ;;
@@ -2240,6 +2280,9 @@ EOS
 #      is set (durable|safe-no-sync), --db.sync-mode <it> (unset: no flag, the image's default, durable;
 #      safe-no-sync is never for a published run). rc 1 (the flag already reads that value) is accepted,
 #      so a re-run converges; any other rc fails, naming it.
+#   6b. when BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1 (config.sh's default; bench 7): the bare flag
+#      --allow-faucet-on-chain through tn_launch_flag_set (no value), read back in 8 as a bare flag; the
+#      PRECFG_OK line gains faucet=allowed. 0: nothing of it in the script.
 #   7a. <D>/parameters.yaml.bak: `cp -p` of the file as the stage left it, unless one is there already
 #      (paramsbak=written|kept). A file that already holds `# bench-override` lines and has no .bak fails:
 #      it is not the original. tools/params-apply.sh treats marked lines without a .bak as an error.
@@ -2255,6 +2298,10 @@ EOS
 #   8. every flag of 6 read back with tn_launch_flag_get
 #   9. S is root:root 755 and passes bash -n
 #  10. the unit is still inactive
+#  10b. when BENCH_NODE_RESERVE_PORTS=1 (config.sh's default; bench 7): each port of bench_reserved_ports is
+#      in /proc/sys/net/ipv4/ip_local_reserved_ports (what `sysctl -n net.ipv4.ip_local_reserved_ports`
+#      prints; step 7's host step reserve-ports put it there before the staging start), else PRECFG_FAIL;
+#      the PRECFG_OK line gains reserved=<that list>. 0: nothing of it in the script.
 #  11. when BENCH_NODE_READ_AHEAD_KB is set: the host step read-ahead-kb <it> (bench_host_step_script
 #      has the same body): the data disk's queue/read_ahead_kb written, then read back
 #  12. when BENCH_NODE_EVICT_MDBX=1: the host step evict-mdbx, <D>/db/mdbx.dat dropped from the page
@@ -2269,7 +2316,9 @@ EOS
 # Last line (contract C5b):
 #   PRECFG_OK <inst> datadir=<D> http=0.0.0.0 ws=0.0.0.0 metrics=127.0.0.1:<port> filter=<F|->
 #     maxfiles=<MF|-> params=<n overrides> owner=root:root mode=755 unit=inactive logrotate=<size|->
-#     paramsbak=<written|kept>[ dbsync=<BENCH_NODE_DB_SYNC_MODE>, only when that is set]
+#     paramsbak=<written|kept>[ dbsync=<BENCH_NODE_DB_SYNC_MODE>, only when that is set][ faucet=allowed, only
+#     when BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1][ reserved=<the kernel's reserved list>, only when
+#     BENCH_NODE_RESERVE_PORTS=1]
 #     [ ra=<old>-><new>, only when BENCH_NODE_READ_AHEAD_KB is set][ evict=<before>/<after>, only
 #     when BENCH_NODE_EVICT_MDBX=1 (resident pages of mdbx.dat)]
 # Any failure prints `PRECFG_FAIL <inst> <reason>` and exits 1. Prints the script only (no GCP call);
@@ -2282,8 +2331,18 @@ EOS
 bench_prestart_script() {
     local inst="${1:-}" idx ref="${TN_NODE_SCRIPTS_REF:-}" kv nov lrs="${BENCH_LOGROTATE_SIZE:-}" lrt=""
     local dbs="${BENCH_NODE_DB_SYNC_MODE:-}" ev="${BENCH_NODE_EVICT_MDBX:-}" ra="${BENCH_NODE_READ_AHEAD_KB:-}" sfx
-    local arm="${BENCH_ARM_FILE:-}" aw="" an=0 asrc=""
+    local arm="${BENCH_ARM_FILE:-}" aw="" an=0 asrc="" fau="${BENCH_NODE_ALLOW_FAUCET_ON_CHAIN:-0}"
+    local rsv="${BENCH_NODE_RESERVE_PORTS:-0}" rports=""
     idx="$(bench_index_of "${inst}")" || { echo "❌ bench_prestart_script: '${inst}' is not a bench instance" >&2; return 1; }
+    case "${fau}" in
+        0|1) ;;
+        *) echo "❌ bench_prestart_script: BENCH_NODE_ALLOW_FAUCET_ON_CHAIN='${fau}' is not 0 or 1" >&2; return 1 ;;
+    esac
+    case "${rsv}" in
+        0) ;;
+        1) rports="$(bench_reserved_ports)" || return 1 ;;
+        *) echo "❌ bench_prestart_script: BENCH_NODE_RESERVE_PORTS='${rsv}' is not 0 or 1" >&2; return 1 ;;
+    esac
     case "${ref}" in
         *[!0123456789abcdef]*|'') echo "❌ bench_prestart_script: TN_NODE_SCRIPTS_REF='${ref}' is not 40 lower-case hex" >&2; return 1 ;;
     esac
@@ -2372,6 +2431,14 @@ setf --log.file.max-files "$MF"
 EOS
     fi
     [ -z "${dbs}" ] || printf 'setf --db.sync-mode %s\n' "${dbs}"
+    if [ "${fau}" = 1 ]; then
+        cat <<'EOS'
+# 6b. the faucet opt-in (BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1), a bare flag: rc 0 = set, rc 1 = already there
+setb(){ local rc=0; tnlib tn_launch_flag_set "$S" "$1" || rc=$?; case "$rc" in 0|1) ;; *) fail "tn_launch_flag_set $1: rc $rc" ;; esac; }
+getb(){ local v rc=0; v="$(tnlib tn_launch_flag_get "$S" "$1")" || rc=$?; [ "$rc" = 0 ] || fail "tn_launch_flag_get $1: rc $rc (not on the launch line)"; [ -z "$v" ] || fail "$1 reads '$v' in $S, want a bare flag"; }
+setb --allow-faucet-on-chain
+EOS
+    fi
     cat <<'EOS'
 # 7. this node's consensus parameter overrides (setp), marked `# bench-override`
 P="$D/parameters.yaml"
@@ -2435,6 +2502,7 @@ getf --log.file.max-files "$MF"
 EOS
     fi
     [ -z "${dbs}" ] || printf 'getf --db.sync-mode %s\n' "${dbs}"
+    [ "${fau}" != 1 ] || echo 'getb --allow-faucet-on-chain'
     cat <<'EOS'
 # 9. the start script is still root:root 755 and parses
 o="$(stat -c '%U:%G %a' "$S" 2>/dev/null || true)"
@@ -2445,6 +2513,21 @@ u="$(systemctl is-active telcoin 2>/dev/null || true)"
 [ "$u" = inactive ] || fail "unit telcoin is '${u:-?}' after the pre-start config, want inactive"
 EOS
     sfx="${dbs:+ dbsync=${dbs}}"
+    [ "${fau}" != 1 ] || sfx="${sfx} faucet=allowed"
+    if [ "${rsv}" = 1 ]; then
+        printf '# 10b. the listener ports %s are still reserved (BENCH_NODE_RESERVE_PORTS=1: step 7 ran reserve-ports before the staging start)\n' "${rports}"
+        cat <<'EOS'
+RP="$(cat /proc/sys/net/ipv4/ip_local_reserved_ports 2>/dev/null || true)"
+EOS
+        printf 'for p in %s; do\n' "${rports//,/ }"
+        cat <<'EOS'
+    printf '%s\n' "$RP" | awk -v p="$p" 'BEGIN { RS = "," } { gsub(/[ \t\n]/, ""); n = split($0, r, "-") } n == 1 && $0 == p { f = 1 } n == 2 && p + 0 >= r[1] + 0 && p + 0 <= r[2] + 0 { f = 1 } END { exit !f }' \
+        || fail "port $p is not in net.ipv4.ip_local_reserved_ports ('$RP'): step 7's reserve-ports did not hold"
+done
+EOS
+        # shellcheck disable=SC2016  # the node's shell expands it, in the PRECFG_OK line
+        sfx="${sfx}"' reserved=${RP}'
+    fi
     if [ -n "${ra}" ]; then
         echo "# 11. host step read-ahead-kb ${ra} (${asrc:-BENCH_NODE_READ_AHEAD_KB}): the data disk's queue/read_ahead_kb, written and read back"
         _bench_host_step_wrappers prestart "${inst}" read-ahead-kb "${ra}"
@@ -2891,6 +2974,113 @@ if __name__ == "__main__":
 EOS
 }
 
+# _bench_ports_py — the python3 program (stdlib only) behind the host step reserve-ports, run as
+# `python3 - reserve-ports <ports>` (<ports>: comma-separated, no ranges): one line `ok <before> <after>` (how
+# many of <ports> net.ipv4.ip_local_reserved_ports held before and after) or `failed <reason>`. It keeps every
+# entry the kernel's list already has, adds the missing ports, writes the whole list to /etc/sysctl.d (so a
+# reboot of the VM keeps it) and, when one was missing, to /proc/sys; a second run changes nothing. A program
+# of its own: the host probe's (_bench_host_py) stays byte for byte what bench 6 sent.
+_bench_ports_py() {
+    cat <<'EOS'
+import os, signal, sys
+
+RESERVED = "/proc/sys/net/ipv4/ip_local_reserved_ports"
+CONF = "/etc/sysctl.d/90-bench-reserved-ports.conf"
+
+
+class StepFailed(Exception):
+    pass
+
+
+def why(e):
+    return "%s: %s" % (type(e).__name__, " ".join(str(e).split()))
+
+
+def entries(spec):
+    return [e for e in spec.replace(" ", "").replace("\n", "").split(",") if e]
+
+
+def ports_of(spec):
+    """The ports of a kernel port list (`a,b-c,...`)."""
+    out = set()
+    for e in entries(spec):
+        lo, _, hi = e.partition("-")
+        out.update(range(int(lo), int(hi or lo) + 1))
+    return out
+
+
+def read_list():
+    try:
+        with open(RESERVED) as f:
+            return f.read().strip()
+    except OSError as e:
+        raise StepFailed("cannot read %s: %s" % (RESERVED, why(e)))
+
+
+def reserve(spec):
+    want = ports_of(spec)
+    cur = read_list()
+    have = ports_of(cur)
+    whole = ",".join(entries(cur) + [str(p) for p in sorted(want - have)])
+    try:
+        os.makedirs(os.path.dirname(CONF), exist_ok=True)
+        with open(CONF + ".tmp", "w") as f:
+            f.write("# benchmark deploy step 7: the node's listener ports out of the ephemeral range\n"
+                    "net.ipv4.ip_local_reserved_ports = %s\n" % whole)
+        os.rename(CONF + ".tmp", CONF)
+    except OSError as e:
+        raise StepFailed("cannot write %s: %s" % (CONF, why(e)))
+    if want - have:
+        try:
+            with open(RESERVED, "w") as f:
+                f.write(whole + "\n")
+        except OSError as e:
+            raise StepFailed("cannot write '%s' to %s: %s" % (whole, RESERVED, why(e)))
+    got = read_list()
+    if want - ports_of(got):
+        raise StepFailed("%s reads '%s' after writing '%s'" % (RESERVED, got, whole))
+    return len(want & have), len(want)
+
+
+def expired(signum, frame):
+    raise RuntimeError("not done after 30 s")
+
+
+def main(argv):
+    signal.signal(signal.SIGALRM, expired)
+    signal.alarm(30)
+    try:
+        if len(argv) != 3 or argv[1] != "reserve-ports":
+            print("failed unknown mode '%s'" % " ".join(argv[1:]))
+            return
+        print("ok %d %d" % reserve(argv[2]))
+    except StepFailed as e:
+        print("failed %s" % e)
+    except Exception as e:
+        print("failed %s" % why(e))
+    finally:
+        signal.alarm(0)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
+EOS
+}
+
+# bench_reserved_ports — the node's listener ports as reserve-ports takes them, `<primary udp>,<worker
+# udp>,<healthcheck tcp>`, from the root config.sh's DEFAULT_PRIMARY_UDP_PORT, DEFAULT_WORKER_UDP_PORT and
+# DEFAULT_HEALTHCHECK_TCP_PORT (the values the node is created with). Non-zero, nothing printed, when one is
+# not a port number.
+bench_reserved_ports() {
+    local p out=""
+    for p in "${DEFAULT_PRIMARY_UDP_PORT:-}" "${DEFAULT_WORKER_UDP_PORT:-}" "${DEFAULT_HEALTHCHECK_TCP_PORT:-}"; do
+        case "${p}" in ''|*[!0-9]*|0*) echo "❌ bench_reserved_ports: '${p}' is not a port number (root config.sh DEFAULT_*_PORT)" >&2; return 1 ;; esac
+        [ "${p}" -le 65535 ] || { echo "❌ bench_reserved_ports: ${p} is not a port number" >&2; return 1; }
+        out="${out:+${out},}${p}"
+    done
+    printf '%s\n' "${out}"
+}
+
 # _bench_host_name_ok <inst> — rc 0 when <inst> is a GCE instance name the host scripts may embed
 # (a lower-case letter, then up to 62 of [a-z0-9-]); the fleet's names and the one-VM probe's pass.
 _bench_host_name_ok() {
@@ -2913,23 +3103,25 @@ _bench_host_step_wrappers() {
     fi
 }
 
-# _bench_host_step_body <evict-mdbx|read-ahead-kb> <value|-> — the remote shell of one host step, the
+# _bench_host_step_body <evict-mdbx|read-ahead-kb|reserve-ports> <value|-> — the remote shell of one host step, the
 # same text in bench_prestart_script (11, 12) and in bench_host_step_script: reads D (the datadir),
 # runs _bench_host_py's mode, leaves the before/after numbers in HS_A/HS_B and reports them through
 # hsok "<key_before>=<n> <key_after>=<n>"; any failure goes to hsfail "<reason>".
 # evict-mdbx: at a fresh start (deploy step 7) mdbx.dat holds only genesis, and libmdbx drops every
 # page past the used size from the cache when it opens the file, so there the eviction changes
 # little. It matters when an arm restarts a node whose cache is warm (tools/params-apply.sh).
+# reserve-ports (bench 7) runs _bench_ports_py instead and needs no datadir.
 _bench_host_step_body() {
-    local step="$1" v="$2" a b args
+    local step="$1" v="$2" a b args prog=_bench_host_py
     case "${step}" in
         evict-mdbx) a=resident_pages_before; b=resident_pages_after; args='"$D"' ;;
         read-ahead-kb) a=read_ahead_kb_before; b=read_ahead_kb_after; args="\"\$D\" ${v}" ;;
+        reserve-ports) a=ports_reserved_before; b=ports_reserved_after; args="${v}"; prog=_bench_ports_py ;;
         *) echo "❌ _bench_host_step_body: unknown step '${step}'" >&2; return 1 ;;
     esac
     echo 'command -v python3 >/dev/null 2>&1 || hsfail "no python3 on the node"'
     printf "r=0; o=\"\$(python3 - %s %s <<'PY'\n" "${step}" "${args}"
-    _bench_host_py
+    "${prog}"
     printf 'PY\n)" || r=$?\n'
     cat <<'EOS'
 HS_A=''; HS_B=''
@@ -2945,6 +3137,7 @@ EOS
 
 # bench_host_step_script <inst> evict-mdbx [<datadir>]
 # bench_host_step_script <inst> read-ahead-kb <KiB> [<datadir>]
+# bench_host_step_script <inst> reserve-ports <port>[,<port>...]
 # One host step as a remote script, for a node whose unit is stopped (deploy step 7 runs the same
 # body inside bench_prestart_script; tools/params-apply.sh runs it between a node's stop and start).
 # Run as root (`bash -s`, or embedded in a longer script). <datadir> defaults to DATA_DIR from
@@ -2952,11 +3145,15 @@ EOS
 # failed) and never stops the script around it, set -e or not; it prints exactly one line:
 #   HOST_STEP <inst> evict-mdbx - resident_pages_before=<n> resident_pages_after=<n>
 #   HOST_STEP <inst> read-ahead-kb <KiB> read_ahead_kb_before=<n> read_ahead_kb_after=<n>
-#   HOST_STEP <inst> <step> <KiB|-> failed <reason>
+#   HOST_STEP <inst> reserve-ports <ports> ports_reserved_before=<n> ports_reserved_after=<n>
+#   HOST_STEP <inst> <step> <KiB|ports|-> failed <reason>
 # evict-mdbx: fsync of <datadir>/db/mdbx.dat, then posix_fadvise(DONTNEED) over it; its resident
 # pages (fincore, else mincore) must then read 0. No mdbx.dat: 0/0. read-ahead-kb: writes <KiB> to
 # /sys/block/<disk>/queue/read_ahead_kb of the disk under <datadir> and reads it back (the kernel
-# keeps whole pages, so a value that is not a multiple of 4 reads back lower and fails). The lines
+# keeps whole pages, so a value that is not a multiple of 4 reads back lower and fails). reserve-ports
+# (bench 7; deploy step 7 runs it before the staging start, for any node state): adds <ports> to
+# net.ipv4.ip_local_reserved_ports and persists the whole list in /etc/sysctl.d (_bench_ports_py); it
+# reads no datadir. The lines
 # map onto host_steps entries through bench_host_step_record. <datadir> `-` takes the datadir from
 # the surrounding script at run time: the text keeps it as RD="${D:-}" and sets D="$RD" after the
 # literal D line (an empty or
@@ -2972,7 +3169,15 @@ bench_host_step_script() {
             v="${3:-}"; d="${4:-}"
             case "${v}" in ''|*[!0-9]*|0?*) echo "❌ bench_host_step_script: read-ahead-kb '${v}' is not an integer without leading zeros (KiB)" >&2; return 1 ;; esac
             [ "$#" -le 4 ] || { echo "❌ bench_host_step_script: read-ahead-kb takes <KiB> [<datadir>] only" >&2; return 1; } ;;
-        *) echo "❌ bench_host_step_script: unknown step '${step}' (evict-mdbx, read-ahead-kb)" >&2; return 1 ;;
+        reserve-ports)
+            v="${3:-}"
+            case ",${v}," in
+                ,,|*,,*|*[!0-9,]*|*,0*) echo "❌ bench_host_step_script: reserve-ports '${v}' is not a comma-separated list of ports" >&2; return 1 ;;
+            esac
+            printf '%s\n' "${v}" | tr ',' '\n' | awk '$1 > 65535 || length($1) > 5 { bad = 1 } END { exit bad }' \
+                || { echo "❌ bench_host_step_script: reserve-ports '${v}' names a number above 65535" >&2; return 1; }
+            [ "$#" -le 3 ] || { echo "❌ bench_host_step_script: reserve-ports takes <ports> only" >&2; return 1; } ;;
+        *) echo "❌ bench_host_step_script: unknown step '${step}' (evict-mdbx, read-ahead-kb, reserve-ports)" >&2; return 1 ;;
     esac
     case "${d}" in ''|-|/?*) ;; *) echo "❌ bench_host_step_script: datadir '${d}' is not an absolute path (or -)" >&2; return 1 ;; esac
     echo "# host step ${step} (bench_host_step_script): one subshell, one HOST_STEP line; HOST_STEP_RC 0 = held, 1 = failed"
@@ -2985,7 +3190,7 @@ bench_host_step_script() {
     # shellcheck disable=SC2016  # as above
     [ "${d}" != - ] || echo 'D="$RD"'
     _bench_host_step_wrappers standalone "${inst}" "${step}" "${v}"
-    cat <<'EOS'
+    [ "${step}" = reserve-ports ] || cat <<'EOS'
 if [ -z "$D" ]; then
     r=0; D="$(meta DATA_DIR)" || r=$?
     [ "$r" = 0 ] || hsfail "DATA_DIR unreadable in /etc/telcoin/.node-meta (meta rc $r)"
@@ -2999,9 +3204,10 @@ EOS
 
 # bench_host_step_record <inst> — the host steps of one node from a session's output on stdin (CRs
 # dropped): one JSON array, one entry per line that starts `HOST_STEP <inst> `, in order, each
-#   {"step": "evict-mdbx"|"read-ahead-kb", "value": null|"<KiB>", "result": <result>}
+#   {"step": "evict-mdbx"|"read-ahead-kb"|"reserve-ports", "value": null|"<KiB>"|"<ports>", "result": <result>}
 # with <result> {"resident_pages_before": n, "resident_pages_after": n},
-# {"read_ahead_kb_before": n, "read_ahead_kb_after": n} or {"failed": "<reason>"} (a line it cannot
+# {"read_ahead_kb_before": n, "read_ahead_kb_after": n}, {"ports_reserved_before": n, "ports_reserved_after": n}
+# or {"failed": "<reason>"} (a line it cannot
 # parse gives {"failed": "unparsed: <line>"}): node_startup[inst].host_steps, and the per-node
 # result of a param_arms[].host entry (arms/MANIFEST-FIELDS.md). No line: []. rc 0 always.
 bench_host_step_record() {
@@ -3009,8 +3215,11 @@ bench_host_step_record() {
     out="$(awk -v p="HOST_STEP ${inst} " 'index($0, p) == 1 { print substr($0, length(p) + 1) }' | jq -R -s -c '
         [split("\n")[] | select(length > 0) | . as $l | split(" ") as $w | $w[0] as $s | ($w[1] // "") as $v
          | ({"evict-mdbx": ["resident_pages_before", "resident_pages_after"],
-             "read-ahead-kb": ["read_ahead_kb_before", "read_ahead_kb_after"]}[$s]) as $k
-         | (if $s == "evict-mdbx" then $v == "-" else ($v | test("^(0|[1-9][0-9]*)$")) end) as $vok
+             "read-ahead-kb": ["read_ahead_kb_before", "read_ahead_kb_after"],
+             "reserve-ports": ["ports_reserved_before", "ports_reserved_after"]}[$s]) as $k
+         | (if $s == "evict-mdbx" then $v == "-"
+            elif $s == "reserve-ports" then ($v | test("^[1-9][0-9]{0,4}(,[1-9][0-9]{0,4})*$"))
+            else ($v | test("^(0|[1-9][0-9]*)$")) end) as $vok
          | {step: $s, value: (if $v == "-" or $v == "" then null else $v end),
             result: (if $k == null or ($vok | not) then {failed: ("unparsed: " + $l)}
                      elif $w[2] == "failed" then {failed: ($w[3:] | join(" ") | if . == "" then "(no reason given)" else . end)}

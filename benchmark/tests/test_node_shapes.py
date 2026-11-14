@@ -39,6 +39,10 @@ E_DATADIR = ["0", "0", "1", "1", "1", "1", "1", "0", "0", "1", "0"]
 E_ENV = {"BENCH_NODE_MACHINE_TYPES": OPTION_E, "BENCH_NODE_DATADIR_LSSD": "1", "BENCH_FLEET": "c3-lssd-e"}
 KNOBS = ("BENCH_NODE_MACHINE_TYPES", "BENCH_NODE_ZONES", "BENCH_NODE_DATADIR_LSSD", "BENCH_CREATE_MACHINE_TYPE")
 NEW_ARRAYS = ("NODE_MACHINE_TYPES", "NODE_DATADIR_LSSD")
+# Bench 7's two start knobs are assigned by config.sh itself (validated 0|1, default 1), so they are variables the
+# base file does not have.
+NEW_SCALARS = ("BENCH_NODE_ALLOW_FAUCET_ON_CHAIN", "BENCH_NODE_RESERVE_PORTS")
+NEW_NAMES = NEW_ARRAYS + NEW_SCALARS
 # Bash's own variables that change from one shell to the next (or with the sourced file's name).
 VOLATILE = {"BASHPID", "BASH_ARGC", "BASH_ARGV", "BASH_ARGV0", "BASH_COMMAND", "BASH_LINENO", "BASH_MONOSECONDS",
             "BASH_SOURCE", "BASH_SUBSHELL", "EPOCHREALTIME", "EPOCHSECONDS", "FUNCNAME", "HISTCMD", "LINENO",
@@ -236,10 +240,10 @@ class KnobUnsetTests(Sandbox):
         for label, env in variants:
             with self.subTest(variant=label):
                 base, changed = self.dump(self.base, **env), self.dump(self.cfg, **env)
-                for name in NEW_ARRAYS:
+                for name in NEW_NAMES:
                     self.assertNotIn(name, base)
                     self.assertIn(name, changed)
-                self.assertEqual(sorted(set(changed) - set(NEW_ARRAYS)), sorted(base))
+                self.assertEqual(sorted(set(changed) - set(NEW_NAMES)), sorted(base))
                 for name in sorted(base):
                     self.assertEqual(changed[name], base[name], name)
                 arrays, scalars = self.show(**env)

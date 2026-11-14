@@ -3,7 +3,9 @@
 The sampler runs under bash against a fake /proc and /sys tree (PERSIST_ROOT) with shims on PATH:
 `docker` prints the container id and State.Pid from a state file and logs each call, and `sleep`
 returns at once after running the hook script of that tick (the tests change the fake tree between
-ticks that way). mdbx.dat is a real scratch file, so its residency (fincore / mincore) is real.
+ticks that way). mdbx.dat is a real scratch file, so its residency (fincore / mincore) is real. Bench 7:
+the same host with db/tn-lmdb.dat (a sparse scratch file) and a few static files instead, a data dir with
+both (tn-lmdb wins), one with neither, and shims that log any tool handed a store file to read.
 
 The census is checked against a fake /proc (a writer's maps and pagemap, kpageflags) laid over a real
 scratch file, and in a real-file smoke: a live writer maps a disk-backed scratch file, and five censuses
@@ -15,6 +17,7 @@ import ctypes.util
 import importlib.util
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import struct
@@ -23,6 +26,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 BENCH = TESTS.parent
@@ -35,6 +39,19 @@ COL = {name: i for i, name in enumerate(PERSIST_HEADER.strip().split(","))}
 MDBX_COLS = ("mdbx_dat_size_bytes", "mdbx_dat_resident_pages", "mdbx_dat_vma_bytes", "mdbx_dat_rr_bytes",
              "mdbx_dat_resident_past_used_pages")
 PAST = "mdbx_dat_resident_past_used_pages"
+# bench 7: appended after the frozen bench-6 columns; the first five every tick, the last three every 300 s
+LMDB_FAST = ("tn_lmdb_dat_size_bytes", "tn_lmdb_dat_allocated_bytes", "static_files_size_bytes",
+             "static_files_files_total", "tn_lmdb_used_bytes")
+LMDB_SLOW = ("tn_lmdb_dat_resident_pages", "tn_lmdb_dat_vma_bytes", "tn_lmdb_dat_rr_bytes")
+LMDB_COLS = LMDB_FAST + LMDB_SLOW
+# The node's tn-lmdb gauges: tables 40,960 + 8,192 bytes, 3 free pages of 4,096: 61,440 bytes used.
+LMDB_METRICS = ('# TYPE reth_db_table_size gauge\nreth_db_table_size{table="PlainAccountState"} 40960\n'
+                'reth_db_table_size{table="HashedStorages"} 8.192e+03\n'
+                'reth_db_table_pages{table="PlainAccountState",type="leaf"} 9\nreth_db_table_size_bytes_other 7\n'
+                "reth_db_freelist 3\nreth_db_page_size 4096\ntn_reth_mdbx_used_bytes 999\n")
+LMDB_USED = 40960 + 8192 + 3 * 4096
+STATIC = (("static_file_headers_0_499999", 3000), ("static_file_headers_0_499999.conf", 100),
+          ("static_file_account-change-sets_0_499999.csoff", 0))
 PS = os.sysconf("SC_PAGE_SIZE")
 
 _spec = importlib.util.spec_from_file_location("folio_census", str(CENSUS))
@@ -169,10 +186,10 @@ class SamplerCase(unittest.TestCase):
         with open(str(cg / "cgroup.procs"), "a") as f:
             f.write("%d\n" % pid)
 
-    def smaps(self):
-        dev = "%02x:%02x" % (os.major(self.st.st_dev), os.minor(self.st.st_dev))
-        ino = self.st.st_ino
-        path = "/home/nonroot/db/mdbx.dat"
+    def smaps(self, st=None, path="/home/nonroot/db/mdbx.dat"):
+        st = st or self.st
+        dev = "%02x:%02x" % (os.major(st.st_dev), os.minor(st.st_dev))
+        ino = st.st_ino
         vmas = (
             ("7f0000000000-7f0010000000 rw-s 00000000 %s %d %s" % (dev, ino, path), 262144, "rd wr sh mr mw me ms sd rr nh"),
             ("7f0010000000-7f0020000000 rw-s 10000000 %s %d %s" % (dev, ino, path), 262144, "rd wr sh mr mw me ms sd nh"),
@@ -283,7 +300,7 @@ class SamplerTests(SamplerCase):
         (row,) = self.rows()
         self.assertEqual(len(row), NCOLS)
         for name, i in COL.items():
-            if name.startswith("vm_") or name.startswith("proc_"):
+            if name.startswith("vm_") or name.startswith("proc_") or name in LMDB_COLS:   # an mdbx.dat data dir
                 self.assertEqual(row[i], "", name)
             else:
                 self.assertNotEqual(row[i], "", name)
@@ -554,6 +571,176 @@ class SamplerTests(SamplerCase):
         self.assertEqual(a[1:], b[1:])
 
 
+# ---- bench7 HB-3: tn-lmdb store ----
+READ_TOOLS = ("awk", "cat", "head", "tail", "dd", "od", "xxd", "hexdump", "strings", "md5sum", "sha256sum", "cp", "wc",
+              "grep", "sed", "cut", "tr", "less")
+READ_SHIM = """#!/bin/sh
+for a in "$@"; do
+    case "$a" in */tn-lmdb.dat|*/mdbx.dat|*/static_files/*) [ ! -f "$a" ] || echo "%(name)s $*" >> "$FAKE_STATE/reads.log" ;; esac
+done
+%(tail)s
+"""
+PYTHON_SHIM = """#!/bin/sh
+[ "$1" = "%(census)s" ] || echo "python3 $*" >> "$FAKE_STATE/reads.log"
+exec "%(python)s" "$@"
+"""
+
+
+class TnLmdbSamplerTests(SamplerCase):
+    """A tn-lmdb data dir: db/tn-lmdb.dat (8 written pages, then a hole to 64), static_files/ with three
+    files, the node's db gauges; mdbx.dat gone."""
+
+    def setUp(self):
+        super().setUp()
+        self.mdbx.unlink()
+        self.lmdb = self.data / "db" / "tn-lmdb.dat"
+        fd = os.open(str(self.lmdb), os.O_RDWR | os.O_CREAT, 0o644)
+        os.pwrite(fd, b"\x6c" * (8 * PS), 0)
+        os.ftruncate(fd, 64 * PS)
+        os.close(fd)
+        self.lst = os.stat(str(self.lmdb))
+        self.static = self.data / "static_files"
+        self.static.mkdir()
+        for name, size in STATIC:
+            (self.static / name).write_bytes(b"s" * size)
+        self.metrics_url = self.metrics(LMDB_METRICS, "lmdb.txt")
+
+    def lmdb_smaps(self):
+        return self.smaps(self.lst, "/home/nonroot/db/tn-lmdb.dat")
+
+    def test_tn_lmdb_row(self):
+        self.add_node(4242, "c0ffee", smaps=self.lmdb_smaps())
+        self.docker("c0ffee", 4242)
+        p = self.run_sampler(1)
+        (row,) = self.rows()
+        self.assertEqual(len(row), NCOLS)
+        got = dict((c, row[COL[c]]) for c in MDBX_COLS + LMDB_COLS)
+        self.assertEqual(got, dict([(c, "") for c in MDBX_COLS] + [
+            ("tn_lmdb_dat_size_bytes", str(64 * PS)), ("tn_lmdb_dat_allocated_bytes", str(self.lst.st_blocks * 512)),
+            ("static_files_size_bytes", "3100"), ("static_files_files_total", "3"), ("tn_lmdb_used_bytes", str(LMDB_USED)),
+            ("tn_lmdb_dat_resident_pages", str(sum(residency(str(self.lmdb))))),
+            ("tn_lmdb_dat_vma_bytes", str((262144 + 262144 + 1024) * 1024)),
+            ("tn_lmdb_dat_rr_bytes", str((262144 + 1024) * 1024))]))
+        self.assertEqual(got["tn_lmdb_dat_resident_pages"], "8")
+        self.assertEqual(row[COL["proc_write_bytes_total"]], "16")       # the node's own writes stay apart
+        self.assertEqual(row[COL["disk_wr_ios_total"]], "400")
+        self.assertEqual(p.stderr.count("node-persist-sampler: store tn-lmdb: "), 1, p.stderr)
+
+    def test_fast_columns_every_tick_slow_on_the_cadence(self):
+        self.add_node(4242, "c0ffee", smaps=self.lmdb_smaps())
+        self.docker("c0ffee", 4242)
+        p = self.run_sampler(4, mdbx_every=90)      # rows 0 and 3 carry the 300-s columns
+        rows = self.rows()
+        for k, row in enumerate(rows):
+            self.assertTrue(all(row[COL[c]] for c in LMDB_FAST), (k, row))
+            self.assertEqual(all(row[COL[c]] for c in LMDB_SLOW), k % 3 == 0, k)
+            self.assertEqual([row[COL[c]] for c in MDBX_COLS], [""] * 5, k)
+        self.assertEqual(p.stderr.count("store tn-lmdb"), 1)    # one line, not one a tick
+
+    def test_tn_lmdb_wins_over_mdbx_and_no_knob_picks(self):
+        # A migrated data dir keeps mdbx.dat beside tn-lmdb.dat; PERSIST_MDBX_FILE only says where mdbx.dat lies.
+        fd = os.open(str(self.mdbx), os.O_RDWR | os.O_CREAT, 0o644)
+        os.ftruncate(fd, 4 * PS)
+        os.close(fd)
+        for extra in ({}, {"PERSIST_MDBX_FILE": str(self.mdbx)}):
+            with self.subTest(extra=extra):
+                self.run_sampler(1, extra=extra)
+                (row,) = self.rows()
+                self.assertEqual(row[COL["tn_lmdb_dat_size_bytes"]], str(64 * PS))
+                self.assertEqual([row[COL[c]] for c in MDBX_COLS], [""] * 5)
+                (self.out / "bench-validator-01.persist.csv").unlink()
+        self.lmdb.unlink()
+        self.run_sampler(1)
+        (row,) = self.rows()
+        self.assertEqual(row[COL["mdbx_dat_size_bytes"]], str(4 * PS))
+        self.assertEqual([row[COL[c]] for c in LMDB_COLS], [""] * len(LMDB_COLS))
+
+    def test_used_bytes_needs_the_three_gauges(self):
+        for body, want in ((LMDB_METRICS, str(LMDB_USED)),
+                           (LMDB_METRICS.replace("reth_db_freelist 3\n", ""), ""),
+                           (LMDB_METRICS.replace("reth_db_page_size 4096", "reth_db_page_size NaN"), ""),
+                           ("tn_reth_mdbx_used_bytes 4096\n", ""),
+                           (LMDB_METRICS.replace("reth_db_freelist 3", "reth_db_freelist 0"), str(40960 + 8192))):
+            with self.subTest(body=body[-60:]):
+                self.run_sampler(1, metrics_url=self.metrics(body, "m.txt"))
+                (row,) = self.rows()
+                self.assertEqual(row[COL["tn_lmdb_used_bytes"]], want)
+                self.assertEqual(row[COL["tn_lmdb_dat_size_bytes"]], str(64 * PS))
+                (self.out / "bench-validator-01.persist.csv").unlink()
+        self.run_sampler(1, metrics_url="file://" + str(self.state / "missing.txt"))
+        (row,) = self.rows()
+        self.assertEqual(row[COL["tn_lmdb_used_bytes"]], "")
+
+    def test_static_files_absent_is_empty_and_an_empty_dir_is_zero(self):
+        shutil.rmtree(str(self.static))
+        self.run_sampler(1)
+        (row,) = self.rows()
+        self.assertEqual((row[COL["static_files_size_bytes"]], row[COL["static_files_files_total"]]), ("", ""))
+        self.static.mkdir()
+        (self.out / "bench-validator-01.persist.csv").unlink()
+        self.run_sampler(1)
+        (row,) = self.rows()
+        self.assertEqual((row[COL["static_files_size_bytes"]], row[COL["static_files_files_total"]]), ("0", "0"))
+
+    def test_neither_store_logs_once_and_samples_the_rest(self):
+        self.lmdb.unlink()
+        self.add_node(4242, "c0ffee")
+        self.docker("c0ffee", 4242)
+        # the node creates its store after the second row
+        self.hook(2, "cp '%s' '%s'\n" % (self.static / STATIC[0][0], self.lmdb))
+        p = self.run_sampler(3, census_every=30)
+        rows = self.rows()
+        for row in rows[:2]:
+            self.assertEqual([row[COL[c]] for c in MDBX_COLS + LMDB_COLS], [""] * (5 + len(LMDB_COLS)))
+            self.assertEqual(row[COL["disk_wr_ios_total"]], "400")
+            self.assertEqual(row[COL["proc_write_bytes_total"]], "16")
+        self.assertEqual(rows[2][COL["tn_lmdb_dat_size_bytes"]], "3000")
+        self.assertEqual(p.stderr.count("node-persist-sampler: neither "), 1, p.stderr)
+        self.assertEqual(p.stderr.count("store tn-lmdb"), 1, p.stderr)
+        folios = (self.out / "bench-validator-01.folios.txt").read_text().splitlines()
+        self.assertEqual(len(folios), 2, folios)     # the header and the third tick's census only
+
+    def test_census_sums_the_static_files(self):
+        self.run_sampler(1, census_every=30)
+        (_, line) = (self.out / "bench-validator-01.folios.txt").read_text().splitlines()
+        cells = line.split(",")
+        resident = sum(residency(str(self.lmdb))) + sum(sum(residency(str(self.static / n))) for n, _ in STATIC)
+        self.assertEqual(cells[2:5], [str(64 * PS + 3100), str(resident), str(resident)])
+        self.assertEqual(cells[5:], [""] * 5)
+
+    def test_no_store_file_is_handed_to_a_reader(self):
+        shim = self.tmp / "readshims"
+        shim.mkdir()
+        for name in READ_TOOLS + ("mdbx_stat", "telcoin-network", "telcoin"):
+            real = shutil.which(name)
+            (shim / name).write_text(READ_SHIM % {"name": name, "tail": 'exec "%s" "$@"' % real if real else "exit 0"})
+            (shim / name).chmod(0o755)
+        (shim / "python3").write_text(PYTHON_SHIM % {"census": CENSUS, "python": sys.executable})
+        (shim / "python3").chmod(0o755)
+        self.add_node(4242, "c0ffee", smaps=self.lmdb_smaps())
+        self.docker("c0ffee", 4242)
+        for extra in ({}, {"PERSIST_FINCORE": ""}):     # fincore, then the census tool's --resident-only
+            with self.subTest(extra=extra):
+                self.run_sampler(2, census_every=30, path_first=[shim], extra=extra)
+                rows = self.rows()
+                self.assertEqual(rows[0][COL["tn_lmdb_dat_resident_pages"]], "8")
+                self.assertFalse((self.state / "reads.log").exists(), (self.state / "reads.log").read_text()
+                                 if (self.state / "reads.log").exists() else "")
+                (self.out / "bench-validator-01.persist.csv").unlink()
+
+    def test_the_script_never_redirects_from_a_store_file(self):
+        src = SAMPLER.read_text()
+        for var in ("LMDB", "MDBX", "STATIC_DIR"):
+            self.assertNotRegex(src, r'<\s*"?\$\{?%s\b' % var)
+        # every use of a store path: stat, the existence test, the residency and smaps helpers, find (a listing),
+        # the census arguments, or a message
+        uses = [l.strip() for l in src.splitlines() if re.search(r"\$\{(LMDB|MDBX|STATIC_DIR)\}", l)
+                and not l.lstrip().startswith("#")]
+        allowed = re.compile(r'(stat -L -c|\[ -[fd] |resident_pages "|map_bytes "|find "\$\{STATIC_DIR\}" -type f -printf|'
+                             r'census_args=\(--file|--file "\$\{MDBX\}" --resident-only --from-bytes|echo "node-persist-sampler: )')
+        self.assertEqual([u for u in uses if not allowed.search(u)], [])
+
+
 class CensusFakeTreeTests(unittest.TestCase):
     """The census over a real scratch file (64 written pages, then 64 hole pages) and a fake /proc."""
 
@@ -773,6 +960,176 @@ class CensusFakeTreeTests(unittest.TestCase):
         maps = census_mod.writer_mappings(str(self.proc), "77", st, str(self.file), 4096)
         self.assertEqual(maps, [(0x1000, 0x3000, 2), (0x5000, 0x6000, 0)])
 
+    # ---- bench7 HB-3: a static file summed in, and nothing of a target ever read ----
+    def static_file(self, pages=16):
+        static = self.tmp / "static_files"
+        static.mkdir(exist_ok=True)
+        f = static / "static_file_receipts_0_499999"
+        with open(str(f), "wb") as fh:
+            fh.write(b"\x44" * (pages * PS))
+        if sum(residency(str(f))) != pages:
+            self.skipTest("scratch file residency is not as written (memory pressure?)")
+        return f
+
+    def test_a_static_target_is_summed_into_the_same_rows(self):
+        self.write_tree(*self.layout())
+        f = self.static_file()
+        p = subprocess.run([sys.executable, str(CENSUS), "--file", str(self.file), "--static-dir", str(f.parent),
+                            "--proc", str(self.proc), "--pid", "77"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        body = [line.split(",") for line in p.stdout.splitlines()]
+        for r in body:
+            # the writer does not map the static file: its 16 resident pages are unresolved
+            self.assertEqual(r[2:5], [str(128 * PS + 16 * PS), str(64 + 16), str(18 + 16)])
+        self.assertEqual([r[5:] for r in body], [["0", "2", "1", "0", "0"], ["2", "1", "0", "1", "0"],
+                                                 ["3", "1", "1", "0", "1"], ["5", "1", "0", "0", "0"]])
+
+    def test_the_census_never_reads_a_target(self):
+        """Only open, fstat and a PROT_NONE mapping touch the store's files: no read, no other mapping."""
+        self.write_tree(*self.layout())
+        f = self.static_file()
+        live, opened, bad = set(), [], []      # the target descriptors open now; every target opened
+        real_open, real_noatime, real_libc, real_close = open, census_mod.open_noatime, census_mod._libc, os.close
+
+        def noatime(path):
+            fd = real_noatime(path)
+            live.add(fd)
+            opened.append(path)
+            return fd
+
+        def close(fd):
+            live.discard(fd)
+            return real_close(fd)
+
+        def guard(name, fn):
+            def call(fd, *a, **k):
+                if fd in live:
+                    bad.append((name, fd))
+                return fn(fd, *a, **k)
+            return call
+
+        def guarded_open(file, *a, **k):
+            if str(file) in (str(self.file), str(f)):
+                bad.append(("open", str(file)))
+            return real_open(file, *a, **k)
+
+        class Libc(object):
+            def __getattr__(self, name):
+                return getattr(real_libc, name)
+
+            def mmap(self, addr, length, prot, flags, fd, off):
+                if prot != census_mod.PROT_NONE:
+                    bad.append(("mmap", prot))
+                return real_libc.mmap(addr, length, prot, flags, fd, off)
+
+        patches = [mock.patch.object(census_mod, "open_noatime", noatime), mock.patch.object(census_mod, "_libc", Libc()),
+                   mock.patch("builtins.open", guarded_open), mock.patch.object(os, "close", close)]
+        for name in ("read", "pread", "readv", "preadv"):
+            if hasattr(os, name):
+                patches.append(mock.patch.object(os, name, guard(name, getattr(os, name))))
+        for x in patches:
+            x.start()
+        try:
+            rows = census_mod.census(str(self.file), "77", str(self.proc), 30, [str(f)])
+        finally:
+            for x in reversed(patches):
+                x.stop()
+        self.assertEqual(opened, [str(self.file), str(f)])
+        self.assertEqual((bad, live), ([], set()))
+        self.assertEqual([r[5] for r in rows], ["0", "2", "3", "5"])
+
+
+class CensusTargetsTests(unittest.TestCase):
+    """The census's targets (bench 7): --data-dir picks them by what the data dir holds, --static-dir sums a
+    directory in, the store file missing makes the empty row, and every row any census writes parses."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="census-targets-")
+        self.tmp = Path(self._tmp.name)
+        self.data = self.tmp / "data"
+        (self.data / "db").mkdir(parents=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def put(self, path, written, total):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
+        os.pwrite(fd, b"\x21" * (written * PS), 0) if written else None
+        os.ftruncate(fd, total * PS)
+        os.close(fd)
+        return sum(residency(str(path)))
+
+    def census(self, *args, rc=0):
+        p = subprocess.run([sys.executable, str(CENSUS)] + [str(a) for a in args], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, rc, p.stderr)
+        return [line.split(",") for line in p.stdout.splitlines()]
+
+    def test_data_dir_picks_the_store(self):
+        res_m = self.put(self.data / "db" / "mdbx.dat", 3, 10)
+        (row,) = self.census("--data-dir", self.data)
+        self.assertEqual(row[2:], [str(10 * PS), str(res_m), str(res_m), "", "", "", "", ""])
+        res_l = self.put(self.data / "db" / "tn-lmdb.dat", 5, 20)
+        res_s = self.put(self.data / "static_files" / "static_file_headers_0_499999", 2, 2)
+        res_s += self.put(self.data / "static_files" / "sub" / "x.conf", 1, 1)
+        (row,) = self.census("--data-dir", self.data)          # tn-lmdb wins, the static files summed in
+        self.assertEqual(row[2:5], [str((20 + 2 + 1) * PS), str(res_l + res_s), str(res_l + res_s)])
+        self.assertEqual(self.census("--data-dir", self.data, "--resident-only"), [[str(res_l)]])
+        empty = self.tmp / "empty"
+        (empty / "db").mkdir(parents=True)
+        (row,) = self.census("--data-dir", empty)
+        self.assertEqual((len(row), row[2:]), (10, [""] * 8))
+        self.assertEqual(self.census("--data-dir", empty, "--resident-only", rc=1), [[""]])
+
+    def test_static_dir_is_optional_and_needs_the_store_file(self):
+        f = self.data / "db" / "tn-lmdb.dat"
+        res = self.put(f, 2, 4)
+        (row,) = self.census("--file", f, "--static-dir", self.tmp / "absent")
+        self.assertEqual(row[2:5], [str(4 * PS), str(res), str(res)])
+        self.put(self.data / "static_files" / "a", 1, 3)
+        (row,) = self.census("--file", self.data / "db" / "gone.dat", "--static-dir", self.data / "static_files")
+        self.assertEqual(row[2:], [""] * 8)
+
+    def test_arguments(self):
+        f = self.data / "db" / "tn-lmdb.dat"
+        self.put(f, 1, 1)
+        for args in ((), ("--file", f, "--data-dir", self.data), ("--data-dir", self.data, "--static-dir", self.data)):
+            with self.subTest(args=args):
+                self.census(*args, rc=2)
+
+    def test_every_row_parses(self):
+        f = self.data / "db" / "tn-lmdb.dat"
+        self.put(f, 4, 8)
+        self.put(self.data / "static_files" / "a", 1, 1)
+        rows = []
+        for args in (("--file", self.data / "nope"), ("--data-dir", self.data), ("--file", f, "--deadline-secs", "0"),
+                     ("--data-dir", self.tmp)):
+            rows += self.census(*args)
+        text = census_mod.HEADER + "\n" + "".join(",".join(r) + "\n" for r in rows)
+        import csv as _csv
+        import io as _io
+        n = 0
+        for r in _csv.DictReader(_io.StringIO(text)):
+            n += 1
+            self.assertEqual(len(r), 10)
+            self.assertNotIn(None, r)
+            for k, v in r.items():
+                self.assertRegex(v, r"^(?:[0-9]+(?:\.[0-9]+)?)?$", k)
+            if r["folio_order"] == "":
+                self.assertEqual([r[k] for k in ("folios", "dirty_folios", "writeback_folios", "active_folios")], [""] * 4)
+        self.assertEqual(n, 4)
+
+    def test_clean(self):
+        clean = census_mod.clean
+        self.assertEqual(clean(["1", "0.5", "x", "-3", "", "2", "1", "0", "0", "0", "extra"]),
+                         ["1", "0.5", "", "", "", "2", "1", "0", "0", "0"])
+        self.assertEqual(clean(["1", "0.1", "8", "2", "2", "", "5", "1", "1", "1"]), ["1", "0.1", "8", "2", "2"] + [""] * 5)
+        self.assertEqual(clean(["1", "0.1"]), ["1", "0.1"] + [""] * 8)
+        self.assertEqual(clean(["1", "None", "nan", "2", "2", "0", "1", "0", "0", "0"]),
+                         ["1", "", "", "2", "2", "0", "1", "0", "0", "0"])
+
 
 class RealFileSmokeTests(unittest.TestCase):
     """A live writer maps a disk-backed scratch file; censuses and sampler ticks must not change residency."""
@@ -874,6 +1231,41 @@ class RealFileSmokeTests(unittest.TestCase):
             self.assertEqual(row[COL[PAST]], str(sum(res0[300:])))  # pages 384-511: 128
         folios = (out / "smoke.folios.txt").read_text().splitlines()
         self.assertEqual(len(folios), 1 + 5)
+
+
+    def test_five_sampler_ticks_on_tn_lmdb_leave_residency_unchanged(self):
+        """Bench 7: the same file as db/tn-lmdb.dat, a static file beside it; ticks and censuses fault nothing in."""
+        lmdb = self.file.parent / "tn-lmdb.dat"
+        os.rename(str(self.file), str(lmdb))
+        self.file = lmdb
+        static = self.tmp / "data" / "static_files"
+        static.mkdir()
+        (static / "static_file_headers_0_499999").write_bytes(b"h" * 4096)
+        self.start_writer()
+        res0 = self.before()
+        shim = self.tmp / "bin"
+        shim.mkdir()
+        (shim / "sleep").write_text("#!/bin/sh\nexit 0\n")
+        (shim / "sleep").chmod(0o755)
+        out = self.tmp / "out"
+        (self.tmp / "metrics.txt").write_text(LMDB_METRICS)
+        env = {"PATH": str(shim) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp),
+               "PERSIST_DATA_DIR": str(self.tmp / "data"), "PERSIST_PID": str(self.writer.pid),
+               "PERSIST_OUT_DIR": str(out), "PERSIST_HOST": "smoke", "PERSIST_INTERVAL_SECS": "30",
+               "PERSIST_MDBX_EVERY_SECS": "30", "PERSIST_CENSUS_EVERY_SECS": "30", "PERSIST_TICKS": "5",
+               "PERSIST_CENSUS": str(CENSUS), "PERSIST_METRICS_URL": "file://" + str(self.tmp / "metrics.txt")}
+        p = subprocess.run(["bash", str(SAMPLER)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assert_unchanged(res0)
+        rows = [line.split(",") for line in (out / "smoke.persist.csv").read_text().splitlines()[1:]]
+        self.assertEqual(len(rows), 5)
+        for row in rows:
+            self.assertEqual(row[COL["tn_lmdb_dat_resident_pages"]], str(sum(res0)))
+            self.assertEqual(row[COL["tn_lmdb_dat_vma_bytes"]], str(768 * PS))
+            self.assertEqual(row[COL["tn_lmdb_used_bytes"]], str(LMDB_USED))
+            self.assertEqual([row[COL[c]] for c in MDBX_COLS], [""] * 5)
+        self.assertEqual(len((out / "smoke.folios.txt").read_text().splitlines()), 1 + 5)
 
 
 if __name__ == "__main__":

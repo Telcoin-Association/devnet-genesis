@@ -835,5 +835,99 @@ class PrestartHostStepRunTests(HostCase):
         self.assertFalse([l for l in node.calls() if l.startswith(("fincore ", "python3 - evict-mdbx"))])
 
 
+
+# ---- bench7 HB-1 reserve-ports ----
+PORTS = "49590,49594,43174"
+RESERVED = "proc/sys/net/ipv4/ip_local_reserved_ports"
+CONF = "etc/sysctl.d/90-bench-reserved-ports.conf"
+
+
+class ReservePortsStepTests(HostCase):
+    """The host step reserve-ports (deploy step 7, before the staging start): the node's listener ports into
+    net.ipv4.ip_local_reserved_ports and the whole list into /etc/sysctl.d; a second run changes nothing; it needs no
+    datadir. And the pre-start config's 10b check (BENCH_NODE_RESERVE_PORTS=1) that reads the list back."""
+
+    step = HostStepScriptTests.step
+    step_record = HostStepScriptTests.step_record
+
+    def reserved_host(self, name, listed):
+        host = self.host(name)
+        write(host.root / RESERVED, listed + "\n")
+        (host.root / "etc/telcoin/.node-meta").unlink()   # the step reads no datadir
+        return host
+
+    def test_reserve_then_a_second_run_changes_nothing(self):
+        host = self.reserved_host("fresh", "")
+        line, rc = self.step(host, "reserve-ports", PORTS)
+        self.assertEqual((line, rc), ("HOST_STEP %s reserve-ports %s ports_reserved_before=0 ports_reserved_after=3"
+                                      % (INST, PORTS), "0"))
+        self.assertEqual((host.root / RESERVED).read_text(), "43174,49590,49594\n")
+        self.assertTrue((host.root / CONF).is_file(), "the step left no %s: a reboot would lose the list" % CONF)
+        conf = (host.root / CONF).read_text()
+        self.assertTrue(conf.endswith("\nnet.ipv4.ip_local_reserved_ports = 43174,49590,49594\n"), conf)
+        self.assertEqual(self.step_record(line + "\n"), [{"step": "reserve-ports", "value": PORTS, "result": {
+            "ports_reserved_before": 0, "ports_reserved_after": 3}}])
+        before = (host.root / RESERVED).stat().st_mtime_ns
+        line, rc = self.step(host, "reserve-ports", PORTS)
+        self.assertEqual((line, rc), ("HOST_STEP %s reserve-ports %s ports_reserved_before=3 ports_reserved_after=3"
+                                      % (INST, PORTS), "0"))
+        self.assertEqual((host.root / RESERVED).stat().st_mtime_ns, before)   # nothing was missing: /proc untouched
+        self.assertEqual((host.root / CONF).read_text(), conf)
+
+    def test_the_kernel_list_is_kept_and_a_range_counts(self):
+        host = self.reserved_host("range", "8000,49000-49592")
+        line, rc = self.step(host, "reserve-ports", PORTS)
+        self.assertEqual((line, rc), ("HOST_STEP %s reserve-ports %s ports_reserved_before=1 ports_reserved_after=3"
+                                      % (INST, PORTS), "0"))
+        self.assertEqual((host.root / RESERVED).read_text(), "8000,49000-49592,43174,49594\n")
+
+    def test_an_unreadable_list_or_no_python_fails_the_step_not_the_script(self):
+        host = self.reserved_host("unreadable", "")
+        (host.root / RESERVED).unlink()
+        line, rc = self.step(host, "reserve-ports", PORTS)
+        self.assertEqual(rc, "1")
+        self.assertTrue(line.startswith("HOST_STEP %s reserve-ports %s failed cannot read " % (INST, PORTS)), line)
+        self.assertFalse((host.root / CONF).exists())
+        host = self.host("no-python", python=False)
+        self.assertEqual(self.step(host, "reserve-ports", PORTS),
+                         ("HOST_STEP %s reserve-ports %s failed no python3 on the node" % (INST, PORTS), "1"))
+
+    def test_builder_refuses_bad_port_lists_and_the_record_checks_the_value(self):
+        for argv in (("reserve-ports",), ("reserve-ports", ""), ("reserve-ports", "49590,"), ("reserve-ports", ",49590"),
+                     ("reserve-ports", "49590,,1"), ("reserve-ports", "049590"), ("reserve-ports", "65536"),
+                     ("reserve-ports", "1-2"), ("reserve-ports", "49590", "/x")):
+            with self.subTest(argv=argv):
+                p = self.lib("bench_host_step_script", INST, *argv)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertNotIn("HOST_STEP_RC", p.stdout)
+                self.assertIn("bench_host_step_script:", p.stdout)
+        bad = "HOST_STEP %s reserve-ports 049590 ports_reserved_before=0 ports_reserved_after=1" % INST
+        self.assertEqual(self.step_record(bad + "\n"), [{"step": "reserve-ports", "value": "049590", "result": {
+            "failed": "unparsed: " + bad.split(" ", 2)[2]}}])
+
+    def check(self, listed):
+        """The pre-start script's 10b block on a host whose kernel list is <listed>: (rc, output)."""
+        text = self.lib("bench_prestart_script", INST, BENCH_NODE_RESERVE_PORTS="1",
+                        TN_NODE_SCRIPTS_REF=tni.scripts_ref()).stdout.splitlines()
+        at = next(i for i, l in enumerate(text) if l.startswith("# 10b. "))
+        block = "\n".join(text[at:text.index("done", at) + 1])
+        host = self.host("check-" + (listed.replace(",", "_") or "empty"))
+        write(host.root / RESERVED, listed + "\n")
+        p = host.run('fail(){ echo "PRECFG_FAIL %s $*"; exit 1; }\n%s\necho "RP=$RP"\n' % (INST, block))
+        return p.returncode, p.stdout
+
+    def test_the_prestart_check_passes_only_when_every_port_is_reserved(self):
+        for listed in ("43174,49590,49594", "1-100,43174,49590-49594", "40000-50000"):
+            with self.subTest(listed=listed):
+                rc, out = self.check(listed)
+                self.assertEqual((rc, out), (0, "RP=%s\n" % listed))
+        for listed, port in (("49590,49594", "43174"), ("", "49590"), ("43174,49590-49593", "49594")):
+            with self.subTest(listed=listed):
+                rc, out = self.check(listed)
+                self.assertEqual(rc, 1, out)
+                self.assertIn("PRECFG_FAIL %s port %s is not in net.ipv4.ip_local_reserved_ports ('%s')" % (INST, port, listed),
+                              out)
+
+
 if __name__ == "__main__":
     unittest.main()

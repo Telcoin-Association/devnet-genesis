@@ -162,7 +162,9 @@ class BashCase(unittest.TestCase):
                "STUB_IMAGE_DIR": str(self.image), "STUB_DIGEST": DIGEST,
                # bench-obs's startup script and dashboards without the `common` submodule
                "BENCH_OBS_STARTUP_SCRIPT": str(FIX / "obs-startup-stub.sh"),
-               "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards")}
+               "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards"),
+               # Bench 7 knobs at 0 (bench 6's behaviour, byte for byte); their own tests set them to 1.
+               "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "0", "BENCH_NODE_RESERVE_PORTS": "0"}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -3068,7 +3070,10 @@ PERSIST_COLUMNS = (
     "proc_rchar_bytes_total,proc_wchar_bytes_total,proc_syscr_total,proc_syscw_total,proc_read_bytes_total,"
     "proc_write_bytes_total,proc_cancelled_write_bytes_total,"
     "mdbx_dat_size_bytes,mdbx_dat_resident_pages,mdbx_dat_vma_bytes,mdbx_dat_rr_bytes,"
-    "mdbx_dat_resident_past_used_pages")
+    "mdbx_dat_resident_past_used_pages,"
+    # Bench 7 (storage v2): the tn-lmdb store and the static files, appended; an MDBX column stays, written empty.
+    "tn_lmdb_dat_size_bytes,tn_lmdb_dat_allocated_bytes,static_files_size_bytes,static_files_files_total,"
+    "tn_lmdb_used_bytes,tn_lmdb_dat_resident_pages,tn_lmdb_dat_vma_bytes,tn_lmdb_dat_rr_bytes")
 FOLIO_COLUMNS = ("ts_unix,census_secs,mdbx_dat_size_bytes,mdbx_dat_resident_pages,unresolved_pages,"
                  "folio_order,folios,dirty_folios,writeback_folios,active_folios")
 # Every column name carries its unit (or is a count named by what it counts).
@@ -3140,7 +3145,9 @@ class Bench6KnobTests(BashCase):
         # New, each at its bench-5 behaviour.
         want.update({"BENCH_NODE_SWITCH_KEYS": " ".join(SWITCH_KEYS), "BENCH_NODE_EVICT_MDBX": "0",
                      "BENCH_NODE_READ_AHEAD_KB": "", "BENCH_PERSIST_SAMPLER": "0", "BENCH_ARM_FILE": "",
-                     "BENCH_TAIL_SCAN_SECS": "0", "BENCH_LIGHT_START_DELAY_SECS": bench5["BENCH_START_DELAY_SECS"]})
+                     "BENCH_TAIL_SCAN_SECS": "0", "BENCH_LIGHT_START_DELAY_SECS": bench5["BENCH_START_DELAY_SECS"],
+                     # Bench 7 (default 1): BashCase.env pins both at 0, the bench-6 behaviour.
+                     "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "0", "BENCH_NODE_RESERVE_PORTS": "0"})
         self.assertEqual(self.bench_exports(), want)
         # Explicitly empty is the same as unset (BENCH_NODE_BOOT_IMAGE is read, never exported: it stays as given).
         self.assertEqual(self.bench_exports(BENCH_NODE_BOOT_IMAGE="", BENCH_NODE_EVICT_MDBX="", BENCH_PERSIST_SAMPLER="",
@@ -4284,6 +4291,227 @@ class NodeSwitchContractTests(BashCase):
         self.assertTrue(prov.switch_line_required({"node_probe": {"strings": strings}}))
         self.assertFalse(prov.switch_line_required(
             {"node_probe": {"strings": {k: v for k, v in strings.items() if k != "node switches"}}}))
+
+
+
+# ---- bench7 HB-1 ----
+NEW_CONTRACT = ("node build: faucet=", "TN_ALLOW_FAUCET_ON_CHAIN", "Reth Database:")
+FAUCET_HELP = "      --allow-faucet-on-chain          Let a faucet build start on the loaded chain\n"
+PORTS = "49590,49594,43174"   # the root config.sh's DEFAULT_PRIMARY_UDP_PORT, DEFAULT_WORKER_UDP_PORT, DEFAULT_HEALTHCHECK_TCP_PORT
+SORTED_PORTS = "43174,49590,49594"   # the kernel's list after the step: its entries, then the missing ports in order
+
+
+class Bench7ProbeTests(BashCase):
+    """Bench 7's image probe: the contract's three new strings (a bench-6 build lacks all three), the storage engine
+    and the build features from `--version`, and the faucet build's own TN_ALLOW_FAUCET_ON_CHAIN (the staging start)."""
+
+    probe = ProbeTests.probe
+    assertAccepted = ProbeTests.assertAccepted
+    assertRefused = ProbeTests.assertRefused
+
+    def v7_image(self, engine="tn-lmdb", features="faucet", env=None, faucet_help=True):
+        long_v = (FIX / "out-long-version.txt").read_text().replace("Build Features: default", "Build Features: " + features)
+        self.make_image(long_version=long_v + ("" if engine is None else "Reth Database: %s\n" % engine))
+        if faucet_help:
+            with open(str(self.image / "help-node.txt"), "a") as f:
+                f.write(FAUCET_HELP)
+        if env is not None:
+            (self.image / "image-env.txt").write_text(env)
+
+    def inspects(self):
+        return [c for c in self.calls() if c.startswith("docker image inspect ")]
+
+    def test_a_bench_6_binary_is_refused_naming_each_new_string(self):
+        self.make_image(drop=NEW_CONTRACT)
+        r = self.probe()
+        self.assertRefused(r, "lacks these contract strings:")
+        listed = r.out.split("lacks these contract strings:", 1)[1]
+        for string in NEW_CONTRACT:
+            self.assertIn(string, listed)
+        for string in NEW_CONTRACT:
+            with self.subTest(dropped=string):
+                self.make_image(drop=(string,))
+                r = self.probe()
+                self.assertRefused(r, "lacks these contract strings:")
+                listed = r.out.split("lacks these contract strings:", 1)[1]
+                self.assertEqual([s for s in NEW_CONTRACT if s in listed], [string], listed)
+
+    def test_version_gives_the_storage_engine_and_the_build_features(self):
+        for engine, want in (("tn-lmdb", "tn-lmdb"), ("MDBX", "mdbx")):
+            with self.subTest(engine=engine):
+                self.v7_image(engine=engine)
+                r = self.probe()
+                self.assertAccepted(r)
+                g = r.globals
+                self.assertEqual((g["BENCH_NODE_STORAGE_ENGINE"], g["BENCH_NODE_BUILD_FEATURES"], g["BENCH_NODE_FAUCET_ENV"]),
+                                 (want, "faucet", ""))
+                self.assertIn("✓ storage engine %s, build features faucet ('--version')" % want, r.out)
+        self.v7_image(engine=None, features="default")
+        r = self.probe()
+        self.assertAccepted(r)
+        self.assertEqual((r.globals["BENCH_NODE_STORAGE_ENGINE"], r.globals["BENCH_NODE_BUILD_FEATURES"]), ("", "default"))
+        self.assertNotIn("✓ storage engine", r.out)
+        self.v7_image(engine="rocksdb")
+        self.assertRefused(self.probe(), "'--version' names Reth Database 'rocksdb' (want tn-lmdb or MDBX)")
+
+    def test_probe_manifest_records_the_engine_the_features_and_the_faucet_env(self):
+        results = self.root / "results"
+        results.mkdir()
+        script = PROBE + 'BENCH_RESULTS_DIR="$3"\nbench_node_probe_manifest\n'
+        for env, knob, want in (("PATH=/usr/bin\nTN_ALLOW_FAUCET_ON_CHAIN=True\n", "1", ("tn-lmdb", "faucet", "true")),
+                                (None, "0", ("tn-lmdb", "faucet", None))):
+            with self.subTest(knob=knob):
+                (results / "manifest.json").write_text("{}\n")
+                self.v7_image(env=env)
+                p = self.bash(script, self.bench, REF, results, BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=knob)
+                self.assertEqual(p.returncode, 0, p.stdout)
+                m = json.loads((results / "manifest.json").read_text())
+                self.assertEqual((m["storage_engine"], m["node_probe"]["build_features"], m["node_probe"]["faucet_env"]), want)
+        # A build before bench 7 (no engine line): storage_engine and faucet_env are null, never a guess.
+        (results / "manifest.json").write_text("{}\n")
+        self.make_image()
+        p = self.bash(script, self.bench, REF, results)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        m = json.loads((results / "manifest.json").read_text())
+        self.assertEqual((m["storage_engine"], m["node_probe"]["build_features"], m["node_probe"]["faucet_env"]),
+                         (None, "default", None))
+
+    def test_a_faucet_build_with_the_guard_needs_a_true_env_in_the_image(self):
+        on = {"BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "1"}
+        self.v7_image()
+        self.assertRefused(self.probe(**on), "does not set TN_ALLOW_FAUCET_ON_CHAIN to a true value (got '')",
+                           "ENV TN_ALLOW_FAUCET_ON_CHAIN=true", "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=0")
+        for value in ("0", "false", "maybe"):
+            with self.subTest(env=value):
+                (self.image / "image-env.txt").write_text("TN_ALLOW_FAUCET_ON_CHAIN=%s\n" % value)
+                self.assertRefused(self.probe(**on), "(got '%s')" % value)
+        for value, got in (("true", "true"), ("1", "1"), ("YES", "yes")):
+            with self.subTest(env=value):
+                (self.image / "image-env.txt").write_text("PATH=/usr/local/bin\nTN_ALLOW_FAUCET_ON_CHAIN=%s\n" % value)
+                r = self.probe(**on)
+                self.assertAccepted(r)
+                self.assertEqual(r.globals["BENCH_NODE_FAUCET_ENV"], got)
+                self.assertIn("✓ faucet build with the guard: the image sets TN_ALLOW_FAUCET_ON_CHAIN=%s" % got, r.out)
+        self.assertTrue(all("{{range .Config.Env}}" in c for c in self.inspects()), self.inspects())
+
+    def test_knob_0_or_a_build_without_the_faucet_skips_the_env_check(self):
+        self.v7_image()
+        self.assertAccepted(self.probe())   # BashCase.env: BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=0
+        self.v7_image(features="default")
+        self.assertAccepted(self.probe(BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="1"))
+        self.assertEqual(self.inspects(), [])
+
+    def test_knob_1_needs_the_flag_in_node_help(self):
+        self.v7_image(env="TN_ALLOW_FAUCET_ON_CHAIN=true\n", faucet_help=False)
+        self.assertRefused(self.probe(BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="1"),
+                           "'telcoin node --help' lacks: --allow-faucet-on-chain")
+        self.assertAccepted(self.probe())   # knob 0 does not ask node --help for it
+
+
+class Bench7PrestartTests(BashCase):
+    """The pre-start script with the bench-7 knobs at 1: exactly bench 4's script plus each knob's own block and its
+    PRECFG_OK field. At 0 (BashCase.env) PreStartKnobTests holds it to bench 4's byte for byte."""
+
+    INST = PreStartKnobTests.INST
+    PINNED = PreStartKnobTests.PINNED
+    prestart = PreStartKnobTests.prestart
+    bench4 = PreStartKnobTests.bench4
+
+    def test_faucet_knob_adds_the_bare_flag_its_readback_and_the_field(self):
+        lines = self.prestart(BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="1").splitlines()
+        at = lines.index("# 6b. the faucet opt-in (BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1), a bare flag: rc 0 = set, rc 1 = already there")
+        block = lines[at:at + 4]
+        self.assertTrue(block[1].startswith("setb(){ ") and "tn_launch_flag_set" in block[1], block)
+        self.assertTrue(block[2].startswith("getb(){ ") and "want a bare flag" in block[2], block)
+        self.assertEqual(block[3], "setb --allow-faucet-on-chain")
+        want = self.bench4().splitlines()
+        seven = next(i for i, l in enumerate(want) if l.startswith("# 7. "))
+        want[seven:seven] = block
+        want.insert(next(i for i, l in enumerate(want) if l.startswith("# 9. ")), "getb --allow-faucet-on-chain")
+        want[-1] = want[-1][:-1] + ' faucet=allowed"'
+        self.assertEqual(lines, want)
+
+    def test_reserve_knob_adds_the_port_check_and_the_field(self):
+        lines = self.prestart(BENCH_NODE_RESERVE_PORTS="1").splitlines()
+        at = next(i for i, l in enumerate(lines) if l.startswith("# 10b. "))
+        self.assertIn(" %s are still reserved " % PORTS, lines[at])
+        block = lines[at:lines.index("done", at) + 1]
+        self.assertEqual(block[1], 'RP="$(cat /proc/sys/net/ipv4/ip_local_reserved_ports 2>/dev/null || true)"')
+        self.assertEqual(block[2], "for p in %s; do" % PORTS.replace(",", " "))
+        want = self.bench4().splitlines()
+        want[-1:-1] = block
+        want[-1] = want[-1][:-1] + ' reserved=${RP}"'
+        self.assertEqual(lines, want)
+
+    def test_both_knobs_at_1_and_the_dry_plan(self):
+        lines = self.prestart(BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="1", BENCH_NODE_RESERVE_PORTS="1").splitlines()
+        self.assertTrue(lines[-1].endswith(' paramsbak=${BAK:--} faucet=allowed reserved=${RP}"'), lines[-1])
+        plan = PlanTests.plan
+        for knob, want in (("0", False), ("1", True)):
+            with self.subTest(BENCH_NODE_RESERVE_PORTS=knob):
+                self.log.write_text("")
+                p, steps = plan(self, BENCH_NODE_RESERVE_PORTS=knob)
+                seven = "\n".join(steps.get(7, []))
+                self.assertIn("stage-only", seven, p.stdout)
+                self.assertEqual("reserve-ports     per node, one IAP session (bench_host_step_script <instance> "
+                                 "reserve-ports %s)" % PORTS in seven, want, seven)
+                if want:
+                    self.assertLess(seven.index("reserve-ports     "), seven.index("stage-only        "))
+                # The dry run opens no session on any node.
+                self.assertEqual([c for c in self.calls() if " ssh " in " %s " % c], [])
+
+
+@needs_yaml
+class Bench7Step7ReserveTests(Step7Mixin, FleetCase):
+    """BENCH_NODE_RESERVE_PORTS=1: one reserve-ports session per node after network-config and BEFORE stage-only's
+    staging start, recorded per node and as manifest.reserved_ports; the pre-start config reads the list back."""
+
+    def setUp(self):
+        super().setUp()
+        for node in self.nodes.values():
+            f = node.root / "proc/sys/net/ipv4/ip_local_reserved_ports"
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("\n")
+
+    def test_the_ports_are_reserved_before_the_staging_start_and_recorded(self):
+        self.fresh()
+        p = self.deploy7(BENCH_NODE_RESERVE_PORTS="1")
+        self.assertEqual(p.returncode, 0, p.stdout)
+        ssh = ["ssh " + n for n in NODES]
+        self.assertEqual(self.sequence(), ["devnet-network-config.sh --yes"] + ssh + ["devnet-finalize.sh --stage-only"]
+                         + ssh + ["devnet-finalize.sh --start-all"])
+        m = self.m()
+        self.assertEqual(m["reserved_ports"], [49590, 49594, 43174])
+        for inst, node in self.nodes.items():
+            st = m["node_startup"][inst]
+            self.assertEqual(st["reserve_ports"], {"step": "reserve-ports", "value": PORTS, "result": {
+                "ports_reserved_before": 0, "ports_reserved_after": 3}})
+            self.assertEqual(st["ip_local_reserved_ports"], SORTED_PORTS)
+            self.assertEqual(st["host_steps"], [])
+            self.assertEqual((node.root / "proc/sys/net/ipv4/ip_local_reserved_ports").read_text(), SORTED_PORTS + "\n")
+            self.assertIn("\nnet.ipv4.ip_local_reserved_ports = %s\n" % SORTED_PORTS,
+                          (node.root / "etc/sysctl.d/90-bench-reserved-ports.conf").read_text())
+        self.assertIn("    ✓ manifest.reserved_ports: [%s]" % PORTS, p.stdout)
+
+    def test_a_node_that_cannot_reserve_stops_step_7_before_any_start(self):
+        self.fresh()
+        (self.nodes[NODES[2]].root / "proc/sys/net/ipv4/ip_local_reserved_ports").unlink()
+        p = self.deploy7(BENCH_NODE_RESERVE_PORTS="1")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("%s: reserve-ports %s did not hold" % (NODES[2], PORTS), p.stdout)
+        self.assertNotIn("devnet-finalize.sh --stage-only", self.sequence())
+        self.assertNotIn("reserved_ports", self.m())
+
+    def test_knob_0_sends_no_reserve_session_and_records_nothing(self):
+        self.fresh()
+        p = self.deploy7()
+        self.assertEqual(p.returncode, 0, p.stdout)
+        self.assertEqual(self.sequence()[:2], ["devnet-network-config.sh --yes", "devnet-finalize.sh --stage-only"])
+        m = self.m()
+        self.assertNotIn("reserved_ports", m)
+        for inst in NODES:
+            self.assertFalse({"reserve_ports", "ip_local_reserved_ports"} & set(m["node_startup"][inst]), inst)
+        self.assertNotIn("reserve-ports", p.stdout)
 
 
 if __name__ == "__main__":

@@ -226,7 +226,9 @@ class Sandbox(unittest.TestCase):
                "SHIM_REC": str(self.rec), "STUB_LOG": str(self.rec / "stub-obs.log"),
                "SHIM_REGION_JSON": str(self.region_json), "SHIM_QUOTA_JSON": str(self.quota_json),
                "BENCH_OBS_STARTUP_SCRIPT": str(FIX / "obs-startup-stub.sh"),
-               "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards")}
+               "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards"),
+               # The bench-7 knobs (default 1) at 0: bench 6's behaviour, which the base trees run.
+               "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "0", "BENCH_NODE_RESERVE_PORTS": "0"}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -578,6 +580,53 @@ class ZoneOverrideTests(Sandbox):
                               env=self.env(BENCH_RUN_ID=RUN), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, timeout=120, universal_newlines=True, errors="replace")
         self.assertIn("ZONES %s\n" % " ".join(moved), show.stdout)
+
+
+
+# ---- bench7 HB-1 ----
+HASH = "0x" + "ab" * 31 + "01"
+
+
+class Bench7DeployFunctionTests(Sandbox):
+    """Step 0's MDBX-only knob refusal on a tn-lmdb image (BENCH_NODE_DB_SYNC_MODE stays valid: main maps
+    --db.sync-mode onto tn-lmdb), and step 9's parse of the node's `node build:` line."""
+
+    def problems(self, engine="", manifest=None, **env):
+        results = self.root / "results-b7"
+        results.mkdir(exist_ok=True)
+        (results / "manifest.json").write_text(json.dumps(manifest if manifest is not None else {}) + "\n")
+        body = ('BENCH_RESULTS_DIR=%s; BENCH_NODE_STORAGE_ENGINE=%s; BENCH_NODE_DB_SYNC_MODE="${T_SYNC:-}"; '
+                'BENCH_NODE_EVICT_MDBX="${T_EVICT:-0}"; mdbx_knob_problems; echo "RC=$?"' % (results, engine))
+        p = self.funcs(body, "run_storage_engine", "mdbx_knob_problems", **env)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return p.stdout.splitlines()
+
+    def test_on_tn_lmdb_only_the_evict_knob_is_refused(self):
+        evict = ("BENCH_NODE_EVICT_MDBX=1 evicts <datadir>/db/mdbx.dat and the node image runs tn-lmdb (storage_engine; "
+                 "its file is db/tn-lmdb.dat): unset it")
+        self.assertEqual(self.problems("tn-lmdb", T_EVICT="1", T_SYNC="safe-no-sync")[-2:], [evict, "RC=0"])
+        self.assertEqual(self.problems("tn-lmdb", T_SYNC="durable")[-1:], ["RC=0"])
+        self.assertEqual(len(self.problems("tn-lmdb", T_SYNC="safe-no-sync")), 1)
+        # A resume reads the engine from the manifest; an MDBX image, or none known, refuses nothing.
+        self.assertEqual(self.problems("", {"storage_engine": "tn-lmdb"}, T_EVICT="1")[-2:], [evict, "RC=0"])
+        self.assertEqual(self.problems("mdbx", T_EVICT="1"), ["RC=0"])
+        self.assertEqual(self.problems("", T_EVICT="1"), ["RC=0"])
+
+    def node_build(self, line):
+        p = self.funcs('node_build_json "$T_LINE"', "node_build_json", T_LINE=line)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return p.stdout.strip()
+
+    def test_node_build_json(self):
+        good = "2026-11-14T17:00:00.000Z  INFO cli: node build: faucet=true adiri=false chain_id=32286 genesis_hash="
+        want = {"faucet": True, "adiri": False, "chain_id": 32286, "genesis_hash": HASH}
+        for line in (good + HASH, good + HASH.upper().replace("0X", "0x"), good + HASH + '"', good + HASH + " extra=1"):
+            with self.subTest(line=line):
+                self.assertEqual(json.loads(self.node_build(line)), want)
+        for line in ("-", "", good + HASH[:-1], good.replace("faucet=true", "faucet=maybe") + HASH,
+                     good.replace(" chain_id=32286", "") + HASH, "node build: faucet=true adiri=false"):
+            with self.subTest(line=line):
+                self.assertEqual(self.node_build(line), "null")
 
 
 if __name__ == "__main__":
