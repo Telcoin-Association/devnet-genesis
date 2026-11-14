@@ -62,7 +62,7 @@ Bench 6's rows, frozen on 2026-11-10 and kept in `switches-bench6.tsv`:
 | `pipelined_persist` | bool | false | true | pipelined-persist | yes |
 
 `quorum_exec_block_starved_rounds` matters only when `quorum_exec_block` is true.
-At 0 every header uses the quorum rule; at K > 0 a header carries the node's own tip by default and uses the quorum rule for K rounds after one of the node's own headers was cancelled uncertified.
+At 0 every header uses the quorum rule; at K > 0 a header carries the node's own tip by default, and the next K headers the node builds after one of its own headers was cancelled uncertified use the quorum rule (the window counts headers built, not rounds, and doubles while cancels repeat, up to 128).
 The node accepts any non-negative integer; an arm may set 0 or 4.
 
 `pipelined_persist` is optional because it was cut from the bench 6 image unless its go/no-go tests passed.

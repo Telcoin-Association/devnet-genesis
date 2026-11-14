@@ -40,7 +40,8 @@ DEFAULT_WALK = [("a0-control", ["I", "L", "M4", "M16"]), ("p1-mdbx-advice", ["M1
                 ("v-vote-floor", ["L", "M16"]), ("pool-local", ["M16@epoch"]), ("pipe", ["M4", "M16"]),
                 ("bound", ["M4", "M16"]), ("gr150", ["I", "L", "M16s"]), ("a0-prime", ["M16"])]
 TYPES = {"I", "L", "M4", "M16", "M16s"}
-ENV_FILES = ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env", "bench6-run1-lssd.env")
+ENV_FILES = ("bench6-run1.env", "bench6-run2.env", "bench6-probe.env", "bench6-run1-lssd.env", "bench7-always.env",
+             "bench7-adaptive.env")
 # Run 1b, the local-SSD deployment (option e): run 1's arms a0-control, p1-mdbx-advice and a0-prime, and run 1's env
 # plus the four shape knobs below (values as the env file spells them, quotes and all) and RUN_ARMS_PLAN=LSSD_PLAN.
 LSSD_PLAN = "benchmark/launch/bench6-run1-lssd.plan"
@@ -1435,6 +1436,59 @@ class EnvAndPlanTests(unittest.TestCase):
         self.assertIn('readonly HEALTH_ABORTS=" disk-full batch-cache-cliff quorum-lost node-stalled obs-memory "', arms)
         self.assertIn("reth_transaction_pool_queued_pool_transactions{network=\"bench\"}", arms)
         self.assertIn("BENCH_STATUS host=", (BENCH / "node-sampler.sh").read_text())
+
+
+
+# ---- bench7 launch files (HB-5a) ----
+class Bench7EnvTests(unittest.TestCase):
+    """bench7-always.env and bench7-adaptive.env: run r20261113-1351's env with the bench-7 differences only."""
+
+    RAN = Path(__file__).resolve().parents[2] / "tasks" / "bench6" / "r20261113-1351" / "bench6-run2.env"
+    ADDED = {"BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "1", "BENCH_NODE_RESERVE_PORTS": "1",
+             "BENCH_MACHINE_TYPE": "c3-highcpu-8", "BENCH_NODE_DISK_TYPE": "hyperdisk-balanced",
+             "BENCH_NODE_DISK_SIZE": "100", "BENCH_NODE_DISK_IOPS": "20000", "BENCH_NODE_DISK_THROUGHPUT": "800"}
+
+    def keys(self, path):
+        out = {}
+        for line in path.read_text().splitlines():
+            if line.strip() and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                out[k] = v
+        return out
+
+    def test_each_is_the_run_that_ran_with_the_bench7_differences(self):
+        # run 2's shipped file is the model; the run filled its placeholders (the copy that ran, in tasks/, when
+        # this tree has it) and bench 7 keeps the generator it ran
+        model = self.keys(LAUNCH / "bench6-run2.env")
+        if self.RAN.is_file():
+            ran = self.keys(self.RAN)
+            filled = ("BENCH_RUN_ID", "BENCH_DOCKER_IMAGE", "BENCH_DOCKER_IMAGE_EXPECT_DIGEST", "BENCH_NODE_EXPECT_SHA",
+                      "BENCH_TXGEN_SHA")
+            self.assertEqual(dict(ran, **{k: model[k] for k in filled}), model)
+            self.assertEqual(ran["BENCH_TXGEN_SHA"], "62bbd5f")
+        for form in ("always", "adaptive"):
+            with self.subTest(form=form):
+                want = dict(model, BENCH_TXGEN_SHA="62bbd5f", BENCH_ARM_FILE="benchmark/arms/bench7-%s.arm" % form)
+                want.update(self.ADDED)
+                self.assertEqual(self.keys(LAUNCH / ("bench7-%s.env" % form)), want)
+                self.assertTrue((BENCH / "arms" / ("bench7-%s.arm" % form)).is_file())
+        # config.sh's defaults are the shape the run had: the explicit keys change nothing
+        cfg = (BENCH / "config.sh").read_text()
+        for k, v in (("BENCH_MACHINE_TYPE", "c3-highcpu-8"), ("BENCH_NODE_DISK_TYPE", "hyperdisk-balanced"),
+                     ("BENCH_NODE_DISK_SIZE", "100"), ("BENCH_NODE_DISK_IOPS", "20000"),
+                     ("BENCH_NODE_DISK_THROUGHPUT", "800"), ("BENCH_NODE_ALLOW_FAUCET_ON_CHAIN", "1"),
+                     ("BENCH_NODE_RESERVE_PORTS", "1")):
+            self.assertRegex(cfg, r"\$\{%s:?-%s\}" % (k, v))
+
+    def test_the_two_files_differ_in_the_arm_and_the_header_only(self):
+        always = (LAUNCH / "bench7-always.env").read_text().splitlines()
+        adaptive = (LAUNCH / "bench7-adaptive.env").read_text().splitlines()
+        body = lambda lines: [l for l in lines if not l.startswith("#") and not l.startswith("BENCH_ARM_FILE=")]
+        self.assertEqual(body(always), body(adaptive))
+        self.assertEqual([l for l in always if l.startswith("# ") and "bench7-always" in l][:1],
+                         [always[0]])
+        for name in ("BENCH_NODE_EVICT_MDBX", "BENCH_NODE_READ_AHEAD_KB", "BENCH_NODE_DB_SYNC_MODE"):
+            self.assertNotIn(name, "\n".join(always + adaptive))
 
 
 if __name__ == "__main__":

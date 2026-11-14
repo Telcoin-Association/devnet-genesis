@@ -935,5 +935,120 @@ class SamplerFatalDbTests(unittest.TestCase):
         self.assertIn(" fatal_db=0 ", self.status(self.NOISE))
 
 
+
+# ---- bench7 halt count (HB-5a) ----
+class SamplerHaltTests(unittest.TestCase):
+    """BENCH_STATUS halt= counts the build's fail-stop lines in the unit's log files since they began, apart from
+    fatal_db; the files outlive the container (docker run --rm), a copytruncate cut is read on from <file>.1."""
+
+    # (phrase the sampler matches, the line the node writes: logfmt, an apostrophe as \')
+    HALTS = (
+        "ts=2026-11-14T20:00:00.1Z level=error target=epoch-manager message=\"stored epoch record final_state does not "
+        "match this node\\'s closing block: this node\\'s execution diverged from the recorded chain, stopping the node\" "
+        "epoch=4",
+        "ts=2026-11-14T20:00:00.2Z level=error target=epoch-manager message=\"epoch record final_state is not the block "
+        "where the epoch-closing calls ran, stopping the node\" epoch=4 path=built check=no_block",
+        "ts=2026-11-14T20:00:00.3Z level=error target=epoch-manager message=\"epoch record conflict halt: this node\\'s "
+        "stored record of epoch 4 differs from a record certified by 7 of the 10 members of the committee the record "
+        "before it names; this node stops; do not delete its chain data before the cause is known\" epoch=4",
+        "ts=2026-11-14T20:00:00.4Z level=error target=epoch-manager message=\"leftover consensus output does not follow "
+        "the last output forwarded to the engine: stopping the node before the engine executes past the gap\" number=9",
+        "ts=2026-11-14T20:00:00.5Z level=error target=epoch-manager message=\"Network came to consensus on epoch record "
+        "8Hk2 we expected epoch record 3Fq9, we have forked!\"",
+        "Error: vote_timeout 30s plus the voter\'s execution wait before the author lock VOTE_EXECUTION_WAIT 2s is 32s, "
+        "which must stay below the libp2p request timeout 30s while vote_queue_fix is on",
+    )
+    # not halts: the conflict the node survives, a re-certify conflict without stop, the store latch (fatal_db)
+    NOT_HALTS = (
+        "ts=2026-11-14T20:00:01Z level=error target=epoch-manager message=\"epoch record conflict: this node\\'s stored "
+        "record of epoch 4 differs from a record certified by 3 of the 10 members of the committee the record before it "
+        "names; this node keeps its own record\"",
+        "ts=2026-11-14T20:00:02Z level=info target=epoch-manager message=\"epoch record published\" epoch=4",
+        SamplerFatalDbTests.BUILDER,
+        SamplerFatalDbTests.LATCH,
+    )
+
+    def sample(self, files, docker_text="", rounds=None):
+        """BENCH_STATUS lines of the sampler over <files> (name -> text, in the unit log dir); <rounds> = one
+        dict per later status line: name -> text appended ("CUT" first = logrotate's copytruncate before it)."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands, logs = root / "bin", root / "log"
+            commands.mkdir()
+            logs.mkdir()
+            for name, text in files.items():
+                (logs / name).write_text(text)
+            (root / "docker-logs.txt").write_text(docker_text)
+            steps = rounds or []
+            for k, step in enumerate(steps):
+                (root / ("round-%d.json" % k)).write_text(json.dumps(step))
+            round_script = (
+                "import json, os, shutil, sys\n"
+                "root, k = sys.argv[1], int(sys.argv[2])\n"
+                "step = json.load(open(os.path.join(root, 'round-%d.json' % k)))\n"
+                "for name, text in step.items():\n"
+                "    f = os.path.join(root, 'log', name.split(' ')[-1])\n"
+                "    if name.startswith('CUT '):\n"
+                "        shutil.copyfile(f, f + '.1'); open(f, 'w').close()\n"
+                "    else:\n"
+                "        open(f, 'a').write(text)\n")
+            (root / "round.py").write_text(round_script)
+            stubs = dict(hostname="echo validator",
+                         docker='[ "$1" = logs ] || exit 1\ncat "%s"' % (root / "docker-logs.txt"),
+                         curl="printf '%s' '{\"result\":\"0x2a\"}'",
+                         sleep='k=$(cat "%s/n" 2>/dev/null || echo 0); echo $((k + 1)) > "%s/n"\n'
+                               'if [ -f "%s/round-$k.json" ]; then python3 "%s/round.py" "%s" "$k"; exit 0; fi\n'
+                               'kill -TERM "$PPID"' % ((root,) * 5))
+            for name, body in stubs.items():
+                executable = commands / name
+                executable.write_text("#!/usr/bin/env bash\n" + body + "\n")
+                executable.chmod(0o755)
+            env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
+                       SAMPLER_OUT_DIR=str(root / "output"), SAMPLER_INTERVAL_SECS="1",
+                       SAMPLER_DATA_DIR=str(root / "data"), SAMPLER_STATUS_EVERY="1",
+                       SAMPLER_NODE_LOGS="%s %s" % (logs / "telcoin.log", logs / "telcoin-error.log"),
+                       SAMPLER_CONSOLE=str(root / "no-console" / "ttyS0"))
+            if rounds is None:
+                env["SAMPLER_ONCE"] = "1"
+            done = subprocess.run(["bash", str(BENCH / "node-sampler.sh")], env=env, capture_output=True, text=True,
+                                  timeout=60)
+        lines = [l for l in done.stdout.splitlines() if l.startswith("BENCH_STATUS ")]
+        self.assertEqual(len(lines), len(rounds or []) + 1, done.stdout + done.stderr)
+        return lines
+
+    def field(self, line, key):
+        return [kv.split("=", 1)[1] for kv in line.split() if kv.startswith(key + "=")]
+
+    def test_each_halt_phrase_counts_and_nothing_else_does(self):
+        for text in self.HALTS:
+            with self.subTest(line=text[60:110]):
+                # the node writes each line to its unit log and to the container log, which fatal_db reads
+                where = "telcoin-error.log" if text.startswith("Error:") else "telcoin.log"
+                line = self.sample({"telcoin.log": "noise\n", "telcoin-error.log": "", where: text + "\n"},
+                                   docker_text=text + "\n")[0]
+                self.assertEqual((self.field(line, "halt"), self.field(line, "fatal_db")), (["1"], ["0"]), line)
+        line = self.sample({"telcoin.log": "\n".join(self.NOT_HALTS) + "\n"},
+                           docker_text="\n".join(self.NOT_HALTS) + "\n")[0]
+        self.assertEqual((self.field(line, "halt"), self.field(line, "fatal_db")), (["0"], ["2"]), line)
+        self.assertRegex(line, r"^BENCH_STATUS host=\S+ ts=\d+ root_used_pct=\S* fatal_db=2 halt=0 block=42 "
+                               r"rss_total_kb=\S*$")
+
+    def test_the_count_is_kept_across_status_lines_and_a_cut_file(self):
+        h = self.HALTS
+        lines = self.sample({"telcoin.log": h[0] + "\nnoise\n", "telcoin-error.log": ""},
+                            rounds=[{"telcoin.log": "noise\n"},
+                                    {"telcoin.log": h[2] + "\n"},
+                                    {"unread telcoin.log": h[1] + "\n", "CUT telcoin.log": "", "telcoin.log": h[4] + "\n"},
+                                    {"telcoin-error.log": h[5] + "\n"}])
+        # the cut round: the line written before the cut is read from telcoin.log.1, the one after from the file
+        self.assertEqual([self.field(l, "halt")[0] for l in lines], ["1", "1", "2", "4", "5"])
+
+    def test_the_container_log_only_when_no_unit_log_is_readable(self):
+        line = self.sample({}, docker_text=self.HALTS[2] + "\n" + self.HALTS[4] + "\n")[0]
+        self.assertEqual(self.field(line, "halt"), ["2"])
+        line = self.sample({"telcoin.log": "noise\n"}, docker_text=self.HALTS[2] + "\n")[0]
+        self.assertEqual(self.field(line, "halt"), ["0"])
+
+
 if __name__ == "__main__":
     unittest.main()

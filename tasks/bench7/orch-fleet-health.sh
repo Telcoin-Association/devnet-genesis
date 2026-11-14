@@ -2,7 +2,10 @@
 # orch-fleet-health.sh — bench 7, orchestrator only: tasks/bench6/orch-fleet-health.sh with its two defects
 # fixed. Each node's newest BENCH_STATUS line (node-sampler.sh, serial console) read straight with gcloud.
 # Read-only. One line per node and a summary:
-#   FLEET_HEALTH run=<run> nodes=<read>/<n> disk_max=<pct> (<node>) fatal_db=<sum> block_min=<n> block_max=<n> <UTC>
+#   FLEET_HEALTH run=<run> nodes=<read>/<n> disk_max=<pct> (<node>) fatal_db=<sum> halt=<sum> block_min=<n> block_max=<n> <UTC>
+# halt= sums the samplers' halt= (the build's fail-stop lines in each node's log since it began; a status line
+# without the key, from an older sampler, adds nothing); a node with halt > 0 is named on a
+# "FLEET_HEALTH HALTED <node>=<n> ..." line.
 #   tasks/bench7/orch-fleet-health.sh <run> [--watch <secs> --disk-max <pct> --until-file <segment log> --max-secs <n>]
 # The instances are the run's manifest's (.zones_used), and each must belong to the run before it is read:
 # one `gcloud compute instances list` per round gives every bench instance's run label (bench-run=<run id>,
@@ -11,11 +14,13 @@
 # watch ends with "FLEET_HEALTH run=<run> gone <UTC>". A failed list call reads nothing that round
 # ("FLEET_HEALTH run=<run> list-failed <UTC>") and is never taken for a gone fleet.
 # With --watch it repeats every <secs> and ends:
-#   3 when a node's disk is at or above --disk-max [80] or any fatal_db > 0 ("FLEET_HEALTH ALARM ...");
+#   3 when a node's disk is at or above --disk-max [80], any fatal_db > 0 or any halt > 0 ("FLEET_HEALTH ALARM ...",
+#     naming the halted nodes);
 #   0 when the file named by --until-file holds a segment's end line, "== <segment> rc=" or
 #     "== <segment> LEFT_RUNNING " ("FLEET_HEALTH the walk ended (<that line>)"), or the fleet is gone;
 #   4 after --max-secs [10800] whatever else ("FLEET_HEALTH run=<run> max-secs=<n> reached <UTC>").
 # Without --watch: one round; exit 0, 3 (alarm), 4 (gone) or 5 (the list call failed).
+# A halt alarm is the run's finding, not a fault of the harness: the blast goes on (its abort reads fatal_db only).
 # Knobs (environment): FLEET_HEALTH_ROOT (else CHAIN_ROOT, else the repo), FLEET_HEALTH_PROJECT,
 # FLEET_HEALTH_RUN_LABEL [bench-run].
 set -uo pipefail
@@ -41,6 +46,7 @@ done
 man="${ROOT}/benchmark/results/${run}/manifest.json"
 [ -f "${man}" ] || { echo "no manifest for ${run}" >&2; exit 2; }
 t0="$(date +%s)"
+HALTED=""   # "<node>=<n> ..." of the last round's nodes with halt > 0
 
 # list_fleet — "<name>\t<zone>\t<run label>" for every bench instance of the project; non-zero when the
 # call fails (then nothing is read this round).
@@ -51,7 +57,8 @@ list_fleet() {
 }
 
 once() {
-    local inst zone line pct fatal block n=0 m=0 dmax=-1 dnode="" fsum=0 bmin="" bmax="" fleet="" row="" lzone="" lrun="" ours=0
+    local inst zone line pct fatal halt block n=0 m=0 dmax=-1 dnode="" fsum=0 hsum=0 bmin="" bmax="" fleet="" row="" lzone="" lrun="" ours=0
+    HALTED=""
     fleet="$(list_fleet)" || { echo "FLEET_HEALTH run=${run} list-failed $(utc)"; return 5; }
     while IFS=$'\t' read -r inst zone; do
         m=$((m + 1))
@@ -66,18 +73,24 @@ once() {
         n=$((n + 1))
         pct="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^root_used_pct=//p' | tail -n 1)"
         fatal="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^fatal_db=//p' | tail -n 1)"
+        halt="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^halt=//p' | tail -n 1)"
         block="$(printf '%s' "${line}" | tr ' ' '\n' | sed -n 's/^block=//p' | tail -n 1)"
-        echo "  ${inst}: root_used_pct=${pct:-?} fatal_db=${fatal:-?} block=${block:-?}"
+        echo "  ${inst}: root_used_pct=${pct:-?} fatal_db=${fatal:-?} halt=${halt:-?} block=${block:-?}"
         case "${pct}" in ''|*[!0-9]*) ;; *) if [ "${pct}" -gt "${dmax}" ]; then dmax="${pct}"; dnode="${inst}"; fi ;; esac
         case "${fatal}" in ''|*[!0-9]*) ;; *) fsum=$((fsum + fatal)) ;; esac
+        case "${halt}" in ''|*[!0-9]*) ;; *)
+            hsum=$((hsum + halt))
+            if [ "${halt}" -gt 0 ]; then HALTED="${HALTED:+${HALTED} }${inst}=${halt}"; fi ;;
+        esac
         case "${block}" in ''|*[!0-9]*) ;; *)
             if [ -z "${bmin}" ] || [ "${block}" -lt "${bmin}" ]; then bmin="${block}"; fi
             if [ -z "${bmax}" ] || [ "${block}" -gt "${bmax}" ]; then bmax="${block}"; fi ;;
         esac
     done < <(jq -r '.zones_used | to_entries[] | [.key, .value] | @tsv' "${man}")
     if [ "${ours}" = 0 ]; then echo "FLEET_HEALTH run=${run} gone $(utc)"; return 4; fi
-    echo "FLEET_HEALTH run=${run} nodes=${n}/${m} disk_max=${dmax} (${dnode}) fatal_db=${fsum} block_min=${bmin:-?} block_max=${bmax:-?} $(utc)"
-    if [ "${fsum}" -gt 0 ] || [ "${dmax}" -ge "${dmaxlim}" ]; then return 3; fi
+    echo "FLEET_HEALTH run=${run} nodes=${n}/${m} disk_max=${dmax} (${dnode}) fatal_db=${fsum} halt=${hsum} block_min=${bmin:-?} block_max=${bmax:-?} $(utc)"
+    if [ -n "${HALTED}" ]; then echo "FLEET_HEALTH HALTED ${HALTED} (fail-stop lines in the node log: node-sampler.sh halt=)"; fi
+    if [ "${fsum}" -gt 0 ] || [ "${hsum}" -gt 0 ] || [ "${dmax}" -ge "${dmaxlim}" ]; then return 3; fi
     return 0
 }
 
@@ -94,7 +107,7 @@ stop_if_done() {
 if [ "${watch}" = 0 ]; then once; exit $?; fi
 while :; do
     once; rc=$?
-    [ "${rc}" != 3 ] || { echo "FLEET_HEALTH ALARM (disk >= ${dmaxlim} % or fatal_db > 0)"; exit 3; }
+    [ "${rc}" != 3 ] || { echo "FLEET_HEALTH ALARM (disk >= ${dmaxlim} % or fatal_db > 0 or halt > 0)${HALTED:+ halted: ${HALTED}}"; exit 3; }
     [ "${rc}" != 4 ] || exit 0
     stop_if_done
     left=$(( max_secs - ($(date +%s) - t0) ))

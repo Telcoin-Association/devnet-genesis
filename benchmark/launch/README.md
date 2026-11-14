@@ -434,6 +434,46 @@ Before the deploy, `benchmark/arms/final.arm` must hold the configuration chosen
 | 7 | `launch.sh <run2.env> archive` | `== archive-run run=<run> rc=0` | `ARCHIVE_REMOTE` |
 | 8 | `launch.sh <run2.env> bundle --compare r20261107-1504 --backfill benchmark/report/backfill/<bench6>.json` | `== bundle rc=0` | the bundle's provenance and KPI lines |
 
+## Bench 7
+
+Two runs of the bench 7 build (upstream main with the tn-lmdb store and the bench 7 stack), each in the shape of bench 6's run `r20261113-1351`.
+`bench7-always.env` applies `benchmark/arms/bench7-always.arm` (every switch on, the vote fix always on); `bench7-adaptive.env` applies `benchmark/arms/bench7-adaptive.arm` (the same with `quorum_exec_block_starved_rounds 4`).
+The two files differ only in `BENCH_ARM_FILE` and their header comment.
+
+Against the env that ran `r20261113-1351` (`tasks/bench6/r20261113-1351/bench6-run2.env`) they change three things:
+
+- the image keys hold placeholders again: `<image-digest>` and `<node-sha>`, filled at the image cut (`tasks/bench7/orch-image-cut.sh` prints the digest), and `<run-id>`;
+- `BENCH_ARM_FILE` names the bench 7 arm;
+- they add `BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1` and `BENCH_NODE_RESERVE_PORTS=1`, and the fleet's shape written out: `BENCH_MACHINE_TYPE=c3-highcpu-8`, `BENCH_NODE_DISK_TYPE=hyperdisk-balanced`, `BENCH_NODE_DISK_SIZE=100`, `BENCH_NODE_DISK_IOPS=20000`, `BENCH_NODE_DISK_THROUGHPUT=800`.
+
+Each added key is config.sh's default, so the fleet is the one `r20261113-1351` had; the zones are config.sh's fixed list.
+They set no MDBX knob, as the run 2 env set none: the deploy refuses `BENCH_NODE_EVICT_MDBX` on a tn-lmdb image (`mdbx_knob_problems`), and config.sh refuses it beside an arm file.
+No knob names the storage engine: the image gate reads it from the binary's `--version` and writes `storage_engine` into the manifest.
+
+Per run, in this order:
+
+| # | call | what it does | read before the next |
+|---|---|---|---|
+| 1 | `tasks/bench7/orch-run-chain.sh <env>` | the plan: `launch.sh --dry-run` of deploy12 and blast15, a new run id, a clean harness tree, no fleet driver running; starts nothing | the `CHAIN` plan lines, rc 0 |
+| 2 | `setsid bash tasks/bench7/orch-run-chain.sh --live <env> > <log> 2>&1 < /dev/null &` | deploy12, the idle checks, then blast15 with `tasks/bench7/orch-fleet-health.sh <run> --watch ... --until-file <blast15 log>` beside it | `CHAIN done rc=0`, the watch's last `FLEET_HEALTH` lines |
+| 3 | `tasks/bench7/orch-prom-export.py <out-dir> <start> <end> --manifest benchmark/results/<run>/manifest.json`, while the fleet is up | the must-have check, then the export | no `status=incomplete`, `EXPORT_DONE` |
+| 4 | `launch.sh <env> teardown-dry`, `teardown`, `reindex`, `archive`, `bundle` | as in run 2 above | as in run 2 above |
+
+At idle, before the blast (the chain checks the first two and stops at exit 11, leaving the fleet up, when one fails):
+
+- seven `tn_node_switch{name}` series on each of the eleven nodes, with the arm's values: 1 for each bool, `quorum_exec_block_starved_rounds` 0 (always) or 4 (adaptive);
+- `storage_engine` in the manifest is `tn-lmdb`;
+- `halt=0` on every node (`tasks/bench7/orch-fleet-health.sh <run>`, one round, exit 0).
+
+`halt=` is new on the samplers' `BENCH_STATUS` line (`... fatal_db=<n> halt=<n> block=<n> ...`).
+It counts the lines of the node's unit log that carry one of the build's fail-stop phrases (the stored-record mismatch, the closing-block check, `epoch record conflict halt:`, the leftover-drain gap, `we have forked!`, a refused `vote_timeout`) since the log began, so a node that halted and restarted stays counted.
+The blast's abort does not read it: a halted validator is a finding of the run, not a reason to stop the blast.
+The watch prints `halt=<sum>` on its `FLEET_HEALTH` line, a `FLEET_HEALTH HALTED <node>=<n> ...` line, and ends with its alarm (exit 3) naming the nodes.
+
+The export's check knows three kinds of must-have series: on every node; on every validator only (the proposer's order-hold series, which the observer never builds); and lazy ones, which exist on a node only after its first count (`status=lazy` lists the nodes without one and never refuses the export).
+
+No pre-flight for the conflict halt: on a fresh genesis no node holds an epoch record from before the run, so there is no stored record a certified one could conflict with.
+
 ## Monitor
 
 Poll each segment's log every 30 s with a deadline, never with a pattern that can match the poll's own command line:

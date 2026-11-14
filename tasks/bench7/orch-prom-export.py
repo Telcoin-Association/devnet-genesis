@@ -10,12 +10,18 @@ nobody saw it before the teardown).
 The check comes first. For each must-have metric (MUST_HAVE: the series the bench-6 analysis scripts read
 most) one instant query at <end>, count by (node) (last_over_time(<metric>{network="<label>"}[<end - start>s])),
 and one line:
-  EXPORT_CHECK metric=<m> nodes=<n>/<expected> missing=<node,...|-> status=<ok|incomplete|absent|error>
+  EXPORT_CHECK metric=<m> nodes=<n>/<expected> missing=<node,...|-> status=<ok|incomplete|lazy|absent|error>
 The nodes are the manifest's (.instances, else .zones_used; without --manifest, every node any must-have
 metric shows). A metric some node shows must be on every node: in bench 6 the observer carried all twenty
-(run r20261114-0000's export). A metric no node shows is "absent" (not on this node build): reported, not
-fatal. Any "incomplete" or "error" line makes it exit 3 before anything is written, unless --allow-missing
-is given; --check-only stops after the check.
+(run r20261114-0000's export). Two exceptions, per metric:
+  VALIDATORS_ONLY: the proposer's series (bench 6: tn_primary_digests_requeued_total on the ten validators,
+    never the observer) must be on every validator (.instances[].role, else a name without "observer");
+  LAZY: a series registered at its first increment or set (metrics::counter!/gauge! at the event, not when
+    a handle is built): a node without it has not counted one yet. Missing nodes are listed with
+    status=lazy, which never refuses the export.
+A metric no node shows is "absent" (not on this node build, or a lazy series nothing counted yet):
+reported, not fatal. Any "incomplete" or "error" line makes it exit 3 before anything is written, unless
+--allow-missing is given; --check-only stops after the check.
 
 The export, as in bench 6: one file per metric name, <out-dir>/<metric>.json.gz, the body of
 /api/v1/query_range (matrix), plus <out-dir>/INDEX.tsv (metric, series, points, bytes, seconds, status).
@@ -46,7 +52,6 @@ MUST_HAVE = (
     "tn_primary_vote_stage_seconds_count",
     "tn_node_switch",
     "tn_engine_persist_duration_seconds_count",
-    "tn_engine_persist_wait_seconds_count",
     "tn_reth_persist_commit_seconds_count",
     "tn_reth_persist_save_blocks_seconds_count",
     "tn_engine_executed_transactions_total",
@@ -58,12 +63,71 @@ MUST_HAVE = (
     "tn_primary_votes_refused_execution_behind_total",
     "tn_primary_committed_round",
     "tn_executor_output_transactions_count",
-    "tn_node_execution_backlog_outputs",
     "tn_engine_channel_depth",
     "tn_engine_outputs_executed_total",
-    "tn_engine_unpersisted_outputs",
-    "tn_engine_commit_interval_seconds_count",
+    # bench 7 (tasks/bench7-contract.md section 3, Prometheus names; bench 6's tn_engine_persist_wait_seconds,
+    # tn_engine_unpersisted_outputs, tn_engine_commit_interval_seconds and tn_node_execution_backlog_outputs
+    # are gone from this build, section 6): the vote outcomes, the order hold, the certifier's dropped
+    # reports, the orphan re-pool, the epoch-record collector and its vote rounds, the closing-block and
+    # close-identity checks, the leftover drain, and main's worker quota refusals (with the order hold on, a
+    # far validator's held digests keep their quota slots at its peers until they commit).
+    "tn_primary_vote_outcomes_total",
+    "tn_primary_requeued_out_of_order_total",
+    "tn_primary_requeued_order_unknown_total",
+    "tn_primary_headers_held_total",
+    "tn_primary_digests_held",
+    "tn_primary_uncertified_report_dropped_total",
+    "tn_node_orphan_txs_total",
+    "tn_node_orphan_batches_total",
+    "tn_state_sync_epoch_records_certified_through",
+    "tn_state_sync_epoch_record_gap_walks_total",
+    "tn_state_sync_epoch_record_walk_parent_mismatches_total",
+    "tn_state_sync_epoch_record_conflicts_total",
+    "tn_state_sync_epoch_record_conflicts_below_halt_threshold_total",
+    "tn_epoch_epoch_record_closing_block_check_total",
+    "tn_epoch_epoch_close_identity_check_total",
+    "tn_node_epoch_record_recertify_rounds_total",
+    "tn_node_epoch_record_round_conflicts_total",
+    "tn_node_epoch_record_round_ended_certified_total",
+    "tn_node_epoch_record_retained_votes",
+    "tn_node_leftover_output_gaps_total",
+    "tn_node_leftover_outputs_skipped_total",
+    "tn_worker_batch_reports_over_quota_total",
 )
+
+# Registered when the proposer builds its handles (crates/consensus/primary/src/metrics.rs
+# RequeuedOutOfOrderHandles, RequeuedOrderUnknownHandles, OrderHoldHandles): every validator, not the observer.
+VALIDATORS_ONLY = frozenset((
+    "tn_primary_requeued_out_of_order_total",
+    "tn_primary_requeued_order_unknown_total",
+    "tn_primary_headers_held_total",
+    "tn_primary_digests_held",
+))
+
+# Registered at the event (metrics::counter!/gauge! where it is counted or set): the certifier's dropped report,
+# the orphan re-pool at an epoch start, the closing-block and close-identity checks at a close, the vote
+# rounds' re-certify picks, conflicts, short certified rounds and kept votes (the last two switches on), the
+# leftover drain's skips and gaps (none on an honest run).
+LAZY = frozenset((
+    "tn_primary_uncertified_report_dropped_total",
+    "tn_node_orphan_txs_total",
+    "tn_node_orphan_batches_total",
+    "tn_epoch_epoch_record_closing_block_check_total",
+    "tn_epoch_epoch_close_identity_check_total",
+    "tn_node_epoch_record_recertify_rounds_total",
+    "tn_node_epoch_record_round_conflicts_total",
+    "tn_node_epoch_record_round_ended_certified_total",
+    "tn_node_epoch_record_retained_votes",
+    "tn_node_leftover_output_gaps_total",
+    "tn_node_leftover_outputs_skipped_total",
+))
+
+# What the export takes after the check: every tn_ series (tn_primary_, tn_node_ with tn_node_switch, tn_epoch_,
+# tn_state_sync_, tn_engine_, tn_executor_, tn_worker_, tn_reth_, ...), the store's gauges (reth_db_*: tn-lmdb
+# reports reth's table and free-list gauges under the same names, then its own page size, timed-out readers,
+# oldest reader age and latch) and reth's save_blocks histogram.
+MATCH = (r"^(tn_|reth_db_(table_size|table_pages|table_entries|freelist|page_size|timed_out_not_aborted_transactions"
+         r"|oldest_reader_age_seconds|latched)$|reth_storage_providers_database_save_blocks)")
 
 
 def utc_now():
@@ -102,7 +166,16 @@ def expected_nodes(manifest_path):
     return nodes or sorted(m.get("zones_used") or {})
 
 
-def check(start, end, network, nodes):
+def observers(manifest_path, nodes):
+    """The observer nodes: the manifest's role, else (or without one) a name holding "observer"."""
+    roles = {}
+    if manifest_path:
+        with open(manifest_path) as f:
+            roles = {i.get("name"): i.get("role") for i in (json.load(f).get("instances") or [])}
+    return {n for n in nodes if roles.get(n) == "observer" or (roles.get(n) is None and "observer" in n)}
+
+
+def check(start, end, network, nodes, observer_nodes=frozenset()):
     """One EXPORT_CHECK line per must-have metric; returns the number of incomplete or failed ones."""
     window = max(int(epoch(end) - epoch(start)), 60)
     seen = {}
@@ -118,21 +191,23 @@ def check(start, end, network, nodes):
             errors[metric] = str(e)[:120]
     if nodes is None:
         nodes = sorted({n for names in seen.values() for n in names})
+        observer_nodes = {n for n in nodes if "observer" in n}
     bad = 0
     for metric in MUST_HAVE:
+        want = [n for n in nodes if metric not in VALIDATORS_ONLY or n not in observer_nodes]
         if metric in errors:
             bad += 1
-            print(f"EXPORT_CHECK metric={metric} nodes=?/{len(nodes)} missing=? status=error {errors[metric]}")
+            print(f"EXPORT_CHECK metric={metric} nodes=?/{len(want)} missing=? status=error {errors[metric]}")
             continue
         have = set(seen[metric])
         if not have:
-            print(f"EXPORT_CHECK metric={metric} nodes=0/{len(nodes)} missing=- status=absent")
+            print(f"EXPORT_CHECK metric={metric} nodes=0/{len(want)} missing=- status=absent")
             continue
-        missing = [n for n in nodes if n not in have]
-        status = "incomplete" if missing else "ok"
-        if missing:
+        missing = [n for n in want if n not in have]
+        status = "ok" if not missing else ("lazy" if metric in LAZY else "incomplete")
+        if status == "incomplete":
             bad += 1
-        print(f"EXPORT_CHECK metric={metric} nodes={len(nodes) - len(missing)}/{len(nodes)} "
+        print(f"EXPORT_CHECK metric={metric} nodes={len(want) - len(missing)}/{len(want)} "
               f"missing={','.join(missing) if missing else '-'} status={status}")
     return bad
 
@@ -140,7 +215,7 @@ def check(start, end, network, nodes):
 def main():
     args = sys.argv[1:]
     step = 15
-    match = r"^(tn_|reth_db_(table_size|table_pages|table_entries|freelist)$|reth_storage_providers_database_save_blocks)"
+    match = MATCH
     manifest = None
     network = None
     allow_missing = check_only = False
@@ -177,7 +252,7 @@ def main():
         with open(manifest) as f:
             network = (json.load(f).get("prometheus") or {}).get("network_label")
     network = network or "bench"
-    bad = check(start, end, network, nodes)
+    bad = check(start, end, network, nodes, observers(manifest, nodes or []))
     if bad and not allow_missing:
         print(f"EXPORT_REFUSED incomplete={bad}: nothing exported (read the EXPORT_CHECK lines; --allow-missing exports anyway)")
         return 3

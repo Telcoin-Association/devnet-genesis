@@ -17,10 +17,11 @@
 # pattern and is excluded that way).
 #
 # Every SAMPLER_STATUS_EVERY samples (default 4 = 2 min) it also writes one
-#   BENCH_STATUS host=<h> ts=<unix> root_used_pct=<n> fatal_db=<n> block=<n> rss_total_kb=<n>
+#   BENCH_STATUS host=<h> ts=<unix> root_used_pct=<n> fatal_db=<n> halt=<n> block=<n> rss_total_kb=<n>
 # line to the serial console, so benchmark-blast.sh's abort watchers can read disk, the
 # fatal database error count (FatalDBFailure, or tn-lmdb's latched store) and chain progress over
-# the GCP REST API instead of polling IAP SSH.
+# the GCP REST API instead of polling IAP SSH. halt= counts the node's fail-stop lines (below);
+# the blast's abort does not read it (a halted validator is a finding, not a reason to stop).
 #
 # SAMPLER_ONCE=1 writes a single row and exits (smoke test).
 
@@ -38,6 +39,24 @@ OUT="${OUT_DIR}/${HOST}.csv"
 OLD_HEADER="ts_unix,pid,rss_anon_kb,rss_file_kb,rss_total_kb,io_write_bytes,io_read_bytes,psi_mem_some_avg10,psi_io_some_avg10,psi_cpu_some_avg10,db_bytes,static_files_bytes,epochs_bytes,cache_bytes,epoch_bytes,loadavg1,oom_count,root_used_pct"
 HEADER="${OLD_HEADER},block"
 INVENTORY="${OUT_DIR}/${HOST}.epochs.txt"
+
+# halt=: lines carrying one of the build's fail-stop phrases (tasks/bench7-contract.md section 4: the
+# stored-record mismatch, the closing-block check, the conflict halt, the leftover-drain gap, the fork
+# and the startup refusal of a vote_timeout), counted over the unit's log files from their start and
+# kept across status lines, apart from fatal_db. The files outlive the container: `docker run --rm`
+# removes a halted node's container, and its log with it, within seconds. Each status line reads on
+# from where the last one stopped; when logrotate's copytruncate has cut a file, the unread end is in
+# <file>.1. Only when no file is readable does it read the container log since the last status line.
+# The node writes an apostrophe as \', so a phrase stops before one; no phrase may hold a quote.
+HALT_PHRASES='stored epoch record final_state does not match this node
+epoch record final_state is not the block where the epoch-closing calls ran
+epoch record conflict halt:
+leftover consensus output does not follow the last output forwarded to the engine
+we have forked!
+must stay below the libp2p request timeout'
+NODE_LOGS="${SAMPLER_NODE_LOGS:-/var/log/telcoin/telcoin.log /var/log/telcoin/telcoin-error.log}"
+halt=0
+halt_offs=()
 
 mkdir -p "${OUT_DIR}"
 if [ -s "${OUT}" ]; then
@@ -87,6 +106,32 @@ block_number() {
     [ -n "${hex}" ] && printf '%d' "0x${hex}"
 }
 
+# halt_count — the lines on stdin that carry a halt phrase.
+halt_count() { grep -c -F -e "${HALT_PHRASES}" || true; }
+
+# halt_scan <since> — adds to halt the halt lines logged since the last scan.
+halt_scan() {
+    local f size off n i=0 seen=0
+    for f in ${NODE_LOGS}; do
+        off="${halt_offs[$i]:-0}"
+        if [ -r "${f}" ] && size="$(stat -c %s -- "${f}" 2>/dev/null)" && [ -n "${size}" ]; then
+            seen=1
+            if [ "${size}" -lt "${off}" ]; then
+                n="$({ tail -c "+$((off + 1))" -- "${f}.1" 2>/dev/null; head -c "${size}" -- "${f}"; } | halt_count)"
+            else
+                n="$(tail -c "+$((off + 1))" -- "${f}" | head -c "$((size - off))" | halt_count)"
+            fi
+            case "${n}" in ''|*[!0-9]*) n=0 ;; esac
+            halt=$((halt + n)) halt_offs[$i]="${size}"
+        fi
+        i=$((i + 1))
+    done
+    [ "${seen}" = 0 ] || return 0
+    n="$(docker logs --since "$1" "${CONTAINER}" 2>&1 | halt_count)"
+    case "${n}" in ''|*[!0-9]*) n=0 ;; esac
+    halt=$((halt + n))
+}
+
 last_status_ts=""
 last_inventory_ts=0
 n=0
@@ -130,7 +175,8 @@ while :; do
         # fail with `tn-lmdb: environment failed: <cause>`).
         fatal="$(docker logs --since "${since}" "${CONTAINER}" 2>&1 | grep -c -F -e 'FatalDBFailure' \
             -e 'every later write and commit fails' -e 'tn-lmdb: environment failed' || true)"
-        line="BENCH_STATUS host=${HOST} ts=${ts} root_used_pct=${rootp:-} fatal_db=${fatal:-0} block=${block} rss_total_kb=${rss_total:-}"
+        halt_scan "${since}"
+        line="BENCH_STATUS host=${HOST} ts=${ts} root_used_pct=${rootp:-} fatal_db=${fatal:-0} halt=${halt} block=${block} rss_total_kb=${rss_total:-}"
         { [ -w "${CONSOLE}" ] && printf '%s\n' "${line}" > "${CONSOLE}"; } 2>/dev/null || true
         printf '%s\n' "${line}"   # journal copy
         last_status_ts="${ts}"

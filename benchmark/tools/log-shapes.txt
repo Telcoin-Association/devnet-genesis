@@ -59,3 +59,48 @@ reth datadir: storage layout
 keeps its storage layout
 every later write and commit fails
 the final sync failed
+# bench 7 fail-stops (tasks/bench7-contract.md section 4), for the bench 7 analysis and the fleet-health watch
+# (node-sampler.sh counts the first six as halt=): each is logged on error only, once, and the node stops (the
+# conflict halt again at every restart); a phrase stops before an apostrophe, which the node writes as \'
+stored epoch record final_state does not match this node
+epoch record final_state is not the block where the epoch-closing calls ran
+epoch record conflict halt:
+leftover consensus output does not follow the last output forwarded to the engine
+we have forked!
+must stay below the libp2p request timeout
+consensus output gap: expected
+close-time base-fee identity
+own epoch record differs from a certified record in a re-certify round
+# bench 7 epoch-record lines (section 2.3, 2.4), for the bench 7 analysis: once per epoch close or start (about 3
+# an hour at bench 6's 20-minute epochs), per vote round or per record taken from a peer; the conflict and the
+# invalid-record lines on error only; the debug line is not logged at the bench filter (epoch-manager at info)
+epoch record published
+retrieved cert for epoch
+epoch vote round ended without a local quorum; the record is already certified
+epoch record certified from kept votes
+re-arming epoch vote rounds to re-certify older epoch records
+epoch record re-certify round
+epoch record collector walking past an uncertified epoch
+failed to reach quorum on epoch close
+Failed to retrieve an epoch record for epoch
+epoch record conflict: this node
+got an invalid epoch record
+no peer returned the certified record of an uncertified epoch walked past
+# bench 7 proposer, order-hold, drain and orphan lines (sections 2.5 to 2.8), for the arms summary and the bench 7
+# analysis: once per proposer start or epoch close; the out-of-order hold warning at most once per re-queue (none
+# expected); a dropped report at most once per cancelled own header (debug on primary::certifier, which the bench
+# filter logs; none expected but at shutdown); the skipped output on a replay only; the orphan refusal once per
+# refused transaction at an epoch start (debug on epoch-manager: not logged at the bench filter)
+quorum_exec_block_starved_rounds has no effect while quorum_exec_block is off
+quorum_exec_block_starved_rounds is above its bound; the bound is used
+proposer stopped
+digests re-queued out of order under the order hold
+uncertified own header report dropped
+skipping already-forwarded consensus output
+Finished processing orphaned batches
+pool refused an orphaned transaction
+# bench 7 test hooks (tasks/bench7-contract.md sections 2.9, 5): a bench image must log none; kept so one that does
+# is seen (a hold line per own header while a hook is on)
+test hook:
+ignoring TN_TEST_
+new proposal received during the own certificate hold

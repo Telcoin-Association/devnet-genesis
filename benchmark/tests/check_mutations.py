@@ -2607,6 +2607,28 @@ cases = [
     ('benchmark/tools/arms-summary.py', '    return any(v[7] is not None for n in validators if n in nds for v in nds[n].votes)',
      '    return True',
      'test_arms_summary.ArmsSummaryTests.test_a_vote_line_without_prelock_wait_reads_as_before'),
+    # Bench 7 HB-5a. The sampler's halt count (apart from fatal_db, over the unit logs, on from a copytruncate cut,
+    # the container log only without them), the shapes the teardown keeps for the bench-7 lines, the launch files.
+    ('benchmark/node-sampler.sh', 'epoch record conflict halt:\n', '',
+     'test_recovery.SamplerHaltTests.test_each_halt_phrase_counts_and_nothing_else_does'),
+    ('benchmark/node-sampler.sh', "-e 'tn-lmdb: environment failed' || true)\"",
+     "-e 'tn-lmdb: environment failed' -e 'we have forked!' || true)\"",
+     'test_recovery.SamplerHaltTests.test_each_halt_phrase_counts_and_nothing_else_does'),
+    ('benchmark/node-sampler.sh',
+     '                n="$({ tail -c "+$((off + 1))" -- "${f}.1" 2>/dev/null; head -c "${size}" -- "${f}"; } | halt_count)"',
+     '                n="$(head -c "${size}" -- "${f}" | halt_count)"',
+     'test_recovery.SamplerHaltTests.test_the_count_is_kept_across_status_lines_and_a_cut_file'),
+    ('benchmark/node-sampler.sh', '    [ "${seen}" = 0 ] || return 0\n', '    true\n',
+     'test_recovery.SamplerHaltTests.test_the_container_log_only_when_no_unit_log_is_readable'),
+    ('benchmark/tools/log-shapes.txt', 'epoch record conflict halt:\n', '',
+     'test_pull_logs.Bench7ShapeTests.test_every_section_4_stable_phrase_is_kept_as_the_node_writes_it'),
+    ('benchmark/tools/log-shapes.txt', 'stored epoch record final_state does not match this node\n',
+     "stored epoch record final_state does not match this node's closing block\n",
+     'test_pull_logs.Bench7ShapeTests.test_every_section_4_stable_phrase_is_kept_as_the_node_writes_it'),
+    ('benchmark/tools/log-shapes.txt', 'epoch record published\n', '',
+     'test_pull_logs.Bench7ShapeTests.test_every_section_2_line_is_kept'),
+    ('benchmark/launch/bench7-adaptive.env', 'BENCH_NODE_DISK_IOPS=20000\n', 'BENCH_NODE_DISK_IOPS=10000\n',
+     'test_launch.Bench7EnvTests.test_each_is_the_run_that_ran_with_the_bench7_differences'),
 ]
 
 

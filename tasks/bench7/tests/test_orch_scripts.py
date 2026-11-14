@@ -75,9 +75,10 @@ def green_prom():
     }
 
 
-def serial_line(node, pct=20, fatal=0, block=100):
+def serial_line(node, pct=20, fatal=0, block=100, halt=0):
     return ("Nov 14 15:00:00 %s node-sampler[812]: BENCH_STATUS host=%s ts=1763132400 root_used_pct=%d "
-            "fatal_db=%d block=%d rss_total_kb=1\n" % (node, node, pct, fatal, block))
+            "fatal_db=%d %sblock=%d rss_total_kb=1\n" % (node, node, pct, fatal,
+                                                         "" if halt is None else "halt=%d " % halt, block))
 
 
 def gcloud_fleet(labels=None, serial=None):
@@ -518,7 +519,8 @@ class TestWatch(SandboxCase):
         rc, out = self.watch("--watch", "1", "--max-secs", "6", "--until-file", self.until)
         self.assertEqual(rc, 0, out)
         self.assertRegex(out, r"(?m)^FLEET_HEALTH run=%s nodes=11/11 disk_max=20 \(bench-validator-01\) fatal_db=0 "
-                              r"block_min=100 block_max=100 \S+Z$" % RUN)
+                              r"halt=0 block_min=100 block_max=100 \S+Z$" % RUN)
+        self.assertNotIn("HALTED", out)
         self.assertIn("FLEET_HEALTH the walk ended (== blast15 rc=0 2026-11-14T16:35:00Z)", out)
 
     def test_watch_ends_on_left_running(self):
@@ -571,8 +573,33 @@ class TestWatch(SandboxCase):
         self.sb.write_json("gcloud.json", gcloud_fleet(serial=serial))
         rc, out = self.watch("--watch", "1", "--max-secs", "20", "--until-file", self.until)
         self.assertEqual(rc, 3, out)
-        self.assertIn("FLEET_HEALTH ALARM (disk >= 80 % or fatal_db > 0)", out)
+        self.assertIn("FLEET_HEALTH ALARM (disk >= 80 % or fatal_db > 0 or halt > 0)\n", out)
         self.assertIn("disk_max=85 (bench-validator-04)", out)
+
+    # ---- bench7 halt watch (HB-5a) ----
+    def test_halt_alarm_names_the_halted_nodes(self):
+        serial = {n: serial_line(n) for n in NODES}
+        serial["bench-validator-03"] = serial_line("bench-validator-03", halt=1)
+        serial["bench-validator-07"] = serial_line("bench-validator-07", halt=2)
+        self.sb.write_json("gcloud.json", gcloud_fleet(serial=serial))
+        rc, out = self.watch("--watch", "1", "--max-secs", "20", "--until-file", self.until)
+        self.assertEqual(rc, 3, out)
+        self.assertRegex(out, r"(?m)^FLEET_HEALTH run=%s nodes=11/11 disk_max=20 \(bench-validator-01\) fatal_db=0 "
+                              r"halt=3 block_min=100 block_max=100 \S+Z$" % RUN)
+        self.assertIn("  bench-validator-03: root_used_pct=20 fatal_db=0 halt=1 block=100\n", out)
+        self.assertIn("FLEET_HEALTH HALTED bench-validator-03=1 bench-validator-07=2 (", out)
+        self.assertIn("FLEET_HEALTH ALARM (disk >= 80 % or fatal_db > 0 or halt > 0) halted: bench-validator-03=1 "
+                      "bench-validator-07=2\n", out)
+        rc, out = self.watch()
+        self.assertEqual(rc, 3, out)
+
+    def test_a_status_line_without_halt_counts_nothing(self):
+        serial = {n: serial_line(n, halt=None) for n in NODES}
+        self.sb.write_json("gcloud.json", gcloud_fleet(serial=serial))
+        rc, out = self.watch()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  bench-validator-02: root_used_pct=20 fatal_db=0 halt=? block=100\n", out)
+        self.assertIn(" fatal_db=0 halt=0 block_min=100 ", out)
 
 
 # ---- orch-prom-export.py -----------------------------------------------------------------------------
@@ -632,14 +659,18 @@ class FakeProm(object):
 class TestExport(SandboxCase):
     def setUp(self):
         super(TestExport, self).setUp()
-        self.must = load_export_module().MUST_HAVE
+        mod = load_export_module()
+        self.must, self.validators_only, self.lazy = mod.MUST_HAVE, mod.VALIDATORS_ONLY, mod.LAZY
         self.sb.write_manifest()
         self.manifest = os.path.join(self.sb.root, "benchmark", "results", RUN, "manifest.json")
         self.out = os.path.join(self.sb.dir, "prom-export")
 
     def presence(self):
-        p = {m: list(NODES) for m in self.must}
+        p = {m: list(VALIDATORS if m in self.validators_only else NODES) for m in self.must}
         del p["reth_db_table_pages"]  # gone with MDBX: reported, not fatal
+        # registered at the event: on the nodes that counted one; the leftover drain's on none (an honest run)
+        for m in self.lazy:
+            p[m] = [] if m.startswith("tn_node_leftover_") else list(VALIDATORS[:3])
         return p
 
     def export(self, presence, *extra):
@@ -651,20 +682,22 @@ class TestExport(SandboxCase):
                            universal_newlines=True, timeout=120)
         return p.returncode, p.stdout, prom
 
-    def test_must_have_list_names_twenty_series(self):
-        self.assertEqual(len(self.must), 20)
-        self.assertEqual(len(set(self.must)), 20)
+    def test_must_have_list_names_thirty_eight_series(self):
+        self.assertEqual(len(self.must), 38)
+        self.assertEqual(len(set(self.must)), 38)
         for m in ("tn_primary_vote_stage_seconds_count", "tn_node_switch", "tn_reth_persist_commit_seconds_count"):
             self.assertIn(m, self.must)
+        self.assertLessEqual(self.validators_only | self.lazy, set(self.must))
+        self.assertEqual(self.validators_only & self.lazy, frozenset())
 
     def test_complete_export_passes(self):
         rc, out, prom = self.export(self.presence(), "--manifest", self.manifest)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(re.findall(r"(?m)^EXPORT_CHECK ", out)), 20)
+        self.assertEqual(len(re.findall(r"(?m)^EXPORT_CHECK ", out)), 38)
         self.assertIn("EXPORT_CHECK metric=tn_primary_vote_stage_seconds_count nodes=11/11 missing=- status=ok", out)
         self.assertIn("EXPORT_CHECK metric=tn_node_switch nodes=11/11 missing=- status=ok", out)
         self.assertIn("EXPORT_CHECK metric=reth_db_table_pages nodes=0/11 missing=- status=absent", out)
-        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=19 series=\d+ nodes=11$")
+        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=37 series=\d+ nodes=11$")
         self.assertTrue(os.path.exists(os.path.join(self.out, "INDEX.tsv")))
         with gzip.open(os.path.join(self.out, "tn_node_switch.json.gz"), "rb") as f:
             self.assertEqual(len(json.loads(f.read())["data"]["result"]), 11)
@@ -695,7 +728,8 @@ class TestExport(SandboxCase):
         self.assertEqual(rc, 3, out)
         self.assertIn("EXPORT_CHECK metric=tn_engine_queued_outputs nodes=10/11 missing=bench-validator-10 "
                       "status=incomplete", out)
-        self.assertIn("EXPORT_REFUSED incomplete=19", out)
+        # every series but the lazy ones and the absent reth_db_table_pages
+        self.assertIn("EXPORT_REFUSED incomplete=%d" % (len(self.must) - len(self.lazy) - 1), out)
 
     def test_allow_missing_exports_anyway(self):
         p = self.presence()
@@ -703,8 +737,50 @@ class TestExport(SandboxCase):
         rc, out, prom = self.export(p, "--manifest", self.manifest, "--allow-missing")
         self.assertEqual(rc, 0, out)
         self.assertIn("status=incomplete", out)
-        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=19 series=\d+ nodes=11$")
+        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=37 series=\d+ nodes=11$")
         self.assertGreater(len(prom.ranges()), 0)
+
+    # ---- bench7 must-have scopes (HB-5a) ----
+    def test_proposer_series_are_checked_on_the_validators_only(self):
+        rc, out, prom = self.export(self.presence(), "--manifest", self.manifest, "--check-only")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("EXPORT_CHECK metric=tn_primary_digests_held nodes=10/10 missing=- status=ok", out)
+        p = self.presence()
+        p["tn_primary_headers_held_total"].remove("bench-validator-04")
+        for extra in (["--manifest", self.manifest], []):
+            rc, out, prom = self.export(p, "--check-only", *extra)
+            self.assertEqual(rc, 3, out)
+            self.assertIn("EXPORT_CHECK metric=tn_primary_headers_held_total nodes=9/10 missing=bench-validator-04 "
+                          "status=incomplete", out)
+            self.assertIn("EXPORT_REFUSED incomplete=1", out)
+
+    def test_a_lazy_series_on_some_nodes_is_listed_and_never_refuses(self):
+        rc, out, prom = self.export(self.presence(), "--manifest", self.manifest, "--check-only")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("EXPORT_CHECK metric=tn_node_orphan_txs_total nodes=3/11 missing=%s,bench-validator-04,"
+                      "bench-validator-05,bench-validator-06,bench-validator-07,bench-validator-08,bench-validator-09,"
+                      "bench-validator-10 status=lazy" % OBSERVER, out)
+        self.assertIn("EXPORT_CHECK metric=tn_node_leftover_output_gaps_total nodes=0/11 missing=- status=absent", out)
+        # a series registered when its handles are built is not lazy: a node without it refuses the export
+        p = self.presence()
+        p["tn_worker_batch_reports_over_quota_total"].remove(OBSERVER)
+        p["tn_state_sync_epoch_records_certified_through"].remove("bench-validator-02")
+        rc, out, prom = self.export(p, "--manifest", self.manifest, "--check-only")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("EXPORT_CHECK metric=tn_worker_batch_reports_over_quota_total nodes=10/11 missing=%s "
+                      "status=incomplete" % OBSERVER, out)
+        self.assertIn("EXPORT_REFUSED incomplete=2", out)
+
+    def test_the_pattern_takes_every_prefix_of_the_build(self):
+        match = load_export_module().MATCH
+        for name in ("tn_primary_vote_outcomes_total", "tn_node_switch", "tn_state_sync_epoch_record_conflicts_total",
+                     "tn_epoch_epoch_record_closing_block_check_total", "tn_engine_recover_seconds_bucket",
+                     "tn_worker_batch_reports_over_quota_total", "tn_reth_block_execute_seconds_count",
+                     "reth_db_table_pages", "reth_db_latched", "reth_db_oldest_reader_age_seconds",
+                     "reth_db_timed_out_not_aborted_transactions", "reth_db_page_size", "reth_db_freelist"):
+            self.assertRegex(name, match)
+        for name in ("go_goroutines", "reth_db_transaction_open_total", "process_cpu_seconds_total"):
+            self.assertNotRegex(name, match)
 
     def test_check_only_exports_nothing(self):
         rc, out, prom = self.export(self.presence(), "--manifest", self.manifest, "--check-only")

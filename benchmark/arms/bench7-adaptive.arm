@@ -1,6 +1,7 @@
 # bench7-adaptive: bench7-always with the vote fix in its adaptive form.
-# quorum_exec_block_starved_rounds 4: a header names the node's own tip by default and uses the
-# quorum rule for 4 rounds after one of the node's own headers was cancelled uncertified.
+# quorum_exec_block_starved_rounds 4: a header names the node's own tip by default; the next 4
+# headers the node builds after one of its own was cancelled uncertified use the quorum rule (the
+# window counts headers built, not rounds, and doubles while cancels repeat, up to 128).
 # No host step, as in bench7-always.
 name bench7-adaptive
 param quorum_exec_block true

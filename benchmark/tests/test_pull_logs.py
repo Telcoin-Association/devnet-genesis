@@ -1434,3 +1434,93 @@ class Bench6ShapeTests(unittest.TestCase):
         self.assertEqual([x for x in lits if "'" in x or '"' in x or "\\" in x], [])
         with tempfile.TemporaryDirectory(prefix="shapes-") as d:
             self.assertIsNone(asum.prefilter_usable(d, lits))
+
+
+# ---- bench7 log shapes (HB-5a) ----
+# The bench-7 build's fail-stops and new lines (tasks/bench7-contract.md sections 2 and 4, source text with the
+# placeholders filled) must survive the teardown's prefilter as the node writes them (an apostrophe as \'), and
+# every halt phrase node-sampler.sh counts must be kept too (the analysis reads the line the watch alarmed on).
+BENCH7_HALTS = (
+    ("epoch-manager", "error", "stored epoch record final_state does not match this node's closing block: this node's "
+                               "execution diverged from the recorded chain, stopping the node"),
+    ("epoch-manager", "error", "epoch record final_state is not the block where the epoch-closing calls ran, stopping "
+                               "the node"),
+    ("epoch-manager", "error", "epoch record conflict halt: this node's stored record of epoch 4 differs from a record "
+                               "certified by 7 of the 10 members of the committee the record before it names; this node "
+                               "stops; do not delete its chain data before the cause is known"),
+    ("epoch-manager", "error", "own epoch record differs from a certified record in a re-certify round"),
+    ("epoch-manager", "error", "Network came to consensus on epoch record 8Hk2 we expected epoch record 3Fq9, we have "
+                               "forked!"),
+    ("epoch-manager", "error", "leftover consensus output does not follow the last output forwarded to the engine: "
+                               "stopping the node before the engine executes past the gap"),
+    ("epoch-manager", "error", "consensus output gap: expected 41 but received 43 - restarting to replay missed "
+                               "consensus from the DB"),
+    ("epoch-manager", "error", "close-time base-fee identity: canonical tip + 1 != entered-epoch blockHeight"),
+    ("tn_lmdb", "error", "damage found: page 7; every later write and commit fails"),
+    ("cli", "error", "vote_timeout 30s plus the voter's execution wait before the author lock VOTE_EXECUTION_WAIT 2s is "
+                     "32s, which must stay below the libp2p request timeout 30s while vote_queue_fix is on"),
+)
+BENCH7_MESSAGES = (
+    ("epoch-manager", "info", "epoch record published"),
+    ("epoch-manager", "info", "retrieved cert for epoch 3: 8Hk2 from a peer"),
+    ("epoch-manager", "info", "retrieved cert for epoch 3/8Hk2 from a peer"),
+    ("epoch-manager", "error", "got an invalid epoch record, epoch 3"),
+    ("epoch-manager", "info", "epoch record collector walking past an uncertified epoch"),
+    ("epoch-manager", "debug", "no peer returned the certified record of an uncertified epoch walked past: timeout"),
+    ("epoch-manager", "error", "epoch record conflict: this node's stored record of epoch 4 differs from a record "
+                               "certified by 3 of the 10 members of the committee the record before it names; this node "
+                               "keeps its own record"),
+    ("epoch-manager", "info", "epoch vote round ended without a local quorum; the record is already certified"),
+    ("epoch-manager", "info", "epoch record certified from kept votes"),
+    ("epoch-manager", "info", "re-arming epoch vote rounds to re-certify older epoch records"),
+    ("epoch-manager", "info", "epoch record re-certify round"),
+    ("epoch-manager", "error", "failed to reach quorum on epoch close for 8Hk2 EpochRecord { epoch: 2 }"),
+    ("epoch-manager", "error", "Failed to retrieve an epoch record for epoch 2- We have a missing epoch certificate, if "
+                               "this is not local then sync will be compromised!"),
+    ("epoch-manager", "info", "test hook: withholding own epoch vote"),
+    ("epoch-manager", "warn", "skipping already-forwarded consensus output"),
+    ("primary::proposer", "warn", "quorum_exec_block_starved_rounds has no effect while quorum_exec_block is off"),
+    ("primary::proposer", "warn", "quorum_exec_block_starved_rounds is above its bound; the bound is used"),
+    ("primary::proposer", "warn", "digests re-queued out of order under the order hold"),
+    ("consensus::metrics", "info", "proposer stopped"),
+    ("primary::certifier", "debug", "uncertified own header report dropped"),
+    ("epoch-manager", "info", "Finished processing orphaned batches"),
+    ("epoch-manager", "debug", "pool refused an orphaned transaction"),
+    ("primary::certifier", "warn", "test hook: holding this node's own certificates"),
+    ("primary::certifier", "warn", "ignoring TN_TEST_OWN_CERT_DELAY_MS: not whole milliseconds; own certificates are not held"),
+    ("primary::certifier", "info", "test hook: holding own certificate"),
+    ("primary::certifier", "debug", "new proposal received during the own certificate hold - aborting proposal..."),
+    ("epoch-manager", "warn", "ignoring TN_TEST_WITHHOLD_EPOCH_VOTE: not an epoch number; the node votes as usual"),
+    ("epoch-manager", "warn", "ignoring TN_TEST_WITHHOLD_EPOCH_VOTE_ROUNDS: not a whole number of at least 1; one round "
+                              "is withheld"),
+)
+
+
+def sampler_halt_phrases():
+    """The fixed strings node-sampler.sh's halt count matches (its HALT_PHRASES lines)."""
+    text = (BENCH / "node-sampler.sh").read_text()
+    block = re.search(r"\nHALT_PHRASES='(.*?)'\n", text, re.S)
+    return block.group(1).split("\n") if block else []
+
+
+class Bench7ShapeTests(unittest.TestCase):
+    def kept(self, target, level, message):
+        line = node_line(target, level, message)
+        return [s for s in shape_lines() if s in line]
+
+    def test_every_section_4_stable_phrase_is_kept_as_the_node_writes_it(self):
+        for target, level, message in BENCH7_HALTS:
+            with self.subTest(message=message[:60]):
+                self.assertTrue(self.kept(target, level, message), "no shape keeps %r" % message)
+        # a startup refusal reaches the unit's stderr as plain text, not as a logfmt line
+        self.assertTrue([s for s in shape_lines() if s in "Error: " + BENCH7_HALTS[-1][2]])
+
+    def test_every_section_2_line_is_kept(self):
+        for target, level, message in BENCH7_MESSAGES:
+            with self.subTest(message=message[:60]):
+                self.assertTrue(self.kept(target, level, message), "no shape keeps %r" % message)
+
+    def test_the_halt_watch_phrases_are_kept_too(self):
+        phrases = sampler_halt_phrases()
+        self.assertEqual(len(phrases), 6, phrases)
+        self.assertEqual([p for p in phrases if p not in shape_lines()], [])
