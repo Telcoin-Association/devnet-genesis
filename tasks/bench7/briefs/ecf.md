@@ -30,7 +30,7 @@ Port the file's final state as the first commit (body names the three bench-6 co
 ## Running e2e tests (the lane rule)
 
 Every `-p e2e-tests` test run goes through `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane2.sh <cmd…>`; other cargo through `tasks/bench6/cargo-slot.sh`. One e2e job on the machine at a time: other units queue on the same lane, so batch your runs (one lane job that runs the four tests in sequence, logs under `<worktree>/target/tmp/ecf-*.log`, an `EXIT=` last line each). Each test takes 5 to 10 minutes; the host is heavily loaded. Never wrap cargo or the lane in a short timeout; never end your turn while a job of yours runs or waits in the lane; never kill a process you did not start.
-Each test once after the port commit; each three times at the end (`--stress-count 3` or three lane jobs: say which). A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes; a timing flake must be shown to be one.
+Each test once after the port commit and once more on your final tree (ONE passing run of each test on the final tree is your gate). Do NOT run them three times: the lane is the machine's scarcest resource and the orchestrator's top-head gate runs every new e2e test three times on the assembled stack. A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes; a timing flake must be shown to be one.
 
 ## Gates and review
 
@@ -39,4 +39,4 @@ Commit footers: `Refs #1850, #1851`, then `Topic: epoch-record-collector-hardeni
 
 ## Hand back
 
-As the rules say, plus: the four tests' wall-clock and the three-run results; the re-tuned constants with the measurements behind them; for each close in each test which `branch` each node's `epoch record published` line took; extension C's answers (who certified epoch 1's record at the close of epoch 2, did anyone walk); the exact `FORK_LOGS` strings; what you changed in `exec_block.rs` (visibility only); anything in the node logs a maintainer should know.
+As the rules say, plus: the four tests' wall-clock and the runs' results; the re-tuned constants with the measurements behind them; for each close in each test which `branch` each node's `epoch record published` line took; extension C's answers (who certified epoch 1's record at the close of epoch 2, did anyone walk); the exact `FORK_LOGS` strings; what you changed in `exec_block.rs` (visibility only); anything in the node logs a maintainer should know.

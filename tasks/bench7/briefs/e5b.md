@@ -25,7 +25,7 @@ How a test reads a node's certified records: use what `epoch_close_forms.rs` alr
 ## Running e2e tests (the lane rule)
 
 Every `-p e2e-tests` test run through `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane2.sh <cmd…>`; other cargo through `tasks/bench6/cargo-slot.sh`. One e2e job on the machine at a time: batch your runs (one lane job running your tests in sequence; logs under `<worktree>/target/tmp/e5b-*.log`, an `EXIT=` last line each). Each test spans four closes plus the observer's waits: estimate it before the first run and say what it took. Never wrap cargo or the lane in a short timeout; never end your turn while a job of yours runs or waits in the lane; never kill a process you did not start.
-Each test once while you build it; each three times at the end. A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes.
+Each test once while you build it and once more on your final tree (ONE passing run of each test on the final tree is your gate). Do NOT run them three times: the lane is the machine's scarcest resource and the orchestrator's top-head gate runs every new e2e test three times on the assembled stack. A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes.
 **If test 2 or 3 shows the fix not doing what its design says** (the walk does not happen, K is not re-certified, an observer with its own record K does not get past it, a node halts): that is a finding about the production code, not a test to bend. Stop, keep the logs, and hand back with the timeline (which node logged what at which close) and `path:line` of the code you believe responsible.
 
 ## Gates and review
@@ -35,4 +35,4 @@ Commit(s): `test(e2e): an epoch the network never certifies, walked past and re-
 
 ## Hand back
 
-As the rules say, plus: per test the timeline as observed (close of K, K+1, K+2: who voted, who withheld, what certified when, what each collector and each observer did), the wall-clock, the three-run results; whether ROUNDS=1 certifies K at the close of K+1 on main's path (the hook unit's unverified claim); which nodes walk and why; what the gauge reads on each kind of node in each test; anything the node logged that a maintainer should know.
+As the rules say, plus: per test the timeline as observed (close of K, K+1, K+2: who voted, who withheld, what certified when, what each collector and each observer did), the wall-clock, the runs' results; whether ROUNDS=1 certifies K at the close of K+1 on main's path (the hook unit's unverified claim); which nodes walk and why; what the gauge reads on each kind of node in each test; anything the node logged that a maintainer should know.

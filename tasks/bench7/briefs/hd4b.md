@@ -42,7 +42,7 @@ If, with the hold ON, a run shows an out-of-order re-queue of a covered cause, a
 ## Running e2e tests (the lane rule)
 
 Every `-p e2e-tests` test run through `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane2.sh <cmd…>`; other cargo through `tasks/bench6/cargo-slot.sh`. One e2e job on the machine at a time: batch your runs (logs under `<worktree>/target/tmp/hd4b-*.log`, an `EXIT=` last line each). Never wrap cargo or the lane in a short timeout; never end your turn while a job of yours runs or waits in the lane; never kill a process you did not start (your own test's validators excepted).
-Each test once while you build it; each three times at the end. A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes.
+Each test once while you build it and once more on your final tree (ONE passing run of each test on the final tree is your gate). Do NOT run them three times: the lane is the machine's scarcest resource and the orchestrator's top-head gate runs every new e2e test three times on the assembled stack. A failure is diagnosed from the node logs (`tn-debug-e2e` skill) before anything changes.
 
 ## Gates and review
 
