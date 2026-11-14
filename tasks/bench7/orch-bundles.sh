@@ -5,6 +5,8 @@
 # each waited for by its `== bundle rc=` line with a deadline; the chain stops at the first rc != 0.
 # Order matters: a compare target's scratch (benchmark/work/report/<id>/) must exist before the run
 # that compares against it. Nothing here touches the cloud.
+# BUNDLE_FORCE_RUNS="<run id> …" passes --force for those runs (the tool then deletes and rebuilds that
+# run's scratch under benchmark/work/report/; use it only for a scratch a refused attempt left behind).
 # Lines: BUNDLES start …  BUNDLE <run> launched log=…  BUNDLE <run> rc=<n> secs=<n>  BUNDLES done rc=<n>
 set -uo pipefail
 ROOT=/home/drtnarg/coding/telcoin/devnet-genesis
@@ -28,7 +30,10 @@ while IFS='|' read -r run envf cmp bf; do
     [ -d "benchmark/work/report/${cmp}" ] || [ -d "../tn-benchmarks/runs/${cmp}" ] \
         || { echo "BUNDLE ${run} compare target ${cmp} has no scratch and no site bundle"; overall=2; break; }
     t0="$(date +%s)"
-    out="$(bash benchmark/launch/launch.sh "${envf}" bundle --compare "${cmp}" --backfill "${bf}" 2>&1)"; lrc=$?
+    force=""
+    case " ${BUNDLE_FORCE_RUNS:-} " in *" ${run} "*) force="--force" ;; esac   # only for a run whose scratch a refused attempt left behind
+    # shellcheck disable=SC2086
+    out="$(bash benchmark/launch/launch.sh "${envf}" bundle --compare "${cmp}" --backfill "${bf}" ${force} 2>&1)"; lrc=$?
     printf '%s\n' "${out}" | sed 's/^/  launch: /'
     [ "${lrc}" -eq 0 ] || { echo "BUNDLE ${run} launch refused rc=${lrc}"; overall=1; break; }
     log="$(printf '%s\n' "${out}" | sed -n 's/^LAUNCHED .* log=\(.*\)$/\1/p' | head -1)"
