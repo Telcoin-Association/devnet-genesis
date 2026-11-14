@@ -1,0 +1,2 @@
+# NN	head	base	title (filled from the writers' proposals before posting)
+03	fix/epoch-record-closing-block-check	staging/benchmark-bench6-2026-11	fix(node): check the closing block of an epoch record before saving it
