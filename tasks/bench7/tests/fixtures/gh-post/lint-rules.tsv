@@ -1,0 +1,27 @@
+# rule<TAB>a line the lint must refuse under that rule (one line per rule).
+# @HOME@, @HOST@, @PROJECT@ and @IP@ are expanded by the test from split pieces, so this file
+# carries no home path, host name, project id or address of its own.
+claude	Written with help from Claude.
+anthropic	A note from Anthropic.
+co-authored	Co-Authored-By: someone <x@example.com>
+generated-with	Generated with a tool.
+robot-emoji	🤖 done
+ai-generated	This text is AI-generated.
+assistant	The assistant wrote this.
+subagent	A subagent measured it.
+private-path	See benchmark/private/bench7-prep/notes.md for the data.
+home-path	The log sits in @HOME@someone/x.log.
+tasks-path	The plan is in `tasks/plan.md`.
+host-name	Measured on @HOST@ last night.
+project-id	The bucket lives in the @PROJECT@ project.
+placeholder	Stacked on {{PR:prev}}.
+angle-placeholder	The figure is <<TBD>> per second.
+unit-name	The A4e analysis found it.
+unit-name	Unit I-10 measured it.
+unit-name	See U2b for the probe.
+unit-name	The ST-E test covers it.
+ipv4	The node at @IP@ answered.
+run-nickname	In run 2b the vote rate fell.
+run-nickname	Run 3 kept every epoch.
+run-nickname	Run 1 (r20261113-1351) and run 2 differ.
+allow-marker	A line with the marker <!-- gh-post-lint: allow unit-name --> outside the fixtures.

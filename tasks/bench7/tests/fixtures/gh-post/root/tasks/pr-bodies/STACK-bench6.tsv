@@ -1,0 +1,3 @@
+# NN	head	base	title
+01	b7/first-topic	staging/benchmark-bench6-2026-11	feat(node): the first topic of the stack
+02	b7/second-topic	b7/first-topic	fix(primary): the second topic of the stack
