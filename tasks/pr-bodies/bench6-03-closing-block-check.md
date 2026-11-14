@@ -67,6 +67,6 @@ Stack-wide gates: run on the top of the stack before these PRs were opened; resu
 
 ## Related
 
-- Refs #1851: this implements its fix sketch; not `Fixes`: its e2e verification, the markers checked on chain, is planned for the epoch-close tests of `fix/epoch-record-collector-hardening`.
+- Refs #1851: this implements its fix sketch; not `Fixes`: its e2e verification, the markers checked on chain, is in the epoch-close tests (`epoch_close_forms.rs`) of `fix/1804-quorum-exec-block`, a later head of the stack: every published record is compared there with the block in which the registry's epoch turned.
 - #1860: main's epoch loop can drop an output under lag; found while checking this path, not caught by this check, fixed separately in `fix/epoch-loop-output-drop`.
 - Next: `fix/epoch-record-collector-hardening` builds on this head.
