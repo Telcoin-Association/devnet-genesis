@@ -20,28 +20,28 @@ NOT authorized, asked when reached: any fleet launch; publishing bench 7; PRs 05
 ## W0 — preflight (orchestrator)
 - [x] old tick list archived; this one, `tasks/bench7-agent-rules.md`, `tasks/checkpoint-bench7-orch.md`, `tasks/bench7/mk-worktree.sh`
 - [x] fetch, pin M, staging branch pushed, integration worktree
-- [ ] memory pointer updated
-- [ ] project-context (sonnet) for telcoin-network at M → `telcoin-network-b7/.claude/project-context.md`
-- [ ] task-decomposer over the unit list → `tasks/bench7-task-list.md`
-- [ ] DR-1807 (delta read: the hold's design on M) → `benchmark/private/bench7-prep/DR-1807/findings.md`
-- [ ] DR-E (delta read: the epoch-record designs on M) → `benchmark/private/bench7-prep/DR-E/findings.md`
+- [x] memory pointer updated
+- [x] project-context (sonnet) for telcoin-network at M → `telcoin-network-b7/.claude/project-context.md` (54.7 KB)
+- [x] task-decomposer over the unit list → `tasks/bench7-task-list.md` (with the orchestrator's rulings)
+- [x] DR-1807 (delta read: the hold's design on M) → `benchmark/private/bench7-prep/DR-1807/findings.md`: the rule stands; 12 changes to the design
+- [x] DR-E (delta read: the epoch-record designs on M) → `benchmark/private/bench7-prep/DR-E/findings.md`: M already halts on a stored mismatch, so E1 has no switch
 
 ## Track P — publish the four runs and the summary
-- [ ] P1 four backfill files (opus writer) · figure-check (opus)
-- [ ] P2 commit the backfills; bundles in order: `r20261113-1351` (--compare r20261107-1504), `r20261113-1630` (--compare r20261113-1351), `r20261113-2118` (--compare r20261113-1351), `r20261114-0000` (--compare r20261113-1630)
-- [ ] P3 site gates: unittest, `build.py --check`, `scrub.py runs/<id>` ×4, `build.py --out dist`, the four pages and landing cards read
-- [ ] P4 push devnet-genesis `main`; commit and push tn-benchmarks; the four pages live
-- [ ] P5 `tasks/bench6-maintainer-summary.md` (opus writer) · figure-check · printed in the chat
+- [x] P1 four backfill files (opus writer) · figure-check (opus): 5 errors and 14 weak or untraceable items fixed; then "from the coordinated start"
+- [x] P2 (17:06:41Z, after the provenance reader fix 02275df: staging starts before the arm's begin) commit the backfills; bundles in order: `r20261113-1351` (--compare r20261107-1504), `r20261113-1630` (--compare r20261113-1351), `r20261113-2118` (--compare r20261113-1351), `r20261114-0000` (--compare r20261113-1630)
+- [x] P3 (115 tests, check ok, scrub 0/0 ×4, 61 files) site gates: unittest, `build.py --check`, `scrub.py runs/<id>` ×4, `build.py --out dist`, the four pages and landing cards read
+- [x] P4 push devnet-genesis `main` (9fae083); commit and push tn-benchmarks (fc62df1); the four pages live (HTTP 200, 17:10Z)
+- [x] P5 `tasks/bench6-maintainer-summary.md` (opus writer) · figure-check · printed in the chat
 
 ## Track N — node work on the staging stack (base M)
 Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix/1804-vote-queue` · 03 `fix/epoch-record-closing-block-check` · 04 `fix/epoch-record-collector-hardening` · 05 `fix/1804-quorum-exec-block` · 06 `fix/1807-digest-order-hold`; `bench/bench7-2026-11` = the top.
-- [ ] PT-0 switches + obs (first)
-- [ ] PT-1 e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`)
-- [ ] PT-2 voter-lock: phase A verdict on M (DROP / PORT / REDESIGN) · phase B the port, if PORT
+- [x] PT-0 switches + obs: b7/pt0 d8273bbe3 (9 commits) = head 00
+- [x] PT-1 e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`): b7/pt1 653e6ab51 (5 commits); head 01 = eca202a19
+- [ ] PT-2 voter-lock: phase A verdict on M = **PORT** (done) · phase B the port (running, tn-b7-pt2b)
 - [ ] PT-3 quorum-exec-block (both forms) + ST-A's tests + follow-ups: D75 clamp to the epoch's opening block, the starved-rounds validation, a superseded-refusal counter
 - [ ] `epoch_close_forms.rs` (branch `b6/st-epoch-close-forms`) ported and extended (with E5)
 - [ ] HD-1 #1807 observability (no switch) · HD-2 the hold (`digest_order_hold`, `order_hold.rs`, unit tests, property test) · HD-3 orphan re-pool counters (after E1) · HD-4 e2e (`TN_TEST_OWN_CERT_DELAY_MS`, four validators, both forms, a kill arm, the switch-off control)
-- [ ] E1 `final_state` check · E2 observability · E3 collector walk + conflict halt · E4 re-certify · E5 e2e (`TN_TEST_WITHHOLD_EPOCH_VOTE`, `test_uncertified_epoch_walked_past`, the four `epoch_close_forms` tests extended)
+- [ ] E1 `final_state` check (DONE, b7/e1 d3028fad7, no switch) · E2 observability (DONE, b7/e2 304858e08) · E3 collector walk + conflict halt (running) · E4 re-certify (running) · E5 e2e (`TN_TEST_WITHHOLD_EPOCH_VOTE`, `test_uncertified_epoch_walked_past`, the four `epoch_close_forms` tests extended)
 - [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
 - [ ] per-topic reviews: `tn-review-agent` each; `tn-security-eval` for the hold, E1, E3, E4, the ported quorum-exec-block; no open Critical or High
 - [ ] top-head gates: per-commit strict check, fmt, `./etc/ci-lanes.sh clippy`, `cargo nextest run --workspace`, the repo's e2e sets (restarts, epochs, sigkill) all-off and bench-7-set-on, a mixed-switch fleet, each new e2e test ×3 through the lane, the property test's long hunt
@@ -49,9 +49,9 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 
 ## Track U — issues and PRs (texts by opus agents; created by the orchestrator, dry run first)
 - [ ] PR texts 00-04 (`tasks/pr-bodies/bench6-NN-*.md`) · PRs created (assignee grantkee, reviewers MavenRain, sstanfield)
-- [ ] new issues (`tasks/issue-bodies/bench6-*.md`): closing-block check gap; collector gaps G1, G2; rejoin under sustained load + the follower's dead RPC; the false quorum error; stop between epoch 0's closing block and record 0; `NewEpoch` unreadable over RPC; in-flight bound measurements; execute and persist in series at 50,000 IOPS
-- [ ] comments with bench-6 data: #1802, #1803, #1804, #1805, #1806, #1807, #1774
-- [ ] write-up of what does not carry (MDBX advice, the old stored-record check, pipelined persist)
+- [x] new issues created 2026-11-14 (#1850 collector gaps, #1851 closing-block check, #1852 false quorum error, #1853 execute and persist in series, #1854 admission and the backlog, #1856 restart gap, #1857 rejoin under load, #1858 NewEpoch docs) (`tasks/issue-bodies/bench6-*.md`): closing-block check gap; collector gaps G1, G2; rejoin under sustained load + the follower's dead RPC; the false quorum error; stop between epoch 0's closing block and record 0; `NewEpoch` unreadable over RPC; in-flight bound measurements; execute and persist in series at 50,000 IOPS
+- [x] comments with bench-6 data posted 2026-11-14: #1802, #1803, #1804, #1805, #1806, #1807, #1774
+- [x] write-up of what does not carry (MDBX advice, the old stored-record check, pipelined persist): `tasks/bench6-not-carried-writeup.md` (goes into the PR stack's text)
 
 ## Track H — harness for bench 7 (starts when the four bundles are launched: a bundle refuses a dirty `benchmark/`)
 - [ ] HB-1 faucet build of M starts (`TN_ALLOW_FAUCET_ON_CHAIN`, BLS passphrase source, `node build:` line, image contract, no MDBX flags, engine in the manifest)
