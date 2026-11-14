@@ -50,3 +50,13 @@ The doc sweep (DS-1, on a11f14b1b) produced one docs commit per topic. Nothing i
 - a4358cc4e (quorum-exec-block docs) waits for head 05.
 Checks: fmt EXIT=0 on b30607017; `git diff --shortstat` between each first-cut head and its re-cut twin = 2 files, +12/-4 (02 and 03) and +25/-13 (04 node part): `crates/config/src/node.rs` doc comments and the CLI README only. The first cut's gates (02: 1,303 tests; 03: 232; 04 node part: 1,340) ran on trees that differ from the re-cut ones by doc comments and README text only; the top-head gates run everything again.
 Local branches `fix/1804-vote-queue` → 6ad315794 and `fix/epoch-record-closing-block-check` → 6d8fe775b.
+
+## Third cut, 2026-11-14 ~23:00Z: one docs commit on head 01 (branch `b7/stack3`)
+
+The e2e scaffold's review had asked for one doc sentence that was never written; the unit PT-1d wrote it (326230222 on the integration branch). Nothing is pushed, so:
+- 01 = 9ef55c989 + that commit = **bf9853709** (M+20; its first seven commits keep their ids).
+- 02 = 01 + `9ef55c989..6ad315794` (10, clean) = **6e771ac39** (M+30).
+- 03 = 02 + `6ad315794..6d8fe775b` (3, clean) = **1e38f1882** (M+33).
+- 04 node part = 03 + `6d8fe775b..b30607017` (27, clean) = **d7daa9aa1** (M+60).
+Checks: fmt EXIT=0 on d7daa9aa1; `git diff --shortstat b30607017 d7daa9aa1` = 1 file, +10 (doc comments in `crates/e2e-tests/src/lib.rs`). Local branches moved: `test/bench6-e2e-scaffold` → bf9853709, `fix/1804-vote-queue` → 6e771ac39, `fix/epoch-record-closing-block-check` → 1e38f1882.
+The PR texts 01, 02 and 03 were remapped to these ids (map: scratchpad/orch/sha-remap-3.tsv). Heads 00 to 03 are final unless a late review note lands.

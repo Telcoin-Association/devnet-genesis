@@ -6,7 +6,7 @@ Test code only: no node crate changes, and there is no switch.
 A test that passes no override, with the variable unset, starts its nodes as on main.
 
 PR 2 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `feat/bench6-switches-obs`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/8a42fec57...9ef55c989 (7 commits).
+Stacked on `feat/bench6-switches-obs`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/8a42fec57...bf9853709 (8 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -38,6 +38,8 @@ The helpers that read and wait for node log lines are private to `restarts.rs` (
 - `9ef55c989` test(e2e): say when a start drops parameters.yaml entries of the previous start.
   The start is unchanged, but it prints one line on stderr and through `warn!`: `e2e: <datadir> starts without the parameters.yaml entries [...] of its previous start: …`.
   A test that never gives a node overrides never sees it.
+- `bf9853709` docs(e2e): say what TN_E2E_PARAMETERS is checked with and which nodes it reaches.
+  Doc comments only: the merge is checked with the `Parameters` of the tree under test, not by the binary that will read the file, and the entries also reach the `TN_BIN_PATH_PREV` nodes that `upgrade.rs`, `reth_db_migration.rs` and `resync.rs` start.
 
 ## What changes for every node
 
@@ -53,7 +55,7 @@ The scaffold builds mixed fleets on purpose, and its docs warn that a key that c
 
 Among the e2e library's 16 unit tests, `merge_later_entry_wins_and_is_idempotent`, `apply_parameters_reaches_the_node_loader`, `apply_parameters_starts_each_run_from_the_harness_file`, `fleet_apply_fails_on_the_node_that_cannot_take_its_overrides` and `dropped_entries_notice_names_the_datadir_and_the_dropped_keys` pin the claims above.
 
-On this head (9ef55c989):
+On `9ef55c989`, the head before its last commit (which changes doc comments only):
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `cargo check --locked --all-targets -p e2e-tests -p tn-config -p tn-node`: passed.
 - `cargo nextest run --locked --no-fail-fast -p e2e-tests --lib -p tn-config`: 160 passed.
@@ -73,8 +75,8 @@ Stack-wide gates: run on the top of the stack before these PRs were opened; resu
 - A restart through a plain helper rebuilds the node's file without its own entries.
   The new line says so, but every existing restart test uses the plain helpers, so a test copied from one loses its switch at the restart.
 - `TN_E2E_PARAMETERS` does not reach `test_epoch_observer_forwards_to_second_worker` (`epochs.rs`), which spawns its own nodes, nor the `db load-state` runs of `state_export_import.rs`, which use no `Parameters` field on main.
-- A lane with the variable set also merges it into the previous-release nodes of `upgrade.rs` and `reth_db_migration.rs`, which ignore keys they do not know, so those tests run as mixed fleets.
-  The crate docs do not say so yet; one sentence would close it.
+- A lane with the variable set also merges it into the `TN_BIN_PATH_PREV` nodes of `upgrade.rs`, `reth_db_migration.rs` and `resync.rs`.
+  When that binary was built at another commit, as `upgrade.rs` requires, it ignores keys it does not know, so the test runs as a mixed fleet; the crate docs say so (`bf9853709`).
 - `parameters.yaml.harness-base` is written with a plain `fs::copy`; a cut-short copy fails that start, and no later start reads it.
 
 ## Related

@@ -6,7 +6,7 @@ No switch: this extends main's unconditional stored-record guard (#1834), and a 
 New: an `epoch record published` info line and two counters.
 
 PR 4 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `fix/1804-vote-queue`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/6ad315794b8f641f7ce0f2e2b8b24d7322cee6ab...6d8fe775bffa22c36508eb6e62ca034e69492faa (3 commits).
+Stacked on `fix/1804-vote-queue`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/6e771ac3969679d591ada91fe223dd28b94bc9e1...1e38f1882fdb7d96c85db6294b4080ad9d14302e (3 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -22,14 +22,14 @@ This is a missing assertion, not an observed fault (#1851).
 
 ## Change
 
-- `56841024a` `fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran`: `closing_block_check` compares, in order, (a) `parent_beacon_block_root` with `final_consensus.hash`, (b) the nonce's epoch, (c) a 32-byte `extra_data`, equal to the shuffle seed when the node holds the boundary header the record commits; the engine's own marking rules.
+- `0238163c2` `fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran`: `closing_block_check` compares, in order, (a) `parent_beacon_block_root` with `final_consensus.hash`, (b) the nonce's epoch, (c) a 32-byte `extra_data`, equal to the shuffle seed when the node holds the boundary header the record commits; the engine's own marking rules.
   Build path: checked before any committee read and `save_record`.
   Stored path: after main's `final_state` compare, which still fails first.
   Entry: against the registry pin, length only.
   An `adiri` build skips (c) for epochs up to 160 (`ADIRI_DUP_BATCH_EPOCH`), where the engine tolerates closing outputs whose last block carries no marker.
   Kept: record contents byte-identical to main, the restored-floor skip, main's guard tests (their fixtures now carry the markers).
-- `a9d7c0026` `feat(node): count the close-time base-fee identity check`: `adjust_base_fees` already stops the node when canonical tip + 1 is not the entered epoch's `blockHeight`; now passes count too.
-- `6d8fe775b` `fix(node): name what the closing-block halt prevents per path, the re-derive path and an empty ring`: the refusal's `reason` follows the path, a re-derive refusal reports `path=rederived`, an empty ring `check=no_block` (was `beacon_root`); no decision changes.
+- `0fafd5968` `feat(node): count the close-time base-fee identity check`: `adjust_base_fees` already stops the node when canonical tip + 1 is not the entered epoch's `blockHeight`; now passes count too.
+- `1e38f1882` `fix(node): name what the closing-block halt prevents per path, the re-derive path and an empty ring`: the refusal's `reason` follows the path, a re-derive refusal reports `path=rederived`, an empty ring `check=no_block` (was `beacon_root`); no decision changes.
 
 ## What changes for every node
 
