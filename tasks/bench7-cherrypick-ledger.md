@@ -22,7 +22,7 @@ Kept by the orchestrator; a row is ticked when its head is assembled, formatted,
 | # | head branch | topic | commits (integration position → unit) | state |
 |---|---|---|---|---|
 | 00 | `feat/bench6-switches-obs` | switches, observability | 1-9, 20, 21, 22 = `b7/pt0` (12 commits) | **done: 8a42fec57** (= the unit branch; R-00 approved) |
-| 01 | `test/bench6-e2e-scaffold` | e2e scaffold | 10-14, 26, 27 = `b7/pt1` (7 commits, picked from the unit branch, no conflict) | **assembled: 9ef55c989** (fmt 0; e2e crate equal to the integration head's; check + tests running) |
+| 01 | `test/bench6-e2e-scaffold` | e2e scaffold | 10-14, 26, 27 = `b7/pt1` (7 commits, picked from the unit branch, no conflict) | **done: 9ef55c989** (fmt 0; e2e crate equal to the integration head's; check EXIT=0; 160 tests of the scaffold and config packages passed, EXIT=0; branch moved) |
 | 02 | `fix/1804-vote-queue` | `vote_queue_fix` | 48-53 (phase A's test, the switch field, the fix, the cancel doc, the outcome counter, the superseded pin) + PT-2C's follow-ups (running) | waits for PT-2C |
 | 03 | `fix/epoch-record-closing-block-check` | closing-block check, no switch | 18, 19, 33 (NOT 42) | waits for 02 |
 | 04 | `fix/epoch-record-collector-hardening` | observability, walk, conflict halt, re-certify, hook, e2e | 15-17 (E2), 23-25 (E4), 43-44 (E3), 54-55 (E5a) + R-04's follow-ups + ECF + E5b | waits for R-04, ECF, E5b |
@@ -35,4 +35,4 @@ Order of topics that share a file (must hold in the stack as it held between the
 ## Per-head record
 
 - 00: 8a42fec57, M+12. Gates: the unit's (PT-0) and R-00.
-- 01: 9ef55c989, M+19. fmt EXIT=0. (check + tests: see the orchestrator log.)
+- 01: 9ef55c989, M+19. fmt EXIT=0; `cargo check --locked --all-targets -p e2e-tests -p tn-config -p tn-node` EXIT=0; nextest `-p e2e-tests --lib -p tn-config` 160 passed, EXIT=0 (`tn-b7-stack/target/tmp/head01-9ef55c989.log`).
