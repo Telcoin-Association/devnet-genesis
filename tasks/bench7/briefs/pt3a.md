@@ -19,7 +19,7 @@ Bench 6's four headline runs: always-on held certification at 20,000 IOPS and lo
 | 1 | 86755c450 | the switch fields | `crates/config/src/node.rs` (apply through PT-0's machinery: your two fields only) |
 | 2 | d4be3a435 | ring helpers | `crates/consensus/primary/src/recent_blocks.rs` (byte-unchanged on M against the old base) |
 | 3 | 5d7821dfb | both policies in the proposer | `crates/consensus/primary/src/proposer.rs` (byte-unchanged on M against the old base, but PT-0's commit 6 touched it: you are its next writer), `tests/proposer_tests.rs` |
-| 4 | 14b55b04c | voter-side tests: the two voter cases hold with the switch off and on | `crates/consensus/primary/src/tests/network_tests.rs` — M changed this file by ≈734 lines and reworked `RequestHandler::vote` (#1822, #1839, #1842, #1844, #1846): re-express the two cases against M's handler; if a case no longer exists on M, say why |
+| 4 | 14b55b04c | voter-side tests: the two voter cases hold with the switch off and on | NOT YOURS: `crates/consensus/primary/src/tests/network_tests.rs` changed by ≈734 lines on M with the vote-handler rework; a separate unit (PT-3v) re-expresses the two cases against M's handler after you. Do not touch that file. |
 | 5 | 20858d28d | the adaptive window resets only after a streak of certified tip headers | `proposer.rs`, tests |
 
 `git -C /home/drtnarg/coding/telcoin/telcoin-network-b6 log --oneline --grep='Topic: quorum-exec-block' 165e3fe01..2df831e3c` lists them; some commits of this topic carry no footer (ledger `tasks/bench6-cherrypick-ledger.md` rows 3, 17, 18, 39, 67). The e2e commits (8bd68e514, 31ef1149c, 56f66e160: `tests/it/exec_block.rs`) are NOT yours: a later test unit ports them.
@@ -46,4 +46,4 @@ Commit footer: `Topic: quorum-exec-block` on every commit; `Refs #1804`.
 
 ## Hand back
 
-As the rules say, plus: the new shas with the bench-6 sha each came from; how the two voter cases were re-expressed on M; the validation's behaviour in one sentence; every log field and metric of the topic verbatim; anything in M's vote-handler rework that changes what the fix can assume about voters (for the form comparison in bench 7).
+As the rules say, plus: the new shas with the bench-6 sha each came from; what the voter-side test unit needs from you (the fields a header carries for the named block, how a test builds a header under each form); the validation's behaviour in one sentence; every log field and metric of the topic verbatim; anything in M's vote-handler rework that changes what the fix can assume about voters (for the form comparison in bench 7).
