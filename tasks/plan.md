@@ -60,7 +60,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] (dfbebec; whole suite running on it) HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
 - [x] (d2ab915) HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
 - [x] (scripts committed; ports reserved by HB-1b) HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
-- [ ] HB-5 → HB-5a (launch files, kept log lines, halt watch, metric export: brief hb5a.md, starts when the harness suite ends) and HB-5b (the analysis columns in arms-summary: after HB-5a); names from `tasks/bench7-contract.md` (done)
+- [x] (80deb36, 0adb69e; whole suite running on 0adb69e) HB-5: HB-5a (launch files `bench7-always.env` / `bench7-adaptive.env`, 32 kept log shapes, `halt=` in the sampler + the fleet watch's alarm, the export's 38 must-haves) and HB-5b (the arms summary's bench 7 blocks, the seventh fail-stop, `--halt-baseline`)
 - [ ] full harness gate alone on the host; `params-apply.sh --print-state` ×2; the deploy's dry plan; the teardown's dry mode (0 candidates)
 
 ## Bench 7 — the two runs (orchestrator only; the user's go + a fresh `gcloud auth login` first)
