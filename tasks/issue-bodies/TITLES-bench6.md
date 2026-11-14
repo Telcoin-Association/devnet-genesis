@@ -13,6 +13,7 @@ Bodies: `tasks/issue-bodies/bench6-<slug>.md`. Every title is the body's H1 and 
 | 6 | restart-between-closing-block-and-record | A node stopped after executing epoch 0's closing block and before writing record 0 cannot restart from that datadir | 115 |
 | 7 | rejoin-under-sustained-load | A validator restarted under sustained load stayed inactive until the load ended: it replays at about the network's rate | 119 |
 | 8 | newepoch-event-not-readable-over-rpc | The registry's NewEpoch event never reaches eth_getLogs, and the docs do not say so | 83 |
+| 9 | epoch-loop-output-drop | A lagging validator can drop a consensus output when its epoch loop is pre-empted, then execute past the gap | 108 |
 
 ## Cross-references between bodies
 

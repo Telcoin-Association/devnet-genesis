@@ -63,3 +63,7 @@ Run r20261113-1630, `benchmark/results/r20261113-1630/`:
 
 `tasks/bench7/review/03-closing-block-check-report.md` finding 1 (High, not in that diff); reproduced by unit XF-1 (`tasks/checkpoint-bench7-XF-1.md`).
 Public text says only "found while reviewing a change to the epoch-close path".
+
+## Added after the figure-check
+
+The four bench 6 runs ran image 2df831e3c, whose mismatch line is "stored epoch record's final state is not this node's closing block; halting" (main's line differs). The zero counts in the text were re-derived with the image's line, main's line and `consensus output gap` over every `logs/*.log.gz` of the four runs: 0 each (figure-check file beside this note).

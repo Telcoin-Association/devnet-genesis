@@ -15,7 +15,7 @@ Dropping the forward drops the pending send and X; X survives only in the consen
 `finish_epoch` then runs the leftover drain (`run_epoch.rs:637-638`).
 Phase 1 forwards what is still queued, X+1 first, with no continuity check, and moves `last_forwarded_consensus_number` past X (`close_epoch.rs:319-338`).
 Phase 2 reloads from the pack only numbers above it (`close_epoch.rs:345-348`), so X is never forwarded.
-The only continuity check is the live path's (`run_epoch.rs:756`), whose comment assumes the queue "never drops an output" (`:750-755`): the queue does not, the cancelled send does.
+The live path's continuity check (`run_epoch.rs:756`) assumes, in its comment, that the queue "never drops an output" (`:750-755`): the queue does not, the cancelled send does.
 The engine checks neither the output's number nor its consensus parent (`lib.rs:326-341`, `:169`; `crates/engine/src/payload_builder.rs:86-88`), so X+1 executes on X-1's state, and the `ModeChange` re-entry (`run_epoch.rs:649`) does not replay (`:85-88`).
 
 ## What it costs
@@ -27,9 +27,9 @@ If none is stored, the node builds, saves and publishes its own record, which no
 We traced the drop, the drain, the engine and the re-entry, not the catch-up up to that close, so which branch a lagging node takes, and its votes meanwhile, are not known.
 
 By then the divergent blocks are on disk.
-The code's recovery path, `telcoin-network db reset-execution --force` (`crates/telcoin-network-cli/README.md:487-489`), rebuilds execution from the node's own consensus database, X included; we have not tried it here, and by the code a divergent record the node saved would stop the rebuild (`crates/tn-reth/README.md:968-977`).
+The code's recovery path, `telcoin-network db reset-execution --force` (`crates/telcoin-network-cli/README.md:487-493`), rebuilds execution from the node's own consensus database, X included; we have not tried it here, and by `crates/tn-reth/README.md:968-977` a divergent record the node saved would stop the rebuild.
 
-It needs a lagging node and a pre-empted send; it costs that node, alone, its execution state.
+It needs a lagging node and a pre-empted send; it costs that node its execution state, and other nodes' execution is not affected.
 
 ## Evidence
 
