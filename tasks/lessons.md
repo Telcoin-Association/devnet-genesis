@@ -1611,3 +1611,12 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A helper written for one segment is checked against the end line of the segment it is now used with before it is started; "it ended last time" was the arm walk, not the blast.
   - When a segment's rc line arrives, list the session's background tasks and stop every one that belonged to that segment before the teardown.
   - A tool that reads a fleet identifies it by run label, not by instance name: names repeat from run to run.
+
+## 2026-11-14 — bench 6, runs 3 and 3b: a fleet idled, a run fact was wrong, a guess went to the user before its test
+
+- **What happened.** (1) I launched run 3b's deploy while my session's usage limit was close; the limit hit after the deploy ended and the fleet idled 46 minutes before I could launch the blast, so run 3b differs from its twin in epoch phase and chain length, and one finding (validator-02's demotion) cannot be told from that deviation. (2) I wrote into the run facts that validator-02 was listed inactive "during the outage" from the position of one warning line in the blast log, without reading the poll's time; it was 20 minutes later, and three units had to correct me. (3) I told the user that larger outputs probably explained the adaptive run's higher certification before the unit that tested it reported; I marked it as a hypothesis, but it was wrong and had to be withdrawn in the next message. (4) Every second-pass unit ran past its 150k budget (180k to 265k) and the merge unit reached 374k.
+- **Rules.**
+  - A deploy whose blast must follow at once is launched only when the session can also launch the blast: when a usage limit or the end of a session is near, say so to the user and wait, since a twin run with an idle gap is a different experiment.
+  - A run fact carries a time read from the line that has the time (the poll's own header), never from where a warning sits in a log.
+  - A cause goes to the user when the test of it has reported; until then the status says "being tested", with no candidate named.
+  - A unit that merges more than four other units' outputs is two units (one per disk, or tables and text apart); a second pass gets 200k, since 150k was missed by all seven.
