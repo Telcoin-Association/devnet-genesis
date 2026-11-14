@@ -40,3 +40,13 @@ Order of topics that share a file (must hold in the stack as it held between the
 - 03: 8f7e4357a, M+31. fmt EXIT=0. Gates: `tn-b7-stack/target/tmp/head03-8f7e4357a.log`.
 - Rule added: the stack worktree is not moved while a gate runs in it unless the new commits touch none of the packages under test (head 03 was assembled while head 02's gate ran: it touches only `crates/node` and a README, and head 02's gate covers primary, config and network-libp2p).
 - 04 (node part): e5121e7e1, M+57. fmt EXIT=0. Gate: `tn-b7-stack/target/tmp/head04node-e5121e7e1.log`.
+
+## Re-cut of 2026-11-14 22:3xZ: the doc sweep's commits go into their own topics
+
+The doc sweep (DS-1, on a11f14b1b) produced one docs commit per topic. Nothing is pushed, so the stack was re-cut on a NEW branch `b7/stack2` (the first cut stays on `b7/stack` for reference):
+- 02 = 6dae7520f + 1290500de (voter-lock docs: the 9 s `vote_timeout` ceiling) = **6ad315794** (M+29).
+- 03 = 02 + the same three commits as before (`git cherry-pick 6dae7520f..8f7e4357a`, clean) = **6d8fe775b** (M+32).
+- 04 node part = 03 + the same 26 commits (`8f7e4357a..e5121e7e1`, clean: the resolutions made in the first cut are in those commits) + edbb971c0 (collector docs) = **b30607017** (M+59).
+- a4358cc4e (quorum-exec-block docs) waits for head 05.
+Checks: fmt EXIT=0 on b30607017; `git diff --shortstat` between each first-cut head and its re-cut twin = 2 files, +12/-4 (02 and 03) and +25/-13 (04 node part): `crates/config/src/node.rs` doc comments and the CLI README only. The first cut's gates (02: 1,303 tests; 03: 232; 04 node part: 1,340) ran on trees that differ from the re-cut ones by doc comments and README text only; the top-head gates run everything again.
+Local branches `fix/1804-vote-queue` → 6ad315794 and `fix/epoch-record-closing-block-check` → 6d8fe775b.
