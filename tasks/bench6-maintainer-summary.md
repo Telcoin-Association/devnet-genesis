@@ -30,8 +30,8 @@ The vote fix holds while the disk binds, and only then: in r20261113-1351 the di
 
 `vote_queue_fix` took `lock_ms` p95 from 3,597-7,892 ms to 0 in every arm-walk window with it on.
 
-Bench 5's write amplification is the write pattern of a node's first process after genesis.
-With `mdbx_random_advice` on from the first start every node of r20261113-1351 and r20261113-1630 wrote 1.06-1.19 times its page bytes, against 10-13 times (modelled) for bench 5, whose own first process was not checked.
+Bench 5's write amplification is the write pattern of a node's first process that executes blocks after genesis.
+With `mdbx_random_advice` on from the coordinated start, the first process that executed blocks, every node of r20261113-1351 and r20261113-1630 wrote 1.06-1.19 times its page bytes, against 10-13 times (modelled) for bench 5, whose own first process was not checked.
 
 Every epoch close certified one record hash and one closing block on every node, with at least 7 of 10 signers.
 
