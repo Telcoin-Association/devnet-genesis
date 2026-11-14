@@ -1,6 +1,6 @@
 # HD-2a API: the pure own-chain hold (`OwnChainOrder`) for HD-2b and HD-2p
 
-Written by HD-2a. Branch `b7/hd2a` on base 45dce8947; commit: see `tasks/checkpoint-bench7-HD-2a.md`.
+Written by HD-2a. Branch `b7/hd2a` on base 45dce8947, commit c5f60105f (`feat(primary): add the own-chain order hold rule for batch digests`).
 File: `crates/consensus/primary/src/order_hold.rs` (new), plus one `mod` line in `crates/consensus/primary/src/lib.rs`.
 The module doc carries the rule, I1 to I3, the safety argument with DR-1807's wording correction, the GC-cut residual and what the module does not decide.
 
