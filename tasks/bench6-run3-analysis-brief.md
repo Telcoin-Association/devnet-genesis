@@ -15,7 +15,7 @@ The two forms of the vote fix (`quorum_exec_block`), node code `telcoin-network-
 | | always-on | adaptive (the new runs) |
 |---|---|---|
 | 20,000 IOPS (bench 5's disk) | run 2 `r20261113-1351` | run 3 `r20261113-2118` |
-| 50,000 IOPS | run 2b `r20261113-1630` | run 3b `<filled in when it has run>` |
+| 50,000 IOPS | run 2b `r20261113-1630` | run 3b `r20261114-0000` |
 
 Everything else is identical between a run and its twin: image `adiri@sha256:874537ff…` (2df831e3c), generator 62bbd5f, bench 5's ten zones, `c3-highcpu-8`, epoch 1,200 s, the same three blasts and chaos plan, `vote_queue_fix`, `epoch_record_state_check` and `mdbx_random_advice` on.
 The only difference is the arm file: `benchmark/arms/final.arm` (runs 2, 2b) against `tasks/bench6/arms/final-adaptive.arm` (runs 3, 3b).
@@ -47,7 +47,18 @@ Run 3, `r20261113-2118` (the orchestrator fills this section before a unit start
 - Orchestrator's preliminary read (Prometheus, verify; `tasks/bench6/r20261113-2118/prelim-prom-read.txt`): blast 2 executed 4,634 / 5,374 / 5,380 tx/s (min / median / max over validators; the minimum is the killed one), 4,044 transactions per output, persist 0.380 s per output (commit 0.290, save 0.084), refused-behind votes 10 over the fleet (5 on one validator), vote timeouts 0; blast 1 5,506 tx/s with 4 refused-behind votes (run 2: 6,224 tx/s); blast 0 643 tx/s (run 2: 700).
 - During the second light blast every node's prefault writes ran at 1.18-1.20 times its newly allocated pages over five minutes (run 2: 1.16-1.19), so the write-pattern advice held.
 
-Run 3b: RUN3B_FACTS_PENDING
+Run 3b, `r20261114-0000` (the adaptive form at 50,000 IOPS; twin: run 2b `r20261113-1630`):
+- Deploy 00:00:29Z to 00:45:38Z, first try; `final-adaptive` applied at step 7 through the pre-start config (the same sha256 77a3dfaa…), ready 00:19:46Z; coordinated start 11 of 11, spread 0 s. Read on the bench Prometheus before the blast: `quorum_exec_block`, `vote_queue_fix`, `epoch_record_state_check`, `mdbx_random_advice` on all eleven nodes, starved rounds = 4 on all eleven, advice 8 TiB on all eleven, ten validators CvvActive.
+- Node disks: Hyperdisk Balanced 100 GB, 50,000 provisioned IOPS, 800 MiB/s (`manifest.node_disk`; also read from the cloud on all eleven node disks before the blast). The env file differs from run 2b's only in the arm file and the run id.
+- Fsync probe median 1,046 µs; validator-04 flagged slow.
+- DEVIATION from the twin: the fleet idled 46 minutes between the end of the deploy (00:45:38Z) and the launch of the blast segment (01:32:05Z), because the orchestrating session was stopped by its usage limit; run 2b went from deploy to blast in about one minute. The fleet was checked healthy at 01:31Z (11 of 11 nodes, disk 7 %, no fatal database line, prefault over growth 0.806 idle). The chain was therefore about 46 minutes longer (more empty epochs, epoch 1,200 s) when the first blast began; say so wherever an epoch number or a database size is compared with run 2b.
+- Blasts: 0 light 8 × 16 (mixed 01:41:59-01:48:20Z); 1 light 600 × 4 (mixed 01:54:26-02:01:42Z); 2 load 600 × 16 with the chaos plan (mixed 02:13:13-02:53:52Z, 2,400 s planned). Every other phase time from `manifest.blasts[].phases`.
+- Chaos in blast 2: epoch 6 opened 02:11:21Z; validator-05 killed 02:30:22Z, started 02:35:22Z; the outage crossed an epoch boundary (epoch 7 opened 02:31:21Z); observer restarted 02:40:22Z. Every validator was CvvActive again before the collect (waited 0 s), but one readiness pass during the outage also listed validator-02 as `cvv_inactive` (blast log line 998): validator-02 was demoted for a while. Time it and say whether run 2b shows the same.
+- All ten generators `BENCH_BLAST_DONE rc=0` in each blast (blast 2 at 02:57:31Z); blast segment rc 0 at 03:07:57Z. Log rate of validator-01 in blast 2: 12.2 MB per minute.
+- The metric export covers 00:15:29Z to 03:08:44Z: 382 of 382 metrics, 21,010 series. `tn_primary_vote_stage_seconds` is present for all eleven nodes (run 3's export lacks validator-07's).
+- Orchestrator's preliminary read (Prometheus, verify; `tasks/bench6/r20261114-0000/prelim-prom-read.txt`; run 2b's beside it in `tasks/bench6/r20261113-1630/prelim-prom-read.txt`), min / median / max over validators, run 3b against run 2b: blast 2 executed 6,016 / 7,331 / 7,340 against 6,090 / 7,361 / 7,371 tx/s; refused-behind votes 1,186 over the fleet (447 on one validator) against 266 (106); vote timeouts 6 against 0; headers per second 1.01 / 2.35 / 2.35 against 1.64 / 2.53 / 2.53; transactions per output 6,356 against 5,856; largest execution lag 102 against 172 outputs. Blast 1: 5,895 against 6,388 tx/s over windows of 346 s and 279 s (check the all-generators window before reading this), refused-behind 0 against 9.
+- Teardown rc 0 at 03:24:37Z, `TEARDOWN_DONE deleted=12 left=0`, the devnet untouched (checked in the cloud: no `bench-*` instance or disk left). The teardown's certification check: two validators below 90 % of their own headers in blast 2's mixed phase: validator-06 84.1 % (4,859 of 5,780) and validator-10 85.7 % (4,954 of 5,780); `manifest.cert_failures` names their logs. Run 2b's teardown check for the same window (`tasks/bench6/r20261113-1630/teardown-20261113T185608Z.log`): three validators below 90 %: validator-02 78.6 % of 6,195, validator-06 44.5 % of 6,196, validator-10 68.2 % of 6,206. So by this check the adaptive form lost LESS than the always-on form at 50,000 IOPS, against the expectation written in §2; verify with your own windows.
+- The teardown's warning "node startup provenance mismatch" is the known one (the staging starts before the arm was applied): not a finding.
 
 The twins' facts: `tasks/bench6-run2-analysis-brief.md` §1.
 
@@ -94,6 +105,16 @@ A second pass (a fresh agent, the same unit, the other run) reads the first pass
 
 Wave 2, after both runs' passes:
 - **r3-A7** the comparison: per disk, always-on against adaptive, the rows of §2, from the unit outputs only; then the draft of the report's addendum (a new section for `tasks/bench6-report-r20261113-1351.md`; the orchestrator inserts it). Outputs `comparison.md`, `addendum-draft.md`.
+
+## 4b. The second pass (run 3b), tighter than the first
+
+Every first pass ran past its budget (206k to 300k tokens), mostly on reading the twin's material and on building scripts. The second pass has neither to do, so its budget is 150k tokens and its reading list is short:
+- Read: your own checkpoint `tasks/checkpoint-bench6-r3-<unit>.md` (it holds the first pass's recipe), then this brief's §0, §1 (the run 3b facts), §3 and your unit's paragraph in §4. Nothing else up front: not the rules file again (its limits are repeated in your launch prompt), not the cross-unit notes, not the twin's analysis text, not the other units' outputs.
+- Do: run the first pass's scripts, unchanged where possible, on run 3b and on its always-on twin run 2b `r20261113-1630` (the twin's figures exist under `benchmark/private/bench6-r20261113-1351/<unit>/`; rerun them with your script copy only where your first pass changed a script or added a table, and say which). Add run 3b beside run 3 in the same output files, every table naming its run and its disk, and add the 50,000 IOPS comparison (run 3b against run 2b) to `vs-always-on.md` as its own section.
+- A new script only where run 3b shows something the first pass's scripts cannot express; say so in the checkpoint before you write it.
+- Extracts: run 3b's go to `benchmark/work/bench6-scratch/r3-<unit>/<R>/`; run 2b's exist under `benchmark/work/bench6-scratch/r2-<unit>/` (read-only).
+- Checkpoint after each section under a heading `PASS 2 (run 3b)`, keeping the first pass's sections as they are. At about 120k tokens finish the section in hand, checkpoint, hand back with the resume point.
+- Hand back as §5, the five numbers being run 3b against run 2b, and one line on whether the 20,000 IOPS finding of your first pass repeats, grows or reverses at 50,000 IOPS.
 
 ## 5. Hand back
 
