@@ -9,6 +9,7 @@ Standing rules: no Claude/Anthropic attribution anywhere; opus agents implement 
 
 User decisions (2026-11-14): publish the four runs first and write a maintainers' summary; one staging branch off `main`; PRs now for what bench 6 confirmed, the #1807 PR and the vote-form PR after bench 7; #1807 = an own-chain hold in the proposer (`digest_order_hold`); the `final_state` check and the collector hardening built, tested and ON in both bench 7 runs; bench 7 = always-on and adaptive at 20,000 IOPS, run 2's shape, floor 8.
 Authorized by the plan's approval: pushing devnet-genesis `main`; committing and pushing tn-benchmarks; pushing the staging branch, topic heads and `bench/bench7-2026-11`; creating the listed issues, comments and PRs 00-04; building and pushing the bench 7 image.
+Added by the user 2026-11-14 ≈ 17:50Z (verbatim: "if verified, file the epoch loop forward bug as an upstream issue and put the fix into bench 7"): the High bug the closing-block check's security evaluation found in main itself (a cancelled send in the epoch loop drops a consensus output; the leftover drain forwards the next one) is verified by unit XF-1 with a reproducing test; if REAL: an upstream issue (writer + figure-check, then posted) and the fix as its own head `fix/epoch-loop-output-drop` in the bench 7 image. Its PR is not on the list of PRs authorized now: ask when the PRs are created.
 NOT authorized, asked when reached: any fleet launch; publishing bench 7; PRs 05 and 06; deleting anything old; a change of design if the hold or a hardening unit fails its tests or reviews.
 
 ## Facts at the start (2026-11-14T15:04Z)
@@ -40,6 +41,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [ ] PT-2 voter-lock: phase A verdict on M = **PORT** (done) · phase B the port (running, tn-b7-pt2b)
 - [ ] PT-3 quorum-exec-block (both forms) + ST-A's tests + follow-ups: D75 clamp to the epoch's opening block, the starved-rounds validation, a superseded-refusal counter
 - [ ] `epoch_close_forms.rs` (branch `b6/st-epoch-close-forms`) ported and extended (with E5)
+- [ ] XF-1 main's epoch-loop output drop: verify + reproduce (running) · fix (cancel-safe forward; continuity check) · issue · head `fix/epoch-loop-output-drop` in the image (user, 2026-11-14)
 - [ ] HD-1 #1807 observability (no switch) · HD-2 the hold (`digest_order_hold`, `order_hold.rs`, unit tests, property test) · HD-3 orphan re-pool counters (after E1) · HD-4 e2e (`TN_TEST_OWN_CERT_DELAY_MS`, four validators, both forms, a kill arm, the switch-off control)
 - [ ] E1 `final_state` check (DONE, b7/e1 d3028fad7, no switch) · E2 observability (DONE, b7/e2 304858e08) · E3 collector walk + conflict halt (running) · E4 re-certify (running) · E5 e2e (`TN_TEST_WITHHOLD_EPOCH_VOTE`, `test_uncertified_epoch_walked_past`, the four `epoch_close_forms` tests extended)
 - [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
