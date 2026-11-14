@@ -11,6 +11,8 @@ Library items live in `crates/e2e-tests/src/lib.rs` (`use e2e_tests::{...}`); st
   - `.apply_with_e2e_parameters(&self, node_dir: &Path) -> eyre::Result<()>`: `apply_parameters` with `TN_E2E_PARAMETERS` layered underneath; every start helper calls this.
 - `FleetOverrides` (`Default`, `Clone`, `Eq`), keyed by datadir name (`"validator-1"` … for `instance` helpers, the names in the `validators` slice for `start_nodes*`):
   - `.parameter(nodes: impl IntoIterator<Item = impl Into<String>>, key, value) -> Self`, `.env(nodes, name, value) -> Self`, `.set_node(node: impl Into<String>, NodeOverrides) -> Self`, `.node(&self, node: &str) -> &NodeOverrides` (empty when unset).
+  - `.apply_with_e2e_parameters<'a>(&self, base_dir: &Path, nodes: impl IntoIterator<Item = &'a str>) -> eyre::Result<()>`: every named node's apply, in order, stopping at the first failure; `start_nodes_with_overrides` runs it before it spawns anything.
+- A start that drops or changes entries the previous start merged prints one line (stderr and `warn!`): `e2e: <datadir> starts without the parameters.yaml entries ["<key>", ...] of its previous start: each start writes the harness's file plus its own entries, so restart it with the same overrides to keep them`.
 - `merge_parameters_yaml(base: &str, overrides: &[(String, String)]) -> eyre::Result<String>`: pure text merge; key = `[A-Za-z0-9_]+` at column 0, value = one non-empty line; replaces an existing top-level entry (block value included) and appends `key: value`; idempotent.
 - `E2E_PARAMETERS_VAR: &str = "TN_E2E_PARAMETERS"`; `e2e_parameters() -> eyre::Result<&'static [(String, String)]>` (read once per process, printed once); `parse_e2e_parameters(raw: &str) -> eyre::Result<Vec<(String, String)>>`.
 
