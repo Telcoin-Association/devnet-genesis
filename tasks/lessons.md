@@ -1620,3 +1620,13 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A run fact carries a time read from the line that has the time (the poll's own header), never from where a warning sits in a log.
   - A cause goes to the user when the test of it has reported; until then the status says "being tested", with no candidate named.
   - A unit that merges more than four other units' outputs is two units (one per disk, or tables and text apart); a second pass gets 200k, since 150k was missed by all seven.
+
+## 2026-11-14 — bench 7 preparation: joined test blocks lost their closing lines, a check was logged before it was read, issues linked pages that were not live
+
+- **What happened.** (1) Two units each appended a test block at the end of the same file; I resolved the conflict by keeping both sides, and the lines both blocks shared (`Ok(())`, `}`) were kept once instead of once per block, so the first block ran into the second. It happened twice (`close_epoch.rs`, then `network_tests.rs`); the first was caught only by a later compile, after I had logged the integration as verified without reading the test log's exit line. (2) I posted five issues that link the four bench-6 run pages about an hour before the pages were live, so the links returned 404 for that hour. (3) I stamped seven entries of the orchestrator log with times I had not read from the clock; they were up to twenty minutes off. (4) Four units ended their turn with "waiting for the gate" while their own background gate was still running, and came back as "completed" with no hand-back.
+- **Rules.**
+  - After any hand-resolved conflict, run the formatter's check (`cargo +$(cat rust-nightly) fmt --all -- --check`) before the next command; a join of two appended blocks is built from the two whole blocks, each with its own closing lines, and its line counts are compared with each side's own diff (`git diff --numstat` against both parents).
+  - A check is logged as passed only after its exit line was read in the same step; "started" and "passed" are two log entries.
+  - A text that links a page is posted after the page answers 200, not after the push that will publish it.
+  - A log entry's time comes from `date -u` in the command that writes the entry.
+  - Every unit prompt says: never end your turn while a job of yours runs or waits; wait for it and read its exit line. A unit that reports "completed" without a hand-back is checked on disk (its checkpoint, its gate logs, `pgrep`) before anything is assumed.
