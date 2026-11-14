@@ -57,7 +57,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 
 ## Track H — harness for bench 7 (starts when the four bundles are launched: a bundle refuses a dirty `benchmark/`)
 - [x] (d2ab915) HB-1 faucet build of M starts (`TN_ALLOW_FAUCET_ON_CHAIN`, BLS passphrase source, `node build:` line, image contract, no MDBX flags, engine in the manifest)
-- [ ] (running) HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
+- [x] (dfbebec; whole suite running on it) HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
 - [x] (d2ab915) HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
 - [x] (scripts committed; ports reserved by HB-1b) HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
 - [ ] HB-5 `benchmark/launch/bench7.env`, README, the #1807 and hold readers
