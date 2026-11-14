@@ -1,0 +1,87 @@
+# Bench 7 — rules for every agent (port units, node units, test units, harness units, delta reads, writers, analysis)
+
+Written 2026-11-14 (xerxes) by the orchestrator, its only writer. Read this file first, then your own brief (`tasks/bench7/briefs/<unit>.md`).
+The approved plan is `/home/drtnarg/.claude/plans/here-is-a-summary-lively-dolphin.md` (read ONLY the rows your brief names).
+Tick list: `tasks/plan.md`. Unit list with dependencies: `tasks/bench7-task-list.md`. Bench 6's ledger (the index of what is ported): `tasks/bench6-cherrypick-ledger.md`. Names contract of bench 6: `tasks/bench6-contract.md`.
+
+## What nobody but the orchestrator does
+- No `git push`, no `gh … create/edit/comment/merge/close` (gh reads are fine), no `gcloud`/ssh/docker against anything remote, no fleet action, no image build or push. The fleet does not exist while you work: offline only.
+- No Claude/Anthropic/AI/agent/tool attribution anywhere: commit messages, code comments, docs, PR or issue drafts, public page text. No `Co-Authored-By`.
+- One writer per file: touch only the files your brief lists. `tn-node-deployment/` and `common/` are never edited. If your change needs a file you do not own, stop that item and say so in the hand-back.
+- Never delete anything outside your own scratch directory. Never `git stash`, `git reset --hard`, `git rebase`, `git checkout -- <file>`, force operations or branch deletion. Never `rm -rf` with a variable in the path.
+- Absolute paths and `git -C <dir>` everywhere; parallel tool calls share the shell cwd.
+- **Nothing but the node itself ever opens a live node's data directory.** The execution store is now tn-lmdb (`db/tn-lmdb.dat` plus static files; MDBX only behind the `mdbx` cargo feature), the consensus store is unchanged. No `telcoin-network db …`, no `mdbx_stat`, no second environment handle, no reader of the database files' contents against a running node's datadir, in code, in harness scripts, in probes or by hand. Sizes, `stat`, `/proc` counters and the page-cache census of a file (`fincore`, `mincore`) are allowed; opening the store is not. (Bench 6 measured what a foreign opener does to MDBX: 1.00× → 8.7× write amplification. The same care applies to the new engine until someone measures otherwise.)
+- Other sessions work on this machine. An e2e queue of an older session is parked on lane 1 (pids 84216, 4066496): not ours to stop, never kill it. Never kill a process you did not start.
+
+## Repos and worktrees
+- devnet-genesis (harness `benchmark/`, `tasks/`): `/home/drtnarg/coding/telcoin/devnet-genesis`.
+- telcoin-network, bench 7 base **M = 45dce89474e1efc7f90c6fbd1e51332cc237ab9b** (`origin/main` of 2026-11-13: storage v2 with tn-lmdb by default #1834, the vote-handler rework #1822/#1839/#1842/#1844/#1846, the faucet guard #1716, the #1827 squash).
+  - Integration worktree: `/home/drtnarg/coding/telcoin/telcoin-network-b7`, branch `bench/bench7-2026-11` (the top of the staging stack, the image source). Agents NEVER edit it; the orchestrator integrates by cherry-pick. Reading it is fine.
+  - Staging branch `staging/benchmark-bench6-2026-11` = M (pushed). Topic heads stack on it in the plan's order (00 … 06).
+  - One node unit = one worktree `/home/drtnarg/coding/telcoin/tn-b7-<unit>` on branch `b7/<unit>`, created by the orchestrator at the base your brief names. Work ONLY there.
+  - Bench 6's tree, READ-ONLY, the source of every port: `/home/drtnarg/coding/telcoin/telcoin-network-b6` (`bench/bench6-2026-11` = 2df831e3c = base 165e3fe01 + 98 commits) and `/home/drtnarg/coding/telcoin/tn-b6-u2` (`b6/st-epoch-close-forms` = 8c1c27764). 165e3fe01 is NOT an ancestor of M (#1827 was squash-merged): a port re-applies the old commits one by one (plain `git cherry-pick <sha>` in your worktree, no `-x`, conflicts resolved by hand against M's code), never a merge or a rebase of the old branch.
+  - Never touch `/home/drtnarg/coding/telcoin/telcoin-network` (devnet checkout), `telcoin-network-bench*`, `telcoin-network-pr5`, `tn-b6-*`, `tn-bench-*`, anything under `/home/drtnarg/coding/telcoin/tn-workspace/` (another session's worktrees) or another unit's worktree.
+- Generator: `/home/drtnarg/coding/telcoin/tn-transaction-generator` (62bbd5f, unchanged for bench 7). Site: `/home/drtnarg/coding/telcoin/tn-benchmarks`.
+- Architecture map of the tree at M (read-only): `/home/drtnarg/coding/telcoin/telcoin-network-b7/.claude/project-context.md`.
+- Design reports for bench 7 (made on the bench-6 tree at 2df831e3c BEFORE M was fetched; their line numbers are from that tree: `grep -n` first, always):
+  `benchmark/private/bench7-prep/design/design-1807-own-chain-hold.md`, `…/design-epoch-record-hardening.md`, `…/upstream-main-port-map.md`, `…/issue-1807-findings-from-bench-6.md`, `…/inventory-publishing-and-machine.md`.
+  The two delta reads on M correct them where M differs: `benchmark/private/bench7-prep/DR-1807/findings.md`, `…/DR-E/findings.md` (read them when they exist; your brief says if you must wait).
+  Bench 6's node design (`benchmark/private/bench6-prep/design/design-node-fixes-for-bench-6.md`) still describes the ported topics.
+
+## Checkpoint, budget, scratch (every agent)
+- Checkpoint: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/checkpoint-bench7-<unit>.md`. On start, read your own checkpoint and continue from the first unfinished section. Rewrite it after EACH section (not once at the end) in this shape: `status: in-progress | done | blocked`, `updated: <date -u output>`, `completed:` (section — commit sha or "no commit" — one line), `remaining:`, `notes:`.
+- If a Write is refused, do not work around it: return the complete text in your final answer between `===== BEGIN <path> =====` and `===== END <path> =====` and the orchestrator saves it. (Sub-agents have had Writes of `findings.md`-style files under `benchmark/private/` refused before; briefs that expect this name a `tasks/checkpoint-bench7-<unit>-findings.md` file to write the text to as well.)
+- Budget: under 200k tokens (a delta read: under 100k). Read large files in ranges after `grep -n`. If you trend past ~150k, finish the current section, update the checkpoint and hand back with the exact resume point. Do not explore past your read list; hand back instead.
+- Scratch: only `/var/tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/54d4e169-243d-47be-a98d-d2c129d3944a/scratchpad/<unit>/`. Bigger data (extracts, snapshot copies) goes under `/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench7-scratch/<unit>/` (gitignored). Older sessions' scratch paths may be read if they exist; write nothing there.
+- Read `date -u` before writing a time anywhere. Every poll loop has a deadline and a pattern that cannot match itself.
+- Prose you write (commit bodies, docs, reports, issue/PR drafts, page text): load the `human-writing` skill first. Markdown: one sentence per line in new files; keep an existing file's own wrapping.
+
+## Node units (telcoin-network: `PT-*`, `HD-*`, `E*`)
+READ FIRST, in this order:
+1. Skill tool: `tn-rust-skills`, then the `tn-domain-*` skills your brief names.
+2. Your brief, the plan rows it names, and your topic's section in the design report it names.
+3. The architecture map (above), read-only.
+4. The files in your brief, in ranges.
+
+HARD RULES:
+- **Every behaviour change sits behind its switch**: a flat top-level `Parameters` field in `crates/config/src/node.rs`, `serde(default)`, default = M's behaviour. With every switch at its default the tree must behave as M: header payloads, block contents, state roots, receipts, gas, timestamps and the consensus pack byte-identical. New log fields and metrics need no switch.
+- `crates/config/src/node.rs` is shared by rule, not by accident: PT-0 owns the switch machinery; **every topic unit adds exactly its own switch field(s) there** (field, doc, default, the `node switches` entry) and touches nothing else in that file, so each topic's PR carries its own switch. Two units' additions will sit side by side; the orchestrator resolves that at integration. `crates/consensus/primary/src/consensus_bus.rs` is edited by nobody.
+- Code quality: `///` docs on every new item; `pub(crate)` unless needed elsewhere; no `unwrap()`/`expect()` outside tests; never hold a lock across `.await`; no HashMap/HashSet iteration on a consensus path; no new dependencies unless your brief names them; no CHANGELOG edits; document every `unsafe` block; no Clippy suppressions.
+- Log lines: explicit `target:`, fixed `key = value` fields, one line per batch/header/certificate/output (never per tx), message text exactly as the design says. Metrics: fields on the crate's `#[derive(Metrics)]` struct or `metrics::…!` with the design's exact names; histograms end in `_seconds`; static label values. Report every new log message, field and metric name verbatim in your hand-back: the harness and the analysis tools parse them.
+- Tests travel with the change: the unit tests named in your brief (inline `#[cfg(test)]` or the crate's `tests/` as the brief says). You do NOT write e2e modules (`crates/e2e-tests/tests/it/*.rs`) or proptest suites unless your unit is an `ST-*` unit or your brief says so. New tests in a shared test file go at the END, under `// ---- bench7 <topic-slug> ----` (a ported test keeps its bench-6 marker).
+- Build and test (you run these yourself; the orchestrator re-runs the workspace gates on the integration branch):
+  - every compiling cargo call goes through the host-wide slot wrapper: `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/cargo-slot.sh cargo <args>` (three slots on the host; it blocks until one is free, and also while the orchestrator holds a quiet window; a wait of up to ~45 min is normal: do not work around it, do not call cargo directly; never kill someone else's build; never start a second copy of a running build).
+  - environment: `export CARGO_INCREMENTAL=0 RUSTFLAGS="-D warnings -D unused_extern_crates" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 RUST_BACKTRACE=1` and `mkdir -p "$PWD/target/tmp" && export TMPDIR="$PWD/target/tmp"`. Your worktree's own `target/` is the target dir (never a shared one).
+  - package-scoped only: `cargo check --locked --all-targets -p <crate>…`; `cargo +$(cat rust-nightly) fmt --all -- --check` (the pinned nightly; revert any file the formatter touched that you did not edit); `cargo +$(cat rust-nightly) clippy --locked --all-targets -p <crate>… -- -D warnings` (M's own lane is `./etc/ci-lanes.sh clippy`, which also builds `--all-features` with MDBX: the orchestrator runs that on the integration head; run the default-feature clippy yourself, and the `--all-features` one only if your change touches feature-gated code); `cargo nextest run --locked -p <crate>…` for every package you touched (whole package, not a name filter), plus each new test by name three times if it has timing in it. Never the whole workspace, never `-p e2e-tests` outside the lane, never `make attest`.
+  - a build quirk known on the old base (it may or may not hold on M; check before you report it): `cargo nextest run -p tn-config` or `-p tn-types` ALONE failed to compile `tn-network-types`. Keep a node-side crate in the graph and filter instead: `cargo nextest run --locked -p tn-config -p tn-types -p tn-node -E 'package(tn-config) | package(tn-types)'`.
+  - capture the real exit code: `<cmd> > "$LOG" 2>&1; echo "EXIT=$?" >> "$LOG"`, then read the tail. Logs under `<worktree>/target/tmp/`.
+  - a test that fails in a package you did not change: run it alone twice, check `git diff 45dce8947 -- <file>`, report it as pre-existing or flaky with the evidence; do not edit unrelated tests.
+- Domain review before you commit the final state: spawn one `tn-domain-reviewer` agent (model opus) on your diff with your `domains:` list; fix what it finds or record why not. If you cannot spawn agents, say so in the hand-back and the orchestrator runs it.
+- COMMITS: you DO commit in your own worktree, staged by path (`git add <paths>`, never `-A`): one commit per logical change, conventional subject in the repo's style (`fix(primary): …`, `feat(node): …`, `test(e2e): …`), a 3-8 line prose body with the measured motivation (bench 6: runs r20261113-1351, r20261113-1630, r20261113-2118, r20261114-0000) and `Refs #<issue>` when your brief names one, and the footer `Topic: <slug>` as the LAST line (the slug in your brief; it is the cherry-pick index). Every commit compiles alone. A ported commit keeps its subject and body where they are still true and gets its text corrected where M changed the facts. Never commit the `tn-contracts` pointer, `tasks/`, `.env`, `target/`, `.claude/`.
+
+## Test units (`ST-*`, and any unit whose brief gives it an e2e module)
+- Clock trap: `tn_types::test_genesis()` stamps the current second into the genesis. A test that opens one datadir twice, or compares two chains, builds the genesis ONCE and shares it, or uses `tn_types::test_genesis_at(<fixed>)`. A test that passes only when no second ticks between two calls is a bug, not a flake.
+- Resolve the node binary BEFORE building the genesis (bench 6's ST-E lost two runs to the opposite order: epoch 0 closed during the build).
+- `tn-write-e2e` / `tn-write-proptest` skill first. You own exactly the `it/*.rs` module or proptest file in your brief.
+- e2e runs use fixed ports: **one e2e job on the machine at a time**. Lane 1 is blocked by another session's queue, so run every `-p e2e-tests` command through `/home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench6/e2e-lane2.sh <cmd…>` (it takes the machine-wide lock, waits for a foreign attest or nextest to end, then runs your command through a build slot). Never run an e2e test any other way. A wait of an hour there is normal.
+
+## Harness units (`HB-*`; devnet-genesis `benchmark/`, `tasks/bench7/`)
+- READ FIRST: `tasks/bench4-agent-rules.md`, `tasks/bench4-obs-agent-rules.md` and the "Harness and txgen units" section of `tasks/bench5-agent-rules.md` (all of it applies: knob-unset paths byte-identical with a test; bash 3.2 portable; python 3.9 grammar; `set -e` + command substitution `x="$(fn)" || x=""`; secrets on stdin only; hygiene: no literal IPv4 except 0.0.0.0/127.0.0.1 and the documentation nets, never the GCP project name as a literal, no absolute home paths; `bash -n` + `shellcheck -S warning` + py_compile + the 3.9 grammar check; your test module green and the whole suite tail; mutation anchors applied by hand and reported verbatim). Then your brief.
+- A dry run never shares a code path with the live call: the live side-effect sits behind an explicit `[ "$DRY" = "0" ] || return` guard on the line before it and the dry branch ends in `return`/`continue`; every script that can create or delete something remote gets a shim test (a fake binary on PATH that prints `REACHED` and exits 9; assert zero hits in the dry run).
+- A gcloud list-flag value must never start with `^` (it is read as a delimiter spec and the rest is silently ignored).
+- Harness agents DO NOT commit (the orchestrator commits per unit). Do not start editing `benchmark/` before your brief says the tree is free: a bundle launch refuses a dirty `benchmark/` tree.
+- The whole-suite gate (`benchmark/tests/gate.sh`, ~30 min) runs only when the orchestrator says so (it must be alone on the host). Run your own test module(s) and `python3 -m unittest` for the modules that import what you changed.
+- Field and knob names frozen in bench 6 (`BENCH_*` knobs, `arms/switches.tsv` columns, the persist CSV header, `manifest.param_arms[]` fields) are read, never renamed; a column that has no source on tn-lmdb stays in the header and is written empty. Report every new manifest key, CSV column, log tag and knob verbatim in your hand-back.
+
+## Delta reads (`DR-*`), writers and figure-checks (`P*`, `U-*`), analysis units (`A*`)
+- Read-only on code and on results. Write only your output files (named in your brief) and your checkpoint. Results live in `benchmark/results/<run>/`; analysis in `benchmark/private/bench6-<run>/` (bench 6) and `benchmark/private/bench7-<run>/` (bench 7); copy nothing bigger than you need.
+- Every number cites the file (and line or query) it came from. Say plainly what you could not measure. A timing fit is not a mechanism.
+- Public text (backfill files, the maintainers' summary, issue and PR bodies): no unit names (A2, I-10, E-3 …), no private paths, no host names, no internal run nicknames beyond the run ids; plain language; every figure traceable to the report or the comparison file your brief names. A figure-check agent re-derives each figure from the source and lists what it could not trace.
+- Heavy jobs (a Prometheus replay container, an I/O probe) need a go from the orchestrator: write the runbook and hand back.
+
+## HAND BACK (your final answer: a summary, never file dumps)
+1. Status (done / partial with the exact resume point / blocked on what), checkpoint path.
+2. Node units: branch, base sha, tip sha, `git log --oneline <base>..HEAD`; files changed with +/- counts; the switch(es) read and where. Harness units: files changed with +/- counts (`git -C … diff --stat`).
+3. Every new log message / field / metric / manifest key / knob / CSV column, verbatim.
+4. Gates: each command, its `EXIT=`, pass/fail counts, the log path. Mutation anchors verbatim (harness).
+5. Deviations from the design with the reason; cross-unit needs; decisions you want the orchestrator or the user to make.
