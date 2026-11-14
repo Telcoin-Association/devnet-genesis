@@ -38,14 +38,14 @@ NOT authorized, asked when reached: any fleet launch; publishing bench 7; PRs 05
 Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix/1804-vote-queue` · 03 `fix/epoch-record-closing-block-check` · 04 `fix/epoch-record-collector-hardening` · 05 `fix/1804-quorum-exec-block` · 06 `fix/1807-digest-order-hold`; `bench/bench7-2026-11` = the top.
 - [x] PT-0 switches + obs: b7/pt0 d8273bbe3 (9 commits) = head 00
 - [x] PT-1 e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`): b7/pt1 653e6ab51 (5 commits); head 01 = eca202a19
-- [ ] PT-2 voter-lock: phase A verdict on M = **PORT** (done) · phase B the port DONE (b7/pt2b 291b9f6c4; review R-02 approved with follow-ups) · follow-ups PT-2C (running: cheap checks before the wait, timing validation, comments)
-- [ ] PT-3 quorum-exec-block (both forms): PT-3a DONE (b7/pt3a 2b6a01022: both forms, D75 clamp, the starved-rounds warning and cap; review R-05 approved with follow-ups) · PT-3v voter-side tests (running) · PT-3b e2e port (running) · PT-3c follow-ups (running: the adaptive window counted in headers, explicit clamp, tests)
-- [ ] `epoch_close_forms.rs` (branch `b6/st-epoch-close-forms`) ported and extended (with E5)
-- [ ] XF-1 main's epoch-loop output drop: verified REAL with a reproducing test · fix DONE (b7/xf1 26c7ed72d; review R-07 approved) · **issue #1860 posted** · follow-ups XF-1b (running) · head `fix/epoch-loop-output-drop` in the image (user, 2026-11-14); its PR needs the user's word
-- [ ] HD-1 #1807 observability (no switch; running) · HD-2a the pure rule DONE (c5f60105f) · HD-2c the model test DONE (a8a067050: no order break with the hold on in 100,000 schedules) · HD-3 DONE · HD-4a hook DONE · HD-2b wiring (after HD-1) · HD-4b e2e (brief ready) · [original line:] HD-2 the hold (`digest_order_hold`, `order_hold.rs`, unit tests, property test) · HD-3 orphan re-pool counters (after E1) · HD-4 e2e (`TN_TEST_OWN_CERT_DELAY_MS`, four validators, both forms, a kill arm, the switch-off control)
-- [ ] E1 `final_state` check (DONE, b7/e1 d3028fad7, no switch) · E2 observability (DONE, b7/e2 304858e08) · E3 collector walk + conflict halt (running) · E4 re-certify (running) · E5 e2e (`TN_TEST_WITHHOLD_EPOCH_VOTE`, `test_uncertified_epoch_walked_past`, the four `epoch_close_forms` tests extended)
+- [x] PT-2 voter-lock (`vote_queue_fix`): ported (PT-2B), reviewed (R-02), follow-ups in (PT-2C); stack head 02 = 6dae7520f, gated (1,303 tests)
+- [ ] PT-3 quorum-exec-block (both forms): PT-3a, PT-3v (voter-side tests), PT-3b (e2e: control 0.59-0.66, adaptive 0.92-0.94, always 0.99-1.00 on tn-lmdb), PT-3c (review follow-ups: the adaptive window counts HEADERS BUILT, explicit opening-block bound) all DONE and integrated; reviewed (R-05); left: stack head 05 assembly, the e2e x3 at the top-head gate
+- [ ] `epoch_close_forms.rs` ported and extended: unit ECF running (tn-b7-ecf at b3446667f)
+- [ ] XF-1 main's epoch-loop output drop: verified REAL, fixed, reviewed (R-07), follow-ups in (XF-1b), **issue #1860 posted**; left: its stack head (after 04); its PR needs the user's word
+- [ ] #1807 hold: HD-1 observability, HD-2a rule, HD-2c model (100,000 schedules, no order break with the hold on), HD-2b wiring + `digest_order_hold`, HD-3, HD-4a all DONE and integrated (a11f14b1b); running: R-06 (review + security eval), HD-4b (e2e). OPEN FOR THE USER: which digests trigger a header before the minimum delay (held ones are counted today)
+- [ ] epoch records: E1 (stack head 03 = 8f7e4357a, gated), E2, E3, E4, E5a hook, the review's follow-ups E3-FU and E4-FU all DONE and integrated; reviewed (R-03, R-04); stack head 04's node part assembled (e5121e7e1, gate running); running: ECF, E5b (e2e)
 - [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
-- [ ] per-topic reviews: `tn-review-agent` each; `tn-security-eval` for the hold, E1, E3, E4, the ported quorum-exec-block; no open Critical or High
+- [ ] per-topic reviews: 00, 01, 03 approved; 02, 04, 05, 07 (epoch loop) approved with follow-ups, all applied; 06 (the hold) running. No Critical or High anywhere
 - [ ] top-head gates: per-commit strict check, fmt, `./etc/ci-lanes.sh clippy`, `cargo nextest run --workspace`, the repo's e2e sets (restarts, epochs, sigkill) all-off and bench-7-set-on, a mixed-switch fleet, each new e2e test ×3 through the lane, the property test's long hunt
 - [ ] image: `orch-image-cut.sh <worktree> <commit> bench7-<date>` (faucet, tn-lmdb), digest recorded, `--probe-node-image` by digest, local image trial with the harness's start line
 
@@ -60,7 +60,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] (dfbebec; whole suite running on it) HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
 - [x] (d2ab915) HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
 - [x] (scripts committed; ports reserved by HB-1b) HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
-- [ ] HB-5 `benchmark/launch/bench7.env`, README, the #1807 and hold readers
+- [ ] HB-5 → HB-5a (launch files, kept log lines, halt watch, metric export: brief hb5a.md, starts when the harness suite ends) and HB-5b (the analysis columns in arms-summary: after HB-5a); names from `tasks/bench7-contract.md` (done)
 - [ ] full harness gate alone on the host; `params-apply.sh --print-state` ×2; the deploy's dry plan; the teardown's dry mode (0 candidates)
 
 ## Bench 7 — the two runs (orchestrator only; the user's go + a fresh `gcloud auth login` first)
