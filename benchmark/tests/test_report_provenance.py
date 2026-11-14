@@ -593,12 +593,13 @@ class SwitchCheckTests(RunDirCase):
     def test_a_prestart_arm_covers_the_first_start(self):
         logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T00:00:00", FINAL)
                 + switch_boot("2026-01-01T02:00:00", FINAL)}        # a chaos restart later on
-        prestart = arm("final", "2026-01-01T00:00:30Z", FINAL, via="prestart")
+        # An older manifest's prestart arm records no begin: it counts from the first start.
+        prestart = arm("final", None, FINAL, via="prestart")
         scan, m = self.run_with(logs, node_probe=CONTRACT, param_arms=[prestart])
         r = P.check(scan, m)
         self.assertTrue(r["ok"], r["problems"])
-        # Applied by params-apply at that begin, the arm would not cover a start 30 s before it.
-        scan, m = self.run_with(logs, param_arms=[dict(prestart, via="params-apply")])
+        # Applied by params-apply at a begin, the arm would not cover a start 30 s before it.
+        scan, m = self.run_with(logs, param_arms=[dict(prestart, via="params-apply", begin="2026-01-01T00:00:30Z")])
         self.assertFalse(P.check(scan, m)["ok"])
 
     def test_overrides_before_the_first_arm_and_a_failed_arm(self):
@@ -660,6 +661,85 @@ class SwitchCheckTests(RunDirCase):
         p = self.cli(run)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("no node switches line at 1 start(s)", p.stdout)
+
+    # ---- bench7 staging start before the prestart arm ----
+    # Deploy step 7 starts each node once alone (stage-only) with every switch at its default, then
+    # writes the prestart arm and starts all nodes at once: the arm's begin is that coordinated start.
+
+    NODES = ["bench-validator-%02d" % i for i in range(1, 11)] + ["bench-observer-11"]
+    BEGIN = "2026-01-01T00:01:00Z"
+
+    def staged_run(self, staging=ALL_OFF, arm_switches=FINAL, **arm_extra):
+        """11 nodes: one staging start before BEGIN, one start at BEGIN, two of them restarted later."""
+        logs = {}
+        for i, inst in enumerate(self.NODES):
+            text = switch_boot("2026-01-01T00:00:%02d" % (10 + i), staging) + switch_boot("2026-01-01T00:01:00", FINAL)
+            if inst in ("bench-validator-03", "bench-observer-11"):
+                text += switch_boot("2026-01-01T02:00:00", FINAL)      # chaos restarts
+            logs[inst + "-unit-stdout.log"] = text
+        prestart = arm("final", self.BEGIN, arm_switches, via="prestart", ready=self.BEGIN)
+        prestart.update(arm_extra)
+        return self.run_with(logs, node_probe=CONTRACT, param_arms=[prestart])
+
+    def test_staging_starts_before_the_prestart_begin_are_at_the_defaults(self):
+        scan, m = self.staged_run()
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        staged = [{"instance": inst, "ts": "2026-01-01T00:00:%02d.000Z" % (10 + i)}
+                  for i, inst in enumerate(self.NODES)]
+        staged = sorted(staged, key=lambda s: s["instance"])
+        self.assertEqual(r["switches"], {"required": True, "checked": 24, "matched": 24, "missing": 0, "problems": [],
+                                         "pre_arm": 11, "pre_arm_off": 0, "pre_arm_starts": staged,
+                                         "pre_arm_begin": self.BEGIN})
+        report = P._report("run", scan, r).splitlines()
+        i = report.index("  node switches: 24 start(s) checked, 24 matched the arm in force, 0 without a line "
+                         "(the image contract requires one)")
+        self.assertEqual(report[i + 1], "  node switches: 11 start(s) before the arm began (staging), all at the defaults")
+
+    def test_a_staging_start_with_a_switch_on_is_a_problem(self):
+        scan, m = self.staged_run(staging=dict(ALL_OFF, vote_queue_fix="true"))
+        r = P.check(scan, m)
+        self.assertFalse(r["ok"])
+        self.assertEqual(len(r["problems"]), 1)
+        self.assertTrue(r["problems"][0].startswith(
+            "node switches show vote_queue_fix=true at 11 start(s) (bench-observer-11 at 2026-01-01T00:00:20.000Z, "),
+            r["problems"])
+        self.assertTrue(r["problems"][0].endswith("; the defaults sets vote_queue_fix=false"), r["problems"])
+        sw = r["switches"]
+        self.assertEqual((sw["checked"], sw["matched"], sw["pre_arm"], sw["pre_arm_off"]), (24, 13, 11, 11))
+        self.assertIn("  node switches: 11 start(s) before the arm began (staging), 11 NOT at the defaults",
+                      P._report("run", scan, r).splitlines())
+
+    def test_a_prestart_arm_without_a_begin_counts_from_the_first_start(self):
+        for no_begin in ({"begin": None}, {"begin": "not a time"}):
+            scan, m = self.staged_run(**no_begin)
+            r = P.check(scan, m)
+            self.assertEqual(r["problems"][0].split(";")[1], " arm final sets mdbx_random_advice=true", no_begin)
+            self.assertEqual((r["switches"]["checked"], r["switches"]["matched"]), (24, 13))
+            self.assertNotIn("pre_arm", r["switches"])
+            scan, m = self.staged_run(staging=FINAL, **no_begin)
+            r = P.check(scan, m)
+            self.assertTrue(r["ok"], r["problems"])
+            self.assertNotIn("pre_arm", r["switches"])
+            self.assertNotIn("before the arm began", P._report("run", scan, r))
+        m = manifest_for(param_arms=[{k: v for k, v in arm("final", None, FINAL, via="prestart").items() if k != "begin"}])
+        self.assertEqual([lab for lab, _s in P.expected_switches(m, "x", "2026-01-01T00:00:00Z", P.switch_rows())],
+                         ["arm final"])
+
+    def test_an_arm_walk_is_unaffected(self):
+        # params-apply arms, the first after the deploy: the starts before it are the run's baseline.
+        a1 = arm("a1", "2026-01-01T01:00:00Z", FINAL, via="params-apply", end="2026-01-01T02:00:00Z")
+        a2 = arm("a2", "2026-01-01T02:00:00Z", dict(FINAL, recovery_threads="0"), via="params-apply")
+        logs = {"bench-validator-01-telcoin.log": switch_boot("2026-01-01T00:00:00", ALL_OFF)
+                + switch_boot("2026-01-01T01:00:05", FINAL) + switch_boot("2026-01-01T02:00:05", a2["switches"]),
+                "bench-validator-02-telcoin.log": switch_boot("2026-01-01T00:00:01", ALL_OFF)
+                + switch_boot("2026-01-01T01:00:06", FINAL) + switch_boot("2026-01-01T02:00:06", FINAL)}
+        scan, m = self.run_with(logs, param_arms=[a1, a2])
+        r = P.check(scan, m)
+        self.assertEqual(r["switches"], {"required": False, "checked": 6, "matched": 5, "missing": 0, "problems": [
+            "node switches show recovery_threads=3 at 1 start(s) (bench-validator-02 at 2026-01-01T02:00:06.000Z); "
+            "arm a2 sets recovery_threads=0"]})
+        self.assertNotIn("before the arm began", P._report("run", scan, r))
 
 
 if __name__ == "__main__":

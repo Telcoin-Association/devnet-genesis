@@ -53,6 +53,8 @@ Pipeline, one log line per step, numbered in execution order:
                   (provenance.check_switches); a mismatch, or a missing line the image contract
                   requires, refuses the same way, and --allow-provenance-mismatch publishes it with a
                   warning, a caveat and an upstream.evidence_detail line (the commit stays verified).
+                  The stage-only start before a prestart arm's begin runs at the defaults; when it
+                  did, one computed caveat says so (pre_arm_caveats).
     3 tools       aggregate.py -> combined.json, derive-sizing.py -> sizing.json (cwd=scratch).
     4 scrub       scrub.scrub_inputs() -> scratch/scrubbed/.
     5 report      build-report.py in scratch/scrubbed with relative paths only
@@ -740,6 +742,7 @@ def switch_provenance(switches, allow_mismatch, caveats, detail):
     log(S_PROV, "node switches: %d start(s) checked, %d matched the arm in force, %d without a line -> %s"
         % (switches["checked"], switches["matched"], switches["missing"],
            "%d problem(s)" % len(problems) if problems else "ok"))
+    caveats.extend(pre_arm_caveats(switches))
     if not problems:
         detail.append("Each of the %d node starts logged its node switches line, and each matched the switch "
                       "state the manifest records for that start" % switches["checked"])
@@ -754,6 +757,19 @@ def switch_provenance(switches, allow_mismatch, caveats, detail):
     detail.append("Node switch lines: %d of %d start(s) matched the switch state the manifest records, and %d "
                   "start(s) logged none; see the caveats" % (switches["matched"], switches["checked"],
                                                             switches["missing"]))
+
+
+def pre_arm_caveats(switches):
+    """The computed caveat for deploy step 7's stage-only start (provenance.check_switches
+    "pre_arm": starts before the prestart arm's begin, at the defaults); [] when there was none,
+    or when one of them was not at the defaults (the switch mismatch caveat says so instead)."""
+    n = switches.get("pre_arm") or 0
+    if not n or switches.get("pre_arm_off"):
+        return []
+    nodes = len({s.get("instance") for s in switches.get("pre_arm_starts") or []})
+    return ["Before the coordinated start each node ran once during staging with every node switch at its "
+            "default (%d start(s) on %d node(s)); the run's switches were on from the coordinated start at %s."
+            % (n, nodes, _utc(switches.get("pre_arm_begin")))]
 
 
 def provenance_step(run_dir, manifest, backfill, allow_mismatch):
@@ -1527,7 +1543,7 @@ def assemble(run_id, a, manifest, metrics, combined, blasters_docs, prov, built,
     head_switches = headline_switches(manifest)
     if head_switches and consensus is None:
         # consensus.param_arms carries the switches; without a consensus block they go here.
-        caveats.append("The nodes ran the switches of arm %s from their first start (%s); the consensus block "
+        caveats.append("The nodes ran the switches of arm %s from the coordinated start (%s); the consensus block "
                        "is not published for this run, so they are stated here" % head_switches)
     return {
         "schema": SCHEMA_ID,
@@ -1897,7 +1913,7 @@ def _main(a):
            "set" if run_doc["consensus"] else "null", "set" if run_doc["workload"] else "null"))
     head_switches = headline_switches(manifest)
     if head_switches:
-        log(S_ASSEMBLE, "switches from the first start: arm %s: %s (%s)"
+        log(S_ASSEMBLE, "switches from the coordinated start: arm %s: %s (%s)"
             % (head_switches + ("consensus.param_arms" if run_doc["consensus"] else "a caveat",)))
     install_bundle(out, run_doc, report_src, series_doc, raw_manifest, site_checkout, site_repo)
     return _summary(run_doc)

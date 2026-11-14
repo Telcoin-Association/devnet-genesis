@@ -596,9 +596,12 @@ def listed_instances(manifest: Optional[Dict[str, Any]]) -> List[str]:
 # --- node switches (bench 6): the switch line of every start against the arm in force -------
 # benchmark/arms/switches.tsv (columns key, type, default, arm_values, topic, optional) is the one
 # list of switches; manifest param_arms[].switches holds the full state an arm file puts every
-# node in (a `via: "prestart"` arm from the first start on), and an arm given with --set changes the
-# switches its nodes[<instance>] entry wrote; before the first arm every switch is at its default,
-# or at the value consensus_parameters.overrides gave that node.
+# node in, and an arm given with --set changes the switches its nodes[<instance>] entry wrote;
+# before the first arm every switch is at its default, or at the value
+# consensus_parameters.overrides gave that node. A `via: "prestart"` arm is in force from its
+# begin, the coordinated start of deploy step 7: the stage-only start before it ran each node
+# once with every switch at its default (a pre-arm start). A prestart arm without a begin (older
+# manifests) counts from the first start on.
 
 SWITCHES_TSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "arms", "switches.tsv")
 _SWITCH_TSV_COLUMNS = ("key", "type", "default", "arm_values", "topic", "optional")
@@ -658,31 +661,41 @@ def _switch_state(rows: List[Dict[str, Any]], values: Dict[str, Any]) -> Dict[st
     return {r["key"]: str(values[r["key"]]) if values.get(r["key"]) is not None else r["default"] for r in rows}
 
 
+def _arms_by_begin(manifest: Dict[str, Any]) -> List[Tuple[float, int, Dict[str, Any]]]:
+    """[(begin as Unix seconds, index, arm)] of manifest param_arms in begin order. An arm counts
+    from its recorded begin; a `via: "prestart"` arm without a usable one (older manifests) from
+    minus infinity, the first start; any other arm without one is left out."""
+    arms = []  # type: List[Tuple[float, int, Dict[str, Any]]]
+    for n, arm in enumerate(manifest.get("param_arms") or []):
+        if not isinstance(arm, dict):
+            continue
+        begin = ts_epoch(arm.get("begin"))
+        if begin is None and arm.get("via") == "prestart":
+            begin = float("-inf")
+        if begin is not None:
+            arms.append((begin, n, arm))
+    return sorted(arms, key=lambda a: (a[0], a[1]))
+
+
 def expected_switches(manifest: Optional[Dict[str, Any]], instance: str, ts: Optional[str],
                       rows: List[Dict[str, Any]]) -> List[Tuple[str, Dict[str, str]]]:
     """[(label, full switch state)] a start of <instance> at <ts> may log, the state in force
     first. The defaults with the instance's consensus_parameters.overrides, then each param arm
-    whose begin is at or before <ts> in begin order (a `via: "prestart"` arm counts from the first
-    start): an arm with a `switches` state (an arm file) puts every node in that state; one
-    without (`--set`) changes only the switches its `nodes` entry wrote for <instance>. An arm
-    that `failed` also allows the state before it (the node it stopped at may be put back by
-    hand). Without a usable <ts>, every state the manifest names is allowed."""
+    whose begin is at or before <ts> in begin order (_arms_by_begin: a `via: "prestart"` arm
+    without a begin counts from the first start): an arm with a `switches` state (an arm file)
+    puts every node in that state; one without (`--set`) changes only the switches its `nodes`
+    entry wrote for <instance>. An arm that `failed` also allows the state before it (the node it
+    stopped at may be put back by hand). Without a usable <ts>, every state the manifest names is
+    allowed."""
     manifest = manifest or {}
     cp = manifest.get("consensus_parameters") if isinstance(manifest.get("consensus_parameters"), dict) else {}
     ov = cp.get("overrides") if isinstance(cp.get("overrides"), dict) else {}
     mine = ov.get(instance) if isinstance(ov.get(instance), dict) else {}
     keys = {r["key"] for r in rows}
     base = _switch_state(rows, {k: v for k, v in mine.items() if k in keys})
-    arms = []  # type: List[Tuple[float, int, Dict[str, Any]]]
-    for n, arm in enumerate(manifest.get("param_arms") or []):
-        if not isinstance(arm, dict):
-            continue
-        begin = float("-inf") if arm.get("via") == "prestart" else ts_epoch(arm.get("begin"))
-        if begin is not None:
-            arms.append((begin, n, arm))
     when = ts_epoch(ts)
     allowed = [("the defaults" + (" with this node's overrides" if any(k in keys for k in mine) else ""), base)]
-    for begin, _n, arm in sorted(arms, key=lambda a: (a[0], a[1])):
+    for begin, _n, arm in _arms_by_begin(manifest):
         if isinstance(arm.get("switches"), dict):
             new = _switch_state(rows, arm["switches"])
         else:
@@ -724,7 +737,11 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
     """The node switch line of every start against expected_switches(). None when no start logged
     one and the image contract does not require it (benches 3-5: nothing to check). Otherwise
     {"required", "checked" (starts compared), "matched", "missing" (starts without a line while
-    the contract requires one), "problems" ([text])}."""
+    the contract requires one), "problems" ([text])}, plus, when a checked start came before the
+    begin of a first arm that is `via: "prestart"` (deploy step 7's stage-only start, judged
+    against the defaults like any start before the first arm): "pre_arm" (how many),
+    "pre_arm_off" (how many of them were not at the defaults), "pre_arm_starts" ([{"instance",
+    "ts"}]) and "pre_arm_begin" (that arm's begin as the manifest records it)."""
     required = switch_line_required(manifest)
     if not required and not any(isinstance(s.get("switches"), dict) for s in starts):
         return None
@@ -734,8 +751,11 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
     except (OSError, ValueError) as exc:
         return {"required": required, "checked": 0, "matched": 0, "missing": 0,
                 "problems": ["node switches not checked: %s" % exc]}
-    checked = matched = 0
+    first = (_arms_by_begin(manifest or {}) or [None])[0]
+    staged_until = first[0] if first is not None and first[2].get("via") == "prestart" else None
+    checked = matched = pre_off = 0
     missing = []  # type: List[str]
+    pre_arm = []  # type: List[Dict[str, Any]]
     bad = {}  # type: Dict[Tuple[str, str, str, str], List[str]]
     for s in starts:
         inst = s.get("instance") or "?"
@@ -745,10 +765,16 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
                 missing.append("%s at %s" % (inst, s.get("ts") or "?"))
             continue
         checked += 1
+        when = ts_epoch(s.get("ts"))
+        pre = staged_until is not None and when is not None and when < staged_until
+        if pre:
+            pre_arm.append({"instance": inst, "ts": s.get("ts")})
         allowed = expected_switches(manifest, inst, s.get("ts"), rows)
         if any(not _switch_diff(rows, logged, state) for _label, state in allowed):
             matched += 1
             continue
+        if pre:
+            pre_off += 1
         label = " or ".join(lab for lab, _state in allowed)
         for key, got, want in _switch_diff(rows, logged, allowed[0][1]):
             bad.setdefault((label, key, got, want), []).append("%s at %s" % (inst, s.get("ts") or "?"))
@@ -760,8 +786,12 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
         shown = "lack %s" % key if got == "(absent)" else "show %s=%s" % (key, got)
         problems.append("node switches %s at %d start(s) (%s); %s sets %s=%s"
                         % (shown, len(where), ", ".join(where), label, key, want))
-    return {"required": required, "checked": checked, "matched": matched, "missing": len(missing),
-            "problems": problems}
+    out = {"required": required, "checked": checked, "matched": matched, "missing": len(missing),
+           "problems": problems}  # type: Dict[str, Any]
+    if pre_arm:  # only with a first prestart arm that has a begin (staged_until)
+        out.update(pre_arm=len(pre_arm), pre_arm_off=pre_off, pre_arm_starts=pre_arm,
+                   pre_arm_begin=first[2].get("begin"))
+    return out
 
 
 def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: Optional[str] = None) -> Dict[str, Any]:
@@ -949,6 +979,10 @@ def _report(run_dir: str, scan: Dict[str, Any], result: Dict[str, Any]) -> str:
         lines.append("  node switches: %d start(s) checked, %d matched the arm in force, %d without a line%s"
                      % (sw["checked"], sw["matched"], sw["missing"],
                         " (the image contract requires one)" if sw["required"] else ""))
+        if sw.get("pre_arm"):
+            lines.append("  node switches: %d start(s) before the arm began (staging), %s"
+                         % (sw["pre_arm"], "%d NOT at the defaults" % sw["pre_arm_off"] if sw["pre_arm_off"]
+                            else "all at the defaults"))
     for u in scan.get("unreadable") or []:
         lines.append("  warning: %s not read to the end: %s" % (u["file"], u["error"]))
     lines.append("  expected sha: %s" % (result.get("expected_sha") or "-"))

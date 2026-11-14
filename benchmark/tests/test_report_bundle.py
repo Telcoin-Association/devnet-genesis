@@ -1674,9 +1674,18 @@ def final_arm(**extra):
     return a
 
 
+# node_log()'s start: an arm begun then is in force at it (a start before a prestart arm's begin is staging).
+START = "2026-01-01T00:00:00Z"
+
+
 def switch_line(switches):
     return ('2026-01-01T00:00:01Z INFO node::switches: node switches %s\n'
             % " ".join("%s=%s" % kv for kv in switches.items()))
+
+
+def staged_start(sha):
+    """The coordinated start at final_arm()'s begin, after node_log()'s stage-only start."""
+    return "2026-01-01T00:00:30Z INFO telcoin-network 0.1.0 (%s) starting\n" % sha
 
 
 class SwitchProvenanceStepTests(unittest.TestCase):
@@ -1693,7 +1702,7 @@ class SwitchProvenanceStepTests(unittest.TestCase):
 
     def test_matching_switches_are_a_detail_line(self):
         self.logs(SHA)
-        p, out, err = self.step({"node_git_sha": SHA, "param_arms": [final_arm()]}, {})
+        p, out, err = self.step({"node_git_sha": SHA, "param_arms": [final_arm(begin=START)]}, {})
         up = p["upstream"]
         self.assertEqual((up["evidence"], up["sha"], p["caveats"]), ("verified", SHA, []))
         self.assertIn("Each of the 2 node starts logged its node switches line, and each matched the switch state "
@@ -1703,7 +1712,7 @@ class SwitchProvenanceStepTests(unittest.TestCase):
 
     def test_a_mismatch_refuses_unless_allowed_and_keeps_the_commit_verified(self):
         self.logs(SHA, v2_switches=dict(SWITCHES_FINAL, recovery_threads="0"))
-        m = {"node_git_sha": SHA, "param_arms": [final_arm()]}
+        m = {"node_git_sha": SHA, "param_arms": [final_arm(begin=START)]}
         with self.assertRaisesRegex(mb.BundleError, "node switch check failed .*\n  - node switches show "
                                                     "recovery_threads=0 at 1 start"):
             self.step(m, {})
@@ -1740,6 +1749,48 @@ class SwitchProvenanceStepTests(unittest.TestCase):
         self.assertTrue(p["caveats"][0].startswith("The node logs did not confirm the upstream commit: "))
         self.assertNotIn("switches", p["caveats"][0])
         self.assertTrue(p["caveats"][1].startswith("The node switch lines did not match"))
+
+    # ---- bench7 staging start before the prestart arm ----
+
+    def staged_logs(self, staging=SWITCHES_OFF, nodes=("val-1", "val-2")):
+        """Each node: the stage-only start (node_log at START) with <staging>, then the coordinated start at
+        the prestart arm's begin with the arm's switches."""
+        for inst in nodes:
+            write_text(os.path.join(self.scratch, "logs", "%s-telcoin.log" % inst),
+                       node_log(SHA) + switch_line(staging) + staged_start(SHA) + switch_line(SWITCHES_FINAL))
+
+    def test_staging_starts_at_the_defaults_make_one_computed_caveat(self):
+        self.staged_logs()
+        p, out, err = self.step({"node_git_sha": SHA, "param_arms": [final_arm()]}, {})
+        self.assertEqual(p["caveats"], [
+            "Before the coordinated start each node ran once during staging with every node switch at its default "
+            "(2 start(s) on 2 node(s)); the run's switches were on from the coordinated start at 2026-01-01T00:00:30Z."])
+        self.assertEqual((p["upstream"]["evidence"], err), ("verified", ""))
+        self.assertIn("Each of the 4 node starts logged its node switches line, and each matched the switch state "
+                      "the manifest records for that start", p["upstream"]["evidence_detail"])
+        self.assertIn("node switches: 4 start(s) checked, 4 matched the arm in force, 0 without a line -> ok", out)
+
+    def test_a_staging_start_off_the_defaults_refuses_and_gets_no_staging_caveat(self):
+        self.staged_logs(staging=dict(SWITCHES_OFF, vote_queue_fix="true"))
+        m = {"node_git_sha": SHA, "param_arms": [final_arm()]}
+        with self.assertRaisesRegex(mb.BundleError, "node switch check failed .*\n  - node switches show "
+                                                    "vote_queue_fix=true at 2 start"):
+            self.step(m, {})
+        p, _, _ = self.step(m, {}, allow=True)
+        self.assertEqual(p["caveats"], [
+            "The node switch lines did not match the switch state the manifest records: node switches show "
+            "vote_queue_fix=true at 2 start(s) (val-1 at 2026-01-01T00:00:00Z, val-2 at 2026-01-01T00:00:00Z); "
+            "the defaults sets vote_queue_fix=false"])
+
+    def test_no_staging_caveat_without_a_start_before_a_prestart_begin(self):
+        self.logs(SHA)                                     # both starts at the arm's begin
+        for a in (final_arm(begin=START), final_arm(begin=None)):
+            p, _, _ = self.step({"node_git_sha": SHA, "param_arms": [a]}, {})
+            self.assertEqual(p["caveats"], [], a)
+        self.staged_logs()                                 # an arm walk: the starts before it are its baseline
+        p, _, _ = self.step({"node_git_sha": SHA, "param_arms": [final_arm(via="params-apply")]}, {})
+        self.assertEqual(p["caveats"], [])
+        self.assertEqual(mb.pre_arm_caveats({"checked": 2, "matched": 2, "missing": 0, "problems": []}), [])
 
 
 def accepted(test, fn, *args, **kw):
@@ -1823,9 +1874,62 @@ class PrestartArmAssemblyTests(unittest.TestCase):
         bf = {k: v for k, v in self.BACKFILL.items() if k != "consensus"}
         _, doc, _, _ = accepted(self, self.build, bf, manifest_update={"param_arms": [final_arm()]})
         self.assertIsNone(doc["consensus"])
-        self.assertIn("The nodes ran the switches of arm final from their first start (all 4 nodes: "
+        self.assertIn("The nodes ran the switches of arm final from the coordinated start (all 4 nodes: "
                       "mdbx_random_advice=true, parent_grace=150ms, recovery_threads=3, vote_queue_fix=true); the "
                       "consensus block is not published for this run, so they are stated here.", doc["caveats"])
+
+    # ---- bench7 staging start before the prestart arm ----
+
+    def node_logs(self, staging=None):
+        """A node log for each node the synthetic manifest lists, in the run dir provenance_step reads: the
+        start at START with <staging> and a coordinated start at final_arm()'s begin, or (staging None)
+        one start at START with the arm's switches."""
+        first = node_log(SHA).splitlines()[0] + "\n"     # its start line only: no parameter lines to judge
+        for inst in ("val-1", "val-2", "val-3", "obs-1"):
+            text = first + switch_line(SWITCHES_FINAL if staging is None else staging)
+            if staging is not None:
+                text += staged_start(SHA) + switch_line(SWITCHES_FINAL)
+            write_text(os.path.join(self.tmp, "logs", "%s-telcoin.log" % inst), text)
+
+    @staticmethod
+    def bundle_files(out):
+        files = {}
+        for d, _dirs, names in os.walk(out):
+            for name in names:
+                with open(os.path.join(d, name), "rb") as fh:
+                    files[os.path.relpath(os.path.join(d, name), out)] = fh.read()
+        return files
+
+    def test_staging_starts_are_one_computed_caveat_in_run_json(self):
+        self.node_logs(staging=SWITCHES_OFF)
+        _, doc, out, _ = accepted(self, self.build, self.BACKFILL, manifest_update={"param_arms": [final_arm()]})
+        self.assertEqual([c for c in doc["caveats"] if "staging" in c], [
+            "Before the coordinated start each node ran once during staging with every node switch at its default "
+            "(4 start(s) on 4 node(s)); the run's switches were on from the coordinated start at 2026-01-01T00:00:30Z."])
+        if SITE_SCRUB.is_file():
+            self.assertEqual(load_site_scrub().validate_run(load_json(os.path.join(out, "run.json"))), [])
+
+    def test_without_a_staging_start_the_bundle_is_byte_identical(self):
+        """Every start at or after the prestart arm's begin: the bundle is the one the tool built before
+        the staging rule, i.e. with the computed caveat and check_switches()' pre_arm keys taken out."""
+        self.node_logs()
+        update = {"param_arms": [final_arm(begin=START)]}
+        _, doc, out, _ = accepted(self, self.build, self.BACKFILL, manifest_update=update)
+        self.assertIn("Each of the 4 node starts logged its node switches line, and each matched the switch state "
+                      "the manifest records for that start", doc["upstream"]["evidence_detail"])
+        built = self.bundle_files(out)
+        check_switches = mb.provenance.check_switches
+
+        def without_pre_arm(*args, **kwargs):
+            r = check_switches(*args, **kwargs)
+            return r if r is None else {k: v for k, v in r.items() if not k.startswith("pre_arm")}
+        with mock.patch.object(mb, "pre_arm_caveats", lambda switches: []), \
+                mock.patch.object(mb.provenance, "check_switches", without_pre_arm):
+            _, _, out2, _ = accepted(self, self.build, self.BACKFILL, manifest_update=update)
+        self.assertEqual(out2, out)
+        self.assertEqual(sorted(self.bundle_files(out2)), sorted(built))
+        for name, data in sorted(self.bundle_files(out2).items()):
+            self.assertEqual(data, built[name], name)
 
 
 
