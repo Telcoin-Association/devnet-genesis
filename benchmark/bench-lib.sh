@@ -3596,7 +3596,9 @@ EOS
 # The switches go into each node's parameters.yaml through the pre-start script's setp (the per-node
 # override path), the host steps through its host-step code; the comparisons below follow the arm
 # tool's rules (bool by case, int without leading zeros, dur by its value in ms).
-BENCH_SWITCHES_TSV="${BENCH_LIB_DIR}/arms/switches.tsv"
+# The switch list is the one the arm tool reads: the live build's arms/switches.tsv, or the retired build's
+# list PARAMS_APPLY_SWITCHES_TSV names (arms/switches-<build>.tsv; arms/README.md, "Builds").
+BENCH_SWITCHES_TSV="${PARAMS_APPLY_SWITCHES_TSV:-${BENCH_LIB_DIR}/arms/switches.tsv}"
 BENCH_ARM_STATE_FOR=""; BENCH_ARM_NAME=""; BENCH_ARM_SHA256=""; BENCH_ARM_SWITCHES=""; BENCH_ARM_HOST=""
 
 # _bench_switch_rows — arms/switches.tsv without its header: "<key> <type> <default> <optional>" per row.
@@ -3752,12 +3754,17 @@ bench_switch_line_values() {
 # compared by value (_bench_switch_norm). A key the line does not print passes only for an optional
 # switch expected at its default. Otherwise rc 1 and one line: the disagreements
 # ("<key>=<logged> (expected <value>)", "<key> is not on the line (expected <value>)"), or why the
-# line cannot be read.
+# line cannot be read. A key on the line that the list lacks is a note on stderr, never a failure
+# (the node may have gained a switch).
 bench_switch_readback() {
-    local exp="$1" line="$2" vals k t d o want got out=""
+    local exp="$1" line="$2" vals k t d o want got out="" extra
     [ -n "${line}" ] && [ "${line}" != "-" ] || { echo "no 'node switches' line in the node's log since its start (an image that does not log it?)"; return 1; }
     vals="$(bench_switch_line_values "${line}")"
     [ -n "${vals}" ] || { echo "the line holds no key=value after 'node switches': ${line:0:200}"; return 1; }
+    extra="$(printf '%s\n' "${vals}" | awk -F= -v rows="$(_bench_switch_rows | awk '{ printf "%s ", $1 }')" '
+        BEGIN { n = split(rows, r, " "); for (i = 1; i <= n; i++) known[r[i]] = 1 }
+        !($1 in known) { printf "%s%s", (c++ ? " " : ""), $1 } END { if (c) print "" }')" || extra=""
+    [ -z "${extra}" ] || echo "  note: the node switches line carries ${extra}, which ${BENCH_SWITCHES_TSV##*/} does not list (not compared)" >&2
     while read -r k t d o; do
         [ -n "${k}" ] || continue
         want="$(printf '%s' "${exp}" | jq -r --arg k "${k}" '.[$k] // empty' 2>/dev/null)" || want=""

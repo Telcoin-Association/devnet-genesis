@@ -6,6 +6,7 @@
 # No host step: a node that never started has nothing to evict, and the advice must be on in the
 # FIRST process (run 1: every node stopped prefaulting in its first process after genesis, and only
 # a restart or this switch ends that state).
+build bench6
 name final
 param mdbx_random_advice true
 param quorum_exec_block true

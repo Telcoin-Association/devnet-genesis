@@ -2,6 +2,7 @@
 # Adds mdbx_random_advice and the eviction of mdbx.dat at every restart.
 # Must show: device write bytes / ((page_newly + page_cow) x 4096) near 1; commit us/tx;
 # fincore 0 after the eviction; the rr range of the mapping equal to the used size.
+build bench6
 name p1-mdbx-advice
 param mdbx_random_advice true
 host evict-mdbx

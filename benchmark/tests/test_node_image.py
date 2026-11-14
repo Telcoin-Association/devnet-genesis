@@ -54,6 +54,9 @@ TREE = ("config.sh", "devnet-lib.sh", "benchmark/config.sh", "benchmark/bench-li
         # files, the persist sampler and its folio census.
         "benchmark/arms/switches.tsv", "benchmark/arms/v-vote.arm", "benchmark/arms/final.arm",
         "benchmark/arms/a0-control.arm",
+        # bench 7: bench 6's switch list, which the deploy tests of bench 6's arms run under (BashCase.env), and
+        # bench 7's two arm files for the live list
+        "benchmark/arms/switches-bench6.tsv", "benchmark/arms/bench7-always.arm", "benchmark/arms/bench7-adaptive.arm",
         "benchmark/tools/params-apply.sh", "benchmark/node-persist-sampler.sh", "benchmark/tools/folio-census.py")
 # What the bench-obs functions (obs-lib.sh) read from the tree: the bundle. The VM's startup script and
 # the Grafana dashboards live in the `common` submodule, which a CI checkout lacks: every test points
@@ -164,7 +167,10 @@ class BashCase(unittest.TestCase):
                "BENCH_OBS_STARTUP_SCRIPT": str(FIX / "obs-startup-stub.sh"),
                "BENCH_OBS_DASHBOARDS_DIR": str(FIX / "obs-dashboards"),
                # Bench 7 knobs at 0 (bench 6's behaviour, byte for byte); their own tests set them to 1.
-               "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "0", "BENCH_NODE_RESERVE_PORTS": "0"}
+               "BENCH_NODE_ALLOW_FAUCET_ON_CHAIN": "0", "BENCH_NODE_RESERVE_PORTS": "0",
+               # The deploy tests drive bench 6's arm files and switches: the arm tool and step 7 read bench 6's
+               # list (twelve keys). A test of the live list (bench 7's) passes PARAMS_APPLY_SWITCHES_TSV=None.
+               "PARAMS_APPLY_SWITCHES_TSV": str(self.root / "tree" / "benchmark" / "arms" / "switches-bench6.tsv")}
         for key in ("LANG", "LC_ALL", "LC_CTYPE"):
             if key in os.environ:
                 env[key] = os.environ[key]
@@ -3040,14 +3046,21 @@ class BlasterFallbackTests(FakeGcloudCase):
 BENCH5_EXPORTS = FIX / "bench5-config-exports.txt"
 BOOT_IMAGE = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105"
 SWITCHES_TSV = BENCH / "arms" / "switches.tsv"
+# Bench 6's list, kept for reading its runs and arm files; the switch-line helpers below default to it.
+SWITCHES6_TSV = BENCH / "arms" / "switches-bench6.tsv"
 SWITCHES_HEADER = ["key", "type", "default", "arm_values", "topic", "optional"]
-# The frozen switch keys and types, in row order (the plan's switch table; the node prints them in its
-# `node switches` startup line). Renaming one is a contract change for the node image and every harness unit.
+# The frozen switch keys and types of the live build (bench 7), in row order (the node prints them in its
+# `node switches` startup line, in its own order). Renaming one is a contract change for the node image and every
+# harness unit.
 SWITCH_KEYS = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
-               "bool:mdbx_random_advice", "bool:sealed_tx_keep", "bool:digest_dedupe", "int:recovery_threads",
-               "bool:epoch_close_task_drain",
-               "bool:epoch_record_state_check", "dur:parent_grace", "int:rpc_admission_backlog_outputs",
-               "bool:pipelined_persist"]
+               "bool:digest_order_hold", "bool:epoch_record_collect_past_uncertified", "bool:epoch_record_conflict_halt",
+               "bool:epoch_record_recertify"]
+# Bench 6's twelve (arms/switches-bench6.tsv, unchanged).
+SWITCH_KEYS_BENCH6 = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
+                      "bool:mdbx_random_advice", "bool:sealed_tx_keep", "bool:digest_dedupe", "int:recovery_threads",
+                      "bool:epoch_close_task_drain",
+                      "bool:epoch_record_state_check", "dur:parent_grace", "int:rpc_admission_backlog_outputs",
+                      "bool:pipelined_persist"]
 SWITCH_DEFAULT = {"bool": "false", "int": "0", "dur": "0ms"}
 # An int row may list its default (0) among its arm values: an arm line that gives it means the key left out.
 SWITCH_ARM_VALUE = {"bool": re.compile(r"^true$"), "int": re.compile(r"^(?:0|[1-9][0-9]{0,8})$"),
@@ -3095,9 +3108,10 @@ def read_exports_file(path):
     return out
 
 
-def switch_rows():
-    """benchmark/arms/switches.tsv as (header, [row dict]); every line split on tabs."""
-    lines = SWITCHES_TSV.read_text().split("\n")
+def switch_rows(tsv=None):
+    """A switch list (bench 6's, arms/switches-bench6.tsv, unless <tsv>) as (header, [row dict]); every line split on
+    tabs."""
+    lines = (tsv or SWITCHES6_TSV).read_text().split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     header = lines[0].split("\t")
@@ -3242,25 +3256,30 @@ class Bench6KnobTests(BashCase):
                                             BENCH_NODE_READ_AHEAD_KB="")["BENCH_NODE_EVICT_MDBX"], "0")
 
     def test_switch_keys_are_the_rows_of_switches_tsv(self):
-        header, rows = switch_rows()
-        self.assertEqual(header, SWITCHES_HEADER)
-        self.assertEqual(["%s:%s" % (r["type"], r["key"]) for r in rows], SWITCH_KEYS)
-        for r in rows:
-            with self.subTest(key=r["key"]):
-                self.assertEqual(len(r), len(SWITCHES_HEADER), r)
-                self.assertRegex(r["key"], r"^[a-z][a-z0-9_]{0,62}$")
-                self.assertEqual(r["default"], SWITCH_DEFAULT[r["type"]])   # bench-5 behaviour
-                values = r["arm_values"].split(",")
-                self.assertTrue(values and all(SWITCH_ARM_VALUE[r["type"]].match(v) for v in values), r)
-                self.assertEqual(len(values), len(set(values)), r)
-                self.assertRegex(r["topic"], r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-                self.assertIn(r["optional"], ("yes", "no"))
-        self.assertEqual([r["key"] for r in rows if r["optional"] == "yes"], ["pipelined_persist"])
-        self.assertEqual({r["key"]: r["arm_values"] for r in rows if r["type"] != "bool"},
-                         {"quorum_exec_block_starved_rounds": "0,4", "recovery_threads": "3",
-                          "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "3"})
-        # config.sh carries the same list (one source of truth, kept equal here) and allows it per node.
+        # The live list (bench 7) and bench 6's, each in the frozen format; config.sh carries the live one.
+        for tsv, keys, optional, non_bool in (
+                (SWITCHES_TSV, SWITCH_KEYS, [], {"quorum_exec_block_starved_rounds": "0,4"}),
+                (SWITCHES6_TSV, SWITCH_KEYS_BENCH6, ["pipelined_persist"],
+                 {"quorum_exec_block_starved_rounds": "0,4", "recovery_threads": "3",
+                  "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "3"})):
+            header, rows = switch_rows(tsv)
+            self.assertEqual(header, SWITCHES_HEADER)
+            self.assertEqual(["%s:%s" % (r["type"], r["key"]) for r in rows], keys)
+            for r in rows:
+                with self.subTest(key=r["key"]):
+                    self.assertEqual(len(r), len(SWITCHES_HEADER), r)
+                    self.assertRegex(r["key"], r"^[a-z][a-z0-9_]{0,62}$")
+                    self.assertEqual(r["default"], SWITCH_DEFAULT[r["type"]])   # the behaviour before the switch
+                    values = r["arm_values"].split(",")
+                    self.assertTrue(values and all(SWITCH_ARM_VALUE[r["type"]].match(v) for v in values), r)
+                    self.assertEqual(len(values), len(set(values)), r)
+                    self.assertRegex(r["topic"], r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+                    self.assertIn(r["optional"], ("yes", "no"))
+            self.assertEqual([r["key"] for r in rows if r["optional"] == "yes"], optional)
+            self.assertEqual({r["key"]: r["arm_values"] for r in rows if r["type"] != "bool"}, non_bool)
+        # config.sh carries the live list (one source of truth, kept equal here) and allows it per node.
         got = self.bench_exports()
+        rows = switch_rows(SWITCHES_TSV)[1]
         self.assertEqual(got["BENCH_NODE_SWITCH_KEYS"].split(), ["%s:%s" % (r["type"], r["key"]) for r in rows])
         self.assertEqual(got["BENCH_NODE_PARAM_KEYS"].split(), TIMING_KEYS.split() + got["BENCH_NODE_SWITCH_KEYS"].split())
         # The literal export line stays the timing keys: tests/test_params_apply.py compares it to PARAM_KEYS.
@@ -3268,15 +3287,17 @@ class Bench6KnobTests(BashCase):
         self.assertEqual(line, TIMING_KEYS)
 
     def test_switch_keys_pass_the_per_node_override_check(self):
-        ov = ("4:quorum_exec_block=true,quorum_exec_block_starved_rounds=4,parent_grace=150ms "
-              "2:recovery_threads=3,rpc_admission_backlog_outputs=2")
+        # The live list's keys (bench 7); bench 6's own keys are unknown to it now.
+        ov = ("4:quorum_exec_block=true,quorum_exec_block_starved_rounds=4,digest_order_hold=true "
+              "2:epoch_record_recertify=true,epoch_record_conflict_halt=true,vote_queue_fix=true")
         self.assertEqual(self.bench_exports(BENCH_NODE_PARAM_OVERRIDES=ov)["BENCH_NODE_PARAM_OVERRIDES"], ov)
         for value, phrase in (("4:quorum_exec_block=yes", "is not true or false"),
-                              ("4:parent_grace=150", "is not <int>ms or <int>s"),
-                              ("4:recovery_threads=x", "is not a positive integer"),
+                              ("4:quorum_exec_block_starved_rounds=x", "is not a positive integer"),
                               # an override never needs a default: int 0 stays refused here, as for the timing keys
                               ("4:quorum_exec_block_starved_rounds=0", "is not a positive integer"),
-                              ("4:quorum_exec_blok=true", "unknown key 'quorum_exec_blok'")):
+                              ("4:quorum_exec_blok=true", "unknown key 'quorum_exec_blok'"),
+                              ("4:parent_grace=150ms", "unknown key 'parent_grace'"),
+                              ("2:recovery_threads=3", "unknown key 'recovery_threads'")):
             with self.subTest(value=value):
                 p = self.run_config(EXPORTS_OF, self.bench, BENCH_NODE_PARAM_OVERRIDES=value)
                 self.assertEqual(p.returncode, 1, p.stdout)

@@ -29,8 +29,11 @@ Bench-6 images also log, once per start after parameters.yaml is loaded, the nod
 
     message="node switches" quorum_exec_block=false ... parent_grace=150ms ...   (target node::switches)
 
-with one key=value field per switch of benchmark/arms/switches.tsv that the image knows, named as
-its parameters.yaml key, values as YAML scalars. scan_run() attaches each one to the start it
+with one key=value field per switch that the image knows, named as its parameters.yaml key, values
+as YAML scalars (bench 7 images print exactly their build's switches, in their own order). The list
+a run is read with is its build's: benchmark/arms/switches.tsv (the live build) or a retired build's
+switches-<build>.tsv beside it, whichever shares the most keys with what the run recorded
+(run_switch_rows()). scan_run() attaches each line to the start it
 follows in the same file (start["switches"], only on starts that logged one), and check() compares
 it with the switch state the manifest says was in force at that start (check_switches()). A run
 none of whose starts logged the line and whose image contract does not require it (benches 3-5)
@@ -75,7 +78,7 @@ import re
 import stat
 import sys
 import tempfile
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 # --- patterns ------------------------------------------------------------------------------
 
@@ -594,8 +597,9 @@ def listed_instances(manifest: Optional[Dict[str, Any]]) -> List[str]:
 
 
 # --- node switches (bench 6): the switch line of every start against the arm in force -------
-# benchmark/arms/switches.tsv (columns key, type, default, arm_values, topic, optional) is the one
-# list of switches; manifest param_arms[].switches holds the full state an arm file puts every
+# benchmark/arms/switches.tsv (columns key, type, default, arm_values, topic, optional) is the live
+# build's list of switches, and a run is read with its own build's list (run_switch_rows(), below);
+# manifest param_arms[].switches holds the full state an arm file puts every
 # node in, and an arm given with --set changes the switches its nodes[<instance>] entry wrote;
 # before the first arm every switch is at its default, or at the value
 # consensus_parameters.overrides gave that node. A `via: "prestart"` arm is in force from its
@@ -625,6 +629,54 @@ def switch_rows(path: Optional[str] = None) -> List[Dict[str, Any]]:
             raise ValueError("%s:%d: not a switch row" % (path, n))
         rows.append({"key": cells[0], "type": cells[1], "default": cells[2], "optional": cells[5] == "yes"})
     return rows
+
+
+# Each build has its own switch list: switches.tsv is the live build's, and each retired build's
+# list stays beside it as switches-<build>.tsv (bench 6's twelve switches: switches-bench6.tsv), so
+# a run is read with the list of the build it ran (run_switch_rows()).
+_RETIRED_TSV_RE = re.compile(r"^switches-[a-z0-9][a-z0-9-]{0,39}\.tsv$")
+
+
+def switch_lists() -> List[Tuple[str, List[Dict[str, Any]]]]:
+    """[(file name, rows)] of every known switch list: the live SWITCHES_TSV first, then each
+    retired build's switches-<build>.tsv in its directory, in name order. Raises like
+    switch_rows(), for the live list too."""
+    lists = [(os.path.basename(SWITCHES_TSV), switch_rows(SWITCHES_TSV))]
+    d = os.path.dirname(SWITCHES_TSV)
+    for name in sorted(os.listdir(d)):
+        if _RETIRED_TSV_RE.match(name):
+            lists.append((name, switch_rows(os.path.join(d, name))))
+    return lists
+
+
+def recorded_switch_keys(manifest: Optional[Dict[str, Any]], starts: Optional[List[Dict[str, Any]]]) -> Set[str]:
+    """The switch keys a run recorded: the keys of every manifest param_arms[].switches state (the
+    arm tool writes an arm file's full state, every key of the list it read); when no arm recorded
+    a state, every key the run's node switch lines carry (start["switches"])."""
+    keys = set()  # type: Set[str]
+    for arm in (manifest or {}).get("param_arms") or []:
+        if isinstance(arm, dict) and isinstance(arm.get("switches"), dict):
+            keys.update(str(k) for k in arm["switches"])
+    if not keys:
+        for s in starts or []:
+            if isinstance(s.get("switches"), dict):
+                keys.update(s["switches"])
+    return keys
+
+
+def run_switch_rows(manifest: Optional[Dict[str, Any]],
+                    starts: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
+    """(file name, rows) of the switch list a run is read with: of switch_lists(), the one that
+    shares the most keys with recorded_switch_keys(); a tie, and a run that recorded no key, goes
+    to the live list. Raises like switch_lists()."""
+    lists = switch_lists()
+    keys = recorded_switch_keys(manifest, starts)
+    best, shared = lists[0], len(keys & {r["key"] for r in lists[0][1]})
+    for name, rows in lists[1:]:
+        n = len(keys & {r["key"] for r in rows})
+        if n > shared:
+            best, shared = (name, rows), n
+    return best
 
 
 def switch_value(kind: str, value: Any) -> Any:
@@ -741,13 +793,15 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
     begin of a first arm that is `via: "prestart"` (deploy step 7's stage-only start, judged
     against the defaults like any start before the first arm): "pre_arm" (how many),
     "pre_arm_off" (how many of them were not at the defaults), "pre_arm_starts" ([{"instance",
-    "ts"}]) and "pre_arm_begin" (that arm's begin as the manifest records it)."""
+    "ts"}]) and "pre_arm_begin" (that arm's begin as the manifest records it); plus, when a line
+    carries keys the list lacks (a note, not a problem: the node may have gained a switch), "extra"
+    ({key: starts}). The list is <rows>, else the run's own (run_switch_rows())."""
     required = switch_line_required(manifest)
     if not required and not any(isinstance(s.get("switches"), dict) for s in starts):
         return None
     problems = []  # type: List[str]
     try:
-        rows = rows if rows is not None else switch_rows()
+        rows = rows if rows is not None else run_switch_rows(manifest, starts)[1]
     except (OSError, ValueError) as exc:
         return {"required": required, "checked": 0, "matched": 0, "missing": 0,
                 "problems": ["node switches not checked: %s" % exc]}
@@ -757,6 +811,8 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
     missing = []  # type: List[str]
     pre_arm = []  # type: List[Dict[str, Any]]
     bad = {}  # type: Dict[Tuple[str, str, str, str], List[str]]
+    known = {r["key"] for r in rows}
+    extra = {}  # type: Dict[str, int]
     for s in starts:
         inst = s.get("instance") or "?"
         logged = s.get("switches")
@@ -765,6 +821,9 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
                 missing.append("%s at %s" % (inst, s.get("ts") or "?"))
             continue
         checked += 1
+        for key in logged:
+            if key not in known:
+                extra[key] = extra.get(key, 0) + 1
         when = ts_epoch(s.get("ts"))
         pre = staged_until is not None and when is not None and when < staged_until
         if pre:
@@ -791,6 +850,8 @@ def check_switches(starts: List[Dict[str, Any]], manifest: Optional[Dict[str, An
     if pre_arm:  # only with a first prestart arm that has a begin (staged_until)
         out.update(pre_arm=len(pre_arm), pre_arm_off=pre_off, pre_arm_starts=pre_arm,
                    pre_arm_begin=first[2].get("begin"))
+    if extra:
+        out["extra"] = dict(sorted(extra.items()))
     return out
 
 
@@ -812,7 +873,8 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
     fails with "no expected sha".
 
     Returns {"starts", "shas", "fork_schedule", "params", "expected_sha", "ok", "problems",
-    "checked_at" (ISO UTC)}, plus "switches" when (e) ran."""
+    "checked_at" (ISO UTC)}, plus "switches" when (e) ran and, with it, "switch_list" (the file
+    name of the list the run was read with, run_switch_rows()) when the lists could be read."""
     manifest = manifest or {}
     starts = list(scan.get("starts") or [])
     shas = sorted({s.get("sha") for s in starts if s.get("sha")})
@@ -913,6 +975,10 @@ def check(scan: Dict[str, Any], manifest: Optional[Dict[str, Any]], expect_sha: 
     }
     if switches is not None:
         result["switches"] = switches
+        try:
+            result["switch_list"] = run_switch_rows(manifest, starts)[0]
+        except (OSError, ValueError):
+            pass  # check_switches() reported it as a problem
     return result
 
 
@@ -983,6 +1049,11 @@ def _report(run_dir: str, scan: Dict[str, Any], result: Dict[str, Any]) -> str:
             lines.append("  node switches: %d start(s) before the arm began (staging), %s"
                          % (sw["pre_arm"], "%d NOT at the defaults" % sw["pre_arm_off"] if sw["pre_arm_off"]
                             else "all at the defaults"))
+        if result.get("switch_list"):
+            lines.append("  node switches: read with arms/%s, the list of the run's build" % result["switch_list"])
+        if sw.get("extra"):
+            lines.append("  node switches: note: the lines carry %s, which the list does not have (not compared)"
+                         % ", ".join("%s (%d start(s))" % kv for kv in sorted(sw["extra"].items())))
     for u in scan.get("unreadable") or []:
         lines.append("  warning: %s not read to the end: %s" % (u["file"], u["error"]))
     lines.append("  expected sha: %s" % (result.get("expected_sha") or "-"))

@@ -176,7 +176,9 @@ class Walk(object):
              "BENCH_PARAMETERS_FILE": str(self.root / "params.yaml"), "BENCH_RUN_ID": RUN_ID,
              "PA_GCLOUD": str(PA_FIX / "gcloud.py"), "PA_FIX": str(PA_FIX), "PA_NODES": str(self.nodes),
              "PA_NODE_BIN": str(self.nodebin), "PA_SHIM_LOG": str(self.root / "pa-calls.jsonl"),
-             "PA_SWITCHES_TSV": str(self.tree / "benchmark" / "arms" / "switches.tsv"),
+             # Run 1 is bench 6's walk: the arm tool and the fake nodes read bench 6's switch list (twelve keys).
+             "PA_SWITCHES_TSV": str(self.tree / "benchmark" / "arms" / "switches-bench6.tsv"),
+             "PARAMS_APPLY_SWITCHES_TSV": str(self.tree / "benchmark" / "arms" / "switches-bench6.tsv"),
              "PARAMS_APPLY_NODE_SCRIPTS_DIR": str(self.root / "node-scripts"), "PARAMS_APPLY_HEALTH_SECS": "30",
              "PARAMS_APPLY_RETRY_SECS": "0", "PARAMS_APPLY_GUARD_SECS": "0", "PARAMS_APPLY_GUARD_DEFER_SECS": "0",
              "PA_REAL_PYTHON3": sys.executable,

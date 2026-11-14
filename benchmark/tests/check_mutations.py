@@ -533,7 +533,7 @@ cases = [
      '    *[!a-z0-9/.-]*) _bench_bad=1 ;;',
      'test_node_image.Bench6KnobTests.test_boot_image_pin_and_refusals'),
     ('benchmark/config.sh',
-     ' bool:pipelined_persist"\n',
+     ' bool:epoch_record_recertify"\n',
      '"\n',
      'test_node_image.Bench6KnobTests.test_switch_keys_are_the_rows_of_switches_tsv'),
     ('benchmark/config.sh',
@@ -556,7 +556,7 @@ cases = [
      '    benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|benchmark-probe.sh|\\',
      '    benchmark-deploy.sh|benchmark-firewall.sh|benchmark-blast.sh|benchmark-teardown.sh|\\',
      'test_node_image.Bench6KnobTests.test_the_probe_driver_may_load_the_profile'),
-    ('benchmark/arms/switches.tsv',
+    ('benchmark/arms/switches-bench6.tsv',
      'pipelined_persist\tbool\tfalse\ttrue\tpipelined-persist\tyes',
      'pipelined_persist\tbool\tfalse\ttrue\tpipelined-persist\tno',
      'test_node_image.Bench6KnobTests.test_switch_keys_are_the_rows_of_switches_tsv'),
@@ -2550,6 +2550,63 @@ cases = [
      'test_host_probe.ReservePortsStepTests.test_the_prestart_check_passes_only_when_every_port_is_reserved'),
     ('benchmark/node-sampler.sh', " \\\n            -e 'every later write and commit fails' -e 'tn-lmdb: environment failed'", '',
      'test_recovery.SamplerFatalDbTests.test_tn_lmdb_latch_and_its_later_errors_count_as_fatal_db'),
+    # ---- bench7 switch lists ----
+    # (1) an arm key the live list lacks is accepted: the key check, or a retired build's line
+    ('benchmark/tools/params-apply.sh',
+     '                i="$(sw_idx "$2")" || arm_refuse "${ln}" "unknown switch \'$2\' (${SW_LIST}: ${SW_K[*]})"',
+     '                i="$(sw_idx "$2")" || continue',
+     'test_params_apply.Bench7ListTests.test_a_key_the_live_list_lacks_is_refused_naming_the_key_and_the_file'),
+    ('benchmark/tools/params-apply.sh', '                [ "${build}" = "${SW_BUILD}" ] \\', '                true \\',
+     'test_params_apply.Bench7ListTests.test_every_bench6_arm_is_refused_on_the_live_list'),
+    # (2) a listed key missing from the `node switches` line passes: the arm tool, step 9, the report
+    ('benchmark/tools/params-apply.sh', '            echo "absent ${k} - ${t}"', '            :',
+     'test_params_apply.Bench7ListTests.test_a_line_without_a_listed_key_stops_the_arm'),
+    ('benchmark/bench-lib.sh', '            out="${out}, ${k} is not on the line (expected ${want})"', '            :',
+     'test_params_apply.Bench7ListTests.test_deploy_step_9_reads_a_bench7_line_back'),
+    ('benchmark/report/provenance.py', '                out.append((k, "(absent)", want[k]))', '                pass',
+     'test_report_provenance.Bench7SwitchListTests.test_a_bench7_line_without_a_listed_key_fails'),
+    # (3) the live (bench 7) list leaks into a bench 6 run: the report's choice, the arm tool's and step 7's list
+    ('benchmark/report/provenance.py', '        if n > shared:', '        if False:',
+     'test_report_provenance.Bench7SwitchListTests.test_a_bench6_run_and_a_bench7_run_from_the_same_tree'),
+    ('benchmark/report/provenance.py',
+     '        rows = rows if rows is not None else run_switch_rows(manifest, starts)[1]',
+     '        rows = rows if rows is not None else switch_rows()',
+     'test_report_provenance.Bench7SwitchListTests.test_a_bench6_run_and_a_bench7_run_from_the_same_tree'),
+    ('benchmark/tools/params-apply.sh', 'SWITCHES_TSV="${PARAMS_APPLY_SWITCHES_TSV:-${SCRIPT_DIR}/../arms/switches.tsv}"',
+     'SWITCHES_TSV="${SCRIPT_DIR}/../arms/switches.tsv"',
+     'test_params_apply.ArmFilesTests.test_every_arm_file_parses'),
+    ('benchmark/bench-lib.sh', 'BENCH_SWITCHES_TSV="${PARAMS_APPLY_SWITCHES_TSV:-${BENCH_LIB_DIR}/arms/switches.tsv}"',
+     'BENCH_SWITCHES_TSV="${BENCH_LIB_DIR}/arms/switches.tsv"',
+     'test_node_image.ArmLibTests.test_the_real_print_state_feeds_the_reader'),
+    # an extra key on the line is a note
+    ('benchmark/report/provenance.py', '            if key not in known:', '            if False:',
+     'test_report_provenance.Bench7SwitchListTests.test_a_key_the_list_lacks_is_a_note_not_a_problem'),
+    # ---- bench7 arms-summary: the run's switch list; the whole vote path ----
+    # (1) the tool ignores the run's list and reads switches.tsv; the nodes' switch lines are not consulted
+    ('benchmark/tools/arms-summary.py', '        name = provenance.run_switch_rows(manifest, starts)[0]',
+     '        name = "switches.tsv"',
+     'test_arms_summary.ArmsSummaryTests.test_a_run_is_read_with_its_builds_switch_list'),
+    ('benchmark/tools/arms-summary.py', '    if evidence is None and line_keys:', '    if False:',
+     'test_arms_summary.ArmsSummaryTests.test_the_nodes_switch_lines_tell_the_build_when_param_arms_does_not'),
+    # (2) the vote gate reads lock_ms again; the lock_ms check stays beside the total_ms one; a line without
+    # prelock_wait_ms is left out instead of counting 0; superseded refusals are not counted
+    ('benchmark/tools/arms-summary.py', '        out["vote_total_p95_ms"] = pctl(totals, 0.95) if totals else miss',
+     '        out["vote_total_p95_ms"] = pctl(locks, 0.95) if locks else miss',
+     'test_arms_summary.ArmsSummaryTests.test_the_vote_gate_reads_the_whole_vote_path'),
+    ('benchmark/tools/arms-summary.py', '            if key in replaced or (key in CHECK_REPLACES and key not in m):',
+     '            if key in CHECK_REPLACES and key not in m:',
+     'test_arms_summary.ArmsSummaryTests.test_the_vote_gate_reads_the_whole_vote_path'),
+    ('benchmark/tools/arms-summary.py',
+     '        out["vote_prelock_p95_ms"] = pctl([v[7] if v[7] is not None else 0 for v in votes], 0.95)',
+     '        out["vote_prelock_p95_ms"] = pctl([v[7] for v in votes if v[7] is not None], 0.95)',
+     'test_arms_summary.ArmsSummaryTests.test_the_vote_gate_reads_the_whole_vote_path'),
+    ('benchmark/tools/arms-summary.py', '        out["votes_superseded"] = sum(1 for v in votes if v[4] == F["v_superseded"])',
+     '        out["votes_superseded"] = 0',
+     'test_arms_summary.ArmsSummaryTests.test_the_vote_gate_reads_the_whole_vote_path'),
+    # (3) the new vote keys on a run whose lines lack prelock_wait_ms (a bench-6 run would change)
+    ('benchmark/tools/arms-summary.py', '    return any(v[7] is not None for n in validators if n in nds for v in nds[n].votes)',
+     '    return True',
+     'test_arms_summary.ArmsSummaryTests.test_a_vote_line_without_prelock_wait_reads_as_before'),
 ]
 
 

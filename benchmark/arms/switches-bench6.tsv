@@ -1,0 +1,13 @@
+key	type	default	arm_values	topic	optional
+quorum_exec_block	bool	false	true	quorum-exec-block	no
+quorum_exec_block_starved_rounds	int	0	0,4	quorum-exec-block	no
+vote_queue_fix	bool	false	true	voter-lock	no
+mdbx_random_advice	bool	false	true	mdbx-advice	no
+sealed_tx_keep	bool	false	true	sealed-keep	no
+digest_dedupe	bool	false	true	digest-dedupe	no
+recovery_threads	int	0	3	recovery-pool	no
+epoch_close_task_drain	bool	false	true	tracker-drain	no
+epoch_record_state_check	bool	false	true	tracker-drain	no
+parent_grace	dur	0ms	150ms,100ms	parent-grace	no
+rpc_admission_backlog_outputs	int	0	3	inflight-bound	no
+pipelined_persist	bool	false	true	pipelined-persist	yes

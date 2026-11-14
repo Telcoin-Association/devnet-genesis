@@ -1104,10 +1104,10 @@ def _arm_values_text(rows):
 def prestart_switches(manifest, where, arm):
     """The switch state of an arm deploy step 7 applied before the first start (via "prestart",
     BENCH_ARM_FILE) as arm values text: "all <n> nodes: k=v, ..." over the switches it sets away
-    from their switches.tsv default, n the nodes the manifest lists; "" when every switch is at
+    from their default in the run's own switch list, n the nodes the manifest lists; "" when every switch is at
     its default. The values are checked as _node_values checks a written one."""
     try:
-        rows = provenance.switch_rows()
+        rows = provenance.run_switch_rows(manifest)[1]
     except (OSError, ValueError) as e:
         raise BundleError("%s.switches: cannot read the switch list: %s" % (where, e))
     sw = arm["switches"]

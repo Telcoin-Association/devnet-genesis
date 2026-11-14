@@ -3,5 +3,6 @@
 # drop the host line for a plain control.
 # Must show the drift bound: when commit us/tx moved more than 15 % against A0, only adjacent arms
 # are compared.
+build bench6
 name a0-prime
 host evict-mdbx

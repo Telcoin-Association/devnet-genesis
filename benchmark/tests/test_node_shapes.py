@@ -43,6 +43,9 @@ NEW_ARRAYS = ("NODE_MACHINE_TYPES", "NODE_DATADIR_LSSD")
 # base file does not have.
 NEW_SCALARS = ("BENCH_NODE_ALLOW_FAUCET_ON_CHAIN", "BENCH_NODE_RESERVE_PORTS")
 NEW_NAMES = NEW_ARRAYS + NEW_SCALARS
+# Bench 7's switch list (arms/switches.tsv, seven keys) replaced bench 6's twelve, so these two values differ from the
+# base on purpose; test_node_image.Bench6KnobTests and test_params_apply.KeyListTests pin them to the tsv.
+CHANGED_VALUES = ("BENCH_NODE_SWITCH_KEYS", "BENCH_NODE_PARAM_KEYS")
 # Bash's own variables that change from one shell to the next (or with the sourced file's name).
 VOLATILE = {"BASHPID", "BASH_ARGC", "BASH_ARGV", "BASH_ARGV0", "BASH_COMMAND", "BASH_LINENO", "BASH_MONOSECONDS",
             "BASH_SOURCE", "BASH_SUBSHELL", "EPOCHREALTIME", "EPOCHSECONDS", "FUNCNAME", "HISTCMD", "LINENO",
@@ -245,7 +248,8 @@ class KnobUnsetTests(Sandbox):
                     self.assertIn(name, changed)
                 self.assertEqual(sorted(set(changed) - set(NEW_NAMES)), sorted(base))
                 for name in sorted(base):
-                    self.assertEqual(changed[name], base[name], name)
+                    if name not in CHANGED_VALUES:
+                        self.assertEqual(changed[name], base[name], name)
                 arrays, scalars = self.show(**env)
                 mt = env.get("BENCH_MACHINE_TYPE", HIGHCPU)
                 self.assertEqual(scalars["MACHINE_TYPE"], mt)

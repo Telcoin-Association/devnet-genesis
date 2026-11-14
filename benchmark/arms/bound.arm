@@ -2,6 +2,7 @@
 # persist, which holds one more output in flight; the design's value without it is 2).
 # Abort the arm when a validator enters with rounds-behind >= 30.
 # Must show: seen p50 and p95 at M16 against M4; time blocked at the window; tx/s not lower.
+build bench6
 name bound
 param mdbx_random_advice true
 param quorum_exec_block true

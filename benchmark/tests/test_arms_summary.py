@@ -424,6 +424,64 @@ def make_lmdb_run(root, growth_every=30, drop_save=False, backends=None):
                 w.writerow(row)
     return run
 
+
+# ---- bench7 HB-2f: the run's switch list; the whole vote path ----
+# The bench-7 build's seven switches (arms/switches.tsv) at their defaults, and bench 6's twelve (DEFAULTS above).
+B7_DEFAULTS = {"quorum_exec_block": "false", "quorum_exec_block_starved_rounds": "0", "vote_queue_fix": "false",
+               "digest_order_hold": "false", "epoch_record_collect_past_uncertified": "false",
+               "epoch_record_conflict_halt": "false", "epoch_record_recertify": "false"}
+SWITCH_LINE = 'ts={ts} level=info target=node::switches message="node switches"{fields}'
+# The bench-7 node's line (crates/consensus/primary/src/network/handler.rs observe_vote): prelock_wait_ms after outcome.
+VOTE7 = ('ts={ts} level=debug target=primary::network message="vote path timing" author={author} round={round} epoch=3 '
+         'outcome={outcome}{prelock} lock_ms={lock_ms} validate_ms=0 exec_wait_ms=0 parents_ms=0 lead_ms=0 batches_ms=0 '
+         'store_ms=0 persist_ms=0 total_ms={total_ms}')
+# arm switch states of make_bench7_run: p1 holds the digests (no role), v turns on the vote topics, a0 / a0b controls
+B7_ARMS = {"p1": {"digest_order_hold": "true"}, "v": {"quorum_exec_block": "true", "vote_queue_fix": "true"}}
+
+
+def b7_vote(vi, i):
+    """(outcome, prelock_wait_ms or None, lock_ms, total_ms) of validator <vi>'s vote <i> (round 4400 + 2i) in v's M16:
+    v01-v03 wait 5i ms before the lock, v04's lines lack the field (a bench-6 shape: counts 0); every vote 7 ms on the
+    lock; total = prelock + lock + 3; i % 40 == 5 refused as superseded, header (A1, 4500) refused as behind by v01, v02."""
+    prelock = None if vi == 3 else 5 * i
+    outcome = "superseded" if i % 40 == 5 else "behind" if (i == 50 and vi < 2) else "created"
+    return outcome, prelock, 7, (prelock or 0) + 7 + 3
+
+
+def make_bench7_run(root, recorded=True, line_keys=None, **kw):
+    """make_run(**kw) as a bench-7 build runs it: param_arms[].switches over the seven bench-7 keys (B7_ARMS), when
+    <recorded>, else no switch state at all; the 'vote path timing' lines in v's M16 by b7_vote(); with <line_keys>, a
+    'node switches' line with those keys at their values in B7_DEFAULTS / DEFAULTS on every node at T0 + 50."""
+    run = make_run(root, **kw)
+    man = json.loads((run / "manifest.json").read_text())
+    for a in man["param_arms"]:
+        if recorded:
+            a["switches"] = dict(B7_DEFAULTS, **B7_ARMS.get(a["name"], {}))
+        else:
+            del a["switches"]
+    (run / "manifest.json").write_text(json.dumps(man))
+    values = dict(DEFAULTS, **B7_DEFAULTS)
+    for vi, node in enumerate(VALIDATORS):
+        log = run / "logs" / (node + "-unit-stdout.log.gz")
+        lines = [l for l in gzip.decompress(log.read_bytes()).decode().split("\n") if l and "vote path timing" not in l]
+        for i in range(240):
+            outcome, prelock, lock, total = b7_vote(vi, i)
+            lines.append(VOTE7.format(ts=stamp(4400 + 2 * i + 0.3), author="A1", round=4400 + 2 * i, outcome=outcome,
+                                      prelock="" if prelock is None else " prelock_wait_ms=%d" % prelock, lock_ms=lock,
+                                      total_ms=total))
+        if line_keys:
+            lines.append(SWITCH_LINE.format(ts=stamp(50), fields="".join(" %s=%s" % (k, values[k]) for k in line_keys)))
+        lines.sort()
+        log.write_bytes(gzip.compress(("\n".join(lines) + "\n").encode()))
+    return run
+
+
+def nearest_rank(xs, q):
+    """The tool's percentile: the nearest rank (ceil(q x n), 1-based) of the sorted values."""
+    xs = sorted(xs)
+    return xs[max(0, -(-int(q * 100) * len(xs) // 100) - 1)]
+
+
 def mid(xs, d):
     """The median the tool takes (statistics.median): the middle value, or the mean of the middle two."""
     xs = sorted(xs)
@@ -432,7 +490,8 @@ def mid(xs, d):
 
 
 # The harness before the local-SSD deployment (tasks/bench6/briefs/l-common.md): without data_disk the tool's
-# arms.md and arms.json are this commit's. RUN_BASE runs a `git show` copy of its tool beside the real siblings.
+# arms.md and arms.json are this commit's. RUN_BASE runs a `git show` copy of its tool beside the real siblings, with
+# BENCH = base_bench(): the commit's own arms/switches.tsv (bench 6's list) beside the real report/ and the rest.
 BASE_COMMIT = "ae43747"
 RUN_BASE = ("import importlib.util, sys\n"
             "spec = importlib.util.spec_from_file_location('arms_summary_base', sys.argv[1])\n"
@@ -1034,6 +1093,22 @@ class ArmsSummaryTests(unittest.TestCase):
         utc = re.compile(r'"generated_utc": "[^"]*"')
         return [utc.sub('"generated_utc": "-"', (out / f).read_text()) for f in ("arms.md", "arms.json")]
 
+    def base_bench(self, commit):
+        """The benchmark/ directory <commit>'s tool runs against: <commit>'s own arms/switches.tsv (bench 6's twelve
+        switches, the list it read) and a link to every other entry of the real one. The real arms/switches.tsv is the
+        live build's (bench 7's seven since the switch lists became per build), which <commit> never read."""
+        p = subprocess.run(["git", "-C", str(TESTS), "show", "%s:benchmark/arms/switches.tsv" % commit],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if p.returncode != 0:
+            self.skipTest("commit %s is not in this checkout (shallow clone?)" % commit)
+        bench = self.tmp / ("bench-" + commit)
+        (bench / "arms").mkdir(parents=True)
+        (bench / "arms" / "switches.tsv").write_text(p.stdout)
+        for entry in TOOLS.parent.iterdir():
+            if entry.name != "arms":
+                os.symlink(str(entry), str(bench / entry.name))
+        return bench
+
     def test_without_data_disk_the_output_is_the_base_commits(self):
         """bench 6 local SSD: with no instances[].data_disk (every run so far) arms.md and arms.json are BASE_COMMIT's,
         byte for byte (generated_utc aside), on every fixture these tests build and with every option they pass;
@@ -1046,6 +1121,7 @@ class ArmsSummaryTests(unittest.TestCase):
             self.skipTest("commit %s is not in this checkout (shallow clone?)" % BASE_COMMIT)
         base = self.tmp / "base-arms-summary.py"
         base.write_text(p.stdout)
+        base_bench = self.base_bench(BASE_COMMIT)
 
         def types_only(run):
             man = json.loads((run / "manifest.json").read_text())
@@ -1070,7 +1146,7 @@ class ArmsSummaryTests(unittest.TestCase):
                 run = make_run(root, **kw)
                 if post:
                     post(run)
-                want = self.raw(run, root / "base", [sys.executable, "-c", RUN_BASE, str(base), str(TOOLS), str(TOOLS.parent)],
+                want = self.raw(run, root / "base", [sys.executable, "-c", RUN_BASE, str(base), str(TOOLS), str(base_bench)],
                                 args)
                 self.assertEqual(self.raw(run, root / "now", [sys.executable, str(TOOL)], args), want)
 
@@ -1121,6 +1197,7 @@ class ArmsSummaryTests(unittest.TestCase):
             self.skipTest("commit %s is not in this checkout (shallow clone?)" % HEAD_COMMIT)
         base = self.tmp / "head-arms-summary.py"
         base.write_text(p.stdout)
+        base_bench = self.base_bench(HEAD_COMMIT)
         for name, make in (("bench6", lambda r: make_run(r, bench6=True, disk=dict(CAPS))),
                            ("disk", lambda r: make_run(r, disk=dict(CAPS))), ("split", make_split_run)):
             with self.subTest(fixture=name):
@@ -1128,7 +1205,7 @@ class ArmsSummaryTests(unittest.TestCase):
                 root.mkdir()
                 run = make(root)
                 want = self.raw(run, root / "base", [sys.executable, "-c", RUN_BASE, str(base), str(TOOLS),
-                                                     str(TOOLS.parent)], ("--no-stages",))
+                                                     str(base_bench)], ("--no-stages",))
                 self.assertEqual(self.raw(run, root / "now", [sys.executable, str(TOOL)], ("--no-stages",)), want)
 
     def test_tn_lmdb_store_figures(self):
@@ -1179,6 +1256,120 @@ class ArmsSummaryTests(unittest.TestCase):
         e = self.rows(doc)["a0/M16"]["engine_by_node"]["bench-validator-02"]
         self.assertEqual(e["wr_ops_per_tx"], "n/a (missing: a tn-lmdb store on this node (MDBX))")
         self.assertEqual(self.rows(doc)["a0/M16"]["wr_ops_per_tx_median"], 180.0)
+
+    # ---- bench7 HB-2f: the run's switch list; the whole vote path ----
+    def switch_notes(self, doc):
+        return [n for n in doc["notes"] if n.startswith("switch list:")]
+
+    def test_a_run_is_read_with_its_builds_switch_list(self):
+        """A bench-7 run (param_arms[] over the seven bench-7 keys) gets the seven-key columns and a bench-6 run (the
+        twelve bench-6 keys) the twelve: the switches-on column, the roles and the controls; param_arms[] decided, so
+        neither carries a note."""
+        cols = ("a0/M16", "p1/M16", "v/M16", "a0b/M16")
+        doc, _ = self.summary(make_bench7_run(self.tmp / "b7"), "--no-stages")
+        rows = self.rows(doc)
+        self.assertEqual([rows[k]["switch_set"] for k in cols],
+                         ["all defaults", "digest_order_hold=true", "quorum_exec_block=true,vote_queue_fix=true",
+                          "all defaults"])
+        self.assertEqual([(a["arm_name"], a["roles"], a["control"]) for a in doc["arm_list"]],
+                         [("a0", ["control"], True), ("p1", ["persist"], False), ("v", ["vote"], False),
+                          ("a0b", ["control", "drift"], True)])
+        self.assertEqual(self.switch_notes(doc), [])
+        doc, _ = self.summary(make_run(self.tmp / "b6", bench6=True), "--no-stages")
+        rows = self.rows(doc)
+        self.assertEqual([rows[k]["switch_set"] for k in cols],
+                         ["all defaults", "mdbx_random_advice=true", "mdbx_random_advice=true,quorum_exec_block=true,"
+                          "vote_queue_fix=true", "parent_grace=150ms,pipelined_persist=true,recovery_threads=3,"
+                          "rpc_admission_backlog_outputs=2,sealed_tx_keep=true"])
+        self.assertEqual([(a["arm_name"], a["roles"], a["control"]) for a in doc["arm_list"]],
+                         [("a0", ["control"], True), ("p1", ["persist"], False), ("v", ["vote"], False),
+                          ("a0b", ["bound", "grace", "pipe", "pool"], False)])
+        self.assertEqual(self.switch_notes(doc), [])
+        mod = load("arms_summary_lists", TOOL)
+        for run, want in ((self.tmp / "b7", "switches.tsv"), (self.tmp / "b6", "switches-bench6.tsv")):
+            man = json.loads((run / "r20261112-0000" / "manifest.json").read_text())
+            self.assertEqual(mod.run_switch_list(man), (want, "manifest"))
+
+    def test_the_nodes_switch_lines_tell_the_build_when_param_arms_does_not(self):
+        """param_arms[] without a switch state: the keys on the run's 'node switches' lines choose the list, and a note
+        names it; with no key anywhere the live list, and a note saying so; a run without param_arms[] reads no switch
+        state and gets no note; recorded states win over the lines."""
+        for name, keys, want in (("b7", list(B7_DEFAULTS), "switches.tsv"), ("b6", list(DEFAULTS), "switches-bench6.tsv")):
+            doc, md = self.summary(make_bench7_run(self.tmp / name, recorded=False, line_keys=keys), "--no-stages")
+            note = ("switch list: arms/%s, the list whose keys the run's 'node switches' lines match best (param_arms[] "
+                    "records no switch state)" % want)
+            self.assertEqual(self.switch_notes(doc), [note])
+            self.assertIn("- " + note + "\n", md)
+        doc, md = self.summary(make_bench7_run(self.tmp / "none", recorded=False), "--no-stages")
+        note = ("switch list: arms/switches.tsv, the live build's, for want of evidence: no switch key in param_arms[] "
+                "nor on a 'node switches' line")
+        self.assertEqual(self.switch_notes(doc), [note])
+        self.assertIn("- " + note + "\n", md)
+        doc, _ = self.summary(make_run(self.tmp / "implicit", arms=False), "--no-stages")
+        self.assertEqual(self.switch_notes(doc), [])
+        doc, _ = self.summary(make_bench7_run(self.tmp / "both", line_keys=list(DEFAULTS)), "--no-stages")
+        self.assertEqual((self.switch_notes(doc), self.rows(doc)["p1/M16"]["switch_set"]), ([], "digest_order_hold=true"))
+        mod = load("arms_summary_lines", TOOL)
+        self.assertEqual(mod.run_switch_list({}, ["digest_dedupe", "sealed_tx_keep", "quorum_exec_block"]),
+                         ("switches-bench6.tsv", "lines"))
+        self.assertEqual(mod.run_switch_list({}, ["quorum_exec_block", "vote_queue_fix"]), ("switches.tsv", "lines"))
+        self.assertEqual(mod.run_switch_list({"param_arms": [{"name": "a0"}]}), ("switches.tsv", None))
+
+    def test_the_vote_gate_reads_the_whole_vote_path(self):
+        """Bench 7 (the lines carry prelock_wait_ms): total_ms p50 / p95 and prelock_wait_ms p95 beside lock_ms, a line
+        without prelock_wait_ms counting 0; the vote gate on total_ms p95 instead of lock_ms p95; superseded refusals
+        counted beside behind; arms.md's legend says what each is."""
+        doc, md = self.summary(make_bench7_run(self.tmp), "--no-stages")
+        rows = self.rows(doc)
+        v = rows["v/M16"]
+        votes = [b7_vote(vi, i) for vi in range(4) for i in range(240)]
+        totals, pre = [x[3] for x in votes], [x[1] or 0 for x in votes]
+        self.assertEqual((v["vote_total_p50_ms"], v["vote_total_p95_ms"], v["vote_prelock_p95_ms"]),
+                         (nearest_rank(totals, 0.5), nearest_rank(totals, 0.95), nearest_rank(pre, 0.95)))
+        self.assertEqual((v["vote_total_p50_ms"], v["vote_total_p95_ms"], v["vote_prelock_p95_ms"], v["vote_lock_p95_ms"]),
+                         (405, 1125, 1115, 7))      # v04's 240 lines without the field: 1135 if they were left out
+        self.assertEqual(v["votes_superseded"], 24)
+        self.assertEqual(v["votes_refused_superseded"], dict((n, 6) for n in VALIDATORS))
+        self.assertEqual(v["votes_refused_behind"], {"bench-validator-01": 1, "bench-validator-02": 1,
+                                                     "bench-validator-03": 0, "bench-validator-04": 0})
+        # the gate: total_ms p95 1,125 ms is not met where lock_ms p95 (7 ms) would have passed; no lock_ms check
+        for row, want in (("v/M16", (1125, False)), ("v/L", ("n/a (missing: 'vote path timing' lines in the window)", None))):
+            checks = dict((x["check"], (x["value"], x["met"])) for x in rows[row]["verdict"])
+            self.assertEqual(checks["total_ms p95 < 1100"], want)
+            self.assertNotIn("lock_ms p95 < 1100", checks)
+        self.assertIn("total_ms p95 < 1100: 1125 not met", md)
+        self.assertEqual(md.count("Votes (the 'vote path timing' lines carry prelock_wait_ms): total_ms is a vote "
+                                  "request's whole path on the voter, from its arrival to the answer; prelock_wait_ms "
+                                  "the part of it spent before the vote lock"), 1)
+        self.assertIn("The vote gate reads total_ms p95, so an arm with vote_queue_fix on is judged like one with it off; "
+                      "lock_ms p95 stays beside it.", md)
+        self.assertIn("Votes: total_ms p50 / p95 405 / 1125 (the gate); prelock_wait_ms p95 1115; lock_ms p95 7; behind "
+                      "refusals per header, max 2; superseded refusals 24. Commit fit: ", md)
+        self.assertIn("votes refused as behind bench-validator-01 1, bench-validator-02 1, bench-validator-03 0, "
+                      "bench-validator-04 0; as superseded bench-validator-01 6, bench-validator-02 6, bench-validator-03 "
+                      "6, bench-validator-04 6.", md)
+
+    def test_a_vote_line_without_prelock_wait_reads_as_before(self):
+        """A bench-6 run (no line carries prelock_wait_ms): no new key, no legend, the gate on lock_ms p95. The reader
+        takes either shape: total_ms always, prelock_wait_ms or None."""
+        doc, md = self.summary(make_run(self.tmp), "--no-stages")
+        v = self.rows(doc)["v/M16"]
+        for k in ("vote_total_p50_ms", "vote_total_p95_ms", "vote_prelock_p95_ms", "votes_superseded",
+                  "votes_refused_superseded"):
+            self.assertNotIn(k, v)
+        checks = [x["check"] for x in v["verdict"]]
+        self.assertIn("lock_ms p95 < 1100", checks)
+        self.assertNotIn("total_ms p95 < 1100", checks)
+        self.assertNotIn("prelock_wait_ms", md)
+        self.assertIn("Votes: lock_ms p95 227; behind refusals per header, max 2. Commit fit: ", md)
+        mod = load("arms_summary_votes", TOOL)
+        log = self.tmp / "votes.log"
+        log.write_text(shapes()["vote"].format(ts=stamp(1), author="A1", round=8, outcome="created", lock_ms=5) + "\n" +
+                       VOTE7.format(ts=stamp(2), author="A1", round=10, outcome="superseded", prelock=" prelock_wait_ms=1000",
+                                    lock_ms=7, total_ms=1017) + "\n")
+        nd = mod.NodeData("bench-validator-01", [(T0, T0 + 10)])
+        nd.read(str(log), False)
+        self.assertEqual([x[4:] for x in nd.votes], [("created", 5, 5, None), ("superseded", 7, 1017, 1000)])
 
 
 class ArmWindowToolsTests(unittest.TestCase):

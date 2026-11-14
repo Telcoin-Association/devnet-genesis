@@ -1,6 +1,7 @@
 # GR150: a 150 ms parent grace, on top of BOUND.
 # Must show: v02 and v06 own certificates committed >= 90 % at idle and light load; parents per
 # header >= 9.5; grace `expired` < 1 %.
+build bench6
 name gr150
 param mdbx_random_advice true
 param quorum_exec_block true

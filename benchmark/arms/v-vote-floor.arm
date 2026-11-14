@@ -1,6 +1,7 @@
 # V, floor variant (optional comparison arm): V with quorum_exec_block_starved_rounds 0, so every
 # header uses the quorum rule. The 0 line is the default, written out to make the variant plain.
 # Must show the same as V; compare own-header certification and exec lag with v-vote.
+build bench6
 name v-vote-floor
 param mdbx_random_advice true
 param quorum_exec_block true

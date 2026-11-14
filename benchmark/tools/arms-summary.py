@@ -23,6 +23,12 @@ chaos action inside it (an archived blast's from its manifest copy). Blasts whos
 listed, not measured. The type is the first row of TYPES that matches the blast. An arm that repeats
 the switch state of the arm before it (a resumed arm, <name>-r2) keeps that arm's roles.
 
+Switch list. A run is read with the switch list of its build (the roles, the controls, the switches-on
+column): arms/switches.tsv (the live build) or a retired build's arms/switches-<build>.tsv, the one that
+shares the most keys with the run's param_arms[].switches states (report/provenance.py run_switch_rows).
+When param_arms[] records no state, the keys on the nodes' 'node switches' lines decide and a note names
+the list; a tie or no key in either place gives the live list, with a note when the run has param_arms[].
+
 Columns (each "n/a (missing: <what>)" when its input is absent; never a silent zero):
   chain tx/s     sum of tx_count over the blocks timestamped in the window (every generator's block
                  table, de-duplicated by number) / seconds
@@ -124,6 +130,15 @@ Columns (each "n/a (missing: <what>)" when its input is absent; never a silent z
   verdict        the CHECKS rows that apply to the arm's role (from the topic of the switches it
                  turned on, switches.tsv) and the row's type: "<threshold>: <value> met|not met", or
                  n/a with the missing input. No other judgement.
+  votes          vote_lock_p95_ms (lock_ms on the validators' 'vote path timing' lines in the window) and
+                 behind_per_header_max (the most voters that refused one header as behind). (bench 7) Only when a
+                 line in a window carries prelock_wait_ms: vote_total_p50_ms / vote_total_p95_ms (total_ms, a
+                 request's whole path on the voter, from its arrival to the answer), vote_prelock_p95_ms
+                 (prelock_wait_ms, the wait before the vote lock, where vote_queue_fix moves the wait for execution
+                 out of lock_ms; a line without the field counts 0), votes_superseded (refused because a newer
+                 request of the same author had arrived), votes_refused_superseded per voter, and the vote gate
+                 reads total_ms p95 instead of lock_ms p95 (CHECK_REPLACES), so an arm with the switch on and one
+                 with it off are measured alike. A run without the field summarizes as before, byte for byte.
 
 Logs. Per node the files are stage-latency.py's choice ({node}-unit-stdout*.log*, else every
 {node}-*.log* but stderr). They are read from --prefiltered (default benchmark/work/prefilter/<run>/,
@@ -175,6 +190,12 @@ F = {
     # bench-7 node lines (tn-lmdb store): the engine the node opened, and the persist's save_blocks phase
     "msg_open_db": "opening database", "f_backend": "backend", "v_tn_lmdb": "tn-lmdb", "v_mdbx": "MDBX",
     "f_save_ms": "save_blocks_ms",
+    # bench-7 'vote path timing' fields and outcome (vote_queue_fix: the wait for execution moves before the vote lock)
+    "f_total_ms": "total_ms", "f_prelock_ms": "prelock_wait_ms", "v_superseded": "superseded",
+    # the node's switch line (report/provenance.py): its keys tell a run's build when param_arms[] records no state
+    "msg_switches": "node switches",
+    # report/provenance.py run_switch_rows(manifest, starts): a start's logged switch state
+    "pv_start_switches": "switches",
     "msg_proposed": "header proposed", "f_grace_ms": "grace_ms", "f_exec_policy": "exec_policy",
     "f_exec_tip": "exec_tip", "f_exec_block": "exec_block",
     "msg_grace_ended": "parent grace ended", "f_waited_ms": "waited_ms",
@@ -268,6 +289,7 @@ CHECKS = (
     ("vote", "own-header certification >= 98 % on every validator", ("L", "M16"), "cert_min_pct", ">=", 98.0),
     ("vote", "behind refusals per header <= f", ("L", "M16"), "behind_per_header_max_minus_f", "<=", 0),
     ("vote", "lock_ms p95 < 1100", ("L", "M16"), "vote_lock_p95_ms", "<", 1100.0),
+    ("vote", "total_ms p95 < 1100", ("L", "M16"), "vote_total_p95_ms", "<", 1100.0),
     ("vote", "no generator silent > 30 s", ("L", "M16"), "gen_silent_max_s", "<=", 30),
     ("pool", "landings >= 300 s = 0", ("M16",), "landings_ge300", "==", 0),
     ("pool", "task-tracker errors = 0", ("M16",), "tracker_errors", "==", 0),
@@ -276,6 +298,12 @@ CHECKS = (
      "grace_nodes_committed_min_pct", ">=", 90.0),
     (DRIFT, "commit us/tx moved <= 15 % against the first control", ("M16",), "drift_moved_pct_abs", "<=", 15.0),
 )
+# {metric: the metric whose check it replaces}: a row that holds the first is judged on it instead of the second, and a
+# row without it never gets its check. The vote gate reads the whole vote path (total_ms) on a run whose 'vote path
+# timing' lines carry prelock_wait_ms (bench 7): with vote_queue_fix on, the wait for execution moves out of lock_ms
+# into prelock_wait_ms, so lock_ms p95 falls by construction and would not compare an arm with the switch on to one
+# without it. A bench-6 run keeps the lock_ms check.
+CHECK_REPLACES = {"vote_total_p95_ms": "vote_lock_p95_ms"}
 LANDING_CLIFF_MS = 300000
 DRIFT_LIMIT = 0.15
 PREFAULT_ON_MIN = 0.9      # prefault on: sum(page_prefault) / growth of mdbx_last_pgno at least this (contract: "~")
@@ -390,6 +418,36 @@ def open_bin(path):
 def read_json(path):
     with open(path) as fh:
         return json.load(fh)
+
+
+def run_switch_list(manifest, line_keys=()):
+    """(file name, evidence) of the switch list a run is read with, the list of its build (report/provenance.py
+    run_switch_rows): of arms/switches.tsv (the live build) and each retired build's arms/switches-<build>.tsv, the one
+    that shares the most keys with the run's param_arms[].switches states, else with <line_keys> (the keys on the run's
+    'node switches' lines); a tie or no key at all gives switches.tsv. evidence: "manifest", "lines", None (no key in
+    either), or "error: <why>" when the lists could not be read (then switches.tsv)."""
+    sys.path.insert(0, os.path.join(BENCH, "report"))
+    try:
+        import provenance
+        starts = [{F["pv_start_switches"]: dict.fromkeys(line_keys)}] if line_keys else []
+        name = provenance.run_switch_rows(manifest, starts)[0]
+        evidence = "manifest" if provenance.recorded_switch_keys(manifest, None) else "lines" if line_keys else None
+        return name, evidence
+    except (ImportError, OSError, ValueError) as exc:
+        return "switches.tsv", "error: %s" % exc
+    finally:
+        sys.path.pop(0)
+
+
+def switch_list_note(name, evidence):
+    """The note of a run whose switch list param_arms[] did not decide (run_switch_list)."""
+    if evidence == "lines":
+        return ("switch list: arms/%s, the list whose keys the run's '%s' lines match best (param_arms[] records "
+                "no switch state)" % (name, F["msg_switches"]))
+    if evidence is None:
+        return ("switch list: arms/%s, the live build's, for want of evidence: no switch key in param_arms[] nor on a "
+                "'%s' line" % (name, F["msg_switches"]))
+    return "switch list: arms/%s, the run's own list could not be chosen (%s)" % (name, evidence)
 
 
 def switch_table(path):
@@ -656,6 +714,7 @@ def literals(sl, cr):
     lits = [F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["lit_tracker"], F["msg_proposed"],
             F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"], F["msg_pool_failed"]]
     lits.append(F["msg_open_db"])
+    lits.append(F["msg_switches"])          # its keys tell the run's build (run_switch_list)
     lits += list(sl.MSGS)
     for part in cr.EVENT_RE.pattern.split("|"):
         if re.search(r"[\\.^$*+?{}\[\]()]", part):
@@ -739,6 +798,7 @@ class NodeData(object):
         self.task = {}
         self.page_fields = False
         self.backend = None             # the engine the node's last 'opening database' line named (bench 7)
+        self.switch_keys = set()        # the keys on its 'node switches' lines, kept at any time (one a start)
         self.files = []
         self._seen = set()
 
@@ -749,9 +809,9 @@ class NodeData(object):
     def read(self, path, dedupe):
         want = (F["msg_persisted"], F["msg_executed"], F["msg_task"], F["msg_vote"], F["msg_proposed"],
                 F["msg_grace_ended"], F["msg_builder"], F["msg_advice_refused"], F["msg_recovered"],
-                F["msg_pool_failed"], F["msg_open_db"])
+                F["msg_pool_failed"], F["msg_open_db"], F["msg_switches"])
         anytime = (F["msg_builder"], F["msg_advice_refused"], F["msg_pool_failed"])
-        anytime += (F["msg_open_db"],)          # bench 7: once per node start, before any window
+        anytime += (F["msg_open_db"], F["msg_switches"])          # bench 7: once per node start, before any window
         with open_bin(path) as fh:
             for raw in fh:
                 line = raw.decode("utf-8", "replace")
@@ -787,8 +847,10 @@ class NodeData(object):
                 elif msg == F["msg_task"]:
                     self.task.setdefault(num(f.get(F["f_cn"])), num(f.get(F["f_task_ms"])))
                 elif msg == F["msg_vote"]:
+                    # then total_ms and bench 7's prelock_wait_ms (None on a line without the field)
                     self.votes.append((t, f.get(F["f_author"]), num(f.get(F["f_epoch"])), num(f.get(F["f_round"])),
-                                       f.get(F["f_outcome"]), num(f.get(F["f_lock_ms"]))))
+                                       f.get(F["f_outcome"]), num(f.get(F["f_lock_ms"])), num(f.get(F["f_total_ms"])),
+                                       num(f.get(F["f_prelock_ms"]))))
                 elif msg == F["msg_proposed"]:
                     self.proposed.append((t, num(f.get(F["f_grace_ms"])), f.get(F["f_exec_policy"]),
                                           num(f.get(F["f_exec_tip"])), num(f.get(F["f_exec_block"]))))
@@ -804,6 +866,8 @@ class NodeData(object):
                     self.pool_failed.append(t)
                 elif msg == F["msg_open_db"]:
                     self.backend = (f.get(F["f_backend"]) or "").strip('"') or self.backend
+                elif msg == F["msg_switches"]:
+                    self.switch_keys.update(f)
         self.files.append(os.path.basename(path))
 
     def finish(self):
@@ -1313,12 +1377,33 @@ def commit_fit(nds, validators, a, b):
             "r2": None if fit[3] is None else round(fit[3], 3), "n": len(pts)}
 
 
-def vote_rows(nds, validators, a, b):
+# Bench 7: the row keys of a run whose 'vote path timing' lines carry prelock_wait_ms, and arms.md's words for them.
+VOTE_PATH_KEYS = ("vote_total_p50_ms", "vote_total_p95_ms", "vote_prelock_p95_ms", "votes_superseded")
+VOTE_LEGEND = ("Votes (the '%(msg_vote)s' lines carry %(f_prelock_ms)s): %(f_total_ms)s is a vote request's whole "
+               "path on the voter, from its arrival to the answer; %(f_prelock_ms)s the part of it spent before the vote "
+               "lock (with vote_queue_fix on, the wait for execution, which moves there out of %(f_lock_ms)s; a line "
+               "without the field counts 0); %(f_lock_ms)s the wait for the vote lock. The vote gate reads "
+               "%(f_total_ms)s p95, so an arm with vote_queue_fix on is judged like one with it off; %(f_lock_ms)s p95 "
+               "stays beside it. Refusals: %(v_behind)s (the voter was not ready: its execution had not reached the "
+               "header's block) and %(v_superseded)s (a newer request of the same author had arrived; vote_queue_fix "
+               "on).")
+
+
+def prelock_logged(nds, validators):
+    """True when a validator's 'vote path timing' line in a row window carries prelock_wait_ms (a bench-7 build): the
+    run then gets VOTE_PATH_KEYS on every row and its vote gate reads total_ms (CHECK_REPLACES)."""
+    return any(v[7] is not None for n in validators if n in nds for v in nds[n].votes)
+
+
+def vote_rows(nds, validators, a, b, prelock_run=False):
     out = {}
     votes = [v for n in validators if n in nds for v in between(nds[n].votes, a, b)]
     if not votes:
         miss = na("'%s' lines in the window" % F["msg_vote"])
-        return {"vote_lock_p95_ms": miss, "behind_per_header_max": miss, "behind_per_header_max_minus_f": miss}
+        out = {"vote_lock_p95_ms": miss, "behind_per_header_max": miss, "behind_per_header_max_minus_f": miss}
+        if prelock_run:
+            out.update((k, miss) for k in VOTE_PATH_KEYS)
+        return out
     locks = [v[5] for v in votes if v[5] is not None]
     out["vote_lock_p95_ms"] = pctl(locks, 0.95) if locks else na("%s on '%s'" % (F["f_lock_ms"], F["msg_vote"]))
     per = collections.defaultdict(set)                         # header -> the voters that refused it as behind
@@ -1330,6 +1415,13 @@ def vote_rows(nds, validators, a, b):
     worst = max(len(x) for x in per.values()) if per else 0
     out["behind_per_header_max"] = worst
     out["behind_per_header_max_minus_f"] = worst - f
+    if prelock_run:     # bench 7: the whole vote path, the wait before the lock (0 where a line lacks it), superseded
+        totals = [v[6] for v in votes if v[6] is not None]
+        miss = na("%s on '%s'" % (F["f_total_ms"], F["msg_vote"]))
+        out["vote_total_p50_ms"] = pctl(totals, 0.5) if totals else miss
+        out["vote_total_p95_ms"] = pctl(totals, 0.95) if totals else miss
+        out["vote_prelock_p95_ms"] = pctl([v[7] if v[7] is not None else 0 for v in votes], 0.95)
+        out["votes_superseded"] = sum(1 for v in votes if v[4] == F["v_superseded"])
     return out
 
 
@@ -1405,7 +1497,7 @@ def series_in(prom, name, a, b):
     return [(n, [p for p in pts if a <= p[0] <= b]) for n, pts in sorted(prom[name].items())]
 
 
-def bench6_cols(nds, validators, a, b, r, prom, first):
+def bench6_cols(nds, validators, a, b, r, prom, first, prelock_run=False):
     """One row's bench-6 arm inputs (each n/a with what is missing, None where the arm's switch is off): storage,
     sealed keep, the admission bound, parent grace, the vote fix and the cycle time (commit interval)."""
     arm, m = r["arm_rec"], collections.OrderedDict()
@@ -1537,11 +1629,14 @@ def bench6_cols(nds, validators, a, b, r, prom, first):
     lag = [p[3] - p[4] for p in hdr if p[3] is not None and p[4] is not None]
     m["exec_lag_p50"] = median(lag) if lag else na("%s / %s on '%s'" % (F["f_exec_tip"], F["f_exec_block"],
                                                                          F["msg_proposed"]))
-    refused = collections.OrderedDict()
+    refused, superseded = collections.OrderedDict(), collections.OrderedDict()
     for n in validators:
         vs = between(nds[n].votes, a, b) if n in nds else []
         refused[n] = sum(1 for v in vs if v[4] == F["v_behind"]) if vs else na("'%s' lines in the window" % F["msg_vote"])
+        superseded[n] = sum(1 for v in vs if v[4] == F["v_superseded"]) if vs else refused[n]
     m["votes_refused_behind"] = refused
+    if prelock_run:     # bench 7: refused because a newer request of the same author arrived (vote_queue_fix on)
+        m["votes_refused_superseded"] = superseded
     # cycle time: the commit interval compares a pipelined arm with a sequential one; task_ms does not (D55)
     iv = []
     for n in validators:
@@ -1570,6 +1665,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
         csv_cache[name] = persist_rows(p) if os.path.isfile(p) else None
     stores = collections.OrderedDict((n, node_store(nds[n], csv_cache[n])) for n in sorted(nds))
     lmdb_run = F["v_tn_lmdb"] in stores.values()
+    prelock_run = prelock_logged(nds, validators)
     for r in rows:
         a, b = r["from"], r["to"]
         m = collections.OrderedDict()
@@ -1674,7 +1770,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["cert_by_validator"] = {}
             m["cert_min_pct"] = m["grace_nodes_committed_min_pct"] = na("validator logs for cert-rate.py")
             m["grace_nodes_certified_min_pct"] = m["cert_min_pct"]
-        m.update(vote_rows(nds, validators, a, b))
+        m.update(vote_rows(nds, validators, a, b, prelock_run))
         trk = [t for n in nds for t in between(nds[n].tracker, a, b, key=lambda x: x)]
         m["tracker_errors"] = len(trk) if nds else na("node logs")
         # generators
@@ -1730,7 +1826,7 @@ def measure(run_dir, manifest, rows, nds, validators, persist_dir, cert_doc, sta
             m["stage_seen_p95_s"] = sw_["h"].get(F["t_seen95"])
             m["stages"] = collections.OrderedDict((s, {"median_ms": v.get(F["t_p50ms"]), "n": v.get(F["t_count"])})
                                                   for s, v in sw_["p"].items())
-        m.update(bench6_cols(nds, validators, a, b, r, prom, first))
+        m.update(bench6_cols(nds, validators, a, b, r, prom, first, prelock_run))
         # drift axis position
         mid = (a + b) / 2.0
         if axis == "wall-min":
@@ -1813,8 +1909,11 @@ def apply_checks(rows):
         else:
             m["chain_txps_vs_prev"] = na("a previous arm's %s row with chain tx/s" % r["blast_type"])
         verdict = []
+        replaced = set(old for new, old in CHECK_REPLACES.items() if new in m)
         for role, label, types, key, op, thr in CHECKS:
             if role not in r["arm_rec"]["roles"] or (types is not None and r["blast_type"] not in types):
+                continue
+            if key in replaced or (key in CHECK_REPLACES and key not in m):
                 continue
             v = m.get(key)
             if v is None or is_na(v):
@@ -1911,6 +2010,10 @@ def to_markdown(doc, rows, drift, axis):
                 cell(m["wr_kib_per_op_median"]), cell(m["flush_ops_per_output_median"]), cell(m["commit_ms_output"]),
                 cell(m["save_blocks_ms_output_median"]), cell(m["store_growth_bytes_per_tx_median"])))
         out.append("")
+    vote_path = any(VOTE_PATH_KEYS[1] in r["m"] for r in rows)
+    if vote_path:       # bench 7: the vote lines carry prelock_wait_ms
+        out += [VOTE_LEGEND % dict((k, F[k]) for k in ("msg_vote", "f_prelock_ms", "f_total_ms", "f_lock_ms",
+                                                       "v_behind", "v_superseded")), ""]
     for r in rows:
         m = r["m"]
         groups = m.get("by_disk_class") or []
@@ -1927,10 +2030,11 @@ def to_markdown(doc, rows, drift, axis):
                 cell(e["task_us_tx"]), cell(e["txs_per_output"]), cell(e["commit_ms_output"]), cell(e["amp"]),
                 cell(e["rr_vma"]), cell(c.get("certified_pct")), cell(c.get("committed_pct"))))
         st = m["stages"]
-        out += ["", "Per node: prefault ratio %s; refault/min %s; votes refused as behind %s." % (
+        out += ["", "Per node: prefault ratio %s; refault/min %s; votes refused as behind %s%s." % (
             dict_cell(m["prefault_ratio_by_node"]), dict_cell(dict((n, e["refault_per_min"]) for n, e in
                                                                    m["engine_by_node"].items())),
-            dict_cell(m["votes_refused_behind"]))]
+            dict_cell(m["votes_refused_behind"]),
+            "; as %s %s" % (F["v_superseded"], dict_cell(m["votes_refused_superseded"])) if vote_path else "")]
         if any(not is_na(e["wr_iops"]) for e in m["engine_by_node"].values()):
             out += ["", "| node | write ops / output | KiB / op | flushes / output | write IOPS (peak) | write MiB/s (peak) "
                     "| ms / write | ms / flush | % of IOPS cap | % of MiB/s cap | binds | cap floor ms / output |",
@@ -1971,8 +2075,12 @@ def to_markdown(doc, rows, drift, axis):
                                cell(g["majfault_per_min"]), cell(g["memcg_refault_per_min"])))
         out += ["", "Stages (p50 ms): %s." % (st if is_na(st) else ", ".join(
             "%s %s" % (k, cell(v["median_ms"])) for k, v in st.items())),
-            "Votes: lock_ms p95 %s; behind refusals per header, max %s. Commit fit: %s." % (
+            "Votes: %slock_ms p95 %s; behind refusals per header, max %s%s. Commit fit: %s." % (
+                "%s p50 / p95 %s / %s (the gate); %s p95 %s; " % (
+                    F["f_total_ms"], cell(m["vote_total_p50_ms"]), cell(m["vote_total_p95_ms"]), F["f_prelock_ms"],
+                    cell(m["vote_prelock_p95_ms"])) if vote_path else "",
                 cell(m["vote_lock_p95_ms"]), cell(m["behind_per_header_max"]),
+                "; %s refusals %s" % (F["v_superseded"], cell(m["votes_superseded"])) if vote_path else "",
                 m["commit_fit"] if is_na(m["commit_fit"]) else "a %.4f s + b %s s per 1k txs + c %.4f s/min, r2 %s, n %d" % (
                     m["commit_fit"]["a_s"], cell(m["commit_fit"]["b_s_per_1k_txs"]), m["commit_fit"]["c_s_per_min"],
                     m["commit_fit"]["r2"], m["commit_fit"]["n"])), ""]
@@ -2023,7 +2131,8 @@ def summarize(a):
     manifest = read_json(manifest_path) if os.path.isfile(manifest_path) else {}
     run = manifest.get(F["m_run_id"]) or run
     notes = []
-    switches = switch_table(os.path.join(BENCH, "arms", "switches.tsv"))
+    list_name, evidence = run_switch_list(manifest)
+    switches = switch_table(os.path.join(BENCH, "arms", list_name))
     arms = arm_list(manifest, switches)
     if not manifest.get(F["m_arms"]):
         notes.append("no param_arms[]: one implicit arm, %s, over the whole run (treated as a control)" % IMPLICIT_ARM)
@@ -2073,6 +2182,16 @@ def summarize(a):
     missing_logs = [n for n in nodes if n not in nds]
     if missing_logs:
         notes.append("no log file for %s" % ", ".join(missing_logs))
+    line_keys = sorted(set().union(*[nd.switch_keys for nd in nds.values()]))
+    if evidence is None and line_keys:
+        # param_arms[] records no switch state, so the keys the nodes logged tell the build; the arms are derived
+        # again with that list (rows hold the same arm records)
+        list_name, evidence = run_switch_list(manifest, line_keys)
+        switches = switch_table(os.path.join(BENCH, "arms", list_name))
+        for x, y in zip(arms, arm_list(manifest, switches)):
+            x.update(y)
+    if manifest.get(F["m_arms"]) and evidence != "manifest":    # a run without param_arms[] has no state to read
+        notes.append(switch_list_note(list_name, evidence))
     cert_doc = run_cert(cr, files_by_node, validators, rows)
     groups = blast_groups(run_dir, manifest)
     stage_doc = {}

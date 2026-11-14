@@ -156,7 +156,10 @@ no stop this close to an epoch boundary, PARAMS_APPLY_EPOCH_WAIT_SECS [600] the 
 that, PARAMS_APPLY_UNIT_SECS [600] the longest wait for the unit's start, PARAMS_APPLY_SETTLE_SECS
 [120] ready = last node back + this, PARAMS_APPLY_RETRY_SECS [10] IAP retry pause,
 PARAMS_APPLY_NODE_SCRIPTS_DIR [config TN_NODE_SCRIPTS_DIR, else /opt/telcoin-node-scripts],
-PARAMS_APPLY_GUARD_PUBLIC_RPC [config BENCH_GUARD_PUBLIC_RPC, else http://127.0.0.1:9].
+PARAMS_APPLY_GUARD_PUBLIC_RPC [config BENCH_GUARD_PUBLIC_RPC, else http://127.0.0.1:9],
+PARAMS_APPLY_SWITCHES_TSV [benchmark/arms/switches.tsv, the live build's] the switch list in force:
+a retired build's benchmark/arms/switches-<build>.tsv reads that build's arm files (their
+'build <build>' line), which the live list refuses.
 EOF
 }
 
@@ -272,7 +275,26 @@ mkdir -p "${WORK}/sets"
 # --- the node switches (benchmark/arms/switches.tsv, the single source of their names) ------
 # SW_K/SW_T/SW_D/SW_V/SW_O[i]: key, type (bool|int|dur), default, arm values (comma list),
 # optional (yes|no), in the file's row order. ALL_KEYS: PARAM_KEYS plus "<type>:<key>" per switch.
-SWITCHES_TSV="${SCRIPT_DIR}/../arms/switches.tsv"
+# The list in force is the live build's arms/switches.tsv; PARAMS_APPLY_SWITCHES_TSV may name a
+# retired build's list instead, arms/switches-<build>.tsv (to print or test that build's arm files).
+# SW_BUILD is the <build> of that file name ("" for the live list); SW_LIST and SW_DESC name the
+# list in messages (SW_LIST relative to the repo root when it lies inside it).
+SWITCHES_TSV="${PARAMS_APPLY_SWITCHES_TSV:-${SCRIPT_DIR}/../arms/switches.tsv}"
+readonly BUILD_NAME_RE='^[a-z0-9][a-z0-9-]{0,39}$'
+SW_BUILD="$(basename "${SWITCHES_TSV}")"
+case "${SW_BUILD}" in
+    switches.tsv) SW_BUILD="" ;;
+    switches-?*.tsv)
+        SW_BUILD="${SW_BUILD#switches-}"; SW_BUILD="${SW_BUILD%.tsv}"
+        [[ "${SW_BUILD}" =~ ${BUILD_NAME_RE} ]] || die "PARAMS_APPLY_SWITCHES_TSV='${SWITCHES_TSV}': '${SW_BUILD}' is not a build name ([a-z0-9][a-z0-9-]{0,39})" ;;
+    *) die "PARAMS_APPLY_SWITCHES_TSV='${SWITCHES_TSV}' is not a switch list (switches.tsv, or switches-<build>.tsv for a retired build)" ;;
+esac
+sw_abs="$(cd "$(dirname "${SWITCHES_TSV}")" 2>/dev/null && pwd -P)" || sw_abs="$(dirname "${SWITCHES_TSV}")"
+sw_abs="${sw_abs}/$(basename "${SWITCHES_TSV}")"
+sw_root="$(cd "${REPO_ROOT}" && pwd -P)" || sw_root="${REPO_ROOT}"
+case "${sw_abs}" in "${sw_root}"/*) SW_LIST="${sw_abs#"${sw_root}"/}" ;; *) SW_LIST="${sw_abs}" ;; esac
+if [ -z "${SW_BUILD}" ]; then SW_DESC="the live build's, ${SW_LIST}"; else SW_DESC="the ${SW_BUILD} build's, ${SW_LIST}"; fi
+readonly SWITCHES_TSV SW_BUILD SW_LIST SW_DESC
 SW_K=() SW_T=() SW_D=() SW_V=() SW_O=()
 
 # valid_val <type> <value> — rc 0 when <value> is a value of <type> as switches.tsv spells it:
@@ -345,7 +367,7 @@ ARM_HOST_STEPS="" ARM_HOST_DESC="" ARM_FILE_SHA="" ARM_FILE_REL="" ARM_FILE_NAME
 arm_refuse() { die "${ARM_FILE}:$1: $2; the arm file is refused, nothing was contacted"; }
 
 parse_arm_file() {
-    local f="$1" ln=0 line bad i k seen=" " ev=0 ra="" name=""
+    local f="$1" ln=0 line bad i k seen=" " ev=0 ra="" name="" build=""
     bad="$(LC_ALL=C grep -an "$(printf '\r')" "${f}" | head -n 1 | cut -d: -f1 || true)"
     [ -z "${bad}" ] || arm_refuse "${bad}" "a carriage return (the file must have LF line ends)"
     bad="$(LC_ALL=C grep -an "$(printf '[^\t -~]')" "${f}" | head -n 1 | cut -d: -f1 || true)"
@@ -365,9 +387,18 @@ parse_arm_file() {
                 [ -z "${name}" ] || arm_refuse "${ln}" "a second 'name' line"
                 [[ "$2" =~ ${ARM_NAME_RE} ]] || arm_refuse "${ln}" "'$2' is not an arm name ([a-z0-9][a-z0-9-]{0,39})"
                 name="$2" ;;
+            build)
+                # The retired build whose switch list (arms/switches-<build>.tsv) the arm was written
+                # for; an arm without the line is for the live build. Only that build's list may read it.
+                [ $# -eq 2 ] || arm_refuse "${ln}" "'build' takes one value, got $(($# - 1)) (a directive has no trailing comment)"
+                [ -z "${build}" ] || arm_refuse "${ln}" "a second 'build' line"
+                [[ "$2" =~ ${BUILD_NAME_RE} ]] || arm_refuse "${ln}" "'$2' is not a build name ([a-z0-9][a-z0-9-]{0,39})"
+                build="$2"
+                [ "${build}" = "${SW_BUILD}" ] \
+                    || arm_refuse "${ln}" "the arm is for the ${build} build (arms/switches-${build}.tsv); the switch list in force is ${SW_DESC}" ;;
             param)
                 [ $# -eq 3 ] || arm_refuse "${ln}" "'param' takes <key> <value>, got $(($# - 1)) field(s) (a directive has no trailing comment)"
-                i="$(sw_idx "$2")" || arm_refuse "${ln}" "unknown switch '$2' (benchmark/arms/switches.tsv: ${SW_K[*]})"
+                i="$(sw_idx "$2")" || arm_refuse "${ln}" "unknown switch '$2' (${SW_LIST}: ${SW_K[*]})"
                 case "${seen}" in *" $2 "*) arm_refuse "${ln}" "switch '$2' is given twice" ;; esac
                 sw_arm_value "${i}" "$3" || arm_refuse "${ln}" "$2 $3: not one of its arm values (${SW_V[$i]})"
                 seen="${seen}$2 "
@@ -388,7 +419,7 @@ parse_arm_file() {
                         ra="$3" ;;
                     *) arm_refuse "${ln}" "unknown host step '$2' (evict-mdbx, read-ahead-kb <n>)" ;;
                 esac ;;
-            *) arm_refuse "${ln}" "unknown directive '$1' (name, param, host; '#' starts a comment)" ;;
+            *) arm_refuse "${ln}" "unknown directive '$1' (name, build, param, host; '#' starts a comment)" ;;
         esac
     done < "${f}"
     [ -n "${name}" ] || die "${ARM_FILE}: no 'name' line; the arm file is refused, nothing was contacted"
@@ -625,7 +656,7 @@ for spec in ${SETS[@]+"${SETS[@]}"}; do
         if j="$(sw_idx "${k}")"; then
             # A switch: one of its arm values, or its default (which turns it off again).
             sw_arm_value "${j}" "${v}" || [ "${v}" = "${SW_D[$j]}" ] \
-                || die "--set '${spec}': ${k}=${v} is not one of its values (${SW_V[$j]}, or the default ${SW_D[$j]}; benchmark/arms/switches.tsv)"
+                || die "--set '${spec}': ${k}=${v} is not one of its values (${SW_V[$j]}, or the default ${SW_D[$j]}; ${SW_LIST})"
         else
             case "${t}:${v}" in
                 :*) die "--set '${spec}': unknown key '${k}' (known: $(printf '%s ' ${ALL_KEYS} | sed 's/[a-z]*://g'))" ;;
@@ -778,10 +809,21 @@ switch_compare() {
         fi
     done < "${WORK}/targets.${n}"
 }
+# switch_extra <line> — the keys on the line that the switch list does not have, space-separated in
+# line order; "" when there are none.
+switch_extra() {
+    local kv out=""
+    while IFS= read -r kv; do
+        [ -n "${kv}" ] || continue
+        sw_idx "${kv%%=*}" >/dev/null || out="${out} ${kv%%=*}"
+    done <<< "$(sw_line_values "$1")"
+    printf '%s\n' "${out# }"
+}
 # switch_readback <node> <line> <stop time> — rc 0 when <line> is from the start after <stop time>
-# and every target of the node reads back; else rc 1 and the reason on stdout.
+# and every target of the node reads back; else rc 1 and the reason on stdout. A key on the line
+# that the list lacks is a note on stderr (switch_extra), never a failure.
 switch_readback() {
-    local n="$1" line="$2" stop="$3" ts cmp
+    local n="$1" line="$2" stop="$3" ts cmp extra
     if [ -z "${line}" ] || [ "${line}" = - ]; then
         echo "no 'node switches' line since the restart (an image that does not log it, or a start that did not get that far)"
         return 1
@@ -791,6 +833,9 @@ switch_readback() {
         echo "stale: the newest 'node switches' line (${ts}) is older than this restart (${stop})"
         return 1
     fi
+    extra="$(switch_extra "${line}")"
+    # A key the list does not know is a note, not a failure: the node may have gained a switch.
+    [ -z "${extra}" ] || echo "params-apply: note: ${n}'s node switches line carries ${extra}, which ${SW_LIST} does not list (not compared)" >&2
     cmp="$(switch_compare "${n}" "${line}")"
     [ -n "${cmp}" ] || return 0
     printf '%s\n' "${cmp}" | awk '
