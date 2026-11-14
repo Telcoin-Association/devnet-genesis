@@ -1,2 +1,4 @@
-# NN	head	base	title (filled from the writers' proposals before posting)
+00	feat/bench6-switches-obs	staging/benchmark-bench6-2026-11	feat: runtime switch list, node switches line and bench observability
+01	test/bench6-e2e-scaffold	staging/benchmark-bench6-2026-11	test(e2e): per-node parameters.yaml entries and env, TN_E2E_PARAMETERS
 03	fix/epoch-record-closing-block-check	staging/benchmark-bench6-2026-11	fix(node): check the closing block of an epoch record before saving it
+# NN	head	base	title (filled from the writers' proposals before posting)

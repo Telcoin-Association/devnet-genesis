@@ -2,16 +2,16 @@
 
 Adds the runtime switch `vote_queue_fix` (default `false`, main's behaviour) for the voter's side of #1804.
 With it on, a voter waits for execution (up to 1 s) before the per-author vote lock instead of under it, so one author's queued requests stop waiting a second each in turn.
-It also refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty), and needs `vote_timeout` below 9 s.
+The voter also refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty), and the node needs `vote_timeout` below 9 s.
 Every node, switch on or off, counts vote requests by outcome.
 
 PR 3 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04). Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/9ef55c989dc46d7b10961538781e9e55a81df0a3...6ad315794b8f641f7ce0f2e2b8b24d7322cee6ab (10 commits). Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
 
-On main at 45dce8947, `vote_request` holds the author's lock (`crates/consensus/primary/src/network/handler.rs:1029-1033`) through `vote_inner` (`:1158-1162`) and its 1 s execution wait (`:1462-1507`), so a voter behind on execution answers one author's queued requests a second apart, even for headers the author has replaced (the requester's cancel never reaches the voter).
+On main at 45dce8947, `vote_request` holds the author's lock (`crates/consensus/primary/src/network/handler.rs:1029-1033`) through `vote_inner` (`:1158-1162`) and its 1 s execution wait (`:1462-1507`), so a voter behind on execution answers one author's queued requests a second apart, even for headers the author replaced (its cancel never reaches the voter).
 The rework in #1822, #1839, #1842, #1844 and #1846 keeps this; #1842 adds a wait under the lock for a pending attached parent (`:1845-1855`).
-This is read from the code and pinned by the first commit's test, where the sixth of six queued requests is answered after the 5 s vote timeout.
+Read from the code; the first commit's test pins it: the sixth of six queued requests is answered after the 5 s vote timeout.
 Bench 5 ([r20261107-1504](https://benchmark.telcoin.network/runs/r20261107-1504/)) measured validator-01 waiting 7.3 to 8.5 s for the lock on validator-04's requests.
 
 Bench 6 ran an earlier version of this switch, on an older base, in all four runs ([r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) and measured `lock_ms` p95 at 0 on every voter in every window.
@@ -26,23 +26,23 @@ What the switch alone does to certification is not known.
 - `6e14debce` fix(primary): wait for execution before the per-author vote lock: with the switch on, the wait runs before the lock and the check under it does not wait (same refusals).
   The author's newest in-window `(epoch, round)`, kept in memory per epoch, refuses a lower round of that epoch on arrival, after the wait, and under the lock after the cached vote and the recast.
   Equivocation checks, signing and the vote store stay under the lock; `SupersededRequest` is never written to the author's entry.
-  On purpose, a repeat of an older voted header after a newer request is refused rather than answered from the cache; nothing is signed either way.
+  On purpose, a repeat of an older voted header after a newer request is refused, not answered from the cache; nothing is signed either way.
   Adds `prelock_wait_ms`, the stage `prelock_wait` and the outcome `superseded`.
 - `9dbb01f9b` docs(primary): say that a requester's cancel does not reach the voter: corrects the comment #1842 added, with a test.
 - `32994d7fe` feat(primary): count vote requests by outcome: `tn_primary_vote_outcomes_total{outcome}`; no switch.
 - `591c892b5` test(primary): pin the superseded check after the pre-lock wait.
 - `9106fb991` fix(primary): skip the wait before the vote lock for a header that fails its own checks: it gets its switch-off refusal, penalty and author entry at once, still under the lock, where that entry refuses a later same-round header.
 - `031a89d56` fix(config): keep vote_timeout plus the wait before the vote lock under the request timeout: with the switch on, `vote_timeout` must be below 9 s (the 10 s transport timeout less the wait); the default and both shipped presets pass.
-- `6dae7520f` docs(primary): say what a vote permit is held through with vote_queue_fix on: also, `record_outcome` indexes its counters directly.
+- `6dae7520f` docs(primary): say what a vote permit is held through with vote_queue_fix on: `record_outcome` indexes its counters directly.
 - `6ad315794` docs(config): state the 9 s vote_timeout ceiling with vote_queue_fix on: field docs and the CLI README.
 
 ## With the switch off
 
 Every vote decision is main's.
-New with it off: an empty per-author map per handler, three reads of the switch, `tn_primary_vote_outcomes_total{outcome}` (ten series), `prelock_wait_ms=0` on the debug `vote path timing` line, an unused `prelock_wait` label on `tn_primary_vote_stage_seconds` and `tn_primary_vote_timeouts_total`, and `vote_queue_fix=false` on the `node switches` line.
+New with it off: an empty per-author map, three reads of the switch per request and one at epoch start, `tn_primary_vote_outcomes_total{outcome}` (ten series), `prelock_wait_ms=0` on the debug `vote path timing` line, an unused `prelock_wait` label on `tn_primary_vote_stage_seconds` and `tn_primary_vote_timeouts_total`, and `vote_queue_fix=false` on the `node switches` line.
 
-A mixed fleet is one chain: only a voter's answer changes, `SupersededRequest` travels as `RecoverableError`, which every node already retries, and the votes signed are the same.
-For a lower round after a newer request from the same author, a switch-off voter answers `AlreadyVotedForLaterRound` or the cached vote instead; the author has cancelled that header, so no certificate depends on it.
+A mixed fleet is one chain: only a voter's answer changes, `SupersededRequest` travels as `RecoverableError`, which every node already retries, and signed votes are the same.
+For a lower round after a newer request from the same author, a switch-off voter decides as main does (`AlreadyVotedForLaterRound` once it voted the newer one); the author has cancelled that header, so no certificate depends on it.
 
 ## Testing
 
@@ -56,8 +56,8 @@ Stack-wide gates: run on the top of the stack before these PRs were opened; resu
 
 - The pending-parent wait (#1842) stays under the lock, so a newer request still waits up to `vote_timeout` behind an older one parked on a pending parent (`vote_queue_fix_newer_request_waits_for_pending_parent_wait`); closing that needs the wait out of the lock.
 - Worst case per request: 1 s, the lock wait, then `vote_timeout`; only the 10 s transport timeout bounds the lock wait, as on main.
-- One peer can park up to 800 waits before the lock (8 connections × 100 streams) under the default, unbounded vote serve class; on main they park on the lock.
-- A header that fails only a check under the lock (parents, drift tier, seed signature) still waits first.
+- One peer can park up to 800 waits before the lock (8 connections × 100 streams) under the default, unbounded vote serve class; on main they wait on the lock.
+- A header failing only a check under the lock (parents, drift tier, seed signature) still waits first.
 - The mark moves before the header checks: a malformed header below it gets `SupersededRequest`, not its penalty.
 - A restarting proposer that cannot read `LastProposed` may propose below the mark and be refused as superseded until its rounds pass it.
 - Compare `total_ms` across settings, not `lock_ms`.
@@ -67,5 +67,5 @@ Nothing that should be fixed before merge is open.
 ## Related
 
 - Refs #1804: the voter's side only; the author's side is `fix/1804-quorum-exec-block`, which builds on this head.
-- Refs #1782: the bounded execution wait this moves ahead of the lock.
+- Refs #1782: the bounded execution wait this moves.
 - Ported onto main's vote-handler rework: #1822, #1839, #1842, #1844, #1846.
