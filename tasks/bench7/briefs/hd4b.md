@@ -31,6 +31,10 @@ Assertions with the hold on (tests 1 to 3), all read from the nodes:
 - record (do not assert) `tn_primary.uncertified_report_dropped_total` by reason: a `full` drop means a cancelled header's digests came back only through the commit notice; the exactly-once check must hold anyway.
 Cost of the hold, reported per test (the bench 7 analysis will want the same numbers from the fleet): headers held and digests held on the hooked validator, how long a lane stayed held (rounds, from the `header proposed` lines), and the hooked validator's throughput share against test 4's.
 
+## One line each in `exec_block.rs` (its own commit, first)
+
+`tests/it/exec_block.rs` keeps the stack's switch lists (`STACK_SWITCHES_ON`, `STACK_SWITCHES_OFF`) and its `assert_switches` FAILS when a node's `node switches` line shows a switch the lists do not name. On your base the node has `digest_order_hold`, so add it at the end of both lists (`true` / `false`) before anything else, in a commit of its own (`test(e2e): list digest_order_hold among the stack's switches`), and run `exec_block::test_mixed_switch_fleet_is_one_chain` once through the lane to show the file's tests still pass with the hold on in the switched nodes. Change nothing else in that file.
+
 ## Stop rule
 
 If, with the hold ON, a run shows an out-of-order re-queue of a covered cause, a transaction lost or landed twice, or validators on different blocks: that is a finding about the production code (or the model's known residual: check the garbage-collection case first, `tasks/checkpoint-bench7-HD-2c.md` §7). Do not bend the test. Keep the run's logs, stop, and hand back with the timeline (which header, which worker lane, which sequence numbers, which path) and `path:line` of the code you believe responsible. The orchestrator takes it to the user.
