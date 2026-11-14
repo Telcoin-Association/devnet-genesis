@@ -38,11 +38,11 @@ NOT authorized, asked when reached: any fleet launch; publishing bench 7; PRs 05
 Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix/1804-vote-queue` · 03 `fix/epoch-record-closing-block-check` · 04 `fix/epoch-record-collector-hardening` · 05 `fix/1804-quorum-exec-block` · 06 `fix/1807-digest-order-hold`; `bench/bench7-2026-11` = the top.
 - [x] PT-0 switches + obs: b7/pt0 d8273bbe3 (9 commits) = head 00
 - [x] PT-1 e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`): b7/pt1 653e6ab51 (5 commits); head 01 = eca202a19
-- [ ] PT-2 voter-lock: phase A verdict on M = **PORT** (done) · phase B the port (running, tn-b7-pt2b)
-- [ ] PT-3 quorum-exec-block (both forms) + ST-A's tests + follow-ups: D75 clamp to the epoch's opening block, the starved-rounds validation, a superseded-refusal counter
+- [ ] PT-2 voter-lock: phase A verdict on M = **PORT** (done) · phase B the port DONE (b7/pt2b 291b9f6c4; review R-02 approved with follow-ups) · follow-ups PT-2C (running: cheap checks before the wait, timing validation, comments)
+- [ ] PT-3 quorum-exec-block (both forms): PT-3a DONE (b7/pt3a 2b6a01022: both forms, D75 clamp, the starved-rounds warning and cap; review R-05 approved with follow-ups) · PT-3v voter-side tests (running) · PT-3b e2e port (running) · PT-3c follow-ups (running: the adaptive window counted in headers, explicit clamp, tests)
 - [ ] `epoch_close_forms.rs` (branch `b6/st-epoch-close-forms`) ported and extended (with E5)
-- [ ] XF-1 main's epoch-loop output drop: verify + reproduce (running) · fix (cancel-safe forward; continuity check) · issue · head `fix/epoch-loop-output-drop` in the image (user, 2026-11-14)
-- [ ] HD-1 #1807 observability (no switch) · HD-2 the hold (`digest_order_hold`, `order_hold.rs`, unit tests, property test) · HD-3 orphan re-pool counters (after E1) · HD-4 e2e (`TN_TEST_OWN_CERT_DELAY_MS`, four validators, both forms, a kill arm, the switch-off control)
+- [ ] XF-1 main's epoch-loop output drop: verified REAL with a reproducing test · fix DONE (b7/xf1 26c7ed72d; review R-07 approved) · **issue #1860 posted** · follow-ups XF-1b (running) · head `fix/epoch-loop-output-drop` in the image (user, 2026-11-14); its PR needs the user's word
+- [ ] HD-1 #1807 observability (no switch; running) · HD-2a the pure rule DONE (c5f60105f) · HD-2c the model test DONE (a8a067050: no order break with the hold on in 100,000 schedules) · HD-3 DONE · HD-4a hook DONE · HD-2b wiring (after HD-1) · HD-4b e2e (brief ready) · [original line:] HD-2 the hold (`digest_order_hold`, `order_hold.rs`, unit tests, property test) · HD-3 orphan re-pool counters (after E1) · HD-4 e2e (`TN_TEST_OWN_CERT_DELAY_MS`, four validators, both forms, a kill arm, the switch-off control)
 - [ ] E1 `final_state` check (DONE, b7/e1 d3028fad7, no switch) · E2 observability (DONE, b7/e2 304858e08) · E3 collector walk + conflict halt (running) · E4 re-certify (running) · E5 e2e (`TN_TEST_WITHHOLD_EPOCH_VOTE`, `test_uncertified_epoch_walked_past`, the four `epoch_close_forms` tests extended)
 - [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
 - [ ] per-topic reviews: `tn-review-agent` each; `tn-security-eval` for the hold, E1, E3, E4, the ported quorum-exec-block; no open Critical or High
@@ -51,15 +51,15 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 
 ## Track U — issues and PRs (texts by opus agents; created by the orchestrator, dry run first)
 - [ ] PR texts 00-04 (`tasks/pr-bodies/bench6-NN-*.md`) · PRs created (assignee grantkee, reviewers MavenRain, sstanfield)
-- [x] new issues created 2026-11-14 (#1850 collector gaps, #1851 closing-block check, #1852 false quorum error, #1853 execute and persist in series, #1854 admission and the backlog, #1856 restart gap, #1857 rejoin under load, #1858 NewEpoch docs) (`tasks/issue-bodies/bench6-*.md`): closing-block check gap; collector gaps G1, G2; rejoin under sustained load + the follower's dead RPC; the false quorum error; stop between epoch 0's closing block and record 0; `NewEpoch` unreadable over RPC; in-flight bound measurements; execute and persist in series at 50,000 IOPS
+- [x] new issues created 2026-11-14 (#1860 main's epoch-loop output drop; #1850 collector gaps, #1851 closing-block check, #1852 false quorum error, #1853 execute and persist in series, #1854 admission and the backlog, #1856 restart gap, #1857 rejoin under load, #1858 NewEpoch docs) (`tasks/issue-bodies/bench6-*.md`): closing-block check gap; collector gaps G1, G2; rejoin under sustained load + the follower's dead RPC; the false quorum error; stop between epoch 0's closing block and record 0; `NewEpoch` unreadable over RPC; in-flight bound measurements; execute and persist in series at 50,000 IOPS
 - [x] comments with bench-6 data posted 2026-11-14: #1802, #1803, #1804, #1805, #1806, #1807, #1774
 - [x] write-up of what does not carry (MDBX advice, the old stored-record check, pipelined persist): `tasks/bench6-not-carried-writeup.md` (goes into the PR stack's text)
 
 ## Track H — harness for bench 7 (starts when the four bundles are launched: a bundle refuses a dirty `benchmark/`)
-- [ ] HB-1 faucet build of M starts (`TN_ALLOW_FAUCET_ON_CHAIN`, BLS passphrase source, `node build:` line, image contract, no MDBX flags, engine in the manifest)
-- [ ] HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
-- [ ] HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
-- [ ] HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
+- [x] (d2ab915) HB-1 faucet build of M starts (`TN_ALLOW_FAUCET_ON_CHAIN`, BLS passphrase source, `node build:` line, image contract, no MDBX flags, engine in the manifest)
+- [ ] (running) HB-2 switch list, `benchmark/arms/bench7-always.arm`, `bench7-adaptive.arm`, provenance
+- [x] (d2ab915) HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
+- [x] (scripts committed; ports reserved by HB-1b) HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
 - [ ] HB-5 `benchmark/launch/bench7.env`, README, the #1807 and hold readers
 - [ ] full harness gate alone on the host; `params-apply.sh --print-state` ×2; the deploy's dry plan; the teardown's dry mode (0 candidates)
 
