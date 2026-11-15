@@ -4,16 +4,16 @@ Adds the list the later PRs of this stack put their runtime switches into, a `no
 A switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
 No switch is defined here, and nothing a node sends, accepts, decides or stores changes.
 
-PR 1 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-The first of the stack: its base is `main` at 45dce8947; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/45dce8947...81a06c4e1 (12 commits).
+PR 1 of 6 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`).
+The first of the stack: its base is `main` at 33b727fce; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/33b727fcea4f6004d4b0cd2bd7923258e081e94f...b29d59bef7b46220aad81ddaeb48101f197a14b4 (12 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
 
 Four benchmark runs of the node (bench 6: [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) tested fixes behind runtime switches.
-This stack carries what carries to main: each behaviour change behind a switch whose default is main's behaviour, except the closing-block check, which has none; the vote fix and the order hold wait for the next benchmark.
+This stack carries what carries to main: each behaviour change behind a switch whose default is main's behaviour, except the closing-block check, the epoch-loop fix and one eviction rule of the collector hardening, which have none; the vote fix and the order hold wait for the next benchmark.
 
-On main at 45dce8947, `Parameters` (`crates/config/src/node.rs:220-221`) does not deny unknown fields, so a mistyped switch key is ignored without an error and nothing shows which arm a node runs.
+On main at 33b727fce, `Parameters` (`crates/config/src/node.rs:273-274`) does not deny unknown fields, so a mistyped switch key is ignored without an error and nothing shows which arm a node runs.
 A plain new field would also be written into every ceremony's `parameters.yaml` and the next regenerated mainnet preset.
 
 Three measurements were missing on main:
@@ -26,30 +26,30 @@ Three measurements were missing on main:
 
 ## Change
 
-- `a233d64dc` feat(config): list the runtime switches in Parameters.
+- `8bbc4a009` feat(config): list the runtime switches in Parameters.
   `runtime_switches!` generates `Parameters::switches()` from one list of field names; a topic adds its field, default and entry between marker lines.
   `switches_list_every_switch_field` fails while a field is in neither the list nor `NON_SWITCH_KEYS`.
-- `0777ed06e` feat(config): leave switches at their default out of a written parameters.yaml.
+- `d1cd20992` feat(config): leave switches at their default out of a written parameters.yaml.
   `Parameters::switch_at_default` is every switch's `skip_serializing_if`; an absent key reads as the default.
-- `be63208e5` feat(node): log the node switches line and export tn_node_switch gauges.
+- `8093e1030` feat(node): log the node switches line and export tn_node_switch gauges.
   `EpochManager::new` logs one INFO event (target `node::switches`, a `key=value` field per switch) and sets `tn_node_switch{name}` (0/1, a count, a duration in ms).
-- `3d100a147` feat(primary): gauge how far behind a node enters an epoch.
+- `341747929` feat(primary): gauge how far behind a node enters an epoch.
   `tn_primary_epoch_entry_rounds_behind` is the highest round of a verified certificate from the epoch after the executed one; `behind_consensus` decides as before.
-- `56e40e07a` fix(metrics): give the execution stage histograms sub-millisecond buckets.
+- `42655214d` fix(metrics): give the execution stage histograms sub-millisecond buckets.
   Ten histograms take `SUB_MS_SECONDS_BUCKETS`, keeping every old bound.
-- `9987bb9eb` fix(primary): keep a digest's first receipt across a re-queue.
+- `dffa19ccd` fix(primary): keep a digest's first receipt across a re-queue.
   The proposer holds each drained digest's `first_received` stamp and hands it back on a re-queue; `header proposed` gains `oldest_requeue_wait_ms`.
   Header payload and digest order are unchanged.
-- `febd0551c` fix(primary): keep the epoch-entry gauge across a mode change.
+- `59d5db11a` fix(primary): keep the epoch-entry gauge across a mode change.
   A mode change rebuilds the request handler, which zeroed the gauge; the running max over `(epoch, round)` now sits in a process-wide static, so a rebuilt handler of the same epoch keeps it and a later epoch replaces it.
-- `47fe32460` docs(primary): say what a digest reported twice does to its first receipt.
+- `26319d169` docs(primary): say what a digest reported twice does to its first receipt.
   Both copies share one stamp; the first header to commit or re-queue takes it.
-- `d1b89080d` test(primary): pin the epoch-entry gauge's max over epoch and round.
-- `71e133376` docs(primary): say the epoch-entry gauge can pass the window by a few rounds.
+- `4917efaae` test(primary): pin the epoch-entry gauge's max over epoch and round.
+- `3fbfa7428` docs(primary): say the epoch-entry gauge can pass the window by a few rounds.
   Certificates checked side by side can raise it a few rounds past the window before the demotion takes effect.
-- `ae065c20a` test(config): say behaviour switches never go into NON_SWITCH_KEYS.
+- `676692c6c` test(config): say behaviour switches never go into NON_SWITCH_KEYS.
   The list's doc says so, since the test cannot tell a behaviour switch from a plain parameter.
-- `81a06c4e1` fix(primary): keep the epoch-entry gauge's max on the bus, not in a static.
+- `b29d59bef` fix(primary): keep the epoch-entry gauge's max on the bus, not in a static.
   The max moves from the process-wide static to a `#[metric(skip)]` field of `PrimaryMetrics`, one per bus, so tests sharing a process no longer share it.
 
 ## What changes for every node
@@ -69,27 +69,19 @@ A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and t
 
 Pinned by `switch_at_default_is_not_written`, `reserializing_keeps_the_existing_keys` (the mainnet and adiri presets round-trip), `node_switches_line_renders_yaml_tokens`, `test_engine_stage_histograms_render_sub_ms_buckets`, `epoch_entry_gauge_records_rounds_behind` and `test_requeued_digest_reports_its_wait_from_first_receipt`.
 
-On this head:
-- `cargo check --locked --all-targets -p tn-config -p tn-types -p tn-node -p tn-primary`, `cargo +nightly-2026-03-20 fmt --all -- --check` and clippy with `-D warnings` over the same packages: clean.
-- `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -E 'package(tn-config) | package(tn-primary)'`: 677 passed.
-- `cargo test --locked -p tn-primary --no-fail-fast`, three times: the epoch-entry test passed each run; the same 25 fork-pin tests failed each run, as the Makefile's `test-cargo` note says they do outside nextest.
+On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, PR 3 of 6, which contains this head's twelve commits):
+- `cargo check --locked --workspace --all-targets`, warnings denied: clean.
+- `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p`: 1,825 passed, 9 skipped.
 
-On d1b89080d (the first nine commits), `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
+On the stack's earlier cut on main at 45dce8947 (the same twelve commits before the move; only the context of one test-module hunk differs):
+- `cargo +nightly-2026-03-20 fmt --all -- --check` and clippy with `-D warnings` over tn-config, tn-types, tn-node and tn-primary: clean.
+- `cargo test --locked -p tn-primary --no-fail-fast`, three times: the epoch-entry test passed each run; the same 25 fork-pin tests failed each run, as the Makefile's `test-cargo` note says they do outside nextest.
+- On its first nine commits, `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
 
 Not run: e2e tests (none added) and a fleet.
 Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.
 
-Stack-wide gates ran before these PRs were opened, on the full stack: `bench/bench7-2026-11` at `91a15e223` carries the code of these five heads, of the epoch-loop fix (#1860) and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
-- `./etc/ci-lanes.sh clippy`: passed.
-- `cargo nextest run --locked --workspace`: 5,531 of 5,532 passed.
-  The one failure, `tests::differential::random_scripts_match_mdbx_multi_leaf` in `tn-lmdb-reth`, is a randomized test of a crate this stack does not touch; it passed ten of ten re-runs.
-- Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
-- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
-- The 13 e2e tests the full stack adds, three runs each: all passed.
-- Every commit of the eight heads compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
-
-The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
-Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
+Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
 
 ## Limits and what a reviewer should look at
 
@@ -106,7 +98,7 @@ No fix is pending before merge.
 
 Refs #1806: the epoch-entry gauge measures how late a member enters an epoch.
 Refs #1819: its digest-wait histogram now counts across re-queues.
-Stacked on this: `test/bench6-e2e-scaffold`, `fix/1804-vote-queue` (`vote_queue_fix`), `fix/epoch-record-closing-block-check` (no switch), `fix/epoch-record-collector-hardening` (three switches).
+Stacked on this: `test/bench6-e2e-scaffold`, `fix/1804-vote-queue` (`vote_queue_fix`), `fix/epoch-record-closing-block-check` (no switch), `fix/epoch-record-collector-hardening` (two switches), `fix/epoch-loop-output-drop` (no switch).
 
 ## What bench 6 measured that is not in this stack
 
@@ -117,6 +109,6 @@ Each configuration ran once.
   Main runs MDBX only under the off-by-default `mdbx` feature, and tn-lmdb already advises `MADV_RANDOM` on Linux (`crates/tn-lmdb/src/env.rs:309-317`).
   What survives: at 20,000 IOPS the write count bound the rate (19,967 writes per second, 3.74 per executed transaction, r20261113-1351's load blast); tn-lmdb's writes per transaction are not measured yet.
 - `epoch_record_state_check` compared a stored record's `final_state` with the node's closing block.
-  Since #1834 main runs that check unconditionally (`crates/node/src/manager/node/close_epoch.rs:712-749`); a narrower gap remains: {{epoch-record-closing-block-check}}.
-- `pipelined_persist` (#1800, closed) overlapped a persist with the next build, which #1834's parallel storage roots and output overlay rule out (`crates/tn-reth/src/env/output_overlay/parallel.rs:63-82`).
+  Since #1834 main runs that check unconditionally (`crates/node/src/manager/node/close_epoch.rs:718-755`); a narrower gap remains: {{epoch-record-closing-block-check}}.
+- `pipelined_persist` (#1800, closed) overlapped a persist with the next build, which #1834's parallel storage roots and output overlay rule out (`crates/tn-reth/src/env/output_overlay/parallel.rs:70-90`).
   What survives is {{execute-and-persist-in-series}}; the reference implementation stays on `bench/bench6-2026-11`.

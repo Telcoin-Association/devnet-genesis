@@ -4,4 +4,4 @@
 # NN	head	base	title (filled from the writers' proposals before posting)
 02	fix/1804-vote-queue	staging/benchmark-bench6-2026-11	fix(primary): vote_queue_fix waits for execution before the vote lock
 xf	fix/epoch-loop-output-drop	staging/benchmark-bench6-2026-11	fix(node): lose no consensus output when the epoch loop is pre-empted
-04	fix/epoch-record-collector-hardening	staging/benchmark-bench6-2026-11	fix(node): epoch record collector walk, conflict halt and re-certify
+04	fix/epoch-record-collector-hardening	staging/benchmark-bench6-2026-11	fix(node): epoch record collector walk, re-certify and conflict evidence

@@ -4,15 +4,15 @@ The epoch loop now reserves room in the engine channel before it takes a consens
 The leftover drain's queue phase skips an output already forwarded and stops the node on a gap, before the engine executes past it.
 No switch: it fixes a loss on main.
 
-Into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
-Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ca258b37ce6e4d03308008bd39216cfbe7cb1990...b69e9c1a96efcd5cb787add54280307c15b454b6 (8 commits).
-Its node change needs nothing from the stack below: everything its first eight commits call is on main at 45dce8947, and their diff applies there with fuzz (checked, not built); the ninth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
+PR 6 of 6 into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
+Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ff877fb0ef97dcba56a76bb7df3b957a9bc9592e...f5f7589f52fff080fe909354b9a5086a73a3762f (8 commits).
+Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz (checked, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
 Please merge with 'Create a merge commit'.
 
 ## Problem
 
-#1860 traces the drop on main at 45dce8947: output X, taken off the queue (`crates/node/src/manager/node/run_epoch.rs:749`), is lost when another `select!` arm wins while its send to a full engine channel waits (`:730`), and the drain forwards X+1 unchecked (`close_epoch.rs:320`).
-Measured: on main's code the issue's reproducing test delivers `[1, 3]` to the engine, not `[1, 2, 3]`.
+#1860 traces the drop, and on main at 33b727fce it is still there: output X, taken off the queue (`crates/node/src/manager/node/run_epoch.rs:749`), is lost when another `select!` arm wins while its send to a full engine channel waits (`:730`), and the drain forwards X+1 unchecked (`close_epoch.rs:320`).
+Measured on main's code at 45dce8947 (33b727fce changes neither `run_epoch.rs` nor the drain): the issue's reproducing test delivers `[1, 3]` to the engine, not `[1, 2, 3]`.
 Inferred from code: the engine then executes X+1 on X-1's state.
 The trigger, a validator changing mode under load, occurred in [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/); the symptom was not seen in bench 6's runs, and how often a full channel meets such an exit is not known.
 
@@ -20,15 +20,15 @@ This PR does both parts of the issue's fix and leaves the engine and the `ModeCh
 
 ## Change
 
-- `fb9204bfc` `fix(node): take room in the engine channel before taking a consensus output`: `process_output` splits into `reserve().await` and `forward_output`, which sends through the permit without awaiting; the live forward reserves, takes, then hands over.
+- `7e06d0530` `fix(node): take room in the engine channel before taking a consensus output`: `process_output` splits into `reserve().await` and `forward_output`, which sends through the permit without awaiting; the live forward reserves, takes, then hands over.
   Same outputs, order and flags; the `forwarded_at` stamp (observability only) starts at the wait for room.
-- `befa26c27` `fix(node): stop the node on a gap in the leftover drain's queued outputs`: the queue phase applies the live forward's `check_output_continuity`.
-- `98b3087b5` `test(node): cover a forward cancelled while it waits for an output`: the second cancel point; main's `recv` was already cancel safe there, so it would pass on main too and guards the held permit.
-- `d7babdcb3` `fix(node): take a queued output with one poll instead of try_recv`: tokio 1.53's `try_recv` can park the OS thread on a send in progress; one poll of `recv` cannot.
-- `9e1456086` `fix(node): fail the live forward when the engine is gone at the hand-over`: a held permit's send drops the output silently if the engine has gone, so the forward checks `to_engine.is_closed()` first.
-- `035707c8f` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below; its test reads the skip line through a small log capture in the test module, which a later head of the stack uses too.
-- `bc840b3cf` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
-- `b69e9c1a9` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
+- `e16d9f92e` `fix(node): stop the node on a gap in the leftover drain's queued outputs`: the queue phase applies the live forward's `check_output_continuity`.
+- `9f29c42ca` `test(node): cover a forward cancelled while it waits for an output`: the second cancel point; main's `recv` was already cancel safe there, so it would pass on main too and guards the held permit.
+- `d77417cb3` `fix(node): take a queued output with one poll instead of try_recv`: tokio 1.53's `try_recv` can park the OS thread on a send in progress; one poll of `recv` cannot.
+- `bace893bf` `fix(node): fail the live forward when the engine is gone at the hand-over`: a held permit's send drops the output silently if the engine has gone, so the forward checks `to_engine.is_closed()` first.
+- `b4cc776ef` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below; its test reads the skip line through a small log capture in the test module, which a later head of the stack uses too.
+- `ca4f68b0f` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
+- `f5f7589f5` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
 
 ## What changes for every node
 
@@ -61,20 +61,11 @@ The stop means a regression: report it with the log.
   Mirrors: `the_node_ending_while_the_engine_is_full_loses_no_output`, `a_closing_record_while_the_engine_is_full_loses_no_output`, `a_mode_change_while_the_forward_waits_for_output_loses_no_output`.
 - The forward's intake: `the_forward_takes_an_output_queued_during_its_wait_for_room`, `the_forward_stamps_a_late_output_on_arrival`, `the_forward_drains_a_closed_queue_then_ends`, `the_forward_fails_on_an_engine_gone_while_it_waits`.
 - The drain: `the_leftover_drain_stops_on_a_gap_before_the_engine_gets_past_it` (nothing reaches the engine), `the_leftover_drain_skips_an_output_already_forwarded`, `the_leftover_drain_logs_and_counts_an_output_it_skips`.
-- On a2c4dfae9 (an earlier cut of the first eight commits, on `bench/bench7-2026-11`: the same node code, without the stack's e2e test files, which these gates do not build): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 276 passed, 1 skipped, these 11 among them; `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
+- On main at 33b727fce, on this head's tree but for comment lines in two `crates/state-sync` files (a doc-only commit of `fix/epoch-record-collector-hardening` landed after the run): `cargo check --locked --workspace --all-targets`, warnings denied, exit 0; `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p -p state-sync -p tn-engine` 2,048 passed, 10 skipped, these 11 among them.
+- On the stack's earlier cut on main at 45dce8947, with the same seven node commits: `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
 - Not run: no e2e test drives the race through the real loop, and no fleet has run this head yet.
 
-Stack-wide gates ran before these PRs were opened, on the full stack: `bench/bench7-2026-11` at `91a15e223` carries the code of the five heads sent as pull requests, of this fix and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
-- `./etc/ci-lanes.sh clippy`: passed.
-- `cargo nextest run --locked --workspace`: 5,531 of 5,532 passed.
-  The one failure, `tests::differential::random_scripts_match_mdbx_multi_leaf` in `tn-lmdb-reth`, is a randomized test of a crate this stack does not touch; it passed ten of ten re-runs.
-- Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
-- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
-- The 13 e2e tests the full stack adds, three runs each: all passed.
-- Every commit of the eight heads compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
-
-The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
-Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
+Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
 
 ## Limits and what a reviewer should look at
 

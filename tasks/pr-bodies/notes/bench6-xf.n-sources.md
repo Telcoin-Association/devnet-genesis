@@ -1,0 +1,39 @@
+# Sources: bench6-xf-epoch-loop-output-drop.md on today's main (not posted)
+
+Main = 33b727fcea4f6004d4b0cd2bd7923258e081e94f (`33b727fce`). Head `fix/epoch-loop-output-drop` = local mark `b7/n2-xf` = f5f7589f52fff080fe909354b9a5086a73a3762f, 8 commits on head 04 (`b7/n2-04` = ff877fb0ef97dcba56a76bb7df3b957a9bc9592e), read in `/home/drtnarg/coding/telcoin/tn-b7-p2`.
+`git range-diff fix/epoch-record-collector-hardening..fix/epoch-loop-output-drop b7/n2-04..b7/n2-xf`: commits 1-7 `=`; commit 8 `!` (fleet.rs: `FATAL_LOGS` is now `[&str; 5]` = `[HALT_LOG, CONFLICT_LOG, CONFLICT_STOP_LOG, LEFTOVER_GAP_LOG, CLOSING_BLOCK_HALT_LOG]`, head 04's names; the added `LEFTOVER_GAP_LOG` constant is the same).
+Statements not listed here are unchanged from the earlier note `bench6-xf-epoch-loop-output-drop.sources.md`; the code they rest on did not move: main changed neither `crates/node/src/manager/node/run_epoch.rs` nor the drain `send_leftover_consensus_output_to_engine` (close_epoch.rs hunks of 45dce8947..33b727fce start at line 415, in `write_epoch_record`), nor `crates/engine/src/lib.rs` or `metrics.rs` (main's engine changes: payload_builder.rs and recovery.rs, transaction positions and a latched-database retry rule; no number or parent check), nor `crates/consensus` (the subscriber, a producer).
+
+## What changed and why
+
+| text | source |
+|---|---|
+| "PR 6 of 6", merge order 00-04 then this | `tasks/bench7/briefs/w-n.md` "What happened" and "Per unit" |
+| compare link `ff877fb0e…f5f7589f5` (full shas), 8 commits | `git rev-parse b7/n2-04 b7/n2-xf`; `git log --oneline b7/n2-04..b7/n2-xf` = 8 lines |
+| "first seven commits … the eighth adds the stop to fleet.rs" (was "first eight … the ninth": the head has eight commits, the eighth the e2e one) | `git log --reverse --format='%h %s' b7/n2-04..b7/n2-xf`; `git diff --stat b7/n2-04 ca4f68b0f` = close_epoch.rs and run_epoch.rs only; f5f7589f5 touches fleet.rs only; fleet.rs added by ff877fb0e in head 04 |
+| "everything its first seven commits call is on main at 33b727fce" | `git grep -c` at 33b727fce in crates/node: `manager_with_engine_and_floor` 4, `fn manager_with_engine` 3, `certified_record_closed_epoch` 4, `fn epoch_tasks_ended` 2, `EPOCH_TASK_MANAGER` 2, `fn check_output_continuity` 1, `metrics_util` 5 (the earlier note's list); `LineCapture` is added by b4cc776ef itself |
+| "their diff applies there with fuzz (checked, not built)" | `git diff b7/n2-04 ca4f68b0f -- run_epoch.rs close_epoch.rs` applied with `patch -p1 --dry-run -F3` to main's two files exported to scratch (`W-NRM/applycheck`): every hunk succeeds; close_epoch.rs hunk 1 fuzz 3 (the import block: the context names head 03's `metrics::EpochMetrics`, the added lines do not), hunk 6 fuzz 1 (test-module end, offset -1401: head 03/04 tests absent on main), run_epoch.rs hunk 10 fuzz 2 (test-module end). Not built |
+| "on main at 33b727fce it is still there": `run_epoch.rs:749`, `:730`, `close_epoch.rs:320` | `git show 33b727fce:crates/node/src/manager/node/run_epoch.rs` 730 `to_engine.send(output).await?;`, 749 `while let Some(mut output) = consensus_output.recv().await {`; close_epoch.rs 314 `send_leftover_consensus_output_to_engine`, 320 `while let Ok(output) = consensus_output.try_recv() {` (no continuity check in the function) |
+| "Measured on main's code at 45dce8947 (33b727fce changes neither `run_epoch.rs` nor the drain)": `[1, 3]` | `tasks/checkpoint-bench7-XF-1.md` A2 (earlier note); `git diff --stat 45dce8947 33b727fce -- crates/node/src/manager/node/run_epoch.rs` empty; close_epoch.rs hunk list above |
+| main's live forward stops on the same rule (unchanged statement, re-checked) | 33b727fce run_epoch.rs:756 `match check_output_continuity(self.last_forwarded_consensus_number, output.number())`, :1096 `fn check_output_continuity` |
+| recovery advice "Restart and keep the datadir: the startup replay (`replay_missed_consensus`) forwards from the executed tip, reading each output from the consensus pack (persisted before the drain)" re-read after #1855 changed start_epoch.rs | `b7/n2-xf:crates/node/src/manager/node/start_epoch.rs` 134 `replay_missed_consensus`, 140 `last_executed_consensus_block`, 147 `get_missing_consensus`, 179 `ensure!` contiguity, 188 `get_consensus_output_current`, 197 `process_output`; #1855 adds only a `persist_current()` before the first replayed output (33b727fce start_epoch.rs diff, +12). Pack persisted before the drain: b7/n2-xf run_epoch.rs 612 `finish_epoch`, 627 `.persist_current()`, 640 the drain call |
+| "the counter is primed from the pack's anchor" (unchanged, re-checked after #1855 changed node.rs) | b7/n2-xf `crates/node/src/manager/node.rs:906-907` `self.last_forwarded_consensus_number = state_sync::last_consensus_parent(...)`; main's node.rs changes (45dce8947..33b727fce) are bootstrap-server selection and logging only |
+| README reference | the text has none; `git grep -n -i "leftover\|replay_missed"` over `*.md` at 33b727fce finds no README section on the drain or its stop; tn-reth README section list at 33b727fce has no recovery section for it. Nothing to change |
+| Limits: `crates/engine/src/metrics.rs:81` still says the stamp is taken just before the send | `b7/n2-xf:crates/engine/src/metrics.rs:81` "Time from the node forwarding a consensus output (stamped just before its send on the"; `git diff --stat 33b727fce b7/n2-xf -- crates/engine` empty |
+| eight ids in "Change", exact subjects | `git log --reverse --format='%h %s' b7/n2-04..b7/n2-xf`; all ancestors of b7/n2-06 (idcheck.sh: 8 OK) |
+| gate on today's main: check exit 0; nextest of seven packages 2,048 passed, 10 skipped, the 11 tests among them | `tasks/bench7/gate-n1-xf.log` lines 1-4 (`start 15f60ff82`, `check … rc=0`, `2048 tests run: 2048 passed, 10 skipped`, `done rc=0`); commands from the gate script (orchestrator scratch `orch/gate-n1-xf.sh`, `RUSTFLAGS="-D warnings …"`, `-p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p -p state-sync -p tn-engine`); `/home/drtnarg/coding/telcoin/tn-b7-pcc/target/tmp/n1-xf-nextest.log`: one PASS line for each of the 11 named tests, no FAIL line; `n1-xf-check.log` ends `Finished` after `Checking e2e-tests` |
+| "this head's tree but for comment lines in two `crates/state-sync` files (a doc-only commit of `fix/epoch-record-collector-hardening` landed after the run)" | `git diff --stat 15f60ff82 f5f7589f5` = `crates/state-sync/src/epoch.rs` 12, `crates/state-sync/src/metrics.rs` 18, every changed line a comment; the commit is b7f008dc9 `docs(state-sync): say which committee certifies a conflicting epoch record`, an ancestor of b7/n2-04; `tasks/checkpoint-bench7-orch.md` 13:28Z entry. 15f60ff82 (b7/n1-xf) is not in the new series, so the text names no id for it |
+| earlier cut: clippy `-p tn-node -D warnings` exit 0, "with the same seven node commits" | `/home/drtnarg/coding/telcoin/tn-b7-gate/target/tmp/headXF-a2c4dfae9.log:296` (command), `:1027` `CLIPPY EXIT=0`; `git diff a2c4dfae9 bc840b3cf -- crates/node` empty (bc840b3cf = the old seventh commit, `=` to ca4f68b0f by range-diff) |
+| "no fleet has run this head yet" | brief item 6 |
+| Stack-wide gates line | brief item 5 |
+| Related "Next": 05 and 06 build on this head | `git merge-base --is-ancestor b7/n2-xf b7/n2-05` and `b7/n2-05 b7/n2-06`: both hold |
+| #1860 is an issue (open) | `gh issue view 1860 --json number,title,state`: OPEN |
+
+## Dropped against the earlier text
+
+- The earlier cut's `cargo check -p tn-node` and `nextest -p tn-node` (276 passed) on `a2c4dfae9`: superseded by the gate on today's main, which checks the workspace and runs tn-node among seven packages; the old id is gone.
+- The stack-wide gate paragraph on `91a15e223` (brief item 5).
+
+## Not verified at the new tip
+
+- Clippy on today's main (no log): stated for the earlier cut only.
