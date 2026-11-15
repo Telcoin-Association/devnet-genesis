@@ -175,3 +175,22 @@ The epoch-loop PR text follows (8 commits, the compare link, three ids). Per-com
 
 `main` = 33b727fce = M + 3: #1848 (bc571cb8c), #1849 (d4d53c115), #1855. A trial merge (`git merge-tree`) conflicts in `crates/config/src/node.rs` from head 00 on and in `crates/state-sync/src/epoch.rs` from head 04 on. #1849 stops a node unconditionally on a certified record that conflicts with its own (head 04 does a related thing behind `epoch_record_conflict_halt`) and narrows the restored-floor rule of the guard head 03 extends. PRs 00-04 are held for the user; the delta note is `tasks/bench7/main-delta-33b727fce.md` (unit DM).
 
+## Seventh cut: the stack on today's main N = 33b727fce (2026-11-15; branch `b7/n2` in `tn-b7-p2`; marks `b7/n2-00` … `b7/n2-06`; nothing pushed)
+
+The user's decisions (2026-11-15 ~11:13Z): the stack moves onto today's main; head 04 without `epoch_record_conflict_halt` and its threshold (upstream #1849 stops the node unconditionally); PRs 00-04 and the epoch-loop PR open after it. Sources of the picks: the sixth cut.
+
+| head | branch (to push) | tip on N | N+ | how |
+|---|---|---|---|---|
+| 00 | `feat/bench6-switches-obs` | **b29d59bef** | 12 | picked by me; one hand hunk in `crates/config/src/node.rs` (two test blocks at the end of `mod test`: main's first, the stack's after) |
+| 01 | `test/bench6-e2e-scaffold` | **87be96651** | 20 | clean picks |
+| 02 | `fix/1804-vote-queue` | **17327280d** | 30 | clean picks |
+| 03 | `fix/epoch-record-closing-block-check` | **c2f266b9c** | 33 | unit BF-03: the record-0 arm's call, the floor rule, two tests added, two of main's adapted |
+| 04 | `fix/epoch-record-collector-hardening` | **ff877fb0e** | 60 | units BF-04a-1/-2/-3 (+ a doc commit) and BF-04b: 26 node commits (the halt never exists; 12 folded into 11, 13 and 27 dropped, 22 re-made as a test) + the e2e commit |
+| — | `fix/epoch-loop-output-drop` | **f5f7589f5** | 68 | picked by me; one hand hunk in `tests/it/fleet.rs` (`FATAL_LOGS`, five entries) |
+| 05 | `fix/1804-quorum-exec-block` | **38f00e88e** | 86 | unit BF-E05: 16 picks with the old patch ids, two e2e commits adapted (the lists, `epoch_close_forms.rs`) |
+| 06 | `fix/1807-digest-order-hold` | **500e21afa** | 103 | unit BF-E06: 16 picks with the old patch ids or the same +/- lines, one e2e hunk (the lists: six switches) |
+
+103 commits, the repository owner's identity, no attribution line, no word of the dropped switch in the tree or in a commit body. Heads 00-02: each adds the same +/- lines as on M. Heads 05 and 06: the non-e2e +/- lines equal the old heads' (2,883 and 5,232 lines). Reviews: the units' domain reviewers (03; 04 whole series; the follow-up) and the read of the interdiff of 03 + 04 (`tasks/bench7/review/n34-reshaped-heads-report.md`): approve with fixes, nothing at Medium or above; its one Low is fixed (the doc commit).
+Gates so far: 00-02 (workspace check, 1,825 tests); the epoch-loop tip before the doc commit (workspace check, 2,048 tests); each unit's per-commit and tip gates; head 04's three e2e tests through the lane. Top gates on 500e21afa: running (`tasks/bench7/gate-top-n.log`, `tasks/bench7/per-commit-check-500e21afa.log`, then `tasks/bench7/orch-top-e2e-500e21afa.log`).
+The bench 7 image and `bench/bench7-2026-11` stay on the old base (91a15e223); the M-based sixth cut stays in `tasks/bench7/stack-p6-heads.bundle` and on its local branches until the new heads are pushed under the topic names.
+
