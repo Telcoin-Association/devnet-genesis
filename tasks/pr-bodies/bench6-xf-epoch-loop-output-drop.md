@@ -6,7 +6,7 @@ No switch: it fixes a loss on main.
 
 PR 6 of 6 into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
 Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ff877fb0ef97dcba56a76bb7df3b957a9bc9592e...f5f7589f52fff080fe909354b9a5086a73a3762f (8 commits).
-Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz (checked, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
+Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz in the import block and the test-module ends (checked with `patch -F3`, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
 Please merge with 'Create a merge commit'.
 
 ## Problem
