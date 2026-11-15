@@ -66,7 +66,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] full harness gate alone on the host: PASSED 2026-11-15 06:38Z (unit suite 1,626 OK, mutation checker 0 failures, 2,710 s); `params-apply.sh --print-state` ×2 rc 0 (seven switches each; starved rounds 0 / 4); the deploy's and the blast's dry plans and the chained launcher's plan mode rc 0 for both forms; the teardown's dry mode: 0 candidates, left=0
 
 ## Bench 7 — the two runs (orchestrator only; the user's go + a fresh `gcloud auth login` first)
-- [ ] run 7a (always-on, starved rounds 0): deploy12 → idle checks → blast15 → prelim read + metric export → teardown-dry → teardown → reindex → archive
+- [ ] run 7a = **r20261115-1131** (LAUNCHED 2026-11-15 11:31:32Z; chain log `tasks/bench7/r20261115-1131/chain-20261115T113132Z.log`) (always-on, starved rounds 0): deploy12 → idle checks → blast15 → prelim read + metric export → teardown-dry → teardown → reindex → archive
 - [ ] run 7b (adaptive, starved rounds 4): the same, the same day
 - [ ] analysis per run, the 7a-7b comparison, the comparison with runs 2 and 3, `tasks/bench7-report-<run>.md` (two writers + a figure-check)
 - [ ] **form gate**: the result and a recommendation to the user → PR 05 with the chosen default, PR 06, the bench 7 pages, the last issue comments
@@ -85,10 +85,10 @@ Facts (the note `tasks/bench7/main-delta-33b727fce.md`; the orchestrator log has
 - Nothing is pushed or posted that would have to be taken back: no topic head is on the remote, no PR is open. The sixth cut of the series passed the per-commit check (see the ledger).
 
 The items (approved as recommended):
-- [ ] R1 (APPROVED: "Run now as built"; waits only for the user's fresh `! gcloud auth login`) bench 7 runs NOW on the image as built (M + stack): both runs share one base, which is what the form comparison needs; the report states the base and what today's main differs in. Needs the go and a fresh `gcloud auth login`.
+- [ ] R1 (APPROVED; the user logged in; RUN 7a LAUNCHED 11:31:32Z as r20261115-1131, always-on) bench 7 runs NOW on the image as built (M + stack): both runs share one base, which is what the form comparison needs; the report states the base and what today's main differs in. Needs the go and a fresh `gcloud auth login`.
 - [ ] R2 (APPROVED; STARTED: heads 00-02 picked onto N = b7/n1 at 17327280d; units BF-03 running, BF-04a briefed, BF-04b and BF-E to brief) while the fleet runs, the stack is brought onto today's main: a new cut of the eight heads on N (picks onto new local branches, as every cut so far: nothing pushed is rewritten), head 03 adapted (the record-0 call, the floor wording, two tests), head 04 WITHOUT `epoch_record_conflict_halt` and its threshold (its evidence line and conflict counter stay, in front of main's stop), the walk and the re-certify as they are; the staging branch fast-forwards to N; gates again on the new top (workspace tests, clippy lanes, the repository's e2e sets, the stack's e2e tests, the per-commit check); about 8-11 h of work and review, 5-6 h of lane.
 - [ ] R3 (APPROVED: "After moving onto today's main") PRs 00-04 are opened after R2, on today's main, with texts 03 and 04 rewritten and figure-checked (not as they are now; not 00-02 ahead of the rest: the reviewers would get a merge pushed onto them a day later).
-- [ ] R4 (APPROVED to post once written and figure-checked; writer U-C1850 running) a follow-up comment on #1850: its second gap is fixed by #1849, the first is open, and the question whether a stop should need a super-quorum of the anchor committee; written and figure-checked first.
+- [x] R4 (POSTED 2026-11-15 11:31Z after its figure-check and the user's "post": https://github.com/Telcoin-Association/telcoin-network/issues/1850#issuecomment-6893661988) a follow-up comment on #1850: its second gap is fixed by #1849, the first is open, and the question whether a stop should need a super-quorum of the anchor committee; written and figure-checked first.
 - [ ] R5 the harness drops `epoch_record_conflict_halt` with the next image, not before bench 7 has run (the bench 7 arms and image name it).
 - [ ] R6 (APPROVED: "Epoch-loop PR into staging", as a sixth PR of the stack, once written and figure-checked) the epoch-loop PR (Fixes #1860; the defect is unchanged on today's main).
 
