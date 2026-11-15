@@ -63,3 +63,9 @@ Times of day are UTC on the run's date; every figure's window comes from these, 
 - Fleet health at the blast's end: 11 of 11 nodes, `fatal_db=0`, `halt=0`, every node at block 98,322, disk at most 26 % (`tasks/bench7/r20261115-1131/fleet-health-blast15-20261115T124039Z.log`).
 - Teardown: `TEARDOWN_DONE run=r20261115-1131 deleted=12 left=0 at=2026-11-15T14:42:38Z`. Archive: `ARCHIVE_VERIFY ok=1 files=627 problems=0` to `gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/`.
 - No preliminary read was written for this run.
+
+## Found by the analysis (the orchestrator adds these as units hand back; cite the unit's file, not this list)
+
+- The arms summary of this run (`benchmark/private/bench7-r20261115-1131/A1/arms/arms.json`, sha256 `f03035c8…75fb`) has TWO rows only: `bench7-always/L` (blast 0, 12:51:06–12:56:21Z) and `bench7-always/M16` (blast 2, 13:28:23–13:41:35Z, cut at the kill). Blast 1 has no row ("empty window after clipping": no second of blast 1 had all ten generators in their mixed phase). Its per-node blocks (`order_hold_by_node`, `vote_forms_by_node`, `order_hold_fleet`) sit under `summary_rows[i]`, not at the top level. A unit that needs blast 1 or the part of blast 2 after the kill extracts it itself and says so.
+- Blast 1 (600 × 4) has no window with all ten generators in their mixed phase: generator 06's preamble wait ran its full 600 s after validator-06 lost 737 head-of-line preamble steps from 67 senders (in blast 0, generators 02 and 06 lost 88 steps each and needed about 45 s) (`A1/preamble.json`, `A1/kpis.md`). The KPI analysis gives blast 1 over the nine other generators' common window instead (`01-M4-nine`). The loss analysis owns the explanation.
+- No `output executed` line of this build carries `persist_wait_ms`, `seed_ms` or `pipelined=`: there is no S12b stage (`A1/stages.md`).
