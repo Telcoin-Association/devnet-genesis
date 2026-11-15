@@ -553,7 +553,7 @@ post_one() {
             src="${COMMENT_DIR}/bench6-${key}.md"
             ;;
         pr)
-            case "${key}" in ''|*[!0-9]*) usage_error "pr takes a stack position NN, not '${key}'" ;; esac
+            case "${key}" in ''|*[!0-9a-z]*) usage_error "pr takes a stack position NN (or a lower-case key of STACK-bench6.tsv such as xf), not '${key}'" ;; esac
             n=0
             for f in "${PR_DIR}/bench6-${key}-"*.md; do
                 [ -f "${f}" ] || continue
