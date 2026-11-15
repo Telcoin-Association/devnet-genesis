@@ -5,7 +5,7 @@ The leftover drain's queue phase skips an output already forwarded and stops the
 No switch: it fixes a loss on main.
 
 Into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
-Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ca258b37ce6e4d03308008bd39216cfbe7cb1990...38a8012f5977e397e75e83d10a54c445a763f4e6 (9 commits).
+Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ca258b37ce6e4d03308008bd39216cfbe7cb1990...b69e9c1a96efcd5cb787add54280307c15b454b6 (8 commits).
 Its node change needs nothing from the stack below: everything its first eight commits call is on main at 45dce8947, and their diff applies there with fuzz (checked, not built); the ninth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
 Please merge with 'Create a merge commit'.
 
@@ -26,10 +26,9 @@ This PR does both parts of the issue's fix and leaves the engine and the `ModeCh
 - `98b3087b5` `test(node): cover a forward cancelled while it waits for an output`: the second cancel point; main's `recv` was already cancel safe there, so it would pass on main too and guards the held permit.
 - `d7babdcb3` `fix(node): take a queued output with one poll instead of try_recv`: tokio 1.53's `try_recv` can park the OS thread on a send in progress; one poll of `recv` cannot.
 - `9e1456086` `fix(node): fail the live forward when the engine is gone at the hand-over`: a held permit's send drops the output silently if the engine has gone, so the forward checks `to_engine.is_closed()` first.
-- `0f3b0018a` `test(node): capture log lines in the epoch-close tests`: test-only; its own commit because a later head of the stack uses it too.
-- `7b1a0bf01` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below.
-- `a80927410` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
-- `38a8012f5` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
+- `035707c8f` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below; its test reads the skip line through a small log capture in the test module, which a later head of the stack uses too.
+- `bc840b3cf` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
+- `b69e9c1a9` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
 
 ## What changes for every node
 

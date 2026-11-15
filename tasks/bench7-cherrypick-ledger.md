@@ -153,3 +153,25 @@ Two read-only checks went over every commit message of the stack against the pos
 
 105 commits, all authored by the repository owner's identity, no attribution line. Outside `crates/e2e-tests/tests/it` the top equals the image's commit 91a15e223. The six PR texts cite only ids of this series (plus 2df831e3c, bench 6's build, and a2c4dfae9, an earlier cut on the pushed bench branch).
 Per-commit compile check: `tasks/bench6/per-commit-check-fac7a05fb.txt` (23 OK lines carried over for identical trees); it runs after the harness gate. The heads are pushed when it has passed.
+
+## Sixth cut (2026-11-15 07:1xZ; branch `b7/p6` in `tn-b7-p2`): one helper commit folded, from the epoch-loop head on
+
+The per-commit check of the fifth cut failed on one commit: `0f3b0018a test(node): capture log lines in the epoch-close tests` (sixth of the epoch-loop head) adds a test-only log capture one commit before its first user, so alone it is dead code under `-D warnings` (`LineCapture`, `FieldCapture` never constructed, `line` never used; `tn-node` lib test). It is folded into its first user (`7b1a0bf01` → **035707c8f**, the same subject, one sentence added to the body); everything after it is picked again (38 commits get new ids; `scratchpad/orch/sha-remap-p6.tsv`). Heads 00-04 keep their ids. Trees per head equal the fifth cut's (checked by tree id at the three moved heads); subjects equal apart from the folded one; 104 commits, the repository owner's identity, no attribution line.
+
+| head | branch | tip | M+ |
+|---|---|---|---|
+| 00 | `feat/bench6-switches-obs` | 81a06c4e1 | 12 |
+| 01 | `test/bench6-e2e-scaffold` | 48dae6a5f | 20 |
+| 02 | `fix/1804-vote-queue` | ad83a72f3 | 30 |
+| 03 | `fix/epoch-record-closing-block-check` | cd52dcd81 | 33 |
+| 04 | `fix/epoch-record-collector-hardening` | ca258b37c | 61 |
+| — | `fix/epoch-loop-output-drop` | **b69e9c1a9** | 69 |
+| 05 | `fix/1804-quorum-exec-block` | **63516124a** | 87 |
+| 06 | `fix/1807-digest-order-hold` | **e83313305** | 104 |
+
+The epoch-loop PR text follows (8 commits, the compare link, three ids). Per-commit check on the new series: `tasks/bench6/per-commit-check-e83313305.txt` (OK lines carried by tree id, the folded commit checked itself).
+
+## Upstream main moved past M (found 2026-11-15 06:5xZ)
+
+`main` = 33b727fce = M + 3: #1848 (bc571cb8c), #1849 (d4d53c115), #1855. A trial merge (`git merge-tree`) conflicts in `crates/config/src/node.rs` from head 00 on and in `crates/state-sync/src/epoch.rs` from head 04 on. #1849 stops a node unconditionally on a certified record that conflicts with its own (head 04 does a related thing behind `epoch_record_conflict_halt`) and narrows the restored-floor rule of the guard head 03 extends. PRs 00-04 are held for the user; the delta note is `tasks/bench7/main-delta-33b727fce.md` (unit DM).
+
