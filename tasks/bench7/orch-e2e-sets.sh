@@ -7,7 +7,8 @@
 # cannot drift from it. parameters is a TN_E2E_PARAMETERS value ("key: value; key: value"; empty =
 # every switch at its default).
 #   setsid bash tasks/bench7/orch-e2e-sets.sh <worktree> <commit> <label>=<params> [...] > <log> 2>&1 < /dev/null &
-# Optional: E2E_SETS="restarts epochs" limits the sets (default: restarts epochs sigkill).
+# Optional: E2E_SETS="restarts epochs" limits or widens the sets (default: restarts epochs sigkill; also known: upgrade =
+# make test-upgrade, resync = make test-e2e-resync, which upstream changed after 45dce8947).
 # Logs: <worktree>/target/tmp/orch-e2e-<commit>-<label>-<set>.log, each ending in EXIT=<rc>.
 # Lines: E2E-SETS start …   E2E-SETS <commit> <label> params=[…] <set>=<rc>(<nextest summary>) … <UTC>   E2E-SETS done rc=<n>
 set -uo pipefail
@@ -34,6 +35,8 @@ for arg in "$@"; do
             restarts) "${LANE}" make test-restarts > "${log}" 2>&1 ;;
             epochs)   "${LANE}" make test-epochs > "${log}" 2>&1 ;;
             sigkill)  "${LANE}" make test-sigkill > "${log}" 2>&1 ;;
+            upgrade)  "${LANE}" make test-upgrade > "${log}" 2>&1 ;;
+            resync)   "${LANE}" make test-e2e-resync > "${log}" 2>&1 ;;
             *) echo "unknown set ${set}" >&2; exit 64 ;;
         esac
         rc=$?; echo "EXIT=${rc}" >> "${log}"
