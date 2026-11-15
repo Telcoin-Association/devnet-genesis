@@ -66,8 +66,8 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] full harness gate alone on the host: PASSED 2026-11-15 06:38Z (unit suite 1,626 OK, mutation checker 0 failures, 2,710 s); `params-apply.sh --print-state` ×2 rc 0 (seven switches each; starved rounds 0 / 4); the deploy's and the blast's dry plans and the chained launcher's plan mode rc 0 for both forms; the teardown's dry mode: 0 candidates, left=0
 
 ## Bench 7 — the two runs (orchestrator only; the user's go + a fresh `gcloud auth login` first)
-- [ ] run 7a = **r20261115-1131** (LAUNCHED 2026-11-15 11:31:32Z; chain log `tasks/bench7/r20261115-1131/chain-20261115T113132Z.log`) (always-on, starved rounds 0): deploy12 → idle checks → blast15 → prelim read + metric export → teardown-dry → teardown → reindex → archive
-- [ ] run 7b (adaptive, starved rounds 4): the same, the same day
+- [x] run 7a = **r20261115-1131** DONE 2026-11-15 (deploy 11:31-12:24Z, blast 12:40-14:22Z by hand after the idle check stopped on one node's missing `up`, export 14:27Z with validator-09's Prometheus set partial, teardown 14:42Z deleted=12 left=0, archive 14:49Z problems=0) (always-on, starved rounds 0): deploy12 → idle checks → blast15 → prelim read + metric export → teardown-dry → teardown → reindex → archive
+- [ ] run 7b = **r20261115-1450** (LAUNCHED 2026-11-15 14:50:16Z; chain log `tasks/bench7/r20261115-1450/chain-20261115T145016Z.log`) (adaptive, starved rounds 4): the same, the same day
 - [ ] analysis per run, the 7a-7b comparison, the comparison with runs 2 and 3, `tasks/bench7-report-<run>.md` (two writers + a figure-check)
 - [ ] **form gate**: the result and a recommendation to the user → PR 05 with the chosen default, PR 06, the bench 7 pages, the last issue comments
 
