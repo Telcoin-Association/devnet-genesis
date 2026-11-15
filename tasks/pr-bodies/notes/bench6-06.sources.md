@@ -54,3 +54,7 @@ Report R = tasks/bench7-report-r20261115-1131.md. [C Qx] = benchmark/private/ben
 - Early-trigger candidates 152 / 183 of 1,110 / 2,056 held headers on the digest trigger, inferred: R l.423, l.429 [C Q3.58]. Threshold 5, min header delay 350 ms: R l.430 [7a A7 early_trigger.fleet_parameters] [7b A7 early_trigger.read].
 - Fleet-check cells: R l.432-435 [C q3_hold.fleet_checks] (7a validator-06 during 05's outage, 1 blocker, 0 held; 7b validator-05 blast 0, 18 blockers, 26 headers with blockers, nothing queued).
 - Far validators 02 / 06: R l.503; all batch-carrying headers certified, 46-76 % never committed: R l.507 [V q3_far_validators B0/B1.bh_not_certified, bh_cnc_share]; median 50-61 rounds, 21.0-21.4 s in 7b: R l.508 [C Q3F.07, Q3F.08, Q3F.17, Q3F.18]; hold held none in light blasts: R l.536 [C Q3F.10, Q3F.20]; bench 6 same pattern blast 0: R l.505, l.536 [V q3_far_validators B0.bh_cnc_share].
+
+## Added after the figure-check (tasks/pr-bodies/notes/bench6-06.figcheck.md: 93 items, 0 wrong, 4 weak; its four replacements applied verbatim)
+
+- Run 7a's lost own headers carrying batches (981 not certified, 293 certified but never committed) include none of validator-05's: both runs' `A7/losses.json` `lost_kinds.by_window.B2.05` is 0 and 0 in r20261115-1131; `benchmark/private/bench7-r20261115-1653/A10/vs-bench6.json` gives the same totals with or without validator-05.

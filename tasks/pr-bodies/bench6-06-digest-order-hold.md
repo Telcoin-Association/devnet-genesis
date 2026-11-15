@@ -52,7 +52,7 @@ A mixed fleet is one chain: the switch changes only which queued digests a node 
 
 ## Testing
 
-In `crates/consensus/primary/src/tests/order_hold_model.rs`, the model drives the real `OwnChainOrder`: with the hold on, `p1_each_lane_executes_in_order`, `p2_no_digest_executes_twice`, `p3_every_digest_is_accounted_for`, `p4_healthy_rounds_release_every_lane`, `p5_an_intact_chain_costs_nothing` and `gc_cut_is_the_only_overtake`; with it off, `hold_off_model_finds_the_overtake` and `canceled_story_overtakes_only_without_the_hold`.
+In `crates/consensus/primary/src/tests/order_hold_model.rs`, the model drives the real `OwnChainOrder`: with the hold on, `p1_each_lane_executes_in_order`, `p2_no_digest_executes_twice`, `p3_every_digest_is_accounted_for`, `p4_healthy_rounds_release_every_lane`, `p5_an_intact_chain_costs_nothing` and `gc_cut_is_the_only_overtake`; with it off, `hold_off_model_finds_the_overtake`; and both ways, `canceled_story_overtakes_only_without_the_hold` (a canceled header's digest overtakes without the hold and not with it).
 In `crates/consensus/primary/src/tests/proposer_tests.rs`: `test_digest_order_bookkeeping_keeps_payloads_golden` (every header's payload through a cancel, two commit re-queues, a lane rotation and the header cap), `test_canceled_requeue_behind_a_newer_digest_counts_out_of_order`, `test_committed_requeue_behind_a_committed_digest_counts_out_of_order`, `test_order_hold_keeps_a_canceled_headers_lane_in_order`, `test_order_hold_holds_nothing_on_an_intact_own_chain` and `test_order_hold_replays_the_model_counterexample`.
 
 In `crates/e2e-tests/tests/it/digest_order_hold.rs`, four validators run as processes and the hook holds one validator's own certificates, so its header at a held round is not a parent of its next one.
@@ -65,8 +65,8 @@ On main at 33b727fce, at this head's tip `500e21afa`:
 - `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-config -p tn-primary -p tn-node -p e2e-tests -- -D warnings`: clean.
 
 Bench 7 ran this head's node logic, on an earlier cut of the stack on main at 45dce8947, with the switch on: [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/) (always-on vote form) and [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/) (adaptive), ten validators at 20,000 IOPS, one run each, validator-05 killed in the load blast by design.
-In the load blast, outside generator 05, neither run had a gap resend, an unlanded transaction after the 180-s tail scan or a `nonce_too_high` skip, against bench 6's 29,449 and 104,168 resends, 0 and 9,290 unlanded and 13,036 and 52,588 skips in the same cells.
-Lost own headers carrying batches still occurred on all nine validators other than 05 (r20261115-1131: 981 not certified, 293 certified but never committed; r20261115-1653 without validator-05's own: 988 and 338), and no gap resend followed any of them.
+In the load blast, outside generator 05, neither run had a gap resend, an unlanded transaction after the 180-s tail scan or a `nonce_too_high` skip, against bench 6's 29,449 and 104,168 resends (counted from the load blast's warm-up start to its cool-down end), 0 and 9,290 unlanded and 13,036 and 52,588 skips.
+Lost own headers carrying batches still occurred on all nine validators other than 05 (r20261115-1131: 981 not certified and 293 certified but never committed, none of them validator-05's; r20261115-1653 without validator-05's own: 988 and 338), and no gap resend followed any of them.
 The exception is r20261115-1131's second light blast: one gap episode of 4 transactions on generator 06, whose resend second fell 280-345 s after a lost own header of validator-06, bench 6's pattern, and 22 `nonce_too_high` skips (2 per node on 11 nodes), where r20261115-1653 counted none.
 
 This does not isolate the hold.
@@ -87,7 +87,7 @@ The hold's cost in the load blast, one run each, no spread:
 | Over-quota batch reports | 0 | 0 |
 
 Each validator runs one worker, so a held header carries no batch.
-Each longest run is validator-06's, the r20261115-1131 pair from two different windows.
+Each longest run is validator-06's maximum in the window named; r20261115-1131's two come from different windows, and the windows differ in length (before the kill 817 s and 1,121 s, after validator-05's start 1,308 s and 990 s), so a row compares two runs only where its windows match.
 Held headers certified less often than the rest in both runs; that is an association, and no counter says the hold caused it.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight heads of the stack.
@@ -104,7 +104,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 ## Limits and what a reviewer should look at
 
-- Held digests count toward the digest trigger (`pending_digests_len`, `proposer.rs:1224-1226`, `:1715`), so a held backlog of at least `header_num_of_batches_threshold` builds the next header without the min delay, and that header carries none of it.
+- Held digests count toward the digest trigger (`pending_digests_len`, `proposer.rs:1224-1226`, `:1715`), so a held backlog of at least `header_num_of_batches_threshold` builds the next header without the min delay, and that header can carry none of it.
   Bench 7 counted 152 and 183 early-trigger candidates among 1,110 and 2,056 held headers built on the digest trigger; these are inferred from logged fields, not measured, because `pending_before` on `header proposed` counts every lane, held ones included.
   A field with the un-held count on that line would measure it.
   The fleet ran a digest threshold of 5 and a minimum header delay of 350 ms.
