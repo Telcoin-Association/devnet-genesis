@@ -1545,3 +1545,24 @@ Incidents: the nine issues opened at 00:28Z through a dry-run bug in the creatio
 Operator items: delete the previous session's 5.4 GB scratch /tmp/claude-1000/-home-drtnarg-coding-telcoin-devnet-genesis/8fd11b65-538a-4941-99e8-e68b9023491c
 (the classifier refused the agent's rm); back up benchmark/results/r20261107-1504 (only copy); republish the bench-5 report page (report.md finding 3
 and §6 changed after publication; make_bundle needs --force); decide the bench-6 arms (report §6; persist arms (b1)-(b3) re-shaped).
+
+## Review — bench 7: both vote forms at 20,000 IOPS, and the bench-6 stack upstream (2026-11-14 → 2026-11-15, xerxes)
+
+What was asked (plan `/home/drtnarg/.claude/plans/here-is-a-summary-lively-dolphin.md`): publish bench 6, send its confirmed fixes upstream, build the #1807 hold and the epoch-record hardening, run bench 7.
+
+Done and verified:
+- Bench 7 ran: run 7a `r20261115-1131` (always-on) and run 7b `r20261115-1653` (adaptive), each blast rc 0, each torn down with nothing left and archived with 0 problems. Report `tasks/bench7-report-r20261115-1131.md` (figure-checked by agents that did not write it); the form comparison and its recommendation under `benchmark/private/bench7-r20261115-1653/A9/`; the bench 6 comparison under `…/A10/`.
+- Upstream: the stack re-made on main 33b727fce without the conflict-halt switch (the user's choice after #1849), every gate passed on its top 500e21afa (workspace nextest 5,624; clippy lanes; 103 commits compile alone; the repo's e2e sets off and on; the rolling upgrade from main off and on; the 13 new e2e tests three times; the restore tests), staging fast-forwarded, PRs #1862-#1867 opened and verified on GitHub.
+
+What went wrong, and what it cost:
+- Run 7b's first attempt (`r20261115-1450`) was lost to an expired cloud login: about two hours of fleet time (lesson and a memory written: a fresh login before every fleet launch).
+- The idle check stopped every chain on a missing `up` series (the metrics agent's relabel defect); each blast was launched by hand; a per-minute endpoint sampler was written during run 7b to stand in for what Prometheus lost.
+- Upstream main moved twice under the stack: once with a change that made head 04's switch redundant (re-made), once with an unrelated commit (#1859: kept on 33b727fce, merge and tests checked).
+- Analysis agents overran their token budgets until tool-call and output caps were set (lessons).
+
+Left open, with the user:
+- The default form of the vote fix (recommendation: keep always-on at 20,000 IOPS, weak support), then PRs 05 and 06 and bench 7's pages.
+- Defect reports the report lists (the metrics agent's relabel in the deployment's config; the far validators' certified-but-not-committed batches): drafts and posting need the user's word.
+Left open, not waiting on the user:
+- Harness unit HB-N with the next image (drop the conflict-halt switch; credentials check in the chain; the idle check's `up` rule; the endpoint sampler as a segment; first-and-last-sample export check).
+- `bench/bench7-2026-11` on the remote still carries the old-base commit bodies.
