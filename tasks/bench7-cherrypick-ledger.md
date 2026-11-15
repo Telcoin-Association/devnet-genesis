@@ -135,3 +135,21 @@ The image was cut from the fifth cut's top, **91a15e223** (`bench/bench7-2026-11
 Each of the four new heads has the same tree as its `b7/p3-*` and `b7/p2-*` twin (checked by tree id while picking). No commit carries attribution; all 105 are authored by the repository owner's identity.
 NOT corrected: the same inexact bodies are in `bench/bench7-2026-11` (pushed before the PR 04 writer found them); that branch is the image's record and is not rewritten (no force-push). Heads 00 to 03 were not re-read for the same kind of claim in commit bodies (their PR texts were figure-checked; the bodies were not).
 Still owed before the heads are pushed: the per-commit compile check on `45dce8947..b93a8e682`.
+
+## The PR heads after the commit-message checks (2026-11-15 06:3xZ; branch `b7/p5` in `tn-b7-p2`): FINAL
+
+Two read-only checks went over every commit message of the stack against the posted issues, the code on main and the units' notes: heads 04 and epoch-loop (37 bodies) with their PR texts, and heads 00-03, 05, 06 (68 bodies, 96 statements: 6 wrong, 1 untraceable, 8 stronger than their source, no private label). 22 corrections went into 19 commit messages (the table is `scratchpad/orch/msgfix_cb.py` plus six from the other check; the reports are `tasks/pr-bodies/notes/bench6-commit-bodies.check.md` and `bench6-04-xf.figcheck.md`): an upstream PR number (#1759, not #1834), 16.2 % for 16.3 %, which runs flipped switches by rolling restart (the arm walk, not the four public runs), where the 185 never-executed batches were (173 in r20261113-1630, 12 in r20261114-0000), "far validators" (no source), #1846 (not part of the vote handler's rework), and the like. The first corrected commit is head 00's fifth, so every id after it changed; trees did not (checked per head by tree id while picking).
+
+| head | branch | tip | M+ |
+|---|---|---|---|
+| 00 | `feat/bench6-switches-obs` | **81a06c4e1** | 12 |
+| 01 | `test/bench6-e2e-scaffold` | **48dae6a5f** | 20 |
+| 02 | `fix/1804-vote-queue` | **ad83a72f3** | 30 |
+| 03 | `fix/epoch-record-closing-block-check` | **cd52dcd81** | 33 |
+| 04 | `fix/epoch-record-collector-hardening` | **ca258b37c** | 61 |
+| — | `fix/epoch-loop-output-drop` | **38a8012f5** | 70 |
+| 05 | `fix/1804-quorum-exec-block` | **b608a9eb8** | 88 |
+| 06 | `fix/1807-digest-order-hold` | **fac7a05fb** | 105 |
+
+105 commits, all authored by the repository owner's identity, no attribution line. Outside `crates/e2e-tests/tests/it` the top equals the image's commit 91a15e223. The six PR texts cite only ids of this series (plus 2df831e3c, bench 6's build, and a2c4dfae9, an earlier cut on the pushed bench branch).
+Per-commit compile check: `tasks/bench6/per-commit-check-fac7a05fb.txt` (23 OK lines carried over for identical trees); it runs after the harness gate. The heads are pushed when it has passed.

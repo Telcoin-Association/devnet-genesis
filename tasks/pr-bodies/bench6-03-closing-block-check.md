@@ -6,7 +6,7 @@ No switch: this extends main's unconditional stored-record guard (#1834), and a 
 New: an `epoch record published` info line and two counters.
 
 PR 4 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `fix/1804-vote-queue`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/6e771ac3969679d591ada91fe223dd28b94bc9e1...1e38f1882fdb7d96c85db6294b4080ad9d14302e (3 commits).
+Stacked on `fix/1804-vote-queue`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/ad83a72f35df5f9f20349c394aa88a1c66e35a30...cd52dcd8156971db25acebd62d0643fbc608410b (3 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -22,14 +22,14 @@ This is a missing assertion, not an observed fault (#1851).
 
 ## Change
 
-- `0238163c2` `fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran`: `closing_block_check` compares, in order, (a) `parent_beacon_block_root` with `final_consensus.hash`, (b) the nonce's epoch, (c) a 32-byte `extra_data`, equal to the shuffle seed when the node holds the boundary header the record commits; the engine's own marking rules.
+- `14690c4ac` `fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran`: `closing_block_check` compares, in order, (a) `parent_beacon_block_root` with `final_consensus.hash`, (b) the nonce's epoch, (c) a 32-byte `extra_data`, equal to the shuffle seed when the node holds the boundary header the record commits; the engine's own marking rules.
   Build path: checked before any committee read and `save_record`.
   Stored path: after main's `final_state` compare, which still fails first.
   Entry: against the registry pin, after main's `final_state` compare; (c) by length only, since the seed would need a consensus-store read.
   An `adiri` build skips (c) for epochs up to 160 (`ADIRI_DUP_BATCH_EPOCH`), where the engine tolerates closing outputs whose last block carries no marker.
   Kept: record contents byte-identical to main, the restored-floor skip, main's guard tests (their fixtures now carry the markers).
-- `0fafd5968` `feat(node): count the close-time base-fee identity check`: `adjust_base_fees` already stops the node when canonical tip + 1 is not the entered epoch's `blockHeight`; now passes count too.
-- `1e38f1882` `fix(node): name what the closing-block halt prevents per path, the re-derive path and an empty ring`: the refusal's `reason` follows the path, a re-derive refusal reports `path=rederived`, an empty ring `check=no_block` (was `beacon_root`); no decision changes.
+- `1b1a02704` `feat(node): count the close-time base-fee identity check`: `adjust_base_fees` already stops the node when canonical tip + 1 is not the entered epoch's `blockHeight`; now passes count too.
+- `cd52dcd81` `fix(node): name what the closing-block halt prevents per path, the re-derive path and an empty ring`: the refusal's `reason` follows the path, a re-derive refusal reports `path=rederived`, an empty ring `check=no_block` (was `beacon_root`); no decision changes.
 
 ## What changes for every node
 
@@ -48,7 +48,7 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 
 - Genuine closes pass: `a_closing_block_the_engine_builds_passes_the_check` (an earlier block of the same output fails), `a_genuine_close_saves_the_same_record_and_logs_it_published`, `epoch_entry_accepts_a_genuine_record_against_the_registry_pin`, `the_restored_floor_skips_the_closing_markers_too`, `the_closing_marker_is_skipped_only_for_adiri_early_epochs`.
 - Refusals: `closing_block_check_names_the_comparison_that_fails`, `a_closing_block_without_its_markers_stops_the_build_before_the_save`, `a_stored_record_without_the_closing_markers_stops_the_close`, `epoch_entry_stops_on_a_closing_block_without_the_records_markers`, `an_empty_ring_stops_the_build_as_no_block`, `a_rederived_record_is_refused_as_rederived`, `the_refusal_names_its_path_and_what_the_stop_prevents`.
-- An earlier cut of this head, without the doc-only last commits of the two heads below it (`bf9853709` and `6e771ac39`): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 232 passed, 1 skipped.
+- An earlier cut of this head, without the doc-only last commits of the two heads below it (`48dae6a5f` and `ad83a72f3`): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 232 passed, 1 skipped.
 - Main plus these commits: `cargo clippy --locked --all-targets -p tn-node -- -D warnings` clean, also with `--features adiri`, where the 37 tests of the check, the guard and the counters passed.
 - e2e, on an earlier integration build that held this PR's first two commits (and no behaviour switch yet): `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 passed, no halt line.
 - Not run: no fleet has run the check (the next benchmark runs it on eleven nodes), and no e2e test makes it fire.

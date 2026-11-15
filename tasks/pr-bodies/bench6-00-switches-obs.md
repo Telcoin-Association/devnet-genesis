@@ -5,7 +5,7 @@ A switch is a top-level `parameters.yaml` key whose default is main's behaviour;
 No switch is defined here, and nothing a node sends, accepts, decides or stores changes.
 
 PR 1 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-The first of the stack: its base is `main` at 45dce8947; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/45dce8947...8a42fec57 (12 commits).
+The first of the stack: its base is `main` at 45dce8947; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/45dce8947...81a06c4e1 (12 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -35,21 +35,21 @@ Three measurements were missing on main:
   `EpochManager::new` logs one INFO event (target `node::switches`, a `key=value` field per switch) and sets `tn_node_switch{name}` (0/1, a count, a duration in ms).
 - `3d100a147` feat(primary): gauge how far behind a node enters an epoch.
   `tn_primary_epoch_entry_rounds_behind` is the highest round of a verified certificate from the epoch after the executed one; `behind_consensus` decides as before.
-- `adfd41f41` fix(metrics): give the execution stage histograms sub-millisecond buckets.
+- `56e40e07a` fix(metrics): give the execution stage histograms sub-millisecond buckets.
   Ten histograms take `SUB_MS_SECONDS_BUCKETS`, keeping every old bound.
-- `7471f329e` fix(primary): keep a digest's first receipt across a re-queue.
+- `9987bb9eb` fix(primary): keep a digest's first receipt across a re-queue.
   The proposer holds each drained digest's `first_received` stamp and hands it back on a re-queue; `header proposed` gains `oldest_requeue_wait_ms`.
   Header payload and digest order are unchanged.
-- `a91cfe02a` fix(primary): keep the epoch-entry gauge across a mode change.
+- `febd0551c` fix(primary): keep the epoch-entry gauge across a mode change.
   A mode change rebuilds the request handler, which zeroed the gauge; the running max over `(epoch, round)` now sits in a process-wide static, so a rebuilt handler of the same epoch keeps it and a later epoch replaces it.
-- `12148de2c` docs(primary): say what a digest reported twice does to its first receipt.
+- `47fe32460` docs(primary): say what a digest reported twice does to its first receipt.
   Both copies share one stamp; the first header to commit or re-queue takes it.
-- `d8273bbe3` test(primary): pin the epoch-entry gauge's max over epoch and round.
-- `859b945d1` docs(primary): say the epoch-entry gauge can pass the window by a few rounds.
+- `d1b89080d` test(primary): pin the epoch-entry gauge's max over epoch and round.
+- `71e133376` docs(primary): say the epoch-entry gauge can pass the window by a few rounds.
   Certificates checked side by side can raise it a few rounds past the window before the demotion takes effect.
-- `6007c08be` test(config): say behaviour switches never go into NON_SWITCH_KEYS.
+- `ae065c20a` test(config): say behaviour switches never go into NON_SWITCH_KEYS.
   The list's doc says so, since the test cannot tell a behaviour switch from a plain parameter.
-- `8a42fec57` fix(primary): keep the epoch-entry gauge's max on the bus, not in a static.
+- `81a06c4e1` fix(primary): keep the epoch-entry gauge's max on the bus, not in a static.
   The max moves from the process-wide static to a `#[metric(skip)]` field of `PrimaryMetrics`, one per bus, so tests sharing a process no longer share it.
 
 ## What changes for every node
@@ -74,7 +74,7 @@ On this head:
 - `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -E 'package(tn-config) | package(tn-primary)'`: 677 passed.
 - `cargo test --locked -p tn-primary --no-fail-fast`, three times: the epoch-entry test passed each run; the same 25 fork-pin tests failed each run, as the Makefile's `test-cargo` note says they do outside nextest.
 
-On d8273bbe3 (the first nine commits), `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
+On d1b89080d (the first nine commits), `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
 
 Not run: e2e tests (none added) and a fleet.
 Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.

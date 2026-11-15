@@ -6,13 +6,13 @@ The voter also refuses at once a request older than that author's newest (`Super
 Every node, switch on or off, counts vote requests by outcome.
 
 PR 3 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/bf9853709...6e771ac39 (10 commits).
+Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/48dae6a5f...ad83a72f3 (10 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
 
 On main at 45dce8947, `vote_request` holds the author's lock (`crates/consensus/primary/src/network/handler.rs:1029-1033`) through `vote_inner` (`:1158-1162`) and its 1 s execution wait (`:1462-1507`), so a voter behind on execution answers one author's queued requests a second apart, even for headers the author replaced (its cancel never reaches the voter).
-The rework in #1822, #1839, #1842, #1844 and #1846 keeps this; #1842 adds a wait under the lock for a pending attached parent (`:1845-1855`).
+The rework in #1822, #1839, #1842 and #1844 keeps this; #1842 adds a wait under the lock for a pending attached parent (`:1845-1855`).
 Read from the code; the first commit's test pins it: the sixth of six queued requests is answered after the 5 s vote timeout.
 Bench 5 ([r20261107-1504](https://benchmark.telcoin.network/runs/r20261107-1504/)) measured validator-01 waiting 7.3 to 8.5 s for the lock on validator-04's requests.
 
@@ -23,20 +23,20 @@ What the switch alone does to certification is not known.
 
 ## Change
 
-- `07189a807` test(primary): pin that one author's vote requests wait in turn on its lock: main's behaviour, kept as the switch-off regression.
-- `64c3bb06e` feat(config): add the vote_queue_fix switch: the field, default `false`, listed in `runtime_switches!`.
-- `68ea027b4` fix(primary): wait for execution before the per-author vote lock: with the switch on, the wait runs before the lock and the check under it does not wait (same refusals).
+- `abd4dcec3` test(primary): pin that one author's vote requests wait in turn on its lock: main's behaviour, kept as the switch-off regression.
+- `c733bd06a` feat(config): add the vote_queue_fix switch: the field, default `false`, listed in `runtime_switches!`.
+- `d2d80ac04` fix(primary): wait for execution before the per-author vote lock: with the switch on, the wait runs before the lock and the check under it does not wait (same refusals).
   The author's newest in-window `(epoch, round)`, kept in memory per epoch, refuses a lower round of that epoch on arrival, after the wait, and under the lock after the cached vote and the recast.
   Equivocation checks, signing and the vote store stay under the lock; `SupersededRequest` is never written to the author's entry.
   On purpose, a repeat of an older voted header after a newer request is refused, not answered from the cache; nothing is signed either way.
   Adds `prelock_wait_ms`, the stage `prelock_wait` and the outcome `superseded`.
-- `048997705` docs(primary): say that a requester's cancel does not reach the voter: corrects the comment #1842 added, with a test.
-- `44321d55d` feat(primary): count vote requests by outcome: `tn_primary_vote_outcomes_total{outcome}`; no switch.
-- `bed302576` test(primary): pin the superseded check after the pre-lock wait.
-- `f87a80752` fix(primary): skip the wait before the vote lock for a header that fails its own checks: it gets its switch-off refusal, penalty and author entry at once, still under the lock, where that entry refuses a later same-round header.
-- `4c7958adf` fix(config): keep vote_timeout plus the wait before the vote lock under the request timeout: with the switch on, `vote_timeout` must be below 9 s (the 10 s transport timeout less the wait); the default and both shipped presets pass.
-- `c5ddcfe46` docs(primary): say what a vote permit is held through with vote_queue_fix on: `record_outcome` indexes its counters directly.
-- `6e771ac39` docs(config): state the 9 s vote_timeout ceiling with vote_queue_fix on: field docs and the CLI README.
+- `e598b52f6` docs(primary): say that a requester's cancel does not reach the voter: corrects the comment #1842 added, with a test.
+- `c5d69e649` feat(primary): count vote requests by outcome: `tn_primary_vote_outcomes_total{outcome}`; no switch.
+- `e7144dd7c` test(primary): pin the superseded check after the pre-lock wait.
+- `8655c2894` fix(primary): skip the wait before the vote lock for a header that fails its own checks: it gets its switch-off refusal, penalty and author entry at once, still under the lock, where that entry refuses a later same-round header.
+- `28f6ec34b` fix(config): keep vote_timeout plus the wait before the vote lock under the request timeout: with the switch on, `vote_timeout` must be below 9 s (the 10 s transport timeout less the wait); the default and both shipped presets pass.
+- `fb7093744` docs(primary): say what a vote permit is held through with vote_queue_fix on: `record_outcome` indexes its counters directly.
+- `ad83a72f3` docs(config): state the 9 s vote_timeout ceiling with vote_queue_fix on: field docs and the CLI README.
 
 ## With the switch off
 
@@ -50,7 +50,7 @@ For a lower round after a newer request from the same author, a switch-off voter
 
 Unit tests in `crates/consensus/primary/src/tests/network_tests.rs`: `vote_queue_fix_queued_requests_wait_once`, `vote_queue_fix_stale_round_refused_at_once`, `vote_queue_fix_refuses_request_superseded_on_the_lock`, `vote_queue_fix_keeps_equivocation_refusals`, `vote_queue_fix_refuses_repeat_of_voted_header_after_newer_request` and its switch-off twin, `vote_queue_fix_on_refuses_malformed_header_without_the_wait`; in `crates/config/src/consensus.rs`, `vote_queue_fix_keeps_vote_timeout_plus_the_prelock_wait_below_the_request_timeout`.
 
-Gates on an earlier cut of this head's first nine commits, whose tree differs from c5ddcfe46 only by the e2e crate's doc comments from `bf9853709` and from this head also by doc comments and README text: `cargo check --locked --all-targets` and `cargo nextest run --locked --no-fail-fast`, each with `-p tn-primary -p tn-config -p tn-network-libp2p`, passed (nextest: 1,303 passed, 4 skipped), as did `cargo fmt --all -- --check`.
+Gates on an earlier cut of this head's first nine commits, whose tree differs from fb7093744 only by the e2e crate's doc comments from `48dae6a5f` and from this head also by doc comments and README text: `cargo check --locked --all-targets` and `cargo nextest run --locked --no-fail-fast`, each with `-p tn-primary -p tn-config -p tn-network-libp2p`, passed (nextest: 1,303 passed, 4 skipped), as did `cargo fmt --all -- --check`.
 Not run: no e2e test covers the switch, and no benchmark has run this port; the next one runs it on, with the author-side switch.
 Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
 
@@ -70,5 +70,5 @@ Nothing that should be fixed before merge is open.
 
 - Refs #1804: the voter's side only; the author's side is `fix/1804-quorum-exec-block`, which builds on this head.
 - Refs #1782: the bounded execution wait this moves.
-- Ported onto main's vote-handler rework: #1822, #1839, #1842, #1844, #1846.
+- Ported onto main's vote-handler rework: #1822, #1839, #1842, #1844.
 - Next: `fix/epoch-record-closing-block-check` and `fix/epoch-record-collector-hardening` build on this head.

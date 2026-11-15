@@ -6,7 +6,7 @@ Test code only: no node crate changes, and there is no switch.
 A test that passes no override, with the variable unset, starts its nodes as on main.
 
 PR 2 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `feat/bench6-switches-obs`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/8a42fec57...bf9853709 (8 commits).
+Stacked on `feat/bench6-switches-obs`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/81a06c4e1...48dae6a5f (8 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -18,27 +18,27 @@ The helpers that read and wait for node log lines are private to `restarts.rs` (
 
 ## Change
 
-- `422d3fbbd` test(e2e): start chosen nodes with their own parameters and environment.
+- `29cfa7895` test(e2e): start chosen nodes with their own parameters and environment.
   `NodeOverrides` holds one node's extra `parameters.yaml` entries (key and one line of raw YAML) and environment variables; `FleetOverrides` assigns them across a fleet.
   The entries are merged into the node's file before it starts and checked with the node's `Parameters` loader.
   The existing helpers keep their signatures and delegate to the new `start_validator_with_overrides` and `start_nodes_with_overrides` with empty overrides.
-- `41b953c56` test(e2e): move the node log helpers from restarts to common.
+- `fca359747` test(e2e): move the node log helpers from restarts to common.
   `node_log_lines`, `plain_log_lines`, `log_line_matches`, `wait_for_node_log_line` and `log_field` (with its test) move as they are, now `pub(crate)`.
-- `4ab437182` test(e2e): key fleet overrides by datadir and rebuild parameters per start.
+- `af8a065e7` test(e2e): key fleet overrides by datadir and rebuild parameters per start.
   Overrides keyed by position gave the wrong node's overrides to a restart of a subset; they are now keyed by datadir name (`validator-1`, …).
   The first start with entries keeps the harness's file as `parameters.yaml.harness-base`, and every start rebuilds `parameters.yaml` from it plus that start's entries, staged in `parameters.yaml.merging` and moved into place by `rename`.
-- `90d38b400` test(e2e): fleet-wide parameters.yaml entries from TN_E2E_PARAMETERS.
+- `72424b8c8` test(e2e): fleet-wide parameters.yaml entries from TN_E2E_PARAMETERS.
   `TN_E2E_PARAMETERS='key: value; key: value'` is merged into every node a start helper starts, restarts and observers included, under the test's own overrides, so a test that sets the same key keeps its value.
   A malformed list or a value the loader refuses fails the start with an error naming the variable.
-- `41b07e55a` test(e2e): close the gaps review found in the parameters override scaffold.
+- `fcdba0f3b` test(e2e): close the gaps review found in the parameters override scaffold.
   The docs now name `gc_depth` beside `basefee_address` as a key that forks a fleet when only some nodes carry it, and say that a restart through a helper without overrides drops a node's entries and variables.
   A non-unicode `TN_E2E_PARAMETERS` now fails the start instead of being read lossily.
-- `1ebd9ddd7` test(e2e): apply every node's overrides before start_nodes_with_overrides spawns any.
+- `e9ecfe49d` test(e2e): apply every node's overrides before start_nodes_with_overrides spawns any.
   `FleetOverrides::apply_with_e2e_parameters` applies every node first, so a node that cannot take its overrides fails the call before any node is spawned and none is left running.
-- `9ef55c989` test(e2e): say when a start drops parameters.yaml entries of the previous start.
+- `6ea3dec7b` test(e2e): say when a start drops parameters.yaml entries of the previous start.
   The start is unchanged, but it prints one line on stderr and through `warn!`: `e2e: <datadir> starts without the parameters.yaml entries [...] of its previous start: …`.
   A test that never gives a node overrides never sees it.
-- `bf9853709` docs(e2e): say what TN_E2E_PARAMETERS is checked with and which nodes it reaches.
+- `48dae6a5f` docs(e2e): say what TN_E2E_PARAMETERS is checked with and which nodes it reaches.
   Doc comments only: the merge is checked with the `Parameters` of the tree under test, not by the binary that will read the file, and the entries also reach the `TN_BIN_PATH_PREV` nodes that `upgrade.rs`, `reth_db_migration.rs` and `resync.rs` start.
 
 ## What changes for every node
@@ -55,7 +55,7 @@ The scaffold builds mixed fleets on purpose, and its docs warn that a key that c
 
 Among the e2e library's 16 unit tests, `merge_later_entry_wins_and_is_idempotent`, `apply_parameters_reaches_the_node_loader`, `apply_parameters_starts_each_run_from_the_harness_file`, `fleet_apply_fails_on_the_node_that_cannot_take_its_overrides` and `dropped_entries_notice_names_the_datadir_and_the_dropped_keys` pin the claims above.
 
-On `9ef55c989`, the head before its last commit (which changes doc comments only):
+On `6ea3dec7b`, the head before its last commit (which changes doc comments only):
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `cargo check --locked --all-targets -p e2e-tests -p tn-config -p tn-node`: passed.
 - `cargo nextest run --locked --no-fail-fast -p e2e-tests --lib -p tn-config`: 160 passed.
@@ -76,7 +76,7 @@ Stack-wide gates: run on the top of the stack before these PRs were opened; resu
   The new line says so, but every existing restart test uses the plain helpers, so a test copied from one loses its switch at the restart.
 - `TN_E2E_PARAMETERS` does not reach `test_epoch_observer_forwards_to_second_worker` (`epochs.rs`), which spawns its own nodes, nor the `db load-state` runs of `state_export_import.rs`, which use no `Parameters` field on main.
 - A lane with the variable set also merges it into the `TN_BIN_PATH_PREV` nodes of `upgrade.rs`, `reth_db_migration.rs` and `resync.rs`.
-  When that binary was built at another commit, as `upgrade.rs` requires, it ignores keys it does not know, so the test runs as a mixed fleet; the crate docs say so (`bf9853709`).
+  When that binary was built at another commit, as `upgrade.rs` requires, it ignores keys it does not know, so the test runs as a mixed fleet; the crate docs say so (`48dae6a5f`).
 - `parameters.yaml.harness-base` is written with a plain `fs::copy`; a cut-short copy fails that start, and no later start reads it.
 
 ## Related
