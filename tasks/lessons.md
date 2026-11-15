@@ -1655,3 +1655,10 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - Pinning a base is not the last look at it. `git ls-remote <url> refs/heads/main` runs at the start of every session and before each outward step (a branch push, an image cut, a pull request, a fleet launch); a moved head is logged with its commit subjects and a `git merge-tree` trial before anything else happens.
   - A text that says "on main" names the commit, and before it is posted the claim is re-read against the remote's head of that day: a pull request that fixes what main fixed yesterday says so or is reshaped first.
   - A change of the premises an approval was given under (the base, a reviewer's overlapping merge) puts the outward-facing steps back in front of the user; the inward work (gates, pushes of branches that later take merges, analysis) goes on.
+
+## 2026-11-15 — a chained script waited on `pgrep -f <name>` and matched the shell that had written it
+
+- **What happened.** A waiter script looped on `pgrep -f after-gate-pcc.sh`. The shell call that created the script through a heredoc and started it carried the script's whole text, that name included, in its own command line, and that shell stays alive as the detached job's parent: the loop could never end. Found after one idle minute; the job was my own and was replaced.
+- **Rules.**
+  - A chain waits on a pid (`kill -0 <pid>`) or on a line in a log file, never on `pgrep -f <name>`.
+  - Where a pattern match is unavoidable, the pattern starts with a bracket class (`[a]fter-gate`) as `launch.sh` does, and the script file is written by one call and started by another.
