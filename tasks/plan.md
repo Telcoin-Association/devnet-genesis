@@ -46,8 +46,8 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [ ] epoch records: E1 (stack head 03 = 8f7e4357a, gated), E2, E3, E4, E5a hook, the review's follow-ups E3-FU and E4-FU all DONE and integrated; reviewed (R-03, R-04); stack head 04's node part assembled (e5121e7e1, gate running); running: ECF, E5b (e2e)
 - [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
 - [ ] per-topic reviews: 00, 01, 03 approved; 02, 04, 05, 07 (epoch loop) approved with follow-ups, all applied; 06 (the hold) running. No Critical or High anywhere
-- [ ] top-head gates: per-commit strict check, fmt, `./etc/ci-lanes.sh clippy`, `cargo nextest run --workspace`, the repo's e2e sets (restarts, epochs, sigkill) all-off and bench-7-set-on, a mixed-switch fleet, each new e2e test ×3 through the lane, the property test's long hunt
-- [ ] image: `orch-image-cut.sh <worktree> <commit> bench7-<date>` (faucet, tn-lmdb), digest recorded, `--probe-node-image` by digest, local image trial with the harness's start line
+- [x] top-head gates on 91a15e223 (2026-11-15): fmt; `./etc/ci-lanes.sh clippy` EXIT=0; `cargo nextest run --workspace` 5,531/5,532 (one flaky test of main's storage crate, 10/10 on re-run); the repo's e2e sets off and on (11/11, 11/11, 12/12 each); a mixed-switch fleet and each new e2e test x3 (13 tests, 3/3 iterations); the model's 100,000-case hunt. OPEN: the per-commit strict check on the final series (running; needed before the PRs)
+- [x] image (2026-11-15 05:48Z): `us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115`, digest sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c, from `bench/bench7-2026-11` = 91a15e223 (pushed); probe by digest rc 0; local trial with the image's own binary passed (two repo e2e tests, the seven switches on)
 
 ## Track U — issues and PRs (texts by opus agents; created by the orchestrator, dry run first)
 - [ ] PR texts 00-04 (`tasks/pr-bodies/bench6-NN-*.md`) · PRs created (assignee grantkee, reviewers MavenRain, sstanfield)
