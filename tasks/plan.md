@@ -73,3 +73,22 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 
 ## Wrap-up
 - [ ] ledger verdicts, `tasks/todo.md` review section, lessons, memory, the launch README, push devnet-genesis
+
+## Re-plan 2026-11-15: upstream main moved to 33b727fce (M + 3) after every gate — FOR THE USER, nothing below is started
+
+Facts (the note `tasks/bench7/main-delta-33b727fce.md`; the orchestrator log has the short form):
+- `main` gained #1848 (bundled bootstrap servers), #1849 (storage v2 follow-ups, by a reviewer of this stack) and #1855 (each transaction stored once, new datadirs). The staging branch and the stack are on M = 45dce8947.
+- #1849 stops a node on a certified record that conflicts with its own, unconditionally: the second gap of #1850 is fixed on main, and head 04's `epoch_record_conflict_halt` has no effect once main is merged in. #1849 also narrows the restored-floor rule of the guard head 03 extends and adds a record-0 call that head 03's changed signature breaks (a merge of main into head 03 or above does not compile as it is).
+- PR text 04 is false of today's main in three places; PR text 03 in two. PRs 00-02 are untouched in substance (head 00: one mechanical hunk in `crates/config/src/node.rs`).
+- #1850's first gap, #1851, #1852 and #1860 are still present on today's main.
+- The harness starts an image of the stack on today's main as it is (three log-shape gaps to close). What #1855 changes for the measurement: device bytes (about 171 kB/s less per 1,000 tx/s), not the write count or the syncs (inferred from the code; within 0.2 % of 20,000 IOPS per 1,000 tx/s).
+- Nothing is pushed or posted that would have to be taken back: no topic head is on the remote, no PR is open. The sixth cut of the series passed the per-commit check (see the ledger).
+
+Recommended (each line needs the user's word):
+- [ ] R1 bench 7 runs NOW on the image as built (M + stack): both runs share one base, which is what the form comparison needs; the report states the base and what today's main differs in. Needs the go and a fresh `gcloud auth login`.
+- [ ] R2 while the fleet runs, the stack is brought onto today's main: a new cut of the eight heads on N (picks onto new local branches, as every cut so far: nothing pushed is rewritten), head 03 adapted (the record-0 call, the floor wording, two tests), head 04 WITHOUT `epoch_record_conflict_halt` and its threshold (its evidence line and conflict counter stay, in front of main's stop), the walk and the re-certify as they are; the staging branch fast-forwards to N; gates again on the new top (workspace tests, clippy lanes, the repository's e2e sets, the stack's e2e tests, the per-commit check); about 8-11 h of work and review, 5-6 h of lane.
+- [ ] R3 PRs 00-04 are opened after R2, on today's main, with texts 03 and 04 rewritten and figure-checked (not as they are now; not 00-02 ahead of the rest: the reviewers would get a merge pushed onto them a day later).
+- [ ] R4 a follow-up comment on #1850: its second gap is fixed by #1849, the first is open, and the question whether a stop should need a super-quorum of the anchor committee; written and figure-checked first.
+- [ ] R5 the harness drops `epoch_record_conflict_halt` with the next image, not before bench 7 has run (the bench 7 arms and image name it).
+- [ ] R6 the epoch-loop PR (Fixes #1860; the defect is unchanged on today's main): still the user's word; it can go to `main` alone.
+
