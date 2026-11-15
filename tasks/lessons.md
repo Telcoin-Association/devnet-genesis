@@ -1662,3 +1662,10 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - **Rules.**
   - A chain waits on a pid (`kill -0 <pid>`) or on a line in a log file, never on `pgrep -f <name>`.
   - Where a pattern match is unavoidable, the pattern starts with a bracket class (`[a]fter-gate`) as `launch.sh` does, and the script file is written by one call and started by another.
+
+## 2026-11-15 — a run's cloud credentials must outlive the run (bench 7 run 7b lost)
+- What happened: run 7b was launched 3 h 20 min into a `gcloud auth login` that lasts just under 5 h. The token died 16 min into the blast; the driver could not collect the first light blast, stopped with rc 1, and the fleet stayed up with no way to tear it down until the user logged in again. The run was lost (about 2 h of fleet time).
+- Why I missed it: the plan asked for a fresh login "once before the first fleet action", and I read "once" as covering both runs. Nothing checked how old the login was.
+- Rule: before EVERY fleet launch (deploy or blast) ask for a fresh `! gcloud auth login` unless the last one is under 1 h old; a run needs about 3 h of valid credentials (deploy 53 min, blast 102 min, export + teardown + archive 25 min). Write the login's time in the orchestrator log when the user reports it, and the latest safe launch time beside it.
+- Rule: a chain that drives a fleet checks credentials at its preconditions (`gcloud auth print-access-token` succeeds) and prints the login's age if it can; a failed refresh inside a segment is reported as "credentials", not as a failed blast.
+- Rule: when a fleet is up and the session cannot act on it (credentials, rate limit), the first thing the user reads is that the fleet is up and what they must type.
