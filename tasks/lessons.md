@@ -1630,3 +1630,12 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A text that links a page is posted after the page answers 200, not after the push that will publish it.
   - A log entry's time comes from `date -u` in the command that writes the entry.
   - Every unit prompt says: never end your turn while a job of yours runs or waits; wait for it and read its exit line. A unit that reports "completed" without a hand-back is checked on disk (its checkpoint, its gate logs, `pgrep`) before anything is assumed.
+
+## 2026-11-15 — bench 7 stack assembly: a command chain committed an unresolved file; a recorded resolution replayed
+
+- **What happened.** While assembling the ordered stack I resolved an append-append conflict with a script that expected one conflict region. A later retry of the same pick produced two regions; the script stopped on its assertion, but the shell line joined its steps with `;`, so the format check's failure was printed and the next steps still ran: the file was staged and committed with conflict markers, and two more picks went on top. Separately, `git rerere` (enabled in that repository) had replayed an earlier, wrongly ordered resolution of the same conflict without showing any conflict, so my first retry reproduced the wrong result. Nothing was pushed; both were caught by comparing the file with the integration branch's.
+- **Rules.**
+  - A resolution step is one `&&` chain: join script, format check, a check that no `<<<<<<<` or `>>>>>>>` line is left, then `git add` and `--continue`. Never `;` between them.
+  - Picks during a stack assembly run with `-c rerere.enabled=false`; a pick that "succeeds" where a conflict was expected is inspected before going on.
+  - The assembled stack's top tree is compared with the verified integration tree by tree id (`git rev-parse <tip>^{tree}`): identical or explained.
+  - A head is gated ALONE (checked out by itself) before it is called done: a test that uses a helper from a later head compiles on the integration branch and fails on its own head.

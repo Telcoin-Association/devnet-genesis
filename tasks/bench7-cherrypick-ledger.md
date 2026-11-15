@@ -60,3 +60,30 @@ The e2e scaffold's review had asked for one doc sentence that was never written;
 - 04 node part = 03 + `6d8fe775b..b30607017` (27, clean) = **d7daa9aa1** (M+60).
 Checks: fmt EXIT=0 on d7daa9aa1; `git diff --shortstat b30607017 d7daa9aa1` = 1 file, +10 (doc comments in `crates/e2e-tests/src/lib.rs`). Local branches moved: `test/bench6-e2e-scaffold` → bf9853709, `fix/1804-vote-queue` → 6e771ac39, `fix/epoch-record-closing-block-check` → 1e38f1882.
 The PR texts 01, 02 and 03 were remapped to these ids (map: scratchpad/orch/sha-remap-3.tsv). Heads 00 to 03 are final unless a late review note lands.
+
+## Fourth cut, 2026-11-15 ~00:3xZ: the whole stack's node code, in topic order (branch `b7/stack7`)
+
+Order (phase 1: test files sit where they compile): 00 → 01 → 02 → 03 → 04 → epoch-loop → 05 → 06.
+
+| head | tip | M+ | how |
+|---|---|---|---|
+| 00 `feat/bench6-switches-obs` | 8a42fec57 | 12 | unchanged |
+| 01 `test/bench6-e2e-scaffold` | bf9853709 | 20 | unchanged (third cut) |
+| 02 `fix/1804-vote-queue` | 6e771ac39 | 30 | unchanged |
+| 03 `fix/epoch-record-closing-block-check` | 1e38f1882 | 33 | unchanged |
+| 04 `fix/epoch-record-collector-hardening` | d7daa9aa1 | 60 | node part only (its e2e file comes in phase 2) |
+| `fix/epoch-loop-output-drop` | **a2c4dfae9** | 68 | the fix's three commits from the unit branch (one join in `close_epoch.rs`: the closing-block check's follow-up tests, then the fix's tests, each block whole), **one new commit 95705aab3** (`test(node): capture log lines in the epoch-close tests`), then the four follow-ups |
+| 05 `fix/1804-quorum-exec-block` | **a4adf3a15** | 93 | the switch fields (clean, in the integration order), the vote fix and its follow-ups (unit-branch commits where the integration ones carry later context), the voter-side tests, the docs commit, `exec_block.rs`, the eight `epoch_close_forms.rs` commits; all clean. The uncertified-epoch e2e file is added here when its unit lands |
+| 06 `fix/1807-digest-order-hold` (node part) | **5142a9434** | 109 | the own-certificate hook (four regions of `test_hooks.rs` joined, the hook's blocks before the withhold hook's: the integration layout), the drop counter, the orphan counters (two regions of `close_epoch.rs` joined around the helper), the rule, the model, the observability, the wiring, the docs. Its e2e file is added when its unit lands |
+
+**The check that ties the two branches:** `git rev-parse 5142a9434^{tree}` = `git rev-parse fa41707a3^{tree}` (the integration tip) = 99c25e43e3bc…: the stack's top and the integration branch are the SAME TREE, byte for byte. Everything verified on the integration tree holds for the stack's top.
+
+Two things this cut found:
+1. **A head that did not compile on its own.** The epoch-loop follow-up's test reads a log line with a helper (`LineCapture`) that the orphan counters' commit (head 06) defines; on the integration branch the orphan counters came first. First gate of the epoch-loop head (835dfe4e7): `CHECK EXIT=101` (`use of undeclared type LineCapture`). Fix: the helper (50 lines, verbatim) gets its own commit in the epoch-loop head, placed where the integration layout has it; the orphan counters' first commit is then picked without its copy (its diff is 397/34 on the stack, 447/34 at its source: the 50 helper lines). No other commit's content changed.
+2. **A recorded resolution replayed.** `git rerere` is on in this repository: a retry of a pick I had resolved in the wrong block order replayed that resolution without showing a conflict. From there on every pick runs with `-c rerere.enabled=false`.
+
+And one mistake of mine: in one step the join script stopped on an unexpected second conflict region and my command chain (`;`) went on to commit the unresolved file. Nothing was pushed; the bad tip is on the dead local branch `b7/stack6`; the work continued from the last good commit on `b7/stack7`. Rule: the join, the format check and the commit are chained with `&&`, and the commit step first checks that no conflict marker is left.
+
+Dead local branches from the cuts (not deleted: deleting anything old needs the user's word): `b7/stack`, `b7/stack2`, `b7/stack3`, `b7/stack4`, `b7/stack5`, `b7/stack6`.
+
+Per-head gates of this cut: epoch-loop head a2c4dfae9 (check, node tests, clippy) and head 05 a4adf3a15 (check incl. the e2e crate, primary/config/node tests) run in `tn-b7-gate`; results in the orchestrator log.
