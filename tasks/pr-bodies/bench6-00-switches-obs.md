@@ -86,6 +86,7 @@ Stack-wide gates ran before these PRs were opened, on the full stack: `bench/ben
 - Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
 - `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
 - The 13 e2e tests the full stack adds, three runs each: all passed.
+- Every commit of the eight heads compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
 
 The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
 Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
