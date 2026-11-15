@@ -95,3 +95,21 @@ Per-head gates of this cut: epoch-loop head a2c4dfae9 (check, node tests, clippy
 - Tree check: `74c9970c2^{tree}` = the integration tip `a0d04ab79^{tree}` = 570a1b6ef7e7…: identical.
 - Heads 00 to 04 and the epoch-loop head are unchanged from the fourth cut.
 Gates: epoch-loop head a2c4dfae9: check EXIT=0, 276 node tests passed, TEST EXIT=0 (clippy running); head 05 54cd8e1e5 queued behind it in `tn-b7-gate`.
+
+## The stack is complete, 2026-11-15 00:35Z (branch `b7/stack8`)
+
+Head 06 = 74c9970c2 + the hold's three e2e commits (7d59027f3 the switch in the shared lists, 0d3d259d0 visibility, 6aafe58af `digest_order_hold.rs`; all clean) = **91a15e223** (M+114).
+
+| head | branch | tip | M+ |
+|---|---|---|---|
+| 00 | `feat/bench6-switches-obs` | 8a42fec57 | 12 |
+| 01 | `test/bench6-e2e-scaffold` | bf9853709 | 20 |
+| 02 | `fix/1804-vote-queue` | 6e771ac39 | 30 |
+| 03 | `fix/epoch-record-closing-block-check` | 1e38f1882 | 33 |
+| 04 | `fix/epoch-record-collector-hardening` | d7daa9aa1 | 60 |
+| — | `fix/epoch-loop-output-drop` | a2c4dfae9 | 68 |
+| 05 | `fix/1804-quorum-exec-block` | 54cd8e1e5 | 95 |
+| 06 | `fix/1807-digest-order-hold` = the image source | **91a15e223** | 114 |
+
+Tree check: `91a15e223^{tree}` = the integration tip `6646be1c0^{tree}` = 8a23d42636de…: identical. No commit carries attribution (`git log --format=%B 45dce8947..91a15e223 | grep -ci 'co-authored\|claude\|anthropic'` = 0).
+Phase 2 (before PR 04 is opened; not needed for the image): the fleet helpers out of `exec_block.rs` into a test module introduced in head 04, `epoch_record_walk.rs` into head 04; node code outside `crates/e2e-tests` byte-identical to 91a15e223.
