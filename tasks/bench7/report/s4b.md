@@ -42,3 +42,60 @@ In blast 1 bench 7 commits a smaller share of the far validators' certificates t
 No counter isolates what moved that share.
 The candidates are the upstream vote-handler rework (when far votes and certificates form), the near validators' speed on the new storage engine (the eight propose the next round sooner) and the round rate, which barely moved: 2.83-2.84 own headers per second against 2.80-2.81 [V q3_far_validators B1.headers_per_s]; none is concluded.
 The far validators had no leader slot in blast 1 of either bench 7 run, against 0.48-1.72 % in bench 6 [V q3_far_validators B1.leader_share_pct]; the schedule's reputation counts votes that the vote-handler rework and the near round rate move, which is a lead, not a finding [V q3_far_validators differences].
+
+### 4.6 Epoch records and the closing-block check
+
+What it changes: confidence in the two epoch-record pull requests' code under load.
+The bench image carried an earlier form of that code, with a conflict-halt switch (`epoch_record_conflict_halt`, on in both arms [RF 7a] [RF 7b]) that the later form drops.
+Run 7a closed 8 epochs, every one on one record hash and one closing block and published by all eleven nodes [C Q1.36].
+Run 7b closed 7 epochs, all on one record hash and one closing block, but only 6 lie inside the export and were published by all eleven [C Q1.36]: the last close (epoch 6, 19:25:01Z) falls after the export's last sample and after the logs of validators 01, 02 and 04 were pulled, so 8 nodes show it [7b A4 closes[6].published_nodes].
+Run 7b's 6 of 7 is therefore not like for like with run 7a's 8 of 8.
+
+Signers on the quorum lines and seconds to the first quorum, one close per cell, one run each [V q3_epoch_records pairs]:
+
+| close | bench 6 run 2 | run 7a | bench 6 run 3 | run 7b |
+|---|---|---|---|---|
+| idle closes, seconds to the first quorum | 1.91-2.36 | 1.50-1.99 | 1.29-2.71 | 1.39-1.94 |
+| the kill's close (validator-05 down): signers min / seconds | 9 / 14.75 | 7 / 8.86 | 8 / 13.85 | 7 / 11.84 |
+| the other close in blast 2's mixed phase: signers min / seconds | 7 / 16.44 | 7 / 16.0 | 7 / 14.85 | 7 / 11.93 |
+
+Every idle close had all ten validators signing [7a A4 closes[*].signers_quorum_lines_min_med_max] [7b A4 closes[*].signers_quorum_lines_min_med_max].
+The loaded closes' signers and seconds are not separable between the voters' execution lag, the vote-path rework, the hold, the record switches and the run shape [V q3_epoch_records attribution.not_separable].
+Validator-05 published the records of the two closes after its kill from the collector (`stored_matched`) in both runs [7a A4 closes[5].branches] [7b A4 closes[4].branches].
+In run 7b validators 04 (epochs 4 and 5) and 03 (epoch 5) did the same [7b A4 recovery stored_matched_v03_v04]; neither restarted: their subscriber-mode lines read `CvvActive` at every epoch start, and both lagged in execution at those closes [7b A4 recovery subscriber_mode_lines_v03_v04, exec_lag_max_rounds_at_close].
+The closing-block check counted only `ok`: 16 per validator, 18 on validator-05 and 17 on the observer in run 7a (179 fleet-wide), 12, 14 and 13 in run 7b (135); its failure labels have no series on any node, and an absent label is 0 [7a A4 closing_block_check] [7b A4 closing_block_check] [V q3_epoch_records pairs row 9].
+The close identity check read `ok` 8 times on every node in run 7a and 6 times in run 7b, with no `mismatch` [7a A4 close_identity_check] [7b A4 close_identity_check].
+At the end of each export the certified-through gauge equalled the last close inside it on all eleven nodes: 7 in run 7a, 5 in run 7b [V q3_epoch_records pairs row 10].
+What never fired, on any node in either run: a conflict line, a conflict halt, a walk past an uncertified epoch, an invalid record, a re-certify round, and their counters [7a A4 collector, vote_rounds] [7b A4 collector, vote_rounds].
+The switches were on and nothing triggered them, so the runs do not exercise those paths.
+The `failed to reach quorum on epoch close` error line fell from 3 in each bench 6 run to 0 in both bench 7 runs because this build logs it only when no certificate is held; its info twin, a vote round that ended without a local quorum while the record was already certified, counted 2 in run 7a and 1 in run 7b against 3 [V q3_epoch_records pairs rows 7, 8; attribution.isolated_by_a_counter].
+
+### 4.7 Recovery after the kill
+
+Validator-05 was killed in blast 2's mixed phase in both runs, at the close of epoch 5 in run 7a and of epoch 4 in run 7b [C Q1.37].
+One run each; "load left" runs from the kill to the end of blast 2's mixed phase; kill to `CvvActive` is the node's own log line:
+
+| | bench 6 run 2 | bench 6 run 3 | run 7a | run 7b | cite |
+|---|---|---|---|---|---|
+| the kill's offset into blast 2's mixed phase, s | 1,477 | 1,393 | 817.1 | 1,121.2 | [V q2_rows shape; C Q1.38] |
+| load left after the kill, s | 950 | 1,017 | 1,607.9 | 1,289.8 | [V q2_rows shape; C Q1.39] |
+| kill to `CvvActive`, s | 1,300.7 | 1,359.8 | 2,068.6 | 1,712.4 | [V q2_rows a.27, b.27; C Q1.40] |
+| end of the cool-down to the promotion, s | 301.9 | 302.8 | 450.7 | 400.5 | [V q2_rows a.28, b.28; C Q1.41] |
+| observer: first line at distance 1 after its restart, s | 23.3 | 360.4 | 3.7 | 4.5 | [V q2_rows a.29, b.29] |
+
+The kill came earlier into the load in bench 7 and left more load after it, so kill to `CvvActive` is not one number to compare with bench 6's.
+In run 7b the export's mark of the promotion falls 11.5 s after the log line [7b A4 recovery rejoin_mark.export_mark_minus_log_s].
+Between its start and its promotion validator-05 replayed the kill's epoch (95.4 s in run 7a, 68.2 s in run 7b) and made one rejoin attempt with no demotion line [7a A4 recovery replay_of_epoch5_s, rejoin_attempts, demotion_lines] [7b A4 recovery replay_of_epoch4_s, rejoin_attempts, demotion_lines].
+Its rejoin check answered not ready 406 and 363 times; the largest groups were `round_gap` before the fleet's next close (180 and 199) and `epoch_closed` while it still executed an epoch the fleet had closed (126 and 125) [7a A4 recovery rejoin_not_ready_total, rejoin_not_ready_by_phase] [7b A4 recovery rejoin_not_ready_total, rejoin_not_ready_by_phase].
+No other validator left `CvvActive` in either run [7a A4 recovery left_cvv_active_outside_v05] [7b A4 recovery left_cvv_active_outside_v05, left_cvv_active_outside_v05_logs].
+The observer had all its lines at distance 1 within 41.1 s and 29.9 s of its restart [7a A4 recovery observer_restart] [7b A4 recovery observer_restart].
+Measured and not explained: after its promotion validator-05 proposed its first header within a second in both runs, but its first own certificate committed after 1.65 s in run 7a and 59.6 s in run 7b [7a A4 recovery own_after] [7b A4 recovery own_after].
+Also not explained: in run 7b validator-04 logged 516 `Failed to track spawned task … no available capacity` errors in under 5 s at 18:45:24, as epoch 5 began [7b A4 census leads.spawn_capacity.by_node.v04]; validator-05 has the same template after its start (993 lines in run 7b) [7b A4 census leads.spawn_capacity.by_node.v05].
+
+### 4.8 Census
+
+Every fail-stop phrase the census counts (a stored final state that does not match, a refused closing block, a conflict halt, a fork, a fatal database failure, an output gap and the rest) is zero on every node in both runs [7a A4 census fail_stops, arms_agreement.fail_stop_nodes] [7b A4 census fail_stops, arms_agreement.fail_stop_nodes].
+The bare words "panic", "halt", "fork" and "fatal" do occur, inside digests and in info templates such as `node switches`, not as failures [7a A4 census words] [7b A4 census words].
+No test-hook line appears on any node [7a A4 census arms_agreement.test_hook_lines] [7b A4 census arms_agreement.test_hook_lines].
+The error templates new against bench 6: `processed certificate that is too new` on validator-05 only, after its start (19,307 lines in run 7a, 438 in run 7b, each with a warn twin of the same count); `error while sealing batch | AntiQuorum` (3 lines on validators 03, 06 and 08 in run 7a; 4 on 03, 07, 08 and 10 in run 7b); `ConsensusOutput channel closed` once on the observer in each run; and in run 7b the spawn-capacity errors of §4.7 [7a A4 census flagged] [7b A4 census flagged, leads.spawn_capacity].
+The switch gauges read the arm's values on every validator in both runs, and every node ran the tn-lmdb storage engine [7a A4 census arm_store.gauges_at_arm, store_by_node_arms] [7b A4 census arm_store.gauges_at_arm, store_by_node_arms].

@@ -53,7 +53,7 @@ What would change the recommendation, from its own list:
 - A second run of each form: rows inside run 7a's spread could flip, and the two rows against the adaptive run, seen p95 and blast 0's rate, could fall inside a second run's spread [C Q1.06] [C Q1.04].
 - A run at 50,000 IOPS, where bench 6 found the adaptive form ahead on certification and behind on the senders' cost; bench 7 made no run there [C recommendation].
 - A measured cost for the named block's age: if the age costs something, the fresher block is a reason to make the adaptive form the default.
-- A run at a floor of 16 outputs, which the per-header arithmetic says leaves no under-held header in either run (§4.3).
+- A run at a floor of 16 outputs, which the per-header arithmetic says leaves no under-held header in either run (§4.3) [7a A3 perheader §8] [7b A3 perheader §8].
 - The code: the adaptive form adds the starved window, its 128-header cap and the return to the own tip, which the page counts as a cost with no row behind it.
 
 ### 4.2 #1807 with the order hold on
@@ -111,5 +111,68 @@ The fleet ran a digest threshold of 5 batches and a minimum header delay of 350 
 
 The plan's fleet check "`headers_held > 0` where headers were lost" fails once in each run, printed as each run has it [C q3_hold.fleet_checks]:
 
-- Run 7a: of 32 (window, validator) cells with blockers created, one shows no increase: validator-06 during validator-05's outage, 1 blocker created, 0 held headers.
-- Run 7b: validator-05 in blast 0, 18 blockers created and no increase of `tn_primary_headers_held_total`; of its 26 headers with blockers, none had a pending queue, a batch or a held digest, so nothing was queued to hold.
+- Run 7a: of 32 (window, validator) cells with blockers created, one shows no increase: validator-06 during validator-05's outage, 1 blocker created, 0 held headers [C q3_hold.fleet_checks].
+- Run 7b: validator-05 in blast 0, 18 blockers created and no increase of `tn_primary_headers_held_total`; of its 26 headers with blockers, none had a pending queue, a batch or a held digest, so nothing was queued to hold [C q3_hold.fleet_checks].
+
+### 4.3 Certification fell while throughput rose
+
+What it changes: what the next fix is aimed at.
+
+Against bench 6, one run each, in blast 2's mixed phase before the kill (the headline row: the whole mixed phase); the four windows are 817, 1,477, 1,121 and 1,393 s long [V q3_certification_rounds a, b].
+
+| Before the kill | Run 7a | Bench 6 run 2 | Run 7b | Bench 6 run 3 | Cite |
+|---|---|---|---|---|---|
+| Blast 2 chain tx/s, headline window | 9,289 | 5,322 | 9,337 | 5,395 | [V q2_rows a.01, b.01] |
+| Fleet certification, the rounds analysis's count (%) | 94.0 | 99.94 | 94.95 | 99.56 | [V q3_certification_rounds a, b] |
+| Validators other than 05 under 98 % | 4 | 0 | 4 | 0 | [V q3_certification_rounds a, b] |
+| Refused-behind answers per minute | 34.8 | 0 | 39.3 | 0.6 | [V q3_vote_path a, b] |
+| Superseded answers per minute | 1,199 | 3.5 | 2,089 | 136 | [V q3_vote_path a, b] |
+| Rounds with four or more under-held parents (%) | 11.13 | 0.02 | 10.34 | 2.98 | [V q3_certification_rounds a, b] |
+| Committed rounds per second, validator-01's own count | 2.54 | 2.81 | 2.46 | 2.78 | [V q2_rows a.18, b.18] |
+| Execution lag in rounds, median over validators | 16.96 | 35.65 | 21.36 | 34.0 | [V q3_certification_rounds a, b] |
+
+Throughput rose 74.5 % and 73.1 % while certification fell and the execution lag counted in rounds fell with it [V q2_rows a.01, b.01].
+In blast 2 as a whole 5,432 of run 7a's headers (10.31 %) and 6,378 of run 7b's (12.55 %) were under-held: at the proposal at most five voters held the block they named, validator-05 counting as a voter without it after its start [7a A3 q4u B2.fleet] [7b A3 q4u B2.fleet].
+Under-held headers certified 61.25 % and 66.70 % of the time, the rest 99.53 % and 99.06 % [7a A3 q4u B2.fleet] [7b A3 q4u B2.fleet].
+By basis, run 7a certified 94.3 % of its floor-basis headers, 99.9 % of its quorum-basis and 96.4 % of its tip-basis headers; run 7b 92.1 %, 99.9 % and 98.1 % [7a A3 q2 B2.fleet] [7b A3 q2 B2.fleet].
+The per-header analyses' floor arithmetic holds the measured tips, rounds and cancels fixed and moves only the floor: at a floor of 16 outputs no header in either run would have been under-held (0.00 %) [7a A3 perheader §8] [7b A3 perheader §8].
+That is arithmetic on these runs, not a result, and the plan kept the floor at 8.
+Its cost is the named block's age: the mean distance would be 14.71 and 13.81 block-bearing outputs, 13.16 and 12.72 s at validator-01's output rate, against the measured 7.57 and 4.83 outputs, 6.77 and 4.45 s [7a A3 perheader §8] [7b A3 perheader §8].
+No counter isolates one change: refused-behind answers and the under-held split divide the lost certification by mechanism, not by the change that moved it [V q3_certification_rounds.attribution].
+In the bench 6 comparison's words the certification share is not separable between the "vote-handler rework (refusal rule and timing), the execution lag at the voters (rate x1.75, larger outputs, the storage engine's persist time), the hold (re-times digests and so headers), the adaptive rule change (7b/run 3 only), the shape (kill earlier, bench 6's queued pools)" [V q3_certification_rounds.attribution].
+
+### 4.4 What binds at 20,000 IOPS now
+
+What it changes: where throughput work goes.
+
+The engine and the device in blast 2's mixed phase, one run each [V q3_storage.runs.<run>.engine_b2, .disk.b2].
+
+| Blast 2 | Run 7a | Bench 6 run 2 | Run 7b | Bench 6 run 3 |
+|---|---|---|---|---|
+| Executed tx/s per node | 9,293 | 5,314 | 9,376 | 5,399 |
+| Rate the task's cost allows at full busy, tx/s | 9,500 | 5,343 | 9,582 | 5,420 |
+| Engine busy, ms per s (log timeline) | 978.1 | 994.3 | 978.4 | 996.1 |
+| Task, µs per transaction | 105.26 | 187.15 | 104.36 | 184.51 |
+| Execute, µs per transaction | 54.29 | 90.21 | 54.03 | 89.98 |
+| Persist, µs per transaction | 49.42 | 95.25 | 48.78 | 92.85 |
+| Commit (part of persist), µs per transaction | 31.93 | 74.17 | 31.36 | 72.01 |
+| Persist's share of the task | 0.47 | 0.51 | 0.47 | 0.50 |
+| Transactions per output | 8,294 | 3,854 | 8,638 | 4,072 |
+| Commit, ms per output | 265.5 | 287.7 | 270.9 | 293.4 |
+| Persist, ms per output | 410.9 | 369.5 | 421.4 | 378.3 |
+| Device writes per s, share of the 20,000 cap | 0.859 | 0.998 | 0.863 | 0.999 |
+| Device writes per transaction | 1.85 | 3.74 | 1.85 | 3.71 |
+| Device time per write, ms | 8.50 | 6.88 | 8.67 | 6.77 |
+| Bytes written per transaction | 26,132 | 19,288 | 25,498 | 19,119 |
+
+In both runs the engine was busy about 978 ms of every second and executed 9,293 / 9,376 tx/s per node, against the 9,500 / 9,582 tx/s its task cost allows at full busy [7a A5 window.2.bound_check] [7b A5 window.2.bound_check].
+The cycle executes and then persists in turn, as bench 6's report read in the code (its §4.6), so the task's time per transaction sets that rate; persist is 47 % of it [V q3_storage.runs.<run>.engine_b2].
+The device ran at 0.859 / 0.863 of its write cap at 8.50 / 8.67 ms per write, each write carrying 2.74 / 2.68 times bench 6's bytes [V q3_storage.runs.<run>.disk.b2] [V q3_storage.attribution].
+Both readings sit below their limits, the engine nearer to its own.
+Through blast 2 the store grew and commit per transaction rose with it: from 21.49 to 42.07 µs in run 7a and from 20.32 to 42.34 µs in run 7b between the first and last 300-s bucket, while tn-lmdb's used size went from 1.12 to 2.74 GiB and from 1.11 to 2.72 GiB [7a A5 course.buckets] [7b A5 course.buckets].
+Over the same buckets the executed rate fell from 10,470 to 8,393 and from 10,497 to 8,164 tx/s [7a A5 course.buckets] [7b A5 course.buckets].
+A least-squares fit over the eight buckets gives 14.3 / 14.9 µs of commit per transaction per GiB used (r² 0.966 / 0.968) and -1,420 / -1,486 tx/s per GiB (r² 0.969 / 0.972); it is a fit, not a mechanism [7a A5 course.fit_*] [7b A5 course.fit_*].
+Bench 6 sat at the write cap: its measured rate was 0.997 and 1.000 of the identity rate, cap over writes per transaction, within 0.3 % [V q3_storage.runs.b6r2.identity] [V q3_storage.runs.b6r3.identity].
+Per transaction, commit fell to 0.43 / 0.44 of bench 6's and persist to 0.52 / 0.53; per output, commit fell only to 0.92 and save_blocks rose 1.79 / 1.78 times, while transactions per output rose 2.15 / 2.12 times [V q3_storage.attribution].
+Device writes per transaction fell to 0.49 / 0.50 of bench 6's while writes per output moved -4.0 % / +2.9 % before the kill: the halving follows the larger outputs [V q3_storage.attribution].
+tn-lmdb and storage v2 came in one change (#1834) and are not separable from each other; the device counts take every writer on the boot disk, so the store, the vote-path rework, the hold and the load left after the kill could all move them [V q3_storage.attribution] [7a A6 q10_whole_disk.statement].
