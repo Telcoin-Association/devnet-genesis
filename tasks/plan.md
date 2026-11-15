@@ -39,18 +39,20 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] PT-0 switches + obs: b7/pt0 d8273bbe3 (9 commits) = head 00
 - [x] PT-1 e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`): b7/pt1 653e6ab51 (5 commits); head 01 = eca202a19
 - [x] PT-2 voter-lock (`vote_queue_fix`): ported (PT-2B), reviewed (R-02), follow-ups in (PT-2C); stack head 02 = 6dae7520f, gated (1,303 tests)
-- [ ] PT-3 quorum-exec-block (both forms): PT-3a, PT-3v (voter-side tests), PT-3b (e2e: control 0.59-0.66, adaptive 0.92-0.94, always 0.99-1.00 on tn-lmdb), PT-3c (review follow-ups: the adaptive window counts HEADERS BUILT, explicit opening-block bound) all DONE and integrated; reviewed (R-05); left: stack head 05 assembly, the e2e x3 at the top-head gate
-- [ ] `epoch_close_forms.rs` ported and extended: unit ECF running (tn-b7-ecf at b3446667f)
-- [ ] XF-1 main's epoch-loop output drop: verified REAL, fixed, reviewed (R-07), follow-ups in (XF-1b), **issue #1860 posted**; left: its stack head (after 04); its PR needs the user's word
-- [ ] #1807 hold: HD-1 observability, HD-2a rule, HD-2c model (100,000 schedules, no order break with the hold on), HD-2b wiring + `digest_order_hold`, HD-3, HD-4a all DONE and integrated (a11f14b1b); running: R-06 (review + security eval), HD-4b (e2e). OPEN FOR THE USER: which digests trigger a header before the minimum delay (held ones are counted today)
-- [ ] epoch records: E1 (stack head 03 = 8f7e4357a, gated), E2, E3, E4, E5a hook, the review's follow-ups E3-FU and E4-FU all DONE and integrated; reviewed (R-03, R-04); stack head 04's node part assembled (e5121e7e1, gate running); running: ECF, E5b (e2e)
-- [ ] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
-- [ ] per-topic reviews: 00, 01, 03 approved; 02, 04, 05, 07 (epoch loop) approved with follow-ups, all applied; 06 (the hold) running. No Critical or High anywhere
+- [x] PT-3 quorum-exec-block (both forms): PT-3a, PT-3v (voter-side tests), PT-3b (e2e: control 0.59-0.66, adaptive 0.92-0.94, always 0.99-1.00 on tn-lmdb), PT-3c (review follow-ups: the adaptive window counts HEADERS BUILT, explicit opening-block bound); reviewed (R-05); head 05 = b608a9eb8 (M + 88); its e2e tests x3 passed at the top-head gate
+- [x] `epoch_close_forms.rs` ported and extended (unit ECF): in head 05, on the shared `tests/it/fleet.rs` helpers that enter at head 04
+- [x] XF-1 main's epoch-loop output drop: verified REAL, fixed, reviewed (R-07), follow-ups in (XF-1b), **issue #1860 posted**; head `fix/epoch-loop-output-drop` = 38a8012f5 (M + 70), in the image. Its PR needs the user's word (Track U)
+- [x] #1807 hold: HD-1 observability, HD-2a rule, HD-2c model (100,000 schedules, no order break with the hold on), HD-2b wiring + `digest_order_hold`, HD-3, HD-4a hook, HD-4b e2e (hold on: 0 lost / duplicated / out of order in three runs; control: 288 of 14,102 lost), R-06 approve; head 06 = fac7a05fb (M + 105). OPEN FOR THE USER before PR 06: held digests count toward the early-header trigger (bench 7 runs as built and measures the `own_parent=false` share)
+- [x] epoch records: E1 (head 03 = cd52dcd81), E2, E3, E4, E5a hook, the review's follow-ups E3-FU and E4-FU, E5b e2e (`epoch_record_walk.rs`); reviewed (R-03, R-04); head 04 = ca258b37c (M + 61)
+- [x] file order kept: E1 → HD-3 on `close_epoch.rs`; E2 → E3 on `state-sync/src/epoch.rs`; E2 → E4 on `epoch_votes.rs`; PT-0 → PT-3 → HD-1 → HD-2 on `proposer.rs`
+- [x] per-topic reviews: 00, 01, 03 approved; 02, 04, 05, 06 (the hold), 07 (epoch loop) approved with follow-ups, all applied. No Critical or High anywhere
 - [x] top-head gates on 91a15e223 (2026-11-15): fmt; `./etc/ci-lanes.sh clippy` EXIT=0; `cargo nextest run --workspace` 5,531/5,532 (one flaky test of main's storage crate, 10/10 on re-run); the repo's e2e sets off and on (11/11, 11/11, 12/12 each); a mixed-switch fleet and each new e2e test x3 (13 tests, 3/3 iterations); the model's 100,000-case hunt. OPEN: the per-commit strict check on the final series (running; needed before the PRs)
 - [x] image (2026-11-15 05:48Z): `us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115`, digest sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c, from `bench/bench7-2026-11` = 91a15e223 (pushed); probe by digest rc 0; local trial with the image's own binary passed (two repo e2e tests, the seven switches on)
 
 ## Track U — issues and PRs (texts by opus agents; created by the orchestrator, dry run first)
-- [ ] PR texts 00-04 (`tasks/pr-bodies/bench6-NN-*.md`) · PRs created (assignee grantkee, reviewers MavenRain, sstanfield)
+- [x] PR texts 00-04 and the epoch-loop text (`tasks/pr-bodies/bench6-NN-*.md`): figure-checked twice, ids = the final heads (branch `b7/p5`: 00 81a06c4e1, 01 48dae6a5f, 02 ad83a72f3, 03 cd52dcd81, 04 ca258b37c), gate results in, lint OK, dry-run posts OK
+- [ ] the eight topic heads pushed (after the per-commit check on 45dce8947..fac7a05fb) · PRs 00-04 created (assignee grantkee, reviewers MavenRain, sstanfield)
+- [ ] the epoch-loop PR (`fix/epoch-loop-output-drop`, Fixes #1860): needs the user's word
 - [x] new issues created 2026-11-14 (#1860 main's epoch-loop output drop; #1850 collector gaps, #1851 closing-block check, #1852 false quorum error, #1853 execute and persist in series, #1854 admission and the backlog, #1856 restart gap, #1857 rejoin under load, #1858 NewEpoch docs) (`tasks/issue-bodies/bench6-*.md`): closing-block check gap; collector gaps G1, G2; rejoin under sustained load + the follower's dead RPC; the false quorum error; stop between epoch 0's closing block and record 0; `NewEpoch` unreadable over RPC; in-flight bound measurements; execute and persist in series at 50,000 IOPS
 - [x] comments with bench-6 data posted 2026-11-14: #1802, #1803, #1804, #1805, #1806, #1807, #1774
 - [x] write-up of what does not carry (MDBX advice, the old stored-record check, pipelined persist): `tasks/bench6-not-carried-writeup.md` (goes into the PR stack's text)
@@ -61,7 +63,7 @@ Stack: 00 `feat/bench6-switches-obs` · 01 `test/bench6-e2e-scaffold` · 02 `fix
 - [x] (d2ab915) HB-3 storage measures on tn-lmdb (sampler, folio census, readers)
 - [x] (scripts committed; ports reserved by HB-1b) HB-4 run-costing defects: listener ports, the chained launcher, the fleet-health watch, the metric export check
 - [x] (80deb36, 0adb69e; whole suite running on 0adb69e) HB-5: HB-5a (launch files `bench7-always.env` / `bench7-adaptive.env`, 32 kept log shapes, `halt=` in the sampler + the fleet watch's alarm, the export's 38 must-haves) and HB-5b (the arms summary's bench 7 blocks, the seventh fail-stop, `--halt-baseline`)
-- [ ] full harness gate alone on the host; `params-apply.sh --print-state` ×2; the deploy's dry plan; the teardown's dry mode (0 candidates)
+- [ ] full harness gate alone on the host: PASSED 2026-11-15 06:38Z (unit suite 1,626 OK, mutation checker 0 failures, 2,710 s) · left: `params-apply.sh --print-state` ×2; the deploy's dry plan; the teardown's dry mode (0 candidates; needs gcloud)
 
 ## Bench 7 — the two runs (orchestrator only; the user's go + a fresh `gcloud auth login` first)
 - [ ] run 7a (always-on, starved rounds 0): deploy12 → idle checks → blast15 → prelim read + metric export → teardown-dry → teardown → reindex → archive

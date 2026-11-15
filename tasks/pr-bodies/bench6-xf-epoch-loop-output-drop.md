@@ -65,7 +65,16 @@ The stop means a regression: report it with the log.
 - On a2c4dfae9 (an earlier cut of the first eight commits, on `bench/bench7-2026-11`: the same node code, without the stack's e2e test files, which these gates do not build): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 276 passed, 1 skipped, these 11 among them; `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
 - Not run: no e2e test drives the race through the real loop, and no fleet has run this head yet.
 
-Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
+Stack-wide gates ran before these PRs were opened, on the full stack: `bench/bench7-2026-11` at `91a15e223` carries the code of the five heads sent as pull requests, of this fix and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,531 of 5,532 passed.
+  The one failure, `tests::differential::random_scripts_match_mdbx_multi_leaf` in `tn-lmdb-reth`, is a randomized test of a crate this stack does not touch; it passed ten of ten re-runs.
+- Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+
+The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
+Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
 
 ## Limits and what a reviewer should look at
 

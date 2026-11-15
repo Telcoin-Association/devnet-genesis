@@ -52,7 +52,16 @@ Unit tests in `crates/consensus/primary/src/tests/network_tests.rs`: `vote_queue
 
 Gates on an earlier cut of this head's first nine commits, whose tree differs from fb7093744 only by the e2e crate's doc comments from `48dae6a5f` and from this head also by doc comments and README text: `cargo check --locked --all-targets` and `cargo nextest run --locked --no-fail-fast`, each with `-p tn-primary -p tn-config -p tn-network-libp2p`, passed (nextest: 1,303 passed, 4 skipped), as did `cargo fmt --all -- --check`.
 Not run: no e2e test covers the switch, and no benchmark has run this port; the next one runs it on, with the author-side switch.
-Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
+Stack-wide gates ran before these PRs were opened, on the full stack: `bench/bench7-2026-11` at `91a15e223` carries the code of these five heads, of the epoch-loop fix (#1860) and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,531 of 5,532 passed.
+  The one failure, `tests::differential::random_scripts_match_mdbx_multi_leaf` in `tn-lmdb-reth`, is a randomized test of a crate this stack does not touch; it passed ten of ten re-runs.
+- Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+
+The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
+Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
 
 ## Limits and what a reviewer should look at
 

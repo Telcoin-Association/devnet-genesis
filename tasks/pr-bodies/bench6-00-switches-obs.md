@@ -79,7 +79,16 @@ On d1b89080d (the first nine commits), `cargo nextest run --locked --no-fail-fas
 Not run: e2e tests (none added) and a fleet.
 Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.
 
-Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
+Stack-wide gates ran before these PRs were opened, on the full stack: `bench/bench7-2026-11` at `91a15e223` carries the code of these five heads, of the epoch-loop fix (#1860) and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,531 of 5,532 passed.
+  The one failure, `tests::differential::random_scripts_match_mdbx_multi_leaf` in `tn-lmdb-reth`, is a randomized test of a crate this stack does not touch; it passed ten of ten re-runs.
+- Those two ran three commits below `91a15e223`, on a tree that differs only in e2e test files; the e2e crate's check and clippy passed at `91a15e223`.
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12, once with every switch off and once with the full stack's seven switches on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+
+The PR heads differ from `91a15e223` in commit messages and in how the e2e test files are split.
+Outside `crates/e2e-tests/tests/it` the top head's tree is identical to it; on the final split the 13 tests passed once, and `cargo +nightly-2026-03-20 fmt --all -- --check` is clean.
 
 ## Limits and what a reviewer should look at
 
