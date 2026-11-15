@@ -1647,3 +1647,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A commit body is a public text. Before a branch is pushed, its commit bodies get the same check as an issue: every run id, count and "bench N showed" sentence against the source, and no private label (finding ids, unit names).
   - A brief states what was measured, what is read from code and what was never observed in those words, so a unit cannot turn "read from code" into "the benchmark showed".
   - The per-head text writer is asked to compare the commit bodies with the issues as part of its job, not only the diff.
+
+## 2026-11-15 — bench 7 stack: upstream main moved three commits after the base was pinned, and I saw it only by chance before the pull requests
+
+- **What happened.** The base was pinned on 2026-11-14 (45dce8947). Main gained #1848, #1849 and #1855 over the next fourteen hours; #1849 (by a reviewer of the stack) made the collector stop a node on a conflicting certified record, which head 04 does behind a switch, and #1855 changed what a node stores per transaction. Every gate, the image and five pull-request texts were finished against the old base before I looked at the remote's `main` again, and that look was a side effect of listing the remote's branches before a push.
+- **Rules.**
+  - Pinning a base is not the last look at it. `git ls-remote <url> refs/heads/main` runs at the start of every session and before each outward step (a branch push, an image cut, a pull request, a fleet launch); a moved head is logged with its commit subjects and a `git merge-tree` trial before anything else happens.
+  - A text that says "on main" names the commit, and before it is posted the claim is re-read against the remote's head of that day: a pull request that fixes what main fixed yesterday says so or is reshaped first.
+  - A change of the premises an approval was given under (the base, a reviewer's overlapping merge) puts the outward-facing steps back in front of the user; the inward work (gates, pushes of branches that later take merges, analysis) goes on.
