@@ -5,8 +5,8 @@ With it on, a validator's next own header leaves queued every digest of a worker
 Header validity, the messages and what peers vote for do not change; the header trigger still counts held digests, so at light load a held backlog can build a header earlier (see Limits).
 Every node, switch on or off, counts digests re-queued out of order, what the orphan re-pool does with each transaction and dropped cancel reports, and logs its own parent on `header proposed`.
 
-PR 8 of 8 into `staging/benchmark-bench6-2026-11`, after #1862-#1867 and {{pr-05}} (merge order: #1862, #1863, #1864, #1865, #1866, #1867, {{pr-05}}, this one).
-Stacked on `fix/1804-quorum-exec-block` ({{pr-05}}): this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/38f00e88ea178f56cfcf5cba3e7495e339ce06ae...500e21afa6205b3b9cb39a05e5dc1fefc145747e (17 commits).
+PR 8 of 8 into `staging/benchmark-bench6-2026-11`, after #1862-#1867 and #1868 (merge order: #1862, #1863, #1864, #1865, #1866, #1867, #1868, this one).
+Stacked on `fix/1804-quorum-exec-block` (#1868): this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/38f00e88ea178f56cfcf5cba3e7495e339ce06ae...500e21afa6205b3b9cb39a05e5dc1fefc145747e (17 commits).
 Please merge with 'Create a merge commit', like the rest of the stack.
 
 ## Problem
@@ -120,4 +120,4 @@ Nothing that should be fixed before merge is open.
 
 - Refs #1807: the switch defaults off, so this does not close it.
 - Refs #1794: a held digest keeps its slot in that bound until it commits.
-- Stacked on {{pr-05}} (`fix/1804-quorum-exec-block`); the last PR of the stack.
+- Stacked on #1868 (`fix/1804-quorum-exec-block`); the last PR of the stack.
