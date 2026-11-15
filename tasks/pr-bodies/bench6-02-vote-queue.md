@@ -58,7 +58,16 @@ On the stack's earlier cut on main at 45dce8947, on a form of this head's first 
 
 Not run: no e2e test covers the switch, and no benchmark has run this head; a benchmark of the stack's earlier form on main at 45dce8947 runs it on, with the author-side switch, and has not finished.
 
-Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
+- Every one of the 103 commits compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 and `make test-e2e-resync` 1/1, once with every switch off and once with the full stack's six switches on.
+- `make test-upgrade` with main at 33b727fce as the previous binary (four validators upgraded in place, one at a time): passed with every switch off and with the six on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+- The three `state_export_import` tests, which restore a node from an exported state: passed.
+- Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 
 ## Limits and what a reviewer should look at
 

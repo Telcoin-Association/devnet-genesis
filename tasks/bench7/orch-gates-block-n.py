@@ -50,6 +50,10 @@ def block() -> list[str]:
         out.append("- The 13 e2e tests the full stack adds, three runs each: " + opts["x3"] + ".")
     if "restore" in opts:
         out.append("- The three `state_export_import` tests, which restore a node from an exported state: " + opts["restore"] + ".")
+    # tasks/bench7/orch-merge-check-c1b1eb9fe.log (the local trial merge cf2d13b8e = 500e21afa + c1b1eb9fe).
+    out.append("- Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes "
+               "`cargo check --locked --workspace --all-targets` with warnings denied and "
+               "`cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).")
     out.append("")
     return out
 

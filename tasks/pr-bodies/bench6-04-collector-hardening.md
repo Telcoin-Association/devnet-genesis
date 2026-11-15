@@ -64,7 +64,16 @@ The e2e commit on `8c76745f2` (this head's tree without `d6992db59` and `b7f008d
 Switches off, an observer holding that record collects nothing past it and closes no epoch after it comes back (`test_uncertified_epoch_stops_the_collector_with_every_switch_off`); with the walk, it and the validators walk past and it executes on, a fresh observer still stops (`test_uncertified_epoch_walked_past`); with re-certify, epoch 3's close certifies epoch 1 and both observers collect every record (`test_uncertified_epoch_recertified`).
 Not run on a fleet; a benchmark of this stack's earlier cut on main at 45dce8947 is running, and this text reports none of its results.
 
-Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
+- Every one of the 103 commits compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 and `make test-e2e-resync` 1/1, once with every switch off and once with the full stack's six switches on.
+- `make test-upgrade` with main at 33b727fce as the previous binary (four validators upgraded in place, one at a time): passed with every switch off and with the six on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+- The three `state_export_import` tests, which restore a node from an exported state: passed.
+- Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 
 ## Limits and what a reviewer should look at
 

@@ -66,10 +66,19 @@ On the stack's earlier cut on main at 45dce8947 (the same eight commits before t
 The same commits on main at 45dce8947, before they were stacked: clippy over `e2e-tests` (all targets) clean, the 16 library tests and the doctest passed.
 On the first five commits, `restarts::test_restarts_observer` and `common::test_log_field_reads_whole_fields` passed as e2e tests with the variable unset.
 
-Not run: the rest of the e2e suite, and any lane with `TN_E2E_PARAMETERS` set.
+Not run on this head: the rest of the e2e suite, and any lane with `TN_E2E_PARAMETERS` set; the stack-wide gates below ran the repo's e2e sets on the top of the stack, once with the variable unset and once with it set.
 No test in this PR calls `start_validator_with_overrides` or `start_nodes_with_overrides`; the first callers in the stack are the e2e tests of `fix/epoch-record-collector-hardening` (`epoch_record_walk.rs`), which start their fleets through the shared helpers that head adds.
 
-Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+- `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
+- `./etc/ci-lanes.sh clippy`: passed.
+- `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
+- Every one of the 103 commits compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
+- `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 and `make test-e2e-resync` 1/1, once with every switch off and once with the full stack's six switches on.
+- `make test-upgrade` with main at 33b727fce as the previous binary (four validators upgraded in place, one at a time): passed with every switch off and with the six on.
+- The 13 e2e tests the full stack adds, three runs each: all passed.
+- The three `state_export_import` tests, which restore a node from an exported state: passed.
+- Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 
 ## Limits and what a reviewer should look at
 
