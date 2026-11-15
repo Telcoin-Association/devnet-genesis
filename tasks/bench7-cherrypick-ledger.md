@@ -87,3 +87,11 @@ And one mistake of mine: in one step the join script stopped on an unexpected se
 Dead local branches from the cuts (not deleted: deleting anything old needs the user's word): `b7/stack`, `b7/stack2`, `b7/stack3`, `b7/stack4`, `b7/stack5`, `b7/stack6`.
 
 Per-head gates of this cut: epoch-loop head a2c4dfae9 (check, node tests, clippy) and head 05 a4adf3a15 (check incl. the e2e crate, primary/config/node tests) run in `tn-b7-gate`; results in the orchestrator log.
+
+## Fifth cut, 2026-11-15 ~00:25Z: the uncertified-epoch e2e file joins head 05 (branch `b7/stack8`)
+
+- 05 = a4adf3a15 + c441d56f0 (visibility in `exec_block.rs`) + e4aa204d3 (`epoch_record_walk.rs`; `tests/it/main.rs` keep-both: `epoch_close_forms`, then `epoch_record_walk`) = **54cd8e1e5** (M+95).
+- 06 node part = 05 + `a4adf3a15..5142a9434` (16, clean, picks with rerere off) = **74c9970c2** (M+111).
+- Tree check: `74c9970c2^{tree}` = the integration tip `a0d04ab79^{tree}` = 570a1b6ef7e7…: identical.
+- Heads 00 to 04 and the epoch-loop head are unchanged from the fourth cut.
+Gates: epoch-loop head a2c4dfae9: check EXIT=0, 276 node tests passed, TEST EXIT=0 (clippy running); head 05 54cd8e1e5 queued behind it in `tn-b7-gate`.
