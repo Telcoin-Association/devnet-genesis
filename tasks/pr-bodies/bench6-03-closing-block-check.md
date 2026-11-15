@@ -1,6 +1,6 @@
 ## Summary
 
-Before a node saves, votes on or publishes an epoch record, it now checks that the record's `final_state` is the block where the epoch-closing calls ran: the closing consensus header's digest as `parent_beacon_block_root`, the record's epoch in the nonce, the 32-byte closing seed in `extra_data`.
+Before a node saves, votes on or publishes an epoch record, it now checks that the record's `final_state` is the block where the epoch-closing calls ran: the closing consensus header's digest as `parent_beacon_block_root`, the record's epoch in the nonce, a 32-byte `extra_data`, equal to the closing seed where the node holds the boundary header.
 It runs wherever a record is built (at a close, or when a restart re-derives a missing one) and on the three paths where main compares a stored record with its closing block: a record the close reuses, this node's own uncertified record 0 before the close builds it again, and the previous record at every epoch entry.
 A failing block stops the node.
 No switch: this extends main's unconditional stored-record guard (#1834, #1849), and a genuine close passes by construction, so blocks, records and votes do not change.
@@ -14,7 +14,7 @@ Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 On main at 33b727fce the #1834 guard stops the node when a stored record's `final_state` differs from its closing block (`crates/node/src/manager/node/close_epoch.rs:1274`): on the stored close path (`:438`), on this node's own uncertified record 0 before the close builds it again (`:431`, added by #1849) and at every entry (`:596`); a closing block below a snapshot-restored datadir's floor is not compared (`:1280`).
 The build path takes the ring tip's number and hash (`:411`), then saves (`:520`) and publishes (`:525`) the record unchecked.
-Only the restart re-derive path reads any of the block's markers, the beacon root and the nonce's epoch, to find the boundary header (`:1303-1325`); no path compares them with a record, and `final_state` is logged nowhere when a record is built or reused.
+Among the record paths, only the restart re-derive path reads any of the block's markers, the beacon root and the nonce's epoch, to find the boundary header (`:1303-1325`); no path compares them with a record, and `final_state` is logged nowhere when a record is built or reused.
 Inferred from code: if a change moved the ring tip off the closing block, every node would save and vote the same wrong record, stopping only at the next entry.
 
 Measured on bench 6's branch (same `final_state` construction): at all 37 closes of [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/) and r20261112-1520 (no public page), the block that ran the closing calls was the closing output's last block on every node, with one record hash per epoch.
@@ -39,7 +39,7 @@ This is a missing assertion, not an observed fault (#1851).
   A close that finds this node's own uncertified record 0 checks twice, as the stored record and as the record built again, and counts both: the counter counts checks, not closes.
 - Per record it publishes as its own, the info line `epoch record published` (`epoch`, `final_state_number`, `final_state_hash`, `final_consensus_number`, `final_consensus_hash`, `digest`, `branch`).
   `branch` is `built` (a re-derived record included), `stored_matched` (a stored record whose block was compared, the restored floor block included) or `stored_restored` (a closing block below the restored floor, not compared).
-- Per live close, `tn_epoch_epoch_close_identity_check_total{result}` (`ok`, `mismatch`).
+- Per live close whose epoch-info read succeeds, `tn_epoch_epoch_close_identity_check_total{result}` (`ok`, `mismatch`).
 
 On a failure the node logs at error (target `epoch-manager`) `epoch record final_state is not the block where the epoch-closing calls ran, stopping the node`, with `epoch`, `path` (`built`, `rederived`, `stored`, `entry`), `check`, `reason`, the block, its markers and `final_consensus`, and stops; the error ends `(do NOT delete chain-data: keep the datadir)`.
 A restart stops again at the next entry.
@@ -50,11 +50,11 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 
 ## Testing
 
-- Genuine closes pass: `a_closing_block_the_engine_builds_passes_the_check` (an earlier block of the same output fails), `a_genuine_close_saves_the_same_record_and_logs_it_published`, `epoch_entry_accepts_a_genuine_record_against_the_registry_pin`, `a_reclose_over_own_record0_counts_the_closing_block_check_twice` (two `ok` for the one close), `the_closing_marker_is_skipped_only_for_adiri_early_epochs`.
+- Genuine closes pass: `a_closing_block_the_engine_builds_passes_the_check` (an earlier block of the same output fails in the default build), `a_genuine_close_saves_the_same_record_and_logs_it_published`, `epoch_entry_accepts_a_genuine_record_against_the_registry_pin`, `a_reclose_over_own_record0_counts_the_closing_block_check_twice` (two `ok` for the one close), `the_closing_marker_is_skipped_only_for_adiri_early_epochs`.
 - The restored floor: `the_restored_floor_skips_the_closing_markers_too` reuses a block without markers below the floor (`stored_restored`) and passes it at the entry, and refuses the same block at the floor, at the close and at the entry.
 - Refusals: `closing_block_check_names_the_comparison_that_fails`, `a_closing_block_without_its_markers_stops_the_build_before_the_save`, `a_stored_record_without_the_closing_markers_stops_the_close`, `own_uncertified_record0_without_the_closing_markers_stops_the_close_before_the_rebuild` (`path=stored` with `beacon_root`, then `extra_data_seed`), `epoch_entry_stops_on_a_closing_block_without_the_records_markers`, `an_empty_ring_stops_the_build_as_no_block`, `a_rederived_record_is_refused_as_rederived`, `the_refusal_names_its_path_and_what_the_stop_prevents`.
 - At `c2f266b9c`: `cargo check --locked --all-targets -p tn-node` exit 0 (also at `128f4a5d4`); `cargo nextest run --locked --no-fail-fast -p tn-node` 236 passed, 1 skipped; `cargo +nightly-2026-03-20 fmt --all -- --check` clean.
-- `cargo clippy --locked --all-targets -p tn-node -- -D warnings` clean at `c2f266b9c`, also with `--features adiri`, where the 51 tests of the `close_epoch` and `metrics` modules, the entry test and the identity counter test passed.
+- `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` clean at `c2f266b9c`, also with `--features adiri`, where the 51 tests of the `close_epoch` and `metrics` modules, the entry test and the identity counter test passed.
 - Not run: no fleet has run this head (a benchmark of the stack's earlier cut on main at 45dce8947, which carries the check, is under way), and no e2e test makes the check fire.
 
 Stack-wide gates: to be filled in when the gates on the top of the stack have finished.

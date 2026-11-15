@@ -10,7 +10,7 @@ Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
 
-On main at 33b727fce the collector ends each pass at the first record it cannot store (`crates/state-sync/src/epoch.rs:372-374`) and peers serve a record only with its certificate (`crates/consensus/primary/src/network/handler.rs:1909-1919`): an epoch K the network leaves uncertified stops every collector at K, across restarts.
+On main at 33b727fce the collector ends each pass at the first epoch no peer serves (`crates/state-sync/src/epoch.rs:372-374`) and peers serve a record only with its certificate (`crates/consensus/primary/src/network/handler.rs:1909-1919`): an epoch K the network leaves uncertified stops every collector at K, across restarts.
 The failsafe re-votes only the previous record, once (`crates/node/src/manager/epoch_votes.rs:483-502`), so K stays uncertified; a node fed only by the collector gets nothing past it.
 No run reached this state, so it is inferred from code, not observed: all 37 closes of [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/) and r20261112-1520 (no public page) certified with at least 7 of 10 validators.
 Since #1849 a certified record that conflicts with the node's own stops the node in the collector (`state-sync/src/epoch.rs:228-245`, counted in `tn_epoch.final_state_mismatches_total`), as the vote round's recovery does (`epoch_votes.rs:279-289`); the collector's line names the epoch and both digests, not who certified the other record or which peer served it.
@@ -58,11 +58,11 @@ A switch-off member adds no new vote for an older record, so a re-certify round 
 
 Unit tests: `test_failed_round_with_a_held_cert_logs_info_and_counts`, `test_collect_epoch_records_walks_past_an_own_uncertified_epoch`, `test_collect_epoch_records_does_not_walk_past_a_missing_record`, `test_gap_retry_lets_go_at_its_deadline_and_on_shutdown`, `test_kept_quorum_of_two_short_rounds_is_aggregated`, `test_older_rounds_do_not_evict_the_latest_close`, `test_every_conflict_reaches_the_final_state_mismatch_stop`, `test_conflict_and_invalid_record_lines_carry_the_evidence`, `test_startup_sync_walks_under_the_switch_and_stops_on_a_conflict`, `test_a_conflict_cancelled_at_its_evidence_read_is_counted_once`, `test_recertify_round_stops_on_a_conflicting_record`.
 
-On this head: `cargo nextest run --locked` of `tn-config`, `state-sync`, `tn-node`, `tn-primary`, `tn-types` and `tn-network-libp2p` 1,952 passed, 9 skipped, and clippy clean, at `8c76745f2`; above it, `state-sync` and `tn-config` 228 passed and clippy clean at `d6992db59`, `state-sync` 78 passed at `b7f008dc9` (doc comments only); fmt clean.
+On this head: `cargo nextest run --locked` of `tn-config`, `state-sync`, `tn-node`, `tn-primary`, `tn-types` and `tn-network-libp2p` 1,952 passed, 9 skipped, and clippy clean on `tn-config`, `state-sync`, `tn-node` and `tn-primary`, at `8c76745f2`; above it, `state-sync` and `tn-config` 228 passed and clippy clean at `d6992db59`, `state-sync` 78 passed at `b7f008dc9` (doc comments only); fmt clean.
 Each of the 24 commits up to `8c76745f2` passed `cargo check --locked --all-targets -p tn-config -p state-sync -p tn-node -p tn-primary -p e2e-tests` with warnings denied; the two after it passed `cargo check` on the packages they touch.
 The e2e commit on `8c76745f2` (this head's tree without `d6992db59` and `b7f008dc9`): e2e crate check, fmt, clippy clean; `epoch_record_walk.rs` 3 of 3 (two of four validators withhold their vote for epoch 1's record in its first two rounds; no node logs or counts a conflict).
 Switches off, an observer holding that record collects nothing past it and closes no epoch after it comes back (`test_uncertified_epoch_stops_the_collector_with_every_switch_off`); with the walk, it and the validators walk past and it executes on, a fresh observer still stops (`test_uncertified_epoch_walked_past`); with re-certify, epoch 3's close certifies epoch 1 and both observers collect every record (`test_uncertified_epoch_recertified`).
-Not run on a fleet; a benchmark of this stack's earlier form on main at 45dce8947 is running, and this text reports none of its results.
+Not run on a fleet; a benchmark of this stack's earlier cut on main at 45dce8947 is running, and this text reports none of its results.
 
 Stack-wide gates: to be filled in when the gates on the top of the stack have finished.
 
@@ -77,7 +77,7 @@ Stack-wide gates: to be filled in when the gates on the top of the stack have fi
 - The evidence line covers the collection only: a vote round's stop keeps main's `we have forked!` line, with neither peer nor signers, and main does not count it in `tn_epoch.final_state_mismatches_total`.
 - `recertify_older_record` logs a pick before marking it: for under a millisecond a pick is logged but uncounted.
 - Upstream text this head leaves as it is, on main at 33b727fce: `crates/storage/README.md:427-429` still says a conflicting record from a peer "is only logged"; `crates/tn-reth/README.md:1270-1278` names main's stop line and counter, not the evidence line or `tn_state_sync_epoch_record_conflicts_total`.
-- Five commits are corrected by later commits of this head rather than squashed, and an e2e error message names `STACK_SWITCHES_ON`, which a later head adds.
+- Some commits are corrected by later commits of this head rather than squashed (seven at least; `d6992db59`, for one, moves the conflict count of `4c63328ca` after its evidence read), and an e2e error message names `STACK_SWITCHES_ON`, which a later head adds.
 
 ## Related
 
