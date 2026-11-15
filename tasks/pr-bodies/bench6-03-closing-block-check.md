@@ -13,7 +13,7 @@ Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 On main at 45dce8947 the #1834 guard stops the node when a stored record's `final_state` differs from its closing block (`crates/node/src/manager/node/close_epoch.rs:1274`), on the stored close path (`:432`) and at every entry (`:590`).
 The build path takes the ring tip's number and hash (`:411`), then saves (`:514`) and publishes (`:519`) the record unchecked.
-No path compares the block's markers; `final_state` is logged nowhere.
+No path compares the block's markers, and `final_state` is logged nowhere when a record is built or reused.
 Inferred from code: if a change moved the ring tip off the closing block, every node would save and vote the same wrong record, stopping only at the next entry.
 
 Measured on bench 6's branch (same `final_state` construction): at all 37 closes of [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/) and r20261112-1520 (no public page), the block that ran the closing calls was the closing output's last block on every node, with one record hash per epoch.
@@ -25,7 +25,7 @@ This is a missing assertion, not an observed fault (#1851).
 - `0238163c2` `fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran`: `closing_block_check` compares, in order, (a) `parent_beacon_block_root` with `final_consensus.hash`, (b) the nonce's epoch, (c) a 32-byte `extra_data`, equal to the shuffle seed when the node holds the boundary header the record commits; the engine's own marking rules.
   Build path: checked before any committee read and `save_record`.
   Stored path: after main's `final_state` compare, which still fails first.
-  Entry: against the registry pin, length only.
+  Entry: against the registry pin, after main's `final_state` compare; (c) by length only, since the seed would need a consensus-store read.
   An `adiri` build skips (c) for epochs up to 160 (`ADIRI_DUP_BATCH_EPOCH`), where the engine tolerates closing outputs whose last block carries no marker.
   Kept: record contents byte-identical to main, the restored-floor skip, main's guard tests (their fixtures now carry the markers).
 - `0fafd5968` `feat(node): count the close-time base-fee identity check`: `adjust_base_fees` already stops the node when canonical tip + 1 is not the entered epoch's `blockHeight`; now passes count too.
@@ -48,9 +48,9 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 
 - Genuine closes pass: `a_closing_block_the_engine_builds_passes_the_check` (an earlier block of the same output fails), `a_genuine_close_saves_the_same_record_and_logs_it_published`, `epoch_entry_accepts_a_genuine_record_against_the_registry_pin`, `the_restored_floor_skips_the_closing_markers_too`, `the_closing_marker_is_skipped_only_for_adiri_early_epochs`.
 - Refusals: `closing_block_check_names_the_comparison_that_fails`, `a_closing_block_without_its_markers_stops_the_build_before_the_save`, `a_stored_record_without_the_closing_markers_stops_the_close`, `epoch_entry_stops_on_a_closing_block_without_the_records_markers`, `an_empty_ring_stops_the_build_as_no_block`, `a_rederived_record_is_refused_as_rederived`, `the_refusal_names_its_path_and_what_the_stop_prevents`.
-- This head's first cut (without the previous head's doc commit): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 232 passed, 1 skipped.
+- An earlier cut of this head, without the doc-only last commits of the two heads below it (`bf9853709` and `6e771ac39`): `cargo check --locked --all-targets -p tn-node` exit 0; `cargo nextest run --locked --no-fail-fast -p tn-node` 232 passed, 1 skipped.
 - Main plus these commits: `cargo clippy --locked --all-targets -p tn-node -- -D warnings` clean, also with `--features adiri`, where the 37 tests of the check, the guard and the counters passed.
-- e2e, on an earlier integration build with this PR's first two commits and every switch off: `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 passed, no halt line.
+- e2e, on an earlier integration build that held this PR's first two commits (and no behaviour switch yet): `make test-restarts` 11/11, `make test-epochs` 11/11, `make test-sigkill` 12/12 passed, no halt line.
 - Not run: no fleet has run the check (the next benchmark runs it on eleven nodes), and no e2e test makes it fire.
 
 Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.

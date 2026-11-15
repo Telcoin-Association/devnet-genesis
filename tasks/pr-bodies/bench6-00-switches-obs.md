@@ -11,7 +11,7 @@ Please merge with 'Create a merge commit' so the next PR's diff collapses.
 ## Problem
 
 Four benchmark runs of the node (bench 6: [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) tested fixes behind runtime switches.
-This stack carries the confirmed ones to main, each behind its switch, default off.
+This stack carries what carries to main: each behaviour change behind a switch whose default is main's behaviour, except the closing-block check, which has none; the vote fix and the order hold wait for the next benchmark.
 
 On main at 45dce8947, `Parameters` (`crates/config/src/node.rs:220-221`) does not deny unknown fields, so a mistyped switch key is ignored without an error and nothing shows which arm a node runs.
 A plain new field would also be written into every ceremony's `parameters.yaml` and the next regenerated mainnet preset.
@@ -33,20 +33,24 @@ Three measurements were missing on main:
   `Parameters::switch_at_default` is every switch's `skip_serializing_if`; an absent key reads as the default.
 - `be63208e5` feat(node): log the node switches line and export tn_node_switch gauges.
   `EpochManager::new` logs one INFO event (target `node::switches`, a `key=value` field per switch) and sets `tn_node_switch{name}` (0/1, a count, a duration in ms).
-- `3d100a147` feat(primary): gauge how far behind a node enters an epoch: the highest round of a verified certificate from the epoch after the executed one.
-  `behind_consensus` decides as before.
+- `3d100a147` feat(primary): gauge how far behind a node enters an epoch.
+  `tn_primary_epoch_entry_rounds_behind` is the highest round of a verified certificate from the epoch after the executed one; `behind_consensus` decides as before.
 - `adfd41f41` fix(metrics): give the execution stage histograms sub-millisecond buckets.
   Ten histograms take `SUB_MS_SECONDS_BUCKETS`, keeping every old bound.
 - `7471f329e` fix(primary): keep a digest's first receipt across a re-queue.
   The proposer holds each drained digest's `first_received` stamp and hands it back on a re-queue; `header proposed` gains `oldest_requeue_wait_ms`.
   Header payload and digest order are unchanged.
-- `a91cfe02a` fix(primary): keep the epoch-entry gauge across a mode change, which rebuilds the request handler.
-  The max is kept per `(epoch, round)`.
-- `12148de2c` docs(primary): a digest reported twice shares one stamp.
-- `d8273bbe3` test(primary): pins the max over epoch and round.
-- `859b945d1` docs(primary): certificates checked side by side can raise the gauge a few rounds past the window.
-- `6007c08be` test(config): the `NON_SWITCH_KEYS` doc says a behaviour switch never goes there.
-- `8a42fec57` fix(primary): the max moves from a process-wide static to a `#[metric(skip)]` field of `PrimaryMetrics`, one per bus, so tests sharing a process no longer share it.
+- `a91cfe02a` fix(primary): keep the epoch-entry gauge across a mode change.
+  A mode change rebuilds the request handler, which zeroed the gauge; the running max over `(epoch, round)` now sits in a process-wide static, so a rebuilt handler of the same epoch keeps it and a later epoch replaces it.
+- `12148de2c` docs(primary): say what a digest reported twice does to its first receipt.
+  Both copies share one stamp; the first header to commit or re-queue takes it.
+- `d8273bbe3` test(primary): pin the epoch-entry gauge's max over epoch and round.
+- `859b945d1` docs(primary): say the epoch-entry gauge can pass the window by a few rounds.
+  Certificates checked side by side can raise it a few rounds past the window before the demotion takes effect.
+- `6007c08be` test(config): say behaviour switches never go into NON_SWITCH_KEYS.
+  The list's doc says so, since the test cannot tell a behaviour switch from a plain parameter.
+- `8a42fec57` fix(primary): keep the epoch-entry gauge's max on the bus, not in a static.
+  The max moves from the process-wide static to a `#[metric(skip)]` field of `PrimaryMetrics`, one per bus, so tests sharing a process no longer share it.
 
 ## What changes for every node
 
@@ -83,7 +87,7 @@ Stack-wide gates: run on the top of the stack before these PRs were opened; resu
   The first switch comes with `fix/1804-vote-queue`.
 - Every new `Parameters` field fails `switches_list_every_switch_field` until it is listed; the test cannot tell a behaviour switch filed under `NON_SWITCH_KEYS`, so a reviewer of any addition there has to.
 - An unknown key is still ignored without a warning, as on main (now pinned by `unknown_keys_are_ignored`).
-- `tn_primary_digest_wait_seconds` changed meaning without a rename, and a `rate()` window spanning the upgrade sees the new `le` series start at zero.
+- `tn_primary_digest_wait_seconds` changed meaning without a rename; on the ten stage histograms a `rate()` window spanning the upgrade sees the five new `le` series start at zero.
 - The epoch-entry gauge can read a few rounds high on a demoting epoch; nothing depends on it.
 
 No fix is pending before merge.

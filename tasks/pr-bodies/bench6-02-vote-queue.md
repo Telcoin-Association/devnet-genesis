@@ -5,7 +5,9 @@ With it on, a voter waits for execution (up to 1 s) before the per-author vote l
 The voter also refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty), and the node needs `vote_timeout` below 9 s.
 Every node, switch on or off, counts vote requests by outcome.
 
-PR 3 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04). Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/bf9853709ced9e6616eb8405dad9f574502a86cd...6e771ac3969679d591ada91fe223dd28b94bc9e1 (10 commits). Please merge with 'Create a merge commit' so the next PR's diff collapses.
+PR 3 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
+Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/bf9853709...6e771ac39 (10 commits).
+Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
 
@@ -15,7 +17,7 @@ Read from the code; the first commit's test pins it: the sixth of six queued req
 Bench 5 ([r20261107-1504](https://benchmark.telcoin.network/runs/r20261107-1504/)) measured validator-01 waiting 7.3 to 8.5 s for the lock on validator-04's requests.
 
 Bench 6 ran an earlier version of this switch, on an older base, in all four runs ([r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) and measured `lock_ms` p95 at 0 on every voter in every window.
-That does not isolate the switch: the author-side fix was on too, and the switch moves the execution wait from `lock_ms` to `prelock_wait_ms`, where slow voters still waited the full second (p95 1,001 ms in r20261113-1630 and r20261114-0000).
+That does not isolate the switch: the author-side fix was on too, and the switch moves the execution wait from `lock_ms` to `prelock_wait_ms`, where the slowest voter still waited the full second (validator-05's `prelock_wait_ms` p95 1,001 ms over the 600 × 16 blast's mixed phase of r20261113-1630 and r20261114-0000).
 A voter without the block still does not vote: over the 600 × 16 blast's mixed phase of r20261113-1630, voters answered 93,730 requests `superseded` against 265 refused-behind votes.
 What the switch alone does to certification is not known.
 
@@ -48,7 +50,7 @@ For a lower round after a newer request from the same author, a switch-off voter
 
 Unit tests in `crates/consensus/primary/src/tests/network_tests.rs`: `vote_queue_fix_queued_requests_wait_once`, `vote_queue_fix_stale_round_refused_at_once`, `vote_queue_fix_refuses_request_superseded_on_the_lock`, `vote_queue_fix_keeps_equivocation_refusals`, `vote_queue_fix_refuses_repeat_of_voted_header_after_newer_request` and its switch-off twin, `vote_queue_fix_on_refuses_malformed_header_without_the_wait`; in `crates/config/src/consensus.rs`, `vote_queue_fix_keeps_vote_timeout_plus_the_prelock_wait_below_the_request_timeout`.
 
-Gates on this head's first cut (c5ddcfe46; the last commit adds only doc comments and README text): `cargo check --locked --all-targets` and `cargo nextest run --locked --no-fail-fast`, each with `-p tn-primary -p tn-config -p tn-network-libp2p`, passed (nextest: 1,303 passed, 4 skipped), as did `cargo fmt --all -- --check`.
+Gates on an earlier cut of this head's first nine commits, whose tree differs from c5ddcfe46 only by the e2e crate's doc comments from `bf9853709` and from this head also by doc comments and README text: `cargo check --locked --all-targets` and `cargo nextest run --locked --no-fail-fast`, each with `-p tn-primary -p tn-config -p tn-network-libp2p`, passed (nextest: 1,303 passed, 4 skipped), as did `cargo fmt --all -- --check`.
 Not run: no e2e test covers the switch, and no benchmark has run this port; the next one runs it on, with the author-side switch.
 Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
 
@@ -69,3 +71,4 @@ Nothing that should be fixed before merge is open.
 - Refs #1804: the voter's side only; the author's side is `fix/1804-quorum-exec-block`, which builds on this head.
 - Refs #1782: the bounded execution wait this moves.
 - Ported onto main's vote-handler rework: #1822, #1839, #1842, #1844, #1846.
+- Next: `fix/epoch-record-closing-block-check` and `fix/epoch-record-collector-hardening` build on this head.
