@@ -1,0 +1,13 @@
+{
+  "tag": "us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115",
+  "digest": "sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c",
+  "ref": "us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c",
+  "node_git_sha": "91a15e22376fa1277c107824e738dce689792c56",
+  "branch": "bench/bench7-2026-11",
+  "worktree": "/home/drtnarg/coding/telcoin/tn-b7-stack",
+  "cargo_features": "faucet",
+  "extra_env": "TN_ALLOW_FAUCET_ON_CHAIN=true",
+  "dockerfile_sha256_repo": "d4616595d1670701e2ed74541e92df0e8ae7d2aa2db24f85f944854c2475cc18",
+  "dockerfile_sha256_used": "79e5e1d3356275f26f60d2da6cda0fb128ae20fa3d6656dc5c978fa25e911acf",
+  "built_utc": "2026-11-15T05:48:54Z"
+}

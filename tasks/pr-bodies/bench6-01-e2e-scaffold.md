@@ -64,7 +64,7 @@ The same commits on main, before they were stacked: clippy over `e2e-tests` (all
 On the first five commits, `restarts::test_restarts_observer` and `common::test_log_field_reads_whole_fields` passed as e2e tests with the variable unset.
 
 Not run: the rest of the e2e suite, and any lane with `TN_E2E_PARAMETERS` set.
-No test in this PR calls `start_validator_with_overrides` or `start_nodes_with_overrides`; the first caller in the stack is the mixed-switch fleet test of `fix/1804-quorum-exec-block`.
+No test in this PR calls `start_validator_with_overrides` or `start_nodes_with_overrides`; the first callers in the stack are the e2e tests of `fix/epoch-record-collector-hardening` (`epoch_record_walk.rs`), which start their fleets through the shared helpers that head adds.
 
 Stack-wide gates: run on the top of the stack before these PRs were opened; results in the stack's last PR.
 
