@@ -68,3 +68,10 @@ Times of day are UTC on the run's date; every figure's window comes from these, 
 - Teardown: `TEARDOWN_DONE run=r20261115-1653 deleted=12 left=0 at=2026-11-15T19:34:12Z`. Reindex: 649 files, 2,632,508,353 bytes.
 - Archive: `ARCHIVE_VERIFY ok=1 run=r20261115-1653 files=626 bytes=2632212196 objects=626 problems=0` to `gs://tn-devnet-benchmark-archive/runs/r20261115-1653/results/` (19:39:59Z); no bench instance listed afterwards (19:40:01Z). The metric export and the endpoint samples are under `benchmark/private/` and are NOT in the archive.
 - No preliminary read was written for this run.
+
+## Found by the analysis (the orchestrator adds these as units hand back; cite the unit's file, not this list)
+
+- The arms summary of this run (`benchmark/private/bench7-r20261115-1653/A1/arms/arms.json`, sha256 `b15f7d00…7bfd`) has THREE rows: blast 0 (L), blast 1 (M4: all ten generators overlap in its mixed phase for 346 s) and blast 2 cut at the kill (M16, 18:25:31–18:44:01Z). Per-node blocks sit under `summary_rows[i]`. Run 7a's has no blast-1 row.
+- No generator lost preamble steps or had its preamble wait cut in this run (`A1/preamble.json`); in run 7a generator 06's wait ran its full 600 s in blast 1.
+- In the light blasts the generators of validators 02 and 06 (the two far validators) land far less than the rest: blast 0, 2.2 and 1.8 tx/s against a median of 88.3 for the other eight, seen p50 56.5 and 62.1 s; blast 1, 169.6 and 157.0 tx/s against 1,186.6 (`A1/kpis.md`). Counted by the KPI analysis; the loss analysis owns the explanation.
+- Decisions on units' questions: `tasks/bench7/analysis-decisions.md`.
