@@ -14,10 +14,10 @@
 The node already sets its own `network` label, `primary` or `worker-0`, on its per-network series.
 Once the rule replaces it, about 910 pairs of series share one label set and timestamp, about 110 of them with different values (the `tn_network_*` per-network counters).
 On every node those pairs collapse into one series in Prometheus, so no per-network figure can be read there.
-On some nodes the remote write also has one batch rejected on every scrape, and the series in that batch are missing from Prometheus for as long as the node process runs.
+On some nodes the remote write also has one batch rejected on every scrape, and the series in that batch are missing from Prometheus while that lasts: on one validator for a whole run, on others from mid-run, on one only for three scrapes at start-up.
 
 What it costs: on three bench fleets on 2026-11-15, series were missing from healthy validators, `up` among them.
-The benchmark's idle check halts a run when a node's `up` is missing, and it stopped all three runs on a healthy node.
+The benchmark's idle check stops its step sequence before the blast when a node's `up` is missing; it did so on all three fleets, each time on nodes that were otherwise healthy, and each blast was then launched by hand.
 Figures taken from Prometheus covered fewer validators.
 
 ## What was read on a live node
@@ -30,7 +30,7 @@ On validator-08 a batch was rejected three times at start-up and then never.
 
 ## What was measured on the three fleets
 
-The fleets of r20261115-1131, of an earlier attempt at [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/) that is not published, and of r20261115-1653; one run each, times in UTC.
+The fleets of r20261115-1131, of an earlier, lost attempt at the adaptive run (r20261115-1450, not published), and of [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/); one run each, times in UTC.
 
 | run | node | missing from Prometheus | when |
 |---|---|---|---|
@@ -41,7 +41,7 @@ The fleets of r20261115-1131, of an earlier attempt at [r20261115-1653](https://
 | r20261115-1653 | validator-08 | `tn_engine_queue_wait_seconds`, `tn_executor_output_transactions`, its write stall and three other executor or reth series | stop at 18:29:45 |
 | r20261115-1653 | observer | save, commit, persist-duration and write-stall series | stop at 18:58:45 |
 
-The idle check stopped the chain at 12:30:02 (`up` missing for validator-09), at 16:04:23 (the earlier attempt) and at 17:45:57 (`up` missing for validator-05).
+The idle check stopped the benchmark's step sequence (the blockchain kept running) at 12:30:02 (`up` missing for validator-09), at 16:04:23 (the earlier attempt; `up` missing for validators 09 and 10) and at 17:45:57 (`up` missing for validator-05).
 Validator-05 is killed and restarted by design in the load blast; its missing series came back after the restart.
 The collapsed per-network series were seen on every node in both runs, nodes that lost no batch included, and are not new in bench 7.
 
@@ -55,9 +55,9 @@ A series the node registers mid-run can move the boundary, which would fit the s
 
 ## What stood in
 
-The node's own metrics endpoint keeps both labels.
+The node's own metrics endpoint keeps its `network` label, so both series of each pair are there.
 In r20261115-1653 each node's endpoint was read every 60 s (94 rounds, about 5,100 series a node); in r20261115-1131 only end-of-run snapshots of validators 09 and 08 exist.
-Where Prometheus held a validator whole, the samples agreed with it within about 1 % over whole windows and up to about 5 % in 300 s buckets.
+Where Prometheus held a validator whole in r20261115-1653, the engine figures taken from the samples (executed transactions per second, busy time, persist mean) agreed with it within about 1 % over whole windows and up to about 5 % in 300 s buckets; a gauge's average and the vote stage's wait means did not agree as well.
 
 ## A suggested fix (not tested)
 
@@ -70,7 +70,7 @@ Keep the node's value under another name before the `network` rule overwrites it
 	}
 ```
 
-With the default `replace` action this copies `primary` or `worker-0` to `tn_network` and adds nothing to series without a `network` label (an empty value sets no label).
+With the default `replace` action (regex `(.*)`, replacement `$1`) this should copy `primary` or `worker-0` to `tn_network`; for a series without a `network` label the result is empty, and as we read Prometheus's relabelling an empty result sets no label (not tested).
 `network` still carries the chain's name, so the dashboard's `$network` variable (the comment at lines 104-105) and queries on `network="<chain>"` keep working.
 
 The other way is to drop the `network` rule and keep the node's label.
