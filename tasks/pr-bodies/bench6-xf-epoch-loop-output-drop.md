@@ -5,7 +5,7 @@ The leftover drain's queue phase skips an output already forwarded and stops the
 No switch: it fixes a loss on main.
 
 Into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
-Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/07cdc51e5b28bd8b582afc65ce06904ee2492df7...40a63f77640bcc3d79bc58019b51162c0c081308 (9 commits).
+Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/065ee9e5a920f0e6b6d54a23cf4c1fa6cbbb78d4...be483a955ea6a3a141066c5572766083d5c32ab7 (9 commits).
 It needs nothing from the stack below: everything it calls is on main at 45dce8947, and its diff applies there with fuzz (checked, not built).
 Please merge with 'Create a merge commit'.
 
@@ -20,16 +20,16 @@ This PR does both parts of the issue's fix and leaves the engine and the `ModeCh
 
 ## Change
 
-- `f8d64d8d6` `fix(node): take room in the engine channel before taking a consensus output`: `process_output` splits into `reserve().await` and `forward_output`, which sends through the permit without awaiting; the live forward reserves, takes, then hands over.
+- `7bb575c62` `fix(node): take room in the engine channel before taking a consensus output`: `process_output` splits into `reserve().await` and `forward_output`, which sends through the permit without awaiting; the live forward reserves, takes, then hands over.
   Same outputs, order and flags; the `forwarded_at` stamp (observability only) starts at the wait for room.
-- `2b4411923` `fix(node): stop the node on a gap in the leftover drain's queued outputs`: the queue phase applies the live forward's `check_output_continuity`.
-- `f58faeb16` `test(node): cover a forward cancelled while it waits for an output`: the second cancel point; it passes on main too, so it guards the held permit.
-- `c2c04de42` `fix(node): take a queued output with one poll instead of try_recv`: tokio 1.53's `try_recv` can park the OS thread on a send in progress; one poll of `recv` cannot.
-- `fd4302fe5` `fix(node): fail the live forward when the engine is gone at the hand-over`: a held permit's send drops the output silently if the engine has gone, so the forward checks `to_engine.is_closed()` first.
-- `52d73a255` `test(node): capture log lines in the epoch-close tests`: test-only; its own commit because a later head of the stack uses it too.
-- `51a71e17a` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below.
-- `a9b1ecd6e` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
-- `40a63f776` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
+- `05c6f3d67` `fix(node): stop the node on a gap in the leftover drain's queued outputs`: the queue phase applies the live forward's `check_output_continuity`.
+- `44e6c29f0` `test(node): cover a forward cancelled while it waits for an output`: the second cancel point; it passes on main too, so it guards the held permit.
+- `c7474572f` `fix(node): take a queued output with one poll instead of try_recv`: tokio 1.53's `try_recv` can park the OS thread on a send in progress; one poll of `recv` cannot.
+- `f75e7e024` `fix(node): fail the live forward when the engine is gone at the hand-over`: a held permit's send drops the output silently if the engine has gone, so the forward checks `to_engine.is_closed()` first.
+- `420268325` `test(node): capture log lines in the epoch-close tests`: test-only; its own commit because a later head of the stack uses it too.
+- `5118cf0dc` `fix(node): name and count the outputs the leftover drain skips`: the fields and counter below.
+- `8e60bdc9a` `docs(node): say when the forward evicts and why the drain stays unraced`: the drain must never run under a `select!`.
+- `be483a955` `test(e2e): count the leftover drain's gap stop as a fatal line`: test-only; the stack's e2e tests fail on a node that logs the stop.
 
 ## What changes for every node
 

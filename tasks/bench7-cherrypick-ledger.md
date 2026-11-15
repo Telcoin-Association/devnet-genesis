@@ -113,3 +113,25 @@ Head 06 = 74c9970c2 + the hold's three e2e commits (7d59027f3 the switch in the 
 
 Tree check: `91a15e223^{tree}` = the integration tip `6646be1c0^{tree}` = 8a23d42636de…: identical. No commit carries attribution (`git log --format=%B 45dce8947..91a15e223 | grep -ci 'co-authored\|claude\|anthropic'` = 0).
 Phase 2 (before PR 04 is opened; not needed for the image): the fleet helpers out of `exec_block.rs` into a test module introduced in head 04, `epoch_record_walk.rs` into head 04; node code outside `crates/e2e-tests` byte-identical to 91a15e223.
+
+## The PR heads, final (2026-11-15 06:1xZ; branch `b7/p4` in `tn-b7-p2`)
+
+The image was cut from the fifth cut's top, **91a15e223** (`bench/bench7-2026-11`, pushed; every gate ran on it). The pull requests' heads are a later series with the SAME node code:
+1. **Test files restructured** (unit E2E-R, branches `b7/p2-*`): the fleet helpers that three e2e files imported from `exec_block.rs` (head 05) moved into `tests/it/fleet.rs`, introduced in head 04, so head 04 carries its own e2e tests (`epoch_record_walk.rs`); `exec_block.rs` keeps the vote fix's two tests; the switch and fatal-line lists grow head by head. `git diff --stat 91a15e223 <top> -- . ':!crates/e2e-tests/tests/it'` is empty. Checked per head: compile, format, clippy of the e2e crate; all 13 tests once at the top (13 passed); the walk's three tests at head 04 (3 passed, with head 04's four-switch line).
+2. **One squash** (`b7/p3`): the commit that added `fleet.rs` alone did not compile under `-D warnings` (dead code until its first user), so it is one commit with `epoch_record_walk.rs`.
+3. **Commit messages corrected** (`b7/p4`; trees unchanged): seven bodies stated as fact things the posted issues say were never observed or counted differently (five said bench 6 left an epoch uncertified on every node: issue #1850 says no run reached that state; one gave eleven false quorum errors to one run: issue #1852 has eleven over three runs; one said "a fifth round" where the code evicts when a round is queued while five are queued), and fourteen carried labels of a private review ("review finding V4", "Review 05, finding V1"): removed. 21 of the 72 commits after head 03 were amended (message only).
+
+| head | branch | tip | M+ |
+|---|---|---|---|
+| 00 | `feat/bench6-switches-obs` | 8a42fec57 | 12 |
+| 01 | `test/bench6-e2e-scaffold` | bf9853709 | 20 |
+| 02 | `fix/1804-vote-queue` | 6e771ac39 | 30 |
+| 03 | `fix/epoch-record-closing-block-check` | 1e38f1882 | 33 |
+| 04 | `fix/epoch-record-collector-hardening` | **065ee9e5a** | 61 |
+| — | `fix/epoch-loop-output-drop` | **be483a955** | 70 |
+| 05 | `fix/1804-quorum-exec-block` | **d155f04df** | 88 |
+| 06 | `fix/1807-digest-order-hold` | **b93a8e682** | 105 |
+
+Each of the four new heads has the same tree as its `b7/p3-*` and `b7/p2-*` twin (checked by tree id while picking). No commit carries attribution; all 105 are authored by the repository owner's identity.
+NOT corrected: the same inexact bodies are in `bench/bench7-2026-11` (pushed before the PR 04 writer found them); that branch is the image's record and is not rewritten (no force-push). Heads 00 to 03 were not re-read for the same kind of claim in commit bodies (their PR texts were figure-checked; the bodies were not).
+Still owed before the heads are pushed: the per-commit compile check on `45dce8947..b93a8e682`.

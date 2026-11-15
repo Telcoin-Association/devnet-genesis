@@ -1639,3 +1639,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - Picks during a stack assembly run with `-c rerere.enabled=false`; a pick that "succeeds" where a conflict was expected is inspected before going on.
   - The assembled stack's top tree is compared with the verified integration tree by tree id (`git rev-parse <tip>^{tree}`): identical or explained.
   - A head is gated ALONE (checked out by itself) before it is called done: a test that uses a helper from a later head compiles on the integration branch and fails on its own head.
+
+## 2026-11-15 — bench 7 stack: commit bodies stated bench results that the posted issues contradict
+
+- **What happened.** Five commit bodies of the collector hardening said that bench 6 "left epochs uncertified on every node"; the issue I had posted for the same topic says no run reached that state and that it is read from the code. One more gave one run eleven errors that were spread over three, and fourteen carried labels of a private review. The units wrote them from briefs in which I described the gap loosely as something bench 6 found; I figure-checked issue texts and PR texts but never the commit bodies, and I pushed the bench branch that carries them before the PR writer for that head noticed. The PR heads were corrected (messages only, trees unchanged); the pushed bench branch was not, because it would need a force-push.
+- **Rules.**
+  - A commit body is a public text. Before a branch is pushed, its commit bodies get the same check as an issue: every run id, count and "bench N showed" sentence against the source, and no private label (finding ids, unit names).
+  - A brief states what was measured, what is read from code and what was never observed in those words, so a unit cannot turn "read from code" into "the benchmark showed".
+  - The per-head text writer is asked to compare the commit bodies with the issues as part of its job, not only the diff.

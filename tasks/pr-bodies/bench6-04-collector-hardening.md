@@ -4,7 +4,7 @@ The epoch record collector can get past an epoch the network left uncertified, a
 No switch: the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error (#1852), an eviction sparing the newest vote rounds.
 
 PR 5 of 5 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04).
-Stacked on `fix/epoch-record-closing-block-check`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/1e38f1882fdb7d96c85db6294b4080ad9d14302e...07cdc51e5b28bd8b582afc65ce06904ee2492df7 (28 commits).
+Stacked on `fix/epoch-record-closing-block-check`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/1e38f1882fdb7d96c85db6294b4080ad9d14302e...065ee9e5a920f0e6b6d54a23cf4c1fa6cbbb78d4 (28 commits).
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -19,27 +19,27 @@ A short round logs `failed to reach quorum on epoch close` at error without a st
 ## Change
 
 Observability, no switch:
-- `2945ab3f9`: `request_epoch_cert` returns the answering peer too; both `retrieved cert` lines gain `peer` and `signers`.
-- `291cdfcc3`: the gauge, the highest E with epochs 0..=E certified (-1 before epoch 0's), set at startup and after each collector pass.
-- `a8b70d847`: a short round whose certificate is held logs `epoch vote round ended without a local quorum; the record is already certified` (info), counts `tn_node.epoch_record_round_ended_certified_total`, sets `tn_node.epoch_record_signers` from that certificate, without the missing-certificate alarm; recovery unchanged.
+- `f41df0b3b`: `request_epoch_cert` returns the answering peer too; both `retrieved cert` lines gain `peer` and `signers`.
+- `9bf27f194`: the gauge, the highest E with epochs 0..=E certified (-1 before epoch 0's), set at startup and after each collector pass.
+- `1f04e4025`: a short round whose certificate is held logs `epoch vote round ended without a local quorum; the record is already certified` (info), counts `tn_node.epoch_record_round_ended_certified_total`, sets `tn_node.epoch_record_signers` from that certificate, without the missing-certificate alarm; recovery unchanged.
 
-Re-certify (`c53f3acfb`, doc `744091ca1`):
-- `f44c117ec`: verified votes are kept per (epoch, digest) and seed the record's next round; each close N and the startup re-arm also re-vote one older own uncertified record, round-robin over epochs N-16 to N-2 (members only).
-- Older records' rounds leave `tn_node.epoch_record_signers` alone and label missed signers `round=recertify` (`0b90a3113`, `7c3bac9f0`); kept quorums are aggregated, never for a conflicting record (`62c0beea8`, `02e891783`); a re-certify conflict stops the node only with the halt on, at its threshold, else logs `own epoch record differs from a certified record in a re-certify round`, counting `tn_node.epoch_record_round_conflicts_total{round}` (`922822cfa`); the newest two records keep main's stop.
+Re-certify (`f04b6bad9`, doc `7da885df5`):
+- `818de6da4`: verified votes are kept per (epoch, digest) and seed the record's next round; each close N and the startup re-arm also re-vote one older own uncertified record, round-robin over epochs N-16 to N-2 (members only).
+- Older records' rounds leave `tn_node.epoch_record_signers` alone and label missed signers `round=recertify` (`655f2cd1d`, `b9c02e003`); kept quorums are aggregated, never for a conflicting record (`16cf804e3`, `56ccf9920`); a re-certify conflict stops the node only with the halt on, at its threshold, else logs `own epoch record differs from a certified record in a re-certify round`, counting `tn_node.epoch_record_round_conflicts_total{round}` (`76d5ea885`); the newest two records keep main's stop.
 
-Walk (`7bf1fc406`, both collector switches):
-- `d675e2e91`: a peer's "not held" for an epoch this node closed and stored itself no longer ends the pass; the next record must validate against that own record, and the epoch becomes a gap (at most 16) retried until certified.
-- Retries stop at 5 s or shutdown, a cut gap leads the next (`54bd8ccbd`, `7f7c8e91d`); failed reads keep gaps (`6fae23519`); a refusal after a walk still persists (`c9c7efb2e`); a walk that did not land waits 5 s (`be79002ef`); docs `dbc34aa23`, `e095b3806`.
+Walk (`ea95ad288`, both collector switches):
+- `5c9803f16`: a peer's "not held" for an epoch this node closed and stored itself no longer ends the pass; the next record must validate against that own record, and the epoch becomes a gap (at most 16) retried until certified.
+- Retries stop at 5 s or shutdown, a cut gap leads the next (`d557046a9`, `9f20217e6`); failed reads keep gaps (`a129c7d4c`); a refusal after a walk still persists (`178b039c9`); a walk that did not land waits 5 s (`a7e2efbff`); docs `7673797b0`, `e28c5ee1b`.
 
-Conflict halt (first in `d675e2e91`):
-- Only `2n/3 + 1` signers of the `n` members the previous record names (7 of 10) stop the node, not the 5 of 10 validation accepts after an ejection (`e552ed3be`); evidence, wording, doc: `3e03978c5`, `65531ea1b`, `d7daa9aa1`.
+Conflict halt (first in `5c9803f16`):
+- Only `2n/3 + 1` signers of the `n` members the previous record names (7 of 10) stop the node, not the 5 of 10 validation accepts after an ejection (`028d4a4d0`); evidence, wording, doc: `38d9ab151`, `4357e0768`, `28ba6128d`.
 - It logs at error (`epoch-manager`) `epoch record conflict halt: this node's stored record of epoch {epoch} differs from a record certified by {signers} of the {committee} members of the committee the record before it names; this node stops; do not delete its chain data before the cause is known` with `epoch`, `stored`, `offered`, `peer`, `signers`, `committee`, `signer_ids`, `offered_epoch`, `offered_parent`, `offered_final_number`, `offered_final_hash`, `halt_threshold`, `conflict_halt`, counts `tn_state_sync.epoch_record_conflicts_total`, and stops the node; every restart fails the same way.
 - Recovery: switch it off and restart: the node logs `epoch record conflict: … this node keeps its own record`, counts it and runs on, as on main.
 - Pre-flight (the switch's doc), with it off: if that counter exceeds `tn_state_sync.epoch_record_conflicts_below_halt_threshold_total`, the node would stop; grep logs for both conflict lines; flip one node at a time.
 
-Eviction, no switch (`ab5ce554c`): a full vote queue drops ended rounds, then evicts the lowest epoch's, never the newest two records'.
+Eviction, no switch (`04ace8cd3`): a full vote queue drops ended rounds, then evicts the lowest epoch's, never the newest two records'.
 
-Hook and e2e: `03780ee80`, `588e96c2c`: `TN_TEST_WITHHOLD_EPOCH_VOTE=<epoch>`, `TN_TEST_WITHHOLD_EPOCH_VOTE_ROUNDS=<n>` (default 1): no own vote in that record's first n rounds; off without `tn-types`' `test-utils`, which release builds lack; `07cdc51e5`: `tests/it/epoch_record_walk.rs` and `tests/it/fleet.rs` (shared helpers).
+Hook and e2e: `91ed3b450`, `ba28cb582`: `TN_TEST_WITHHOLD_EPOCH_VOTE=<epoch>`, `TN_TEST_WITHHOLD_EPOCH_VOTE_ROUNDS=<n>` (default 1): no own vote in that record's first n rounds; off without `tn-types`' `test-utils`, which release builds lack; `065ee9e5a`: `tests/it/epoch_record_walk.rs` and `tests/it/fleet.rs` (shared helpers).
 
 ## With every switch off
 
