@@ -5,3 +5,5 @@
 02	fix/1804-vote-queue	staging/benchmark-bench6-2026-11	fix(primary): vote_queue_fix waits for execution before the vote lock
 xf	fix/epoch-loop-output-drop	staging/benchmark-bench6-2026-11	fix(node): lose no consensus output when the epoch loop is pre-empted
 04	fix/epoch-record-collector-hardening	staging/benchmark-bench6-2026-11	fix(node): epoch record collector walk, re-certify and conflict evidence
+05	fix/1804-quorum-exec-block	staging/benchmark-bench6-2026-11	fix(primary): quorum_exec_block names an execution block a quorum holds
+06	fix/1807-digest-order-hold	staging/benchmark-bench6-2026-11	fix(primary): digest_order_hold keeps each worker lane in order
