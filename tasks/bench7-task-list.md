@@ -250,3 +250,30 @@ That is about 80 agents in total. Peak parallelism comes right after PT-0, DR-E 
 - D7 not taken: Track H waits for the fourth bundle launch (one working tree, simpler commits).
 - D8: `tasks/bench7-contract.md` and `tasks/bench7-cherrypick-ledger.md` are the orchestrator's, written at PT-0's integration.
 - `benchmark/benchmark-probe.sh` (the standalone MDBX write-back probe) is out of scope for bench 7: no owner, not touched.
+
+## R2 — the stack onto today's main (N = 33b727fce): units (2026-11-15; the split was checked by the task decomposer, whose full report is in the orchestrator log's entry of that time)
+
+Sources of the picks: the SIXTH cut (local branches in `tn-b7-p2`: 00 81a06c4e1 … 04 ca258b37c, epoch-loop b69e9c1a9, 05 63516124a, 06 e83313305; 104 commits). The delta note's head list is the fifth cut's (105): never take a pick's source from it.
+
+| unit | who | base → result | owns | depends on | gate |
+|---|---|---|---|---|---|
+| picks 00-02 | orchestrator, DONE | N → `b7/n1` 17327280d | one hunk in `crates/config/src/node.rs` | — | check --workspace --all-targets, nextest 5 packages: PASSED |
+| BF-03 | opus node unit, RUNNING | 17327280d → `b7/n03` | `crates/node/**` | picks | its brief's gates + domain reviewer; the restored-floor trace |
+| BF-04a-1 | opus node unit | BF-03's tip → commits 1-20 of head 04 without the halt | `crates/state-sync/**`, its lines in `crates/config/src/node.rs`, `crates/node/**`, `crates/consensus/primary/**` where those commits touch them | BF-03 accepted | per-commit check of its range; tip tests |
+| BF-04a-2 | opus node unit | part 1's tip → commits 21-27 | `epoch_votes.rs`, `manager/node.rs`, config docs, README prose | BF-04a-1 | the brief's tip gates; the re-certify-on-conflict test; domain reviewer over all 27 |
+| BF-04b | opus e2e unit | part 2's tip → the e2e commit (`ca258b37c`) adapted | `it/epoch_record_walk.rs`, `it/fleet.rs`, `it/main.rs` | BF-04a-2 | check + clippy of the e2e crate; its three tests once through the lane; no halt name left under `crates/` |
+| SS-1 | `tn-security-eval`, read-only | the non-test diff 17327280d..part 2's tip | — | BF-04a-2 | no verified High or Critical open |
+| picks of the epoch-loop head | orchestrator | BF-04b's tip → 8 commits | adjacency only | BF-04b committed | nextest -p tn-node at its tip |
+| BF-E05 | opus node unit, DOES ITS OWN PICKS | epoch-loop tip → head 05's 18 commits | `it/exec_block.rs`, `it/epoch_close_forms.rs`, the lists in `it/fleet.rs`, adjacency in `crates/config/src/node.rs` | the picks above | per-commit check; tip tests incl. the switch-list test |
+| BF-E06 | opus node unit, its own picks | BF-E05's tip → head 06's 17 commits | `it/digest_order_hold.rs`, the lists, adjacency | BF-E05 | the same |
+| top gates | orchestrator, a NEW worktree (never the image's) | the new top | — | BF-E06 | fmt; per-commit check over all; workspace nextest; clippy lanes; no halt name in the tree or in a commit body; the lane block: the repository's sets (epochs, restarts, sigkill, and resync and upgrade, which N changed) with switches off and on, the stack's 13 tests three times, head 01's override tests |
+| range-diff read | orchestrator (or a sonnet inventory) | old cut against new cut per head | — | each head final | only hunks N or the decision force |
+| SR-1 | `tn-review-agent`, read-only | the interdiff of heads 03 and 04 with the M-based reviews beside it; the e2e edits | — | BF-E06 | no blocking finding |
+| W-03, W-04 + a figure-check each | opus writers | PR texts 03 and 04 for N | their text | BF-03 / BF-04a-2 hand-backs | FC PASS |
+| remap + FC-R | orchestrator + one opus check | texts 00-02 and the epoch-loop text at the new ids, their `path:line` cites at N, the gate paragraph for the new top | — | ids frozen (top cargo gates passed) | every cite resolves |
+| publish | orchestrator | staging fast-forward to N; push the heads; PRs 00-04 + the epoch-loop PR | — | every gate, SR-1, SS-1, every FC | — |
+| HB-N (R5, after the fleet runs) | opus harness unit | the harness drops the switch; the three log-shape gaps; main's stop line among the fail-stops | `benchmark/**` | an image on N; both runs done | its tests, then the whole-suite gate |
+
+Critical path: BF-03 → BF-04a-1 → BF-04a-2 → BF-04b → epoch-loop picks → BF-E05 → BF-E06 → top cargo gates → the lane block → publish. The decomposer's wall-clock estimate: 17-21 h (soft).
+Not launched (done cheaper inline): the inventories of commit bodies (heads 00-02 scanned by me: three bodies name main, all true at N), of the heads' file overlap and of the PR texts.
+
