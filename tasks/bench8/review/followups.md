@@ -22,3 +22,4 @@
 | RV-3b (de075ab78) | Low | `crates/e2e-tests/tests/it/exec_block.rs:312` | `describe`'s `count` helper is generic over a field picker with one use left |
 | RV-3b (de075ab78) | Low | `crates/e2e-tests/tests/it/epoch_close_forms.rs:59` | "The proposer fix's floor" → "The proposer's floor" |
 | RV-3b (de075ab78) | watch at the first e2e run | `crates/e2e-tests/tests/it/digest_order_hold.rs:1362-1363`, `:1377` | the `canceled` cause for `hold_before_store` (never run under the always-on rule); `OUT_OF_ORDER > 0` for the control (deleted by R4) |
+| R4's hand-back (dd21a50ef) | Low | `crates/e2e-tests/tests/it/digest_order_hold.rs` (the Kill test's doc, the `Form` variant docs) | docs still say "Every stack switch on ([`STACK_SWITCHES_ON`])": R5 removes the lists; reword then |
