@@ -83,7 +83,7 @@ The other eight, the observability, stay.
 
 ## What changes for every node
 
-There is no switch, so all of this runs everywhere; none of it touches a header, vote, certificate, batch, database write or decision.
+This PR's own twelve commits define no switch, so all of this runs everywhere; none of it touches a header, vote, certificate, batch, database write or decision.
 - `Parameters` keeps main's fields, serde attributes and `Default` (only comments added): every existing `parameters.yaml` reads the same, and a written one is byte-identical.
 - At start, in this PR's diff: the bare `node switches` line, and `tn_node_switch` has no series yet; after {{pr-09}} neither exists.
 - Each `RequestHandler::new`, and `behind_consensus` for a verified next-epoch certificate only, take a `parking_lot` mutex for a compare and a gauge set, never across an `.await`.
@@ -92,7 +92,7 @@ There is no switch, so all of this runs everywhere; none of it touches a header,
 - `tn_primary_digest_wait_seconds` keeps its name and measures from the first receipt.
 - The ten histograms gain `le` 0.0001, 0.00025, 0.0005, 0.001 and 0.0025; no metric name or label changes.
 
-A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this head and one on main exchange identical messages.
+A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this PR's own twelve commits and one on main exchange identical messages.
 The collapsed stack does change what a node sends and decides, and no switch turns that off after {{pr-09}}: a reviewer checks the later PRs' changes as unconditional.
 For a fleet of old and new binaries the evidence is the rolling-upgrade test with main as the previous binary, which ran on the full stack with every switch off and with the six on (below), the author's rule there in its adaptive form, which {{pr-09}} deletes; #1868's limits say what that test does not cover; no test of it is added (see the limits of {{pr-09}}).
 
@@ -111,7 +111,7 @@ On the stack's earlier cut on main at 45dce8947 (the same twelve commits before 
 - On its first nine commits, `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
 
 Not run: e2e tests (none added) and a fleet.
-Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.
+Bench 6 ran its own versions of these commits on a base older than #1834; bench 7 ran the earlier cut at 45dce8947 (see Problem), and this head has not run on a fleet.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -123,12 +123,12 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made once {{pr-09}} is merged.
 - The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
-- In this PR's diff no switch is defined, so the line is bare; the first switch comes with `fix/1804-vote-queue`.
+- In this PR's diff no switch is defined, so the line is bare; the first switch comes with #1864.
   {{pr-09}} removes the list, the line and the gauge with the six switches, so the collapsed #1862 brings none of them to `main`.
 - Every new `Parameters` field fails `switches_list_every_switch_field` until it is listed; the test cannot tell a behaviour switch filed under `NON_SWITCH_KEYS`, so a reviewer of any addition there has to.
   This holds only inside the stack: {{pr-09}} deletes the test with the list.
@@ -153,7 +153,8 @@ Refs #1806: the epoch-entry gauge measures how late a member enters an epoch (th
 Refs #1819: its digest-wait histogram now counts across re-queues (this PR).
 Refs #1782: the bounded execution wait, which #1864 moves in front of the author's vote lock.
 Refs #1794: a held digest keeps its slot in #1794's bound until it commits (#1869).
-Stacked on this: #1863 (`test/bench6-e2e-scaffold`), #1864 (`fix/1804-vote-queue`), #1865 (`fix/epoch-record-closing-block-check`), #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`), #1869 (`fix/1807-digest-order-hold`) and {{pr-09}} (`refactor/remove-bench-switches`), which removes the six switches of #1864, #1866, #1868 and #1869 and the switch list this PR adds.
+Merged into this branch on 2026-11-16: #1863, #1864, #1865, #1866, #1867, #1868 and #1869.
+Stacked on this: {{pr-09}} (`refactor/remove-bench-switches`), which removes the six switches of #1864, #1866, #1868 and #1869 and the switch list this PR adds.
 
 ## What bench 6 measured that is not in this stack
 

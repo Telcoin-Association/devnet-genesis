@@ -76,7 +76,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made once {{pr-09}} is merged.
 - The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
@@ -101,12 +101,12 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - After {{pr-09}}, `vote_timeout` strictly below 9 s is a start condition for every node: `vote_timeout` plus the 1 s wait before the lock must stay under the 10 s request timeout on entering any epoch the node can vote in, so 8.999 s passes and 9 s is refused.
   The code default and the mainnet preset are 5 s and the testnet preset keeps the default; a node configured at 9 s or more fails the check when it enters such an epoch, at start-up or after replaying closed ones.
 
-Nothing that should be fixed before merge is open.
+Nothing that should have been fixed before the merge is open.
 
 ## Related
 
-- Refs #1804: the voter's side only; the author's side is #1868 (`fix/1804-quorum-exec-block`), which builds on this head.
+- Refs #1804: the voter's side only; the author's side is #1868, merged on top of this change.
   #1862's body, the only PR of the stack that merges into main, refers to #1804 with `Refs`, not a closing keyword.
 - Refs #1782: the bounded execution wait this moves.
 - Ported onto main's vote-handler rework: #1822, #1839, #1842, #1844.
-- Next: #1865 (`fix/epoch-record-closing-block-check`), #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`) and #1869 (`fix/1807-digest-order-hold`) build on this head, and last {{pr-09}}, which removes the stack's switches.
+- Next: #1865, #1866, #1867, #1868 and #1869 were merged on top of this change on 2026-11-16; {{pr-09}}, which removes the stack's switches, targets #1862's branch.

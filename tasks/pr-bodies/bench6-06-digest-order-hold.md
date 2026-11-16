@@ -107,7 +107,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made once {{pr-09}} is merged.
 - The order hold's model test's long hunt, `TN_ORDER_HOLD_HUNT_CASES=100000 cargo nextest run --locked -p tn-primary --run-ignored only -E 'test(=order_hold::model::long_hunt_order_hold)'`: 100,000 cases (seed 1223617546), no schedule breaks the rule.
 - The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
@@ -129,10 +129,10 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
   After a restart, a re-proposed header that had already committed counts as `unknown_seq`.
   The reason and its metric label stay, and the label stays at 0; see {{pr-09}}.
 
-Nothing that should be fixed before merge is open.
+Nothing that should have been fixed before the merge is open.
 
 ## Related
 
 - Refs #1807: once {{pr-09}} lands the hold is the node's behaviour; the closing keyword for #1807, if any, is in #1862's body, the only PR of the stack that merges into `main`.
 - Refs #1794: a held digest keeps its slot in that bound until it commits.
-- Stacked on #1868 (`fix/1804-quorum-exec-block`); next: {{pr-09}}, which removes the stack's switches, is the PR on top of this one and the last of the stack.
+- Merged into #1868's branch on 2026-11-16; {{pr-09}}, which removes the stack's switches, targets #1862's branch and is the last PR of the stack.
