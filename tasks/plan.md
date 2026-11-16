@@ -36,7 +36,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [x] R5 machinery (`runtime_switches!`, `switches()`, `log_switches()`, `SwitchValue`, the `node switches` line, `tn_node_switch`, `assert_switches`, `STACK_SWITCHES_ON/OFF`): 1d41981dd, e8dfcce10, 57a55b221 · reviewed and approved (two Lows); `Parameters` at the tip has exactly `main`'s 14 fields and defaults
 - [ ] gates on the new top: fmt; `./etc/ci-lanes.sh clippy`; `cargo nextest run --locked --workspace`; every new commit compiles alone; `make test-restarts`, `test-epochs`, `test-sigkill`, `test-e2e-resync`; the stack's own e2e tests ×3; `make test-upgrade` (previous = `main`); the three `state_export_import` tests; the hold's property hunt, 100,000 cases
 - [ ] `git grep` finds none of the six names in `crates/`; `vote_timeout` under 9 s in the shipped presets and the devnet's configs
-- [ ] PR text (opus, `human-writing`, limits section) · figure-check · branch pushed · ninth PR opened on `fix/1807-digest-order-hold`
+- [x] (2026-11-16: #1873, on `feat/bench6-switches-obs` because the owner had collapsed the stack; tip 54aa60932, 20 commits) PR text (opus, `human-writing`, limits section) · figure-check · branch pushed · ninth PR opened on `fix/1807-digest-order-hold`
 
 ## Step 3 — PR bodies, second pass
 - [ ] #1862, #1864, #1866, #1868, #1869: switch statements rewritten; #1868 says the adaptive form is deleted and why
@@ -47,7 +47,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 
 ## Step 4 — collapse, `main`, attest
 - [ ] pre-flight on the trial merge of the new top with `main`: CI lanes, ignored `tn-lmdb` tests, ignored e2e suite, `make test-e2e-reth-migration`, `make test-e2e-resync`; conflict resolutions kept as notes
-- [ ] (user) the collapse: #1869 down to #1862
+- [x] (2026-11-16T19:27-19:33Z, by the owner) (user) the collapse: #1869 down to #1862
 - [ ] (on the user's word) merge `origin/main` into `feat/bench6-switches-obs`, pre-flight on that commit, push
 - [ ] (user) `make attest`
 
