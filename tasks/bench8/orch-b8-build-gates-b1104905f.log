@@ -1,0 +1,7 @@
+B8-GATES start 2026-11-16T17:52:24Z worktree=/home/drtnarg/coding/telcoin/tn-b8-bench head=b1104905f pid=1132900
+B8-GATES check rc=0 (Finished `dev` profile [unoptimized] target(s) in 1m 13s) 2026-11-16T17:53:38Z
+B8-GATES fmt rc=0 (EXIT=0) 2026-11-16T17:53:45Z
+B8-GATES clippy rc=0 (Finished `dev` profile [unoptimized] target(s) in 34.54s) 2026-11-16T17:54:20Z
+B8-GATES nextest rc=0 (Summary [ 105.082s] 1879 tests run: 1879 passed, 11 skipped) 2026-11-16T17:57:20Z
+B8-GATES golden rc=0 (Summary [   0.016s] 4 tests run: 4 passed, 659 skipped) 2026-11-16T17:58:07Z
+B8-GATES done rc=0 2026-11-16T17:58:07Z
