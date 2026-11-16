@@ -34,7 +34,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [x] R3 always-on only (`quorum_exec_block`, `quorum_exec_block_starved_rounds`, window and streak state, adaptive tests, off/adaptive e2e arms, mixed-switch fleet): a242a3b4a, de075ab78 · reviewed and approved (one Medium, text: `make test-upgrade` does not show an old voter voting for a header that names an older block)
 - [x] R4 the hold (`Option` around `OwnChainOrder`, off drain branch, golden off test, no-hold control): dd21a50ef, 726a25f1b · reviewed and approved (one Medium: the `stale_resend` reason can no longer be counted; docs reworded by the closing unit)
 - [x] R5 machinery (`runtime_switches!`, `switches()`, `log_switches()`, `SwitchValue`, the `node switches` line, `tn_node_switch`, `assert_switches`, `STACK_SWITCHES_ON/OFF`): 1d41981dd, e8dfcce10, 57a55b221 · reviewed and approved (two Lows); `Parameters` at the tip has exactly `main`'s 14 fields and defaults
-- [ ] gates on the new top: fmt; `./etc/ci-lanes.sh clippy`; `cargo nextest run --locked --workspace`; every new commit compiles alone; `make test-restarts`, `test-epochs`, `test-sigkill`, `test-e2e-resync`; the stack's own e2e tests ×3; `make test-upgrade` (previous = `main`); the three `state_export_import` tests; the hold's property hunt, 100,000 cases
+- [ ] (2026-11-16: every removal commit compiles alone, 20 of 20; the rest NOT run on the merged head 02b9c5f31: the owner runs `make attest` and addresses fmt, clippy and the suites then; a partial e2e run on 54aa60932 passed three order-hold tests once each) gates on the new top: fmt; `./etc/ci-lanes.sh clippy`; `cargo nextest run --locked --workspace`; every new commit compiles alone; `make test-restarts`, `test-epochs`, `test-sigkill`, `test-e2e-resync`; the stack's own e2e tests ×3; `make test-upgrade` (previous = `main`); the three `state_export_import` tests; the hold's property hunt, 100,000 cases
 - [ ] `git grep` finds none of the six names in `crates/`; `vote_timeout` under 9 s in the shipped presets and the devnet's configs
 - [x] (2026-11-16: #1873, on `feat/bench6-switches-obs` because the owner had collapsed the stack; tip 54aa60932, 20 commits) PR text (opus, `human-writing`, limits section) · figure-check · branch pushed · ninth PR opened on `fix/1807-digest-order-hold`
 
@@ -48,14 +48,14 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 ## Step 4 — collapse, `main`, attest
 - [ ] pre-flight on the trial merge of the new top with `main`: CI lanes, ignored `tn-lmdb` tests, ignored e2e suite, `make test-e2e-reth-migration`, `make test-e2e-resync`; conflict resolutions kept as notes
 - [x] (2026-11-16T19:27-19:33Z, by the owner) (user) the collapse: #1869 down to #1862
-- [ ] (on the user's word) merge `origin/main` into `feat/bench6-switches-obs`, pre-flight on that commit, push
+- [x] (2026-11-16, on the owner's word, done as a merge of `main` f25a74eb7 INTO #1873's branch: 02b9c5f31, pushed after the fmt check and a two-crate compile check only; no pre-flight: the owner's instruction) (on the user's word) merge `origin/main` into `feat/bench6-switches-obs`, pre-flight on that commit, push
 - [ ] (user) `make attest`
 
 ## Step 5 — bench 8
 - [x] (N0-N5, the summary and its figure-check done 2026-11-16) 5a N1 voters lacking the block per under-held header · N2 certified share against the laggards' wait · N3 held against not-held · N4 60-s course · N5 near headers after an uncommitted far certificate → `benchmark/private/bench8-prep/N1..N5/`, `tasks/bench8/no-run-findings.md`, figure-checked
 - [x] (2026-11-16: 21 commits, tip b1104905f, pushed; image `adiri:bench8-20261116`, digest sha256:e81f54d6…3e9a1a; cargo gates 1,879 tests, golden tests, restart e2e set 11/11 at the defaults and 11/11 with the floor-16 arm; the whole build reviewed) 5b `bench/bench8-2026-11` from 91a15e223 (confirmed against run 7a's manifest): `quorum_exec_block_floor_outputs` (default 8), the log fields, gates (unit tests, golden payloads at floor 8, nextest for the touched crates, the restart e2e set), image built and pushed
 - [x] (2026-11-16: committed; the whole-suite gate ran 1,640 tests with one failure caused by the launch (SIGINT ignored in a background child), that module passes alone, 555 mutation cases pass; the wrapper now resets the signals) 5c harness: arms `bench8-floor16`, `bench8-control`, `bench8-nohold`, `arms/switches.tsv` rows, the reduced-load launch file, credentials check, the idle check's `up` rule, the endpoint sampler as a segment, the first-and-last-sample export check; harness tests pass
-- [ ] 5d run 1 (F, floor 16) — the user's go + a fresh `gcloud auth login`
+- [ ] (launched 2026-11-16T20:11:55Z as r20261116-2011; deploy12 rc 0 at 21:16:51Z, idle checks ok, floor 16 read back on 11 nodes, blast15 running) 5d run 1 (F, floor 16) — the user's go + a fresh `gcloud auth login`
 - [ ] 5d run 2 (R or H or C by run 1's result) — the user's go + a fresh login
 - [ ] 5e analysis, report, pages (publishing asked)
 
