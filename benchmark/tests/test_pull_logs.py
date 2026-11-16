@@ -1524,3 +1524,106 @@ class Bench7ShapeTests(unittest.TestCase):
         phrases = sampler_halt_phrases()
         self.assertEqual(len(phrases), 6, phrases)
         self.assertEqual([p for p in phrases if p not in shape_lines()], [])
+
+
+# ---- bench 8 log shapes ----
+# The bench 8 build (tasks/bench8/node-fields.md) appends fields to lines kept above and logs four new lines. Each
+# line is rendered as the node writes it, its fields in that file's order and an authority as a 44-character base58
+# id; the prefilter must keep every one whole, with or without the two optional keys (cpu_ms, store_bytes).
+B8_IDS = ("7TcAuZ" + "x" * 34 + "3fZL", "C7mwJb" + "y" * 34 + "9k2t", "HPRfph" + "z" * 34 + "fFP9")
+B8_A, B8_B, B8_C = B8_IDS
+B8_OPTIONAL = (" cpu_ms=204", " store_bytes=8589934592")
+BENCH8_EXTENDED = (
+    ("consensus::metrics", "info", "header proposed",
+     "round=12 epoch=0 num_batches=1 num_parents=3 held=1 held_lanes=1 blockers=1 exec_quorum=0 exec_floor=0 "
+     "parents=[%s,%s,%s] pending_unheld=1" % B8_IDS),
+    ("primary::network", "debug", "vote path timing",
+     "outcome=superseded total_ms=1004 exec_named=40 exec_tip_arrival=38 exec_tip_answer=39 exec_deficit_outputs=2 "
+     "exec_deficit_open=true superseded_by_round=14 superseded_after_ms=310"),
+    ("consensus::metrics", "info", "quorum reached",
+     "round=12 vote_arrivals=[%s:12,%s:30] vote_errors=[%s:5:900:deferred:3] votes_at_end=3 stake_at_end=3" % B8_IDS),
+    ("consensus::metrics", "info", "header uncertified",
+     "round=12 reason=no_certificate vote_arrivals=[%s:12] vote_errors=[%s:5:5:missing_parents:1,%s:7:1001:timeout:2] "
+     "votes_at_end=2 stake_at_end=2" % B8_IDS),
+    ("consensus::metrics", "info", "header uncertified",
+     "round=13 reason=canceled vote_arrivals=[] vote_errors=[%s:3:3:invalid_vote:1] votes_at_end=1 stake_at_end=1" % B8_C),
+    ("engine", "debug", "output executed",
+     "consensus_number=40 leader_round=80 blocks=1 batches=4 execute_ms=210 persist_ms=0 announce_ms=1 txs=1200 "
+     "recover_wait_ms=0 evm_ms=150 root_ms=40 finish_ms=10 other_ms=9 max_block_root_ms=40 max_block_evm_ms=150"
+     + B8_OPTIONAL[0]),
+    ("engine", "debug", "persisted output",
+     "first=39 last=40 blocks=2 txs=2400 receipts=2400 accounts=310 storage_slots=900 open_ms=3 save_blocks_ms=40 "
+     "markers_ms=1 commit_ms=12" + B8_OPTIONAL[1]),
+    ("engine", "debug", "output execution task finished",
+     "consensus_number=40 queue_wait_ms=2 task_ms=230 forward_wait_ms=0 outputs_behind=3"),
+    ("node::switches", "info", "node switches",
+     "digest_order_hold=true epoch_record_conflict_halt=true quorum_exec_block_floor_outputs=16"),
+)
+BENCH8_NEW = (
+    ("consensus::metrics", "info", "certificate accepted",
+     "epoch=0 round=1 origin=%s round_certs=8 parents_sent=true late_ms=25 source=peer parents_resent=true "
+     "quorum_reached=false" % B8_A),
+    ("consensus::metrics", "info", "leader schedule updated",
+     "epoch=0 round=120 scores=[%s:42,%s:40,%s:0] good=[%s] bad=[%s] final_of_schedule=true"
+     % (B8_A, B8_B, B8_C, B8_A, B8_C)),
+    ("consensus::metrics", "info", "order hold released", 'epoch=0 round=1 lanes=1 digests=3 waited_ms=4 cause="cancel"'),
+    ("consensus::metrics", "info", "subdag parent skipped",
+     "epoch=0 leader_round=3 skipped=3 edges=5 skips=[%s:1:2,%s:1:3,%s:2:3]" % (B8_A, B8_B, B8_B)),
+)
+# Logged by bench 7's build (debug, kept by the bench filter's primary=debug), gone from bench 8's.
+BENCH7_LEADER_SCHEDULE = ("Good node on round 120", "Bad node on round 120", "Reputation scores on round 120")
+
+
+def bench8_line(target, level, message, fields):
+    return 'ts=2026-11-16T00:00:00.000000000Z level=%s target=%s message="%s" %s' % (level, target, message, fields)
+
+
+class Bench8ShapeTests(unittest.TestCase):
+    def test_every_extended_line_is_kept_by_its_message_whatever_follows(self):
+        shapes = shape_lines()
+        for target, level, message, fields in BENCH8_EXTENDED:
+            with self.subTest(message=message):
+                self.assertIn(message, shapes)
+                for line in (bench8_line(target, level, message, fields),
+                             bench8_line(target, level, message, fields.replace(B8_OPTIONAL[0], "")
+                                         .replace(B8_OPTIONAL[1], ""))):
+                    self.assertTrue([s for s in shapes if s in line], "no shape keeps %r" % line)
+        keys = ("exec_quorum", "exec_floor", "parents=", "pending_unheld", "exec_named", "exec_tip", "exec_deficit",
+                "superseded_", "vote_arrivals", "vote_errors", "votes_at_end", "stake_at_end", "cpu_ms", "store_bytes",
+                "outputs_behind", "quorum_exec_block_floor_outputs")
+        self.assertEqual([s for s in shapes if any(k in s for k in keys)], [], "a shape must not require a new field")
+
+    def test_the_new_lines_have_their_own_block(self):
+        lines = SHAPES.read_text().split("\n")[:-1]
+        new = [m for _, _, m, _ in BENCH8_NEW]
+        at = lines.index(new[0])
+        self.assertEqual(lines[at:at + len(new)], new)
+        self.assertTrue(lines[at - 1].startswith("# "))
+        head = max(i for i in range(at) if lines[i].startswith("# bench 8 "))
+        self.assertTrue(all(x.startswith("#") for x in lines[head:at]))
+
+    def test_the_removed_leader_schedule_lines_stay_kept_for_bench7_logs(self):
+        for message in BENCH7_LEADER_SCHEDULE:
+            line = node_line("primary::leader_schedule", "debug", message)
+            self.assertIn("chedule", [s for s in shape_lines() if s in line], line)
+
+    def test_the_prefilter_keeps_every_bench8_line_whole(self):
+        lines = [bench8_line(*row) for row in BENCH8_EXTENDED + BENCH8_NEW]
+        lines += [bench8_line(t, lvl, m, f.replace(B8_OPTIONAL[0], "").replace(B8_OPTIONAL[1], ""))
+                  for t, lvl, m, f in BENCH8_EXTENDED if B8_OPTIONAL[0] in f or B8_OPTIONAL[1] in f]
+        lines += [node_line("primary::leader_schedule", "debug", m) for m in BENCH7_LEADER_SCHEDULE]
+        noise = ['ts=2026-11-16T00:00:00.000000000Z level=debug target=x message="noise %d"' % i for i in range(50)]
+        with tempfile.TemporaryDirectory(prefix="prefilter-b8-") as tmp:
+            root = Path(tmp)
+            (root / "logs").mkdir()
+            text = "\n".join(noise[:25] + lines + noise[25:]) + "\n"
+            (root / "logs" / "bench-validator-01-telcoin.log.gz").write_bytes(gzip.compress(text.encode(), mtime=0))
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "TMPDIR": tmp,
+                   "PULL_LIB": str(PULL_LIB), "BENCH_DIR": str(BENCH), "BENCH_APPLY": "1"}
+            p = subprocess.run(["bash", "-c", PREFILTER_SHIM, "_", "bench_logs_prefilter", str(root / "logs"),
+                                str(root / "out")], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=120)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            copy = gzip.decompress((root / "out" / "logs" / "bench-validator-01-telcoin.log.gz").read_bytes())
+        self.assertEqual(copy.decode().split("\n")[:-1], lines)
+        self.assertEqual(len(lines), 18)

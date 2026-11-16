@@ -112,6 +112,11 @@ MUST_HAVE = (
     "tn_node_leftover_output_gaps_total",
     "tn_node_leftover_outputs_skipped_total",
     "tn_worker_batch_reports_over_quota_total",
+    # bench 8 (tasks/bench8/node-fields.md): the voter's execution deficit, one sample per vote request, label
+    # open; all three series of the histogram, since the analysis reads its buckets.
+    "tn_primary_vote_exec_deficit_outputs_bucket",
+    "tn_primary_vote_exec_deficit_outputs_sum",
+    "tn_primary_vote_exec_deficit_outputs_count",
 )
 
 # Registered when the proposer builds its handles (crates/consensus/primary/src/metrics.rs
@@ -121,6 +126,10 @@ VALIDATORS_ONLY = frozenset((
     "tn_primary_requeued_order_unknown_total",
     "tn_primary_headers_held_total",
     "tn_primary_digests_held",
+    # Recorded by a voter answering a vote request: every validator from its first rounds, never the observer.
+    "tn_primary_vote_exec_deficit_outputs_bucket",
+    "tn_primary_vote_exec_deficit_outputs_sum",
+    "tn_primary_vote_exec_deficit_outputs_count",
 ))
 
 # Registered at the event (metrics::counter!/gauge! where it is counted or set): the certifier's dropped report,

@@ -2566,7 +2566,7 @@ cases = [
     ('benchmark/report/provenance.py', '                out.append((k, "(absent)", want[k]))', '                pass',
      'test_report_provenance.Bench7SwitchListTests.test_a_bench7_line_without_a_listed_key_fails'),
     # (3) the live (bench 7) list leaks into a bench 6 run: the report's choice, the arm tool's and step 7's list
-    ('benchmark/report/provenance.py', '        if n > shared:', '        if False:',
+    ('benchmark/report/provenance.py', '        if r > rank:', '        if False:',
      'test_report_provenance.Bench7SwitchListTests.test_a_bench6_run_and_a_bench7_run_from_the_same_tree'),
     ('benchmark/report/provenance.py',
      '        rows = rows if rows is not None else run_switch_rows(manifest, starts)[1]',
@@ -2627,6 +2627,8 @@ cases = [
      'test_pull_logs.Bench7ShapeTests.test_every_section_4_stable_phrase_is_kept_as_the_node_writes_it'),
     ('benchmark/tools/log-shapes.txt', 'epoch record published\n', '',
      'test_pull_logs.Bench7ShapeTests.test_every_section_2_line_is_kept'),
+    ('benchmark/tools/log-shapes.txt', 'certificate accepted\n', '',
+     'test_pull_logs.Bench8ShapeTests.test_the_prefilter_keeps_every_bench8_line_whole'),
     ('benchmark/launch/bench7-adaptive.env', 'BENCH_NODE_DISK_IOPS=20000\n', 'BENCH_NODE_DISK_IOPS=10000\n',
      'test_launch.Bench7EnvTests.test_each_is_the_run_that_ran_with_the_bench7_differences'),
     # Bench 7 HB-5b. The sampler's seventh fail-stop (the re-certify conflict, only with stop=true); the arms summary's

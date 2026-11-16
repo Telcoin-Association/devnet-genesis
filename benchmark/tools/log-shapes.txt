@@ -104,3 +104,18 @@ pool refused an orphaned transaction
 test hook:
 ignoring TN_TEST_
 new proposal received during the own certificate hold
+# bench 8 node lines (tasks/bench8/node-fields.md), for the bench 8 analysis. The file only grows: a shape whose
+# line a later build drops stays for the older runs' logs, under the block of the bench that added it. Bench 8's
+# build appends fields at the end of lines kept above (header proposed, quorum reached, header uncertified, vote
+# path timing, output executed with an optional cpu_ms, persisted output with an optional store_bytes, output
+# execution task finished, and one more entry of node switches): a shape is a fixed string found anywhere in the
+# line, so those lines are kept whatever follows the message. It drops three debug lines of primary::leader_schedule
+# (Good node on round, Bad node on round, Reputation scores on round), which the provenance marker "chedule" above
+# keeps in bench 7's logs through their target. The new lines: one per certificate that enters its round's
+# aggregator (about 24 a second per node at bench load, about 250 bytes each), one per leader schedule change (at
+# most one per 120 rounds, and one per restart), one per own header the order hold named a blocker, at most one per
+# committed leader that skipped a parent below its origin's last committed round
+certificate accepted
+leader schedule updated
+order hold released
+subdag parent skipped

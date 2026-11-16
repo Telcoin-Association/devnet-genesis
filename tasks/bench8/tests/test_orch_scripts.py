@@ -758,9 +758,9 @@ class TestExport(SandboxCase):
                            universal_newlines=True, timeout=120)
         return p.returncode, p.stdout, prom
 
-    def test_must_have_list_names_thirty_eight_series(self):
-        self.assertEqual(len(self.must), 38)
-        self.assertEqual(len(set(self.must)), 38)
+    def test_must_have_list_names_forty_one_series(self):
+        self.assertEqual(len(self.must), 41)
+        self.assertEqual(len(set(self.must)), 41)
         for m in ("tn_primary_vote_stage_seconds_count", "tn_node_switch", "tn_reth_persist_commit_seconds_count"):
             self.assertIn(m, self.must)
         self.assertLessEqual(self.validators_only | self.lazy, set(self.must))
@@ -769,11 +769,11 @@ class TestExport(SandboxCase):
     def test_complete_export_passes(self):
         rc, out, prom = self.export(self.presence(), "--manifest", self.manifest)
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(re.findall(r"(?m)^EXPORT_CHECK ", out)), 38)
+        self.assertEqual(len(re.findall(r"(?m)^EXPORT_CHECK ", out)), 41)
         self.assertIn("EXPORT_CHECK metric=tn_primary_vote_stage_seconds_count nodes=11/11 missing=- status=ok", out)
         self.assertIn("EXPORT_CHECK metric=tn_node_switch nodes=11/11 missing=- status=ok", out)
         self.assertIn("EXPORT_CHECK metric=reth_db_table_pages nodes=0/11 missing=- status=absent", out)
-        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=37 series=\d+ nodes=11$")
+        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=40 series=\d+ nodes=11$")
         self.assertTrue(os.path.exists(os.path.join(self.out, "INDEX.tsv")))
         with gzip.open(os.path.join(self.out, "tn_node_switch.json.gz"), "rb") as f:
             self.assertEqual(len(json.loads(f.read())["data"]["result"]), 11)
@@ -813,7 +813,7 @@ class TestExport(SandboxCase):
         rc, out, prom = self.export(p, "--manifest", self.manifest, "--allow-missing")
         self.assertEqual(rc, 0, out)
         self.assertIn("status=incomplete", out)
-        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=37 series=\d+ nodes=11$")
+        self.assertRegex(out, r"(?m)^EXPORT_DONE metrics=40 series=\d+ nodes=11$")
         self.assertGreater(len(prom.ranges()), 0)
 
     # ---- bench7 must-have scopes (HB-5a) ----

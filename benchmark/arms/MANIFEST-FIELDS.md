@@ -397,14 +397,14 @@ A bench node starts twice in deploy step 7, and each start gets the opt-in a dif
 ## Bench 7: a run's switch list
 
 Added 2026-11-14 for bench 7. The switch set of a manifest is that of its node build.
-The bench 7 build has seven switches (`switches.tsv`); bench 6's twelve stay in `switches-bench6.tsv` (`README.md`, "Builds").
+The live build is bench 8's: eight rows in `switches.tsv` (bench 7's seven switches and the count `quorum_exec_block_floor_outputs`); bench 7's seven stay in `switches-bench7.tsv` and bench 6's twelve in `switches-bench6.tsv` (`README.md`, "Builds").
 
-- `param_arms[].switches` holds every key of the list the arm tool read when the arm was applied: seven keys in a bench 7 run, twelve in a bench 6 run.
+- `param_arms[].switches` holds every key of the list the arm tool read when the arm was applied: eight keys in a bench 8 run, seven in a bench 7 run, twelve in a bench 6 run.
   A switch the build lacks is not in the state.
 - `report/provenance.py` reads each run with the list of its own build: the list that shares the most keys with the run's `param_arms[].switches` states (or, when no arm recorded one, with its `node switches` lines), the live `switches.tsv` on a tie or when the run recorded none.
   Bench 6 manifests therefore keep reading as before, with no field added to them.
 
 | name | status | meaning |
 |---|---|---|
-| `node_startup_check.switch_list` | new (bench 7) | the file name of the switch list the check read the run with (`"switches.tsv"` or `"switches-bench6.tsv"`); present whenever `node_startup_check.switches` is and the lists could be read |
+| `node_startup_check.switch_list` | new (bench 7) | the file name of the switch list the check read the run with (`"switches.tsv"`, `"switches-bench7.tsv"` or `"switches-bench6.tsv"`); present whenever `node_startup_check.switches` is and the lists could be read |
 | `node_startup_check.switches.extra` | new (bench 7) | `{key: starts}` for each key a `node switches` line carried that the run's list does not have, with the number of starts that carried it; a note, not a problem (the node may have gained a switch); absent when there is none |

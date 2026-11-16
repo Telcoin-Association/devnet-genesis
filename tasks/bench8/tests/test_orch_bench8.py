@@ -383,6 +383,21 @@ class TestExportCoverage(unittest.TestCase):
         return [{"node": self.KILLED, "action": "docker kill -s KILL telcoin", "begin_unix": self.T0 + kill},
                 {"node": self.KILLED, "action": "systemctl start telcoin", "begin_unix": self.T0 + start}]
 
+    def test_the_vote_deficit_histogram_is_a_must_have_on_every_validator(self):
+        series = ["tn_primary_vote_exec_deficit_outputs_" + s for s in ("bucket", "sum", "count")]
+        self.assertEqual([m for m in series if m not in self.must], [])
+        self.assertTrue(set(series) <= base.load_export_module().VALIDATORS_ONLY)
+        for drop, want in ((base.OBSERVER, 0), (self.KILLED, 3)):  # the observer never votes; a validator must
+            held = {m: list(NODES) for m in self.must}
+            held.update({m: [n for n in NODES if n != drop] for m in series})
+            self.prom = base.FakeProm(held)
+            self.addCleanup(self.prom.stop)
+            rc, out = self.export("--check-only")
+            self.assertEqual(rc, want, out)
+            for m in series:
+                self.assertRegex(out, r"(?m)^EXPORT_CHECK metric=%s nodes=" % m)
+        self.assertRegex(out, r"(?m)^EXPORT_CHECK metric=%s .*%s" % (series[0], self.KILLED))
+
     def test_whole_series_pass_with_0(self):
         rc, out = self.export("--check-only")
         self.assertEqual(rc, 0, out)
