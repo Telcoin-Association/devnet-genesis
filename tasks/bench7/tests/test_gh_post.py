@@ -283,6 +283,28 @@ class GhPostTest(unittest.TestCase):
         self.assertIn("This follows from #1801; the fix for #1801 does not cover it.", posted)
         self.assertNotIn("{{", posted)
 
+    def test_pull_request_placeholder_from_the_record_or_the_environment(self):
+        # {{pr-09}} is a pull request of the stack by its key: the record's pr row, or, while that pull
+        # request is being created and names itself, the number given in POST_PR_09 (which wins).
+        body = self.write_body("issue-comments/pr-token.md", "## Problem\n\nThe last one is {{pr-09}}.\n")
+        p = self.run_script("lint", str(body))
+        self.assert_rc(p, 3)
+        self.assertIn("UNRESOLVED {{pr-09}}", p.stdout)
+        p = self.run_script("lint", str(body), POST_PR_09="1900")
+        self.assert_rc(p, 0)
+        self.assertIn("SUBST {{pr-09}} -> #1900", p.stdout)
+        self.seed_record("issue", "pr-09", "1700")     # an issue slug of the same spelling is not it
+        p = self.run_script("lint", str(body))
+        self.assert_rc(p, 3)
+        self.seed_record("pr", "09", "1871")
+        p = self.run_script("lint", str(body))
+        self.assert_rc(p, 0)
+        self.assertIn("SUBST {{pr-09}} -> #1871", p.stdout)
+        p = self.run_script("lint", str(body), POST_PR_09="not-a-number")
+        self.assert_rc(p, 0)
+        self.assertIn("SUBST {{pr-09}} -> #1871", p.stdout)
+        self.assert_no_gh(p)
+
     def test_unresolved_placeholder_is_refused_and_named(self):
         p = self.run_script("issue", "delta")
         self.assert_rc(p, 3)

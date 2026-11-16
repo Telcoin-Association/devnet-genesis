@@ -5,7 +5,8 @@
 #   orch-pr-body-edit.sh [--live] <key>...        key = 00 01 02 03 04 xf 05 06 09 (rows of the map below)
 #
 # Per key: the text tasks/pr-bodies/bench6-<key>-*.md is rendered ({{slug}} -> #<number> of the issue the
-# record holds under <slug>) to tasks/pr-bodies/rendered/bench6-<key>.md; the posting script's lint runs
+# record holds under <slug>; {{pr-09}} -> the ninth pull request's number from its pr row) to
+# tasks/pr-bodies/rendered/bench6-<key>.md; the posting script's lint runs
 # on the rendered file and any hit refuses; the stale-phrase check refuses; then, live only,
 # `gh pr edit <number> --body-file <rendered>`, the live body is read back and its sha256 must equal the
 # rendered file's; one row goes to the record tasks/bench7/gh-posted.tsv:
@@ -18,11 +19,13 @@ PR_DIR="${ROOT}/tasks/pr-bodies"
 OUT_DIR="${PR_DIR}/rendered"
 RECORD="${ROOT}/tasks/bench7/gh-posted.tsv"
 POST="${ROOT}/tasks/bench7/orch-gh-post.sh"
-STALE='staging|of 6|not sent yet|until that PR merges'
+STALE='staging|of 6|of 8 in the stack|not sent yet|until that PR merges|[{][{]'
 pr_of() {
     case "$1" in
         00) echo 1862 ;; 01) echo 1863 ;; 02) echo 1864 ;; 03) echo 1865 ;; 04) echo 1866 ;;
-        xf) echo 1867 ;; 05) echo 1868 ;; 06) echo 1869 ;; 09) echo "${PR_09:-}" ;; *) echo "" ;;
+        xf) echo 1867 ;; 05) echo 1868 ;; 06) echo 1869 ;;
+        09) awk -F'\t' '$2 == "pr" && $3 == "09" && $4 ~ /^[0-9]+$/ { n = $4 } END { print n }' "${RECORD}" ;;
+        *) echo "" ;;
     esac
 }
 LIVE=0
@@ -45,6 +48,8 @@ for line in open(record, encoding="utf-8"):
     c = line.rstrip("\n").split("\t")
     if len(c) >= 4 and c[1] == "issue":
         nums[c[2]] = c[3]
+    elif len(c) >= 4 and c[1] == "pr" and c[3].isdigit():
+        nums["pr-" + c[2]] = c[3]      # {{pr-09}}: a pull request of the stack by its key
 text = open(src, encoding="utf-8").read()
 bad = []
 def sub(m):

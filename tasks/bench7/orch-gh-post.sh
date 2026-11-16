@@ -336,16 +336,25 @@ refuse_recorded() {
 
 # ---- the body --------------------------------------------------------------------------------
 # resolve_placeholders <src> <dst> <map scratch>: {{slug}} -> #<number> of the issue the record
-# holds under <slug>. One SUBST or UNRESOLVED line per placeholder; 1 when any is unresolved,
+# holds under <slug>; {{pr-<key>}} -> #<number> of the pull request the record holds under <key>. One SUBST or UNRESOLVED line per placeholder; 1 when any is unresolved,
 # 2 on an I/O failure.
 resolve_placeholders() {
-    local src="$1" dst="$2" map="$3" found ph slug num bad=0
+    local src="$1" dst="$2" map="$3" found ph slug num key var bad=0
     : > "${map}" || return 2
     found="$(LC_ALL=C grep -oE '[{][{][a-z0-9][a-z0-9-]*[}][}]' "${src}" | sort -u)" || found=""
     while IFS= read -r ph; do
         [ -n "${ph}" ] || continue
         slug="$(printf '%s' "${ph}" | sed -e 's/^{{//' -e 's/}}$//')"
-        num="$(record_number issue "${slug}")" || num=""
+        case "${slug}" in
+            pr-[0-9a-z][0-9a-z])
+                # A pull request of the stack by its STACK key ({{pr-09}}): the record's pr row, or, for a
+                # pull request that names itself in the body it is created with, the number given in
+                # POST_PR_<key> (the caller compares it with the number GitHub assigns and edits if they differ).
+                key="${slug#pr-}"; var="POST_PR_${key}"; num="${!var:-}"
+                case "${num}" in ''|*[!0-9]*) num="$(record_number pr "${key}")" || num="" ;; esac
+                ;;
+            *) num="$(record_number issue "${slug}")" || num="" ;;
+        esac
         if [ -n "${num}" ]; then
             printf '%s\t#%s\n' "${ph}" "${num}" >> "${map}"
             printf 'SUBST %s -> #%s\n' "${ph}" "${num}"
