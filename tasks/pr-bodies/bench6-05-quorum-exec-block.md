@@ -122,7 +122,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - {{pr-09}} deletes `test_mixed_switch_fleet_is_one_chain`: one chain while two nodes ran the fixes and two did not, across epochs and a restart, every node serving the same certified record per closed epoch, no record conflict, and a certified header of a fixed node naming an older block, which needs a vote from a node without the fixes.
   `make test-upgrade` as it ran in the gates below, with main as the previous binary, covers old and new binaries making one chain through a rolling upgrade, but not that last point: it slows no node and reads no `exec_basis`, all four validators execute at the same speed, so an upgraded proposer names its own tip almost always, and nothing asserts that a voter running main ever voted for a header naming an older block.
   The voter-side unit tests that stay exercise this tree's voter, not main's.
-  Whether a test of that point is added to the rolling-upgrade test: see {{pr-09}}.
+  No test of that point is added: see the limits of {{pr-09}}.
 - {{pr-09}} removes the field `exec_policy` (values `off`, `always`, `tip`, `starved`) from `header proposed`; `exec_block`, `exec_tip` and `exec_basis` stay.
 - f faulty parents that name high blocks and withhold their votes can cancel a header under the rule; the loss is bounded by the rule's gain (`test_quorum_exec_block_faulty_high_parents_cost_the_gain_only`).
 - The rule relies on the voter answering an executed old block at once; the `quorum_exec_block_voter_*` tests pin that, and a recency check added to the voter would work against this rule.

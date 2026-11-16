@@ -1,0 +1,491 @@
+diff --git a/Makefile b/Makefile
+index 59f3e0886..d266cdf4b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -84,6 +84,11 @@ help:
+ 	@echo "    :::> TN_BIN_PATH_PREV defaults to the binary build-e2e-bin-prev leaves behind; run that first or export another path." ;
+ 	@echo "    :::> To check an upgrade, build the release the network runs: make build-e2e-bin-prev TN_PREV_REF=<release>. The default ref is not a release." ;
+ 	@echo ;
++	@echo "make test-upgrade-votes" ;
++	@echo "    :::> Run the mixed-vote test: two validators on TN_BIN_PATH_PREV execute late and vote for this tree's headers that name an older block." ;
++	@echo "    :::> Needs a previous binary with the execution-delay hook (TN_TEST_EXECUTION_DELAY_MS): make build-e2e-bin-prev TN_PREV_REF=<ref with the hook>." ;
++	@echo "    :::> The default ref and v0.17.0-adiri lack the hook; the target stops when the previous binary is missing or lacks it." ;
++	@echo ;
+ 	@echo "make coverage" ;
+ 	@echo "    :::> Run tests with coverage using cargo-llvm-cov + nextest." ;
+ 	@echo "    :::> Requires: cargo install cargo-llvm-cov" ;
+@@ -412,7 +417,7 @@ test-sigkill: build-e2e-bin
+ test-epochs: build-e2e-bin
+ 	TN_BIN_PATH="$(E2E_BIN)" TN_SEED_SIGNATURE_FORK_EPOCH=$(TN_SEED_SIGNATURE_FORK_EPOCH) TN_MULTI_WORKERS_FORK_EPOCH=$(TN_MULTI_WORKERS_FORK_EPOCH) TN_PREVRANDAO_FORK_EPOCH=$(TN_PREVRANDAO_FORK_EPOCH) TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=$(TN_LEADER_SEEDED_ORDERING_FORK_EPOCH) TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=$(TN_SUBSECOND_TIMESTAMP_FORK_EPOCH) TN_GOVERNANCE_SAFE_FORK_EPOCH=$(TN_GOVERNANCE_SAFE_FORK_EPOCH) cargo nextest run -p e2e-tests --test it --run-ignored all test_epoch ;
+ 
+-# The previous binary test-upgrade runs: an exported TN_BIN_PATH_PREV wins, otherwise the one
++# The previous binary test-upgrade and test-upgrade-votes run: an exported TN_BIN_PATH_PREV wins, otherwise the one
+ # build-e2e-bin-prev leaves at E2E_BIN_PREV.
+ TN_BIN_PATH_PREV ?= $(E2E_BIN_PREV)
+ 
+@@ -427,6 +432,19 @@ test-upgrade: build-e2e-bin
+ 	@test -x "$(TN_BIN_PATH_PREV)" || { echo "no previous node binary at $(TN_BIN_PATH_PREV): run make build-e2e-bin-prev TN_PREV_REF=<release> or export TN_BIN_PATH_PREV" ; exit 1 ; }
+ 	TN_BIN_PATH="$(E2E_BIN)" TN_BIN_PATH_PREV="$(TN_BIN_PATH_PREV)" TN_SEED_SIGNATURE_FORK_EPOCH=$(TN_SEED_SIGNATURE_FORK_EPOCH) TN_MULTI_WORKERS_FORK_EPOCH=$(TN_MULTI_WORKERS_FORK_EPOCH) TN_PREVRANDAO_FORK_EPOCH=$(TN_PREVRANDAO_FORK_EPOCH) TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=$(TN_LEADER_SEEDED_ORDERING_FORK_EPOCH) TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=$(TN_SUBSECOND_TIMESTAMP_FORK_EPOCH) TN_GOVERNANCE_SAFE_FORK_EPOCH=$(TN_GOVERNANCE_SAFE_FORK_EPOCH) cargo nextest run -p e2e-tests --test it --run-ignored all test_upgrade ;
+ 
++# run the mixed-vote test (test_mixed_binary_voters_certify_older_block in tests/it/upgrade.rs): two
++# validators on this tree's binary and two on TN_BIN_PATH_PREV, the latter executing late through
++# the engine's execution-delay hook, show that a voter on the previous binary votes for a header
++# that names an execution block below its proposer's tip. It is its own target because it needs a
++# previous binary that has the hook (TN_TEST_EXECUTION_DELAY_MS), which TN_PREV_REF's default and
++# v0.17.0-adiri lack, while test-upgrade runs against any release. Without such a binary the target
++# stops rather than letting the test skip.
++.PHONY: test-upgrade-votes
++test-upgrade-votes: build-e2e-bin
++	@test -x "$(TN_BIN_PATH_PREV)" || { echo "no previous node binary at $(TN_BIN_PATH_PREV): run make build-e2e-bin-prev TN_PREV_REF=<ref with the execution-delay hook> or export TN_BIN_PATH_PREV" ; exit 1 ; }
++	@grep -q -a TN_TEST_EXECUTION_DELAY_MS "$(TN_BIN_PATH_PREV)" || { echo "the previous node binary at $(TN_BIN_PATH_PREV) has no execution-delay hook (TN_TEST_EXECUTION_DELAY_MS): run make build-e2e-bin-prev TN_PREV_REF=<ref> with a ref that has it (the default ref and v0.17.0-adiri do not)" ; exit 1 ; }
++	TN_BIN_PATH="$(E2E_BIN)" TN_BIN_PATH_PREV="$(TN_BIN_PATH_PREV)" TN_SEED_SIGNATURE_FORK_EPOCH=$(TN_SEED_SIGNATURE_FORK_EPOCH) TN_MULTI_WORKERS_FORK_EPOCH=$(TN_MULTI_WORKERS_FORK_EPOCH) TN_PREVRANDAO_FORK_EPOCH=$(TN_PREVRANDAO_FORK_EPOCH) TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=$(TN_LEADER_SEEDED_ORDERING_FORK_EPOCH) TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=$(TN_SUBSECOND_TIMESTAMP_FORK_EPOCH) TN_GOVERNANCE_SAFE_FORK_EPOCH=$(TN_GOVERNANCE_SAFE_FORK_EPOCH) cargo nextest run -p e2e-tests --test it --run-ignored all test_mixed_binary_voters ;
++
+ # run e2e tests
+ test-e2e: build-e2e-bin
+ 	TN_BIN_PATH="$(E2E_BIN)" TN_SEED_SIGNATURE_FORK_EPOCH=$(TN_SEED_SIGNATURE_FORK_EPOCH) TN_MULTI_WORKERS_FORK_EPOCH=$(TN_MULTI_WORKERS_FORK_EPOCH) TN_PREVRANDAO_FORK_EPOCH=$(TN_PREVRANDAO_FORK_EPOCH) TN_LEADER_SEEDED_ORDERING_FORK_EPOCH=$(TN_LEADER_SEEDED_ORDERING_FORK_EPOCH) TN_SUBSECOND_TIMESTAMP_FORK_EPOCH=$(TN_SUBSECOND_TIMESTAMP_FORK_EPOCH) TN_GOVERNANCE_SAFE_FORK_EPOCH=$(TN_GOVERNANCE_SAFE_FORK_EPOCH) cargo nextest run -p e2e-tests --run-ignored ignored-only --all-features ;
+diff --git a/crates/e2e-tests/tests/it/exec_block.rs b/crates/e2e-tests/tests/it/exec_block.rs
+index 65f781ef8..670b80020 100644
+--- a/crates/e2e-tests/tests/it/exec_block.rs
++++ b/crates/e2e-tests/tests/it/exec_block.rs
+@@ -234,12 +234,7 @@ pub(crate) struct HeaderWindow {
+ impl HeaderWindow {
+     /// Read node `node`'s run-0 log of `test` between the line marks `start` and `end`.
+     pub(crate) fn read(test: &str, node: usize, start: usize, end: usize) -> eyre::Result<Self> {
+-        Self::read_run(test, node, 0, start, end)
+-    }
+-
+-    /// Read node `node`'s run-`run` log of `test` between the line marks `start` and `end`.
+-    fn read_run(test: &str, node: usize, run: u32, start: usize, end: usize) -> eyre::Result<Self> {
+-        let lines = node_log_lines(test, node, run)?;
++        let lines = node_log_lines(test, node, 0)?;
+         let window = lines.get(start..end.min(lines.len())).unwrap_or_default();
+         let at = |line: &str| Some((log_field(line, "epoch")?, log_field(line, "round")?));
+         let header = |line: &str| {
+@@ -257,7 +252,7 @@ impl HeaderWindow {
+             .map(|line| {
+                 header(line).ok_or_else(|| {
+                     eyre::eyre!(
+-                        "node {node} run {run} of {test}: a `header proposed` line lacks epoch, \
++                        "node {node} of {test}: a `header proposed` line lacks epoch, \
+                          round, exec_basis, exec_tip or exec_block: {line}"
+                     )
+                 })
+@@ -288,6 +283,18 @@ impl HeaderWindow {
+         proposed.intersection(&self.certified).count() as f64 / proposed.len() as f64
+     }
+ 
++    /// How many distinct rounds proposed in the window named a block below the proposer's own tip
++    /// (`exec_block < exec_tip`) and certified.
++    pub(crate) fn older_block_certified(&self) -> usize {
++        self.headers
++            .iter()
++            .filter(|h| h.lag > 0)
++            .map(|h| h.at)
++            .collect::<BTreeSet<_>>()
++            .intersection(&self.certified)
++            .count()
++    }
++
+     /// The share of the second half of the window's headers that carry `exec_basis=<basis>`.
+     fn late_basis_share(&self, basis: &str) -> f64 {
+         let late = &self.headers[self.headers.len() / 2..];
+@@ -304,20 +311,17 @@ impl HeaderWindow {
+ 
+     /// A one-line account of the window for a test's summary.
+     pub(crate) fn describe(&self) -> String {
+-        let count = |pick: fn(&ProposedHeader) -> &str| {
+-            self.headers.iter().fold(BTreeMap::<&str, usize>::new(), |mut counts, h| {
+-                *counts.entry(pick(h)).or_default() += 1;
+-                counts
+-            })
+-        };
++        let bases = self.headers.iter().fold(BTreeMap::<&str, usize>::new(), |mut counts, h| {
++            *counts.entry(h.basis.as_str()).or_default() += 1;
++            counts
++        });
+         let max_lag = self.max_lag();
+         format!(
+-            "{} headers proposed, {:.3} certified, {} cancelled, exec_basis {:?}, max \
++            "{} headers proposed, {:.3} certified, {} cancelled, exec_basis {bases:?}, max \
+              exec_tip-exec_block {max_lag}",
+             self.headers.len(),
+             self.certified_share(),
+             self.cancelled,
+-            count(|h| h.basis.as_str()),
+         )
+     }
+ }
+diff --git a/crates/e2e-tests/tests/it/upgrade.rs b/crates/e2e-tests/tests/it/upgrade.rs
+index ba6dad785..ada95c095 100644
+--- a/crates/e2e-tests/tests/it/upgrade.rs
++++ b/crates/e2e-tests/tests/it/upgrade.rs
+@@ -1,5 +1,6 @@
+-//! Mixed-binary (rolling upgrade) test: a live network upgraded in place, one validator at a time.
++//! Mixed-binary tests: validators on the previous and on the current node binary in one network.
+ //!
++//! [`test_upgrade_rolling_in_place`] upgrades a live network in place, one validator at a time.
+ //! Four validators start on the previous node binary (`TN_BIN_PATH_PREV`). Each is then stopped
+ //! and started again on the current binary (`TN_BIN_PATH`) over the same datadir, the way an
+ //! operator upgrades, while transactions keep flowing and epochs keep closing. During the rollout
+@@ -29,19 +30,28 @@
+ //! checked against the commit its binary's `--version` reports, so a slot cannot silently run the
+ //! other binary.
+ //!
+-//! Without `TN_BIN_PATH_PREV` the test skips with a warning. `make test-upgrade` runs it.
++//! Without `TN_BIN_PATH_PREV` the rolling test skips with a warning. `make test-upgrade` runs it.
++//!
++//! [`test_mixed_binary_voters_certify_older_block`] runs two validators on each binary in one
++//! committee, the two on PREV executing late, and shows that PREV voters vote for CURRENT headers
++//! that name an execution block below their proposer's own tip. Its previous binary must have the
++//! engine's execution-delay hook ([`EXECUTION_DELAY_ENV`]), which neither the default
++//! `TN_PREV_REF` nor `v0.17.0-adiri` has, so `make test-upgrade` does not run it and
++//! `make test-upgrade-votes` does: that target stops when the previous binary lacks the hook,
++//! where the test itself skips with a warning.
+ 
+ use crate::{
+     common::{
+         acquire_test_permit, assert_epoch_reached, assert_epoch_records_verify, current_epoch,
+-        drive_light_tx_load, epoch_seconds_remaining, get_block_number, kill_child, log_field,
+-        node_log_lines, node_log_path, start_named_observer, start_validator,
+-        start_validator_with_overrides, strip_ansi, wait_for_head_at_least, wait_for_node_mode,
+-        ProcessGuard, RPC_REQUEST_TIMEOUT, WEI_PER_TEL,
++        drive_light_tx_load, epoch_seconds_remaining, get_block_number, kill_child, node_log_lines,
++        node_log_path, start_named_observer, start_validator, start_validator_with_overrides,
++        strip_ansi, wait_for_head_at_least, wait_for_node_mode, ProcessGuard, RPC_REQUEST_TIMEOUT,
++        WEI_PER_TEL,
+     },
++    exec_block::HeaderWindow,
+     fleet::{
+-        all_validators, log_str_field, CANARY_LOG, EXECUTION_DELAY_ENV, FATAL_LOGS,
+-        PRODUCTION_CADENCE, SLOW_EXECUTION_DELAY_MS,
++        all_validators, CANARY_LOG, EXECUTION_DELAY_ENV, FATAL_LOGS, PRODUCTION_CADENCE,
++        SLOW_EXECUTION_DELAY_MS,
+     },
+ };
+ use alloy::{
+@@ -238,6 +248,8 @@ struct Node {
+ /// The nodes of the run and the processes behind them. A node's index in `nodes` is its
+ /// [`ProcessGuard`] slot and its log instance number.
+ struct Network<'a> {
++    /// Log directory of the test that runs the network, under `test_logs/`.
++    test: &'static str,
+     temp_path: &'a Path,
+     binaries: &'a Binaries,
+     guard: &'a mut ProcessGuard,
+@@ -250,8 +262,14 @@ impl Network<'_> {
+         let idx = self.nodes.len();
+         let rpc_port = get_available_tcp_port("127.0.0.1")
+             .ok_or_else(|| eyre::eyre!("no rpc port available for validator-{}", idx + 1))?;
+-        let child =
+-            start_validator(idx, self.binaries.bin(release), self.temp_path, rpc_port, TEST, 0);
++        let child = start_validator(
++            idx,
++            self.binaries.bin(release),
++            self.temp_path,
++            rpc_port,
++            self.test,
++            0,
++        );
+         let slot = self.guard.push(child);
+         eyre::ensure!(slot == idx, "validator-{} landed in guard slot {slot}", idx + 1);
+         self.nodes.push(Node {
+@@ -275,7 +293,7 @@ impl Network<'_> {
+             self.temp_path,
+             name,
+             rpc_port,
+-            TEST,
++            self.test,
+             0,
+             &[],
+         );
+@@ -346,7 +364,7 @@ impl Network<'_> {
+                 eyre::bail!(
+                     "{label} exited ({status}) before its RPC came up; datadir {}; log tail:\n{}",
+                     self.temp_path.join(&node.name).display(),
+-                    log_tail(idx, node.run),
++                    log_tail(self.test, idx, node.run),
+                 );
+             }
+             if provider.get_block_number().await.is_ok() {
+@@ -355,7 +373,7 @@ impl Network<'_> {
+             eyre::ensure!(
+                 Instant::now() < deadline,
+                 "{label} did not answer RPC within {READY_TIMEOUT:?}; log tail:\n{}",
+-                log_tail(idx, node.run),
++                log_tail(self.test, idx, node.run),
+             );
+             tokio::time::sleep(Duration::from_millis(250)).await;
+         }
+@@ -430,7 +448,7 @@ impl Network<'_> {
+             self.binaries.bin(release),
+             self.temp_path,
+             self.nodes[idx].rpc_port,
+-            TEST,
++            self.test,
+             run,
+         );
+         self.guard.replace(idx, child);
+@@ -595,13 +613,13 @@ pub(crate) async fn block_roots<P: Provider>(
+     })
+ }
+ 
+-/// The last lines of the stdout and stderr logs of process `run` in slot `idx`.
+-fn log_tail(idx: usize, run: u32) -> String {
++/// The last lines of the stdout and stderr logs of process `run` in slot `idx` of `test`.
++fn log_tail(test: &str, idx: usize, run: u32) -> String {
+     const LINES: usize = 30;
+     [false, true]
+         .into_iter()
+         .map(|stderr| {
+-            let path = node_log_path(TEST, idx, run, stderr);
++            let path = node_log_path(test, idx, run, stderr);
+             match std::fs::read_to_string(&path) {
+                 Ok(text) => {
+                     let text = strip_ansi(&text);
+@@ -991,7 +1009,7 @@ async fn run_rolling_upgrade(
+     )?;
+     let chain: Arc<RethChainSpec> = Arc::new(genesis.into());
+ 
+-    let mut net = Network { temp_path, binaries, guard, nodes: Vec::new() };
++    let mut net = Network { test: TEST, temp_path, binaries, guard, nodes: Vec::new() };
+     // execution head of validator-2 at the end of each phase, for the summary
+     let mut marks: Vec<(String, u64)> = Vec::new();
+ 
+@@ -1104,28 +1122,29 @@ async fn run_rolling_upgrade(
+     Ok(())
+ }
+ 
+-/// Log directory and datadir prefix of [`test_upgrade_prev_voters_certify_older_block`].
+-const MIXED_TEST: &str = "upgrade_prev_votes";
++/// Log directory and datadir prefix of [`test_mixed_binary_voters_certify_older_block`].
++const MIXED_TEST: &str = "mixed_binary_votes";
+ 
+-/// The validators [`test_upgrade_prev_voters_certify_older_block`] runs on `TN_BIN_PATH`
++/// The validators [`test_mixed_binary_voters_certify_older_block`] runs on `TN_BIN_PATH`
+ /// (validator-1 and validator-2); the other two run `TN_BIN_PATH_PREV` and execute late.
+ const MIXED_CURRENT: [usize; 2] = [0, 1];
+ 
+-/// The fewest certified headers of the CURRENT validators in
+-/// [`test_upgrade_prev_voters_certify_older_block`] that must name a block older than their
+-/// proposer's own tip (`exec_basis=quorum` or `floor`).
++/// The fewest headers of the CURRENT validators in
++/// [`test_mixed_binary_voters_certify_older_block`], counted over the whole run, that name a block
++/// below their proposer's own tip (`exec_block < exec_tip`) and certified.
+ ///
+ /// A run in which the CURRENT proposers name their own tip throughout, as the PREV proposers do,
+-/// counts zero, so any positive minimum fails it. The minimum also stays above what a committee
+-/// counts when no node executes late: a four-validator run with every node in step proposed 4
+-/// such headers in about 1,000, so the two CURRENT proposers of this test (about one header a
+-/// second each, for at most a few hundred seconds) would count about 2, and ten would be a chance
+-/// below one in ten thousand. With two late validators a run of the earlier mixed-fleet test
+-/// (the same delay and cadence, a heavier load) certified 43 such headers, about four times ten.
++/// counts zero, so any positive minimum fails it. The minimum also separates a slowed pair of
++/// voters from an unslowed fleet. A proposer names a block below its own tip only while at least
++/// two of the other three validators trail that tip. With no node executing late, that happens
++/// only when the proposer has just executed a block the others have not, which is rare; with the
++/// two PREV validators sleeping before every output with batches, they trail the CURRENT tips at
++/// nearly every round, and the count grows with nearly every certified CURRENT header.
+ const MIN_PREV_VOTED_OLDER: usize = 10;
+ 
+-/// How long [`test_upgrade_prev_voters_certify_older_block`] keeps reading the CURRENT validators'
+-/// logs for [`MIN_PREV_VOTED_OLDER`] once its first epoch boundary closed.
++/// How long [`test_mixed_binary_voters_certify_older_block`] waits, after its first epoch boundary
++/// closed, for the count to reach [`MIN_PREV_VOTED_OLDER`]: a wait limit, not a measurement
++/// window.
+ const MIXED_MEASURE_TIMEOUT: Duration = Duration::from_secs(180);
+ 
+ /// How often the CURRENT validators' logs are read while the count is short.
+@@ -1148,39 +1167,42 @@ const DELAY_HOOK_LOG: &str =
+ /// [`SLOW_EXECUTION_DELAY_MS`] before every output with batches (the engine's
+ /// [`EXECUTION_DELAY_ENV`] hook, set in their process environment), so the CURRENT tips run ahead
+ /// of them. Under the module's light load the test crosses an epoch boundary (every node serves
+-/// the closed epoch's certified record), then reads the CURRENT validators' logs until
+-/// [`MIN_PREV_VOTED_OLDER`] of their headers with `exec_basis` other than `tip` certified, for at
+-/// most [`MIXED_MEASURE_TIMEOUT`].
++/// the closed epoch's certified record), then reads the CURRENT validators' logs, each over the
++/// whole run from genesis, until [`MIN_PREV_VOTED_OLDER`] of their certified headers name a block
++/// below the proposer's own tip (`exec_block < exec_tip` on the `header proposed` line), waiting
++/// at most [`MIXED_MEASURE_TIMEOUT`] after the boundary.
+ ///
+-/// The four validators hold equal stake, so a certificate needs three of the four votes. A
+-/// CURRENT header collects at most two votes from CURRENT validators (its author's and the other
+-/// one's), so every counted header carries at least one PREV vote: a PREV voter voted for a header
+-/// that names a block older than its proposer's tip. No log line names the voters; the quorum
+-/// arithmetic is the argument.
++/// The four validators have equal voting power, so a certificate needs three of the four
++/// votes. A CURRENT header collects at most two votes from CURRENT validators (its author's and
++/// the other one's), so every counted header carries at least one PREV vote: a PREV voter voted
++/// for a header that names a block older than its proposer's tip. No log line names the voters;
++/// the quorum arithmetic is the argument.
+ ///
+ /// After the load stops, every node executes to a common head and all four serve the same blocks
+ /// from genesis to it; every PREV log shows the delay hook armed; no node logs a line of
+ /// [`FATAL_LOGS`] or [`CANARY_LOG`]. Without `TN_BIN_PATH_PREV`, or with a previous binary that
+-/// lacks the hook, the test skips with a warning.
+-#[ignore = "mixed-binary e2e test: needs TN_BIN_PATH_PREV, run with make test-upgrade"]
++/// lacks the hook, the test skips with a warning; `make test-upgrade-votes` runs it and stops in
++/// both cases instead.
++#[ignore = "mixed-binary e2e test: needs a TN_BIN_PATH_PREV with the execution-delay hook, run with make test-upgrade-votes"]
+ #[tokio::test(flavor = "multi_thread")]
+-async fn test_upgrade_prev_voters_certify_older_block() -> eyre::Result<()> {
++async fn test_mixed_binary_voters_certify_older_block() -> eyre::Result<()> {
+     let Some(prev) = e2e_tests::get_previous_telcoin_network_binary() else {
+         warn!(target: "upgrade-test", "TN_BIN_PATH_PREV is not set; skipping the mixed-vote test");
+         eprintln!(
+-            "upgrade: SKIPPED test_upgrade_prev_voters_certify_older_block: TN_BIN_PATH_PREV is \
+-             not set. Build the previous binary with `make build-e2e-bin-prev` and export the \
+-             path it prints, or run `make test-upgrade`."
++            "upgrade: SKIPPED test_mixed_binary_voters_certify_older_block: TN_BIN_PATH_PREV is \
++             not set. Build a previous binary that reads {EXECUTION_DELAY_ENV} with `make \
++             build-e2e-bin-prev TN_PREV_REF=<ref>` and run `make test-upgrade-votes`."
+         );
+         return Ok(());
+     };
+     if !has_execution_delay_hook(prev)? {
+         warn!(target: "upgrade-test", "TN_BIN_PATH_PREV has no execution-delay hook; skipping the mixed-vote test");
+         eprintln!(
+-            "upgrade: SKIPPED test_upgrade_prev_voters_certify_older_block: the TN_BIN_PATH_PREV \
++            "upgrade: SKIPPED test_mixed_binary_voters_certify_older_block: the TN_BIN_PATH_PREV \
+              binary does not read {EXECUTION_DELAY_ENV} (built from a ref before the hook, or \
+              without tn-types/test-utils), so its validators cannot be made to execute late. \
+-             Build it with `make build-e2e-bin-prev TN_PREV_REF=<a ref with the hook>`."
++             Build it with `make build-e2e-bin-prev TN_PREV_REF=<a ref with the hook>` and run \
++             `make test-upgrade-votes`."
+         );
+         return Ok(());
+     }
+@@ -1212,7 +1234,7 @@ async fn test_upgrade_prev_voters_certify_older_block() -> eyre::Result<()> {
+     }
+ }
+ 
+-/// The steps of [`test_upgrade_prev_voters_certify_older_block`], on a network configured under
++/// The steps of [`test_mixed_binary_voters_certify_older_block`], on a network configured under
+ /// `temp_path`.
+ async fn run_prev_votes(
+     temp_path: &Path,
+@@ -1248,7 +1270,7 @@ async fn run_prev_votes(
+         ),
+         |fleet, (key, value)| fleet.parameter(all_validators(), *key, *value),
+     );
+-    let mut net = Network { temp_path, binaries, guard, nodes: Vec::new() };
++    let mut net = Network { test: MIXED_TEST, temp_path, binaries, guard, nodes: Vec::new() };
+     for idx in 0..VALIDATORS {
+         let name = format!("validator-{}", idx + 1);
+         let rpc_port = get_available_tcp_port("127.0.0.1")
+@@ -1278,24 +1300,32 @@ async fn run_prev_votes(
+     let load = LightLoad::start(&urls, chain)?;
+     let closed = net.cross_epoch_boundary("mixed committee, PREV executing late").await?;
+ 
+-    // the count only grows, so it is read until it suffices rather than after a fixed wait
++    // the count only grows, so it is read until it suffices rather than after a fixed wait; each
++    // read covers the whole run-0 log, from genesis
+     let deadline = Instant::now() + MIXED_MEASURE_TIMEOUT;
+-    let counts = loop {
+-        let counts = MIXED_CURRENT
++    let windows = loop {
++        let windows = MIXED_CURRENT
+             .iter()
+-            .map(|&idx| OwnHeaders::read(MIXED_TEST, idx))
++            .map(|&idx| HeaderWindow::read(MIXED_TEST, idx, 0, usize::MAX))
+             .collect::<eyre::Result<Vec<_>>>()?;
+-        let certified = counts.iter().map(|own| own.older_certified).sum::<usize>();
++        let certified = windows.iter().map(HeaderWindow::older_block_certified).sum::<usize>();
+         if certified >= MIN_PREV_VOTED_OLDER || Instant::now() >= deadline {
+-            break counts;
++            break windows;
+         }
+         tokio::time::sleep(MIXED_POLL).await;
+     };
+-    let older_certified = counts.iter().map(|own| own.older_certified).sum::<usize>();
++    let older_certified = windows.iter().map(HeaderWindow::older_block_certified).sum::<usize>();
+     let summary = MIXED_CURRENT
+         .iter()
+-        .zip(&counts)
+-        .map(|(&idx, own)| format!("{}: {own}", net.label(idx)))
++        .zip(&windows)
++        .map(|(&idx, window)| {
++            format!(
++                "{}: {}, {} named an older block and certified",
++                net.label(idx),
++                window.describe(),
++                window.older_block_certified(),
++            )
++        })
+         .collect::<Vec<_>>()
+         .join("; ");
+     progress(format!(
+@@ -1322,8 +1352,8 @@ async fn run_prev_votes(
+     }
+     eyre::ensure!(
+         older_certified >= MIN_PREV_VOTED_OLDER,
+-        "only {older_certified} certified CURRENT headers named a block older than their \
+-         proposer's tip within {MIXED_MEASURE_TIMEOUT:?} after epoch {closed} closed (at least \
++        "only {older_certified} certified CURRENT headers over the run named a block older than \
++         their proposer's tip by {MIXED_MEASURE_TIMEOUT:?} after epoch {closed} closed (at least \
+          {MIN_PREV_VOTED_OLDER}): no PREV voter was shown voting for an older block; {summary}"
+     );
+     progress(format!(
+@@ -1343,63 +1373,3 @@ fn has_execution_delay_hook(bin: &TestBinary) -> eyre::Result<bool> {
+     let name = EXECUTION_DELAY_ENV.as_bytes();
+     Ok(bytes.windows(name.len()).any(|window| window == name))
+ }
+-
+-/// A CURRENT validator's own headers in its log: how many it proposed, how many of those named a
+-/// block older than its tip, and how many of the older ones certified.
+-#[derive(Debug)]
+-struct OwnHeaders {
+-    /// Distinct `(epoch, round)` of the `header proposed` lines.
+-    proposed: usize,
+-    /// Distinct `(epoch, round)` of the `header proposed` lines with `exec_basis` other than
+-    /// `tip`.
+-    older: usize,
+-    /// How many of [`Self::older`] have a `quorum reached` line: the headers that certified.
+-    older_certified: usize,
+-}
+-
+-impl OwnHeaders {
+-    /// Read node `node`'s run-0 log of `test`. `header proposed` is joined with `quorum reached`
+-    /// on `(epoch, round)`, as `exec_block.rs` joins them for its own headers.
+-    fn read(test: &str, node: usize) -> eyre::Result<Self> {
+-        let lines = node_log_lines(test, node, 0)?;
+-        let at = |line: &str| Some((log_field(line, "epoch")?, log_field(line, "round")?));
+-        let certified = lines
+-            .iter()
+-            .filter(|line| {
+-                line.contains("quorum reached") && log_field(line, "quorum_threshold").is_some()
+-            })
+-            .filter_map(|line| at(line))
+-            .collect::<std::collections::BTreeSet<_>>();
+-        let mut proposed = std::collections::BTreeSet::new();
+-        let mut older = std::collections::BTreeSet::new();
+-        // every field is read by name: a line that lacks one fails the read, so a renamed field
+-        // cannot shrink the count to the lines that still match
+-        for line in lines.iter().filter(|line| line.contains("header proposed")) {
+-            let (Some(round), Some(basis)) = (at(line), log_str_field(line, "exec_basis")) else {
+-                eyre::bail!(
+-                    "node {node} of {test}: a `header proposed` line lacks epoch, round or \
+-                     exec_basis: {line}"
+-                );
+-            };
+-            proposed.insert(round);
+-            if basis != "tip" {
+-                older.insert(round);
+-            }
+-        }
+-        Ok(Self {
+-            proposed: proposed.len(),
+-            older: older.len(),
+-            older_certified: older.intersection(&certified).count(),
+-        })
+-    }
+-}
+-
+-impl fmt::Display for OwnHeaders {
+-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        write!(
+-            f,
+-            "{} headers, {} named an older block, {} of those certified",
+-            self.proposed, self.older, self.older_certified
+-        )
+-    }
+-}

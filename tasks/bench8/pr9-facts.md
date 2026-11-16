@@ -85,7 +85,14 @@ What the removal loses: the "switch off equals main" tests and the mixed-switch 
 
 ## The branch
 
-`refactor/remove-bench-switches`: 500e21afa + 12 commits (a5be61615, b67c0acdd, d2b80ced5, adecca691, 6a7c3d7c5, a242a3b4a, de075ab78, dd21a50ef, 726a25f1b, 1d41981dd, e8dfcce10, 57a55b221), to be followed by the review follow-ups and, if it works, one e2e test in `upgrade.rs`.
+`refactor/remove-bench-switches`: 500e21afa + 12 commits (a5be61615, b67c0acdd, d2b80ced5, adecca691, 6a7c3d7c5, a242a3b4a, de075ab78, dd21a50ef, 726a25f1b, 1d41981dd, e8dfcce10, 57a55b221), then 0a70b58f5 and e1a562cbb, which cancel out (a mixed-binary vote test in `upgrade.rs` was added and is reverted: the owner's decision of 2026-11-16, no added test and no make target for a fleet of old and new binaries; the tree at e1a562cbb equals 57a55b221's), then the review follow-ups (comments, docs, a few test edits).
+
+### The mixed-fleet limit, as the PR states it (no test is added)
+
+- `make test-upgrade` (previous binary `main`) covers old and new binaries making one chain through an in-place upgrade. It does not show a voter on `main`'s binary voting for a header of this tree that names a block older than the proposer's own tip: it slows no node and reads no `exec_basis`. The deleted `test_mixed_switch_fleet_is_one_chain` showed that case between nodes of one binary.
+- Read from code, not tested (an independent review of 2026-11-16; `crates/consensus/primary/src/network/handler.rs` is identical at 33b727fce and 0554efd4f): `main`'s voter waits at most 1 s for the block a header names (`VOTE_EXECUTION_WAIT`; `handler.rs:1456-1500`, `crates/config/src/consensus.rs:459`); it refuses for good only on a hash mismatch or a block below its restore floor; a block above its tip gets a recoverable refusal and the proposer asks again; an older block it holds gets a vote. So a `main` voter has no path that refuses an older canonical block it holds.
+- The quorum arithmetic the withdrawn test relied on (true whatever happens to the test): threshold 3 of 4 by equal voting power (`committee.rs:476-491`, `:988-990`), the author's own vote counts (`certifier.rs:382-384`).
+- Not for the PR text: how the upgrade is rolled out (the owner: testnet once, every validator at the same moment). The owner states that publicly or not.
 
 ## Gates on the top — to be added
 

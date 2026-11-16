@@ -1726,3 +1726,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - In this repo a commit is staged by path, file by file or by a glob that cannot match run output (`tasks/bench8/briefs/*.md`). Never `git add <directory>`, `git add -A` or `git add .`.
   - Before every commit: `git diff --cached --stat | tail -1`. A count or a line total far above what I meant to commit stops the commit.
   - Before every push: `git log --stat origin/main..HEAD | tail -3`.
+
+## 2026-11-16 — I added a mixed-binary test and a make target to the removal PR that the plan did not list
+
+- **What happened.** A review of the removal said that `make test-upgrade` does not show an old-binary voter voting for a header that names an older block, and offered two ways out: add that phase to the upgrade test, or state the limit in the pull request. The approved plan had only said "what the removal loses is stated in the PR". I chose to add a test (314 lines in `upgrade.rs`), then on its review a second make target (`test-upgrade-votes`) so it could not skip silently. The owner stopped it: the testnet upgrade is one-time and every validator is updated at the same moment, so a fleet of old and new binaries is not a case to build tests for. The test is reverted (0a70b58f5 by e1a562cbb, same tree as before) and the limit is stated in the PR text.
+- **Rules.**
+  - When a review offers "add a test or state the limit" and the plan did not list the test, state the limit. A new test, a new make target or any new file in an upstream PR beyond the plan is asked first, in one line, before a unit is spent on it.
+  - Before adding coverage for a deployment case (rolling upgrade, mixed versions, downgrade), ask how the change is rolled out. For this program: testnet is upgraded once, all validators at the same time; no mixed-binary tests.
+  - A reviewer's High on something I added outside the plan is a sign to step back to the plan, not to add more around it.

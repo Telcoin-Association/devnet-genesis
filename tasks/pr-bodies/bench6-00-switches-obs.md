@@ -72,7 +72,7 @@ There is no switch, so all of this runs everywhere; none of it touches a header,
 
 A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this head and one on main exchange identical messages.
 The collapsed stack does change what a node sends and decides, and no switch turns that off after {{pr-09}}: a reviewer checks the later PRs' changes as unconditional.
-For a fleet of old and new binaries the evidence is the rolling-upgrade test with main as the previous binary, which ran on the full stack with every switch off and with the six on (below), the author's rule there in its adaptive form, which {{pr-09}} deletes; #1868's limits say what that test does not cover, and whether a test of it is added: see {{pr-09}}.
+For a fleet of old and new binaries the evidence is the rolling-upgrade test with main as the previous binary, which ran on the full stack with every switch off and with the six on (below), the author's rule there in its adaptive form, which {{pr-09}} deletes; #1868's limits say what that test does not cover; no test of it is added (see the limits of {{pr-09}}).
 
 ## Testing
 

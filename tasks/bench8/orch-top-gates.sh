@@ -6,8 +6,7 @@
 #   cargo    fmt --check; ./etc/ci-lanes.sh clippy; cargo nextest run --locked --workspace
 #   sets     make test-restarts, test-epochs, test-sigkill, test-e2e-resync (tasks/bench7/orch-e2e-sets.sh, no parameters)
 #   x3       every e2e test the stack adds, three times in a row
-#   upgrade  make build-e2e-bin-prev TN_PREV_REF=<prev ref>, then make test-upgrade once and make test-upgrade-votes
-#            three times (a SKIPPED line fails a run)
+#   upgrade  make build-e2e-bin-prev TN_PREV_REF=<prev ref>, then make test-upgrade
 #   restore  the three state_export_import tests
 #   hunt     the order hold model's long hunt, 100,000 cases
 # Everything e2e goes through the second lane (one e2e job on the machine at a time).
@@ -66,16 +65,6 @@ for stage in ${stages}; do
             if [ "${rc}" -eq 0 ]; then
                 E2E_SETS="upgrade" bash "${ROOT}/tasks/bench7/orch-e2e-sets.sh" "${wt}" "${rev}" "plain="; rc=$?
                 note upgrade "${rc}" "make test-upgrade, the rolling test; see the E2E-SETS line above"
-                # The mixed-binary vote test has its own target (make test-upgrade-votes stops when the previous
-                # binary has no execution-delay hook). Three runs; a passing test's output is kept
-                # (NEXTEST_SUCCESS_OUTPUT=final) because the test prints its counts; a SKIPPED line fails the run.
-                for i in 1 2 3; do
-                    log="target/tmp/top8-${head}-upgrade-votes-${i}.log"
-                    NEXTEST_SUCCESS_OUTPUT=final "${LANE}" make test-upgrade-votes > "${log}" 2>&1; rc=$?
-                    echo "EXIT=${rc}" >> "${log}"
-                    if grep -q 'SKIPPED' "${log}"; then rc=1; fi
-                    note "upgrade-votes-${i}" "${rc}" "$(grep -E 'Summary' "${log}" | tail -1 | sed 's/^ *//')"
-                done
             fi
             ;;
         restore)
