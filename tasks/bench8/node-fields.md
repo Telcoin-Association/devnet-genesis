@@ -61,8 +61,27 @@ At most ten entries per list, a closing `+N` for the rest; `[]` when empty.
 Once per schedule change: at most once per window of 60 committed leader rounds (120 rounds), only if the window's last leader is committed; once more per restart, restating the restored table (de-duplicate on `(epoch, round)`).
 Removed with it: three DEBUG lines of target `primary::leader_schedule` ("Good node on round …", "Bad node on round …", "Reputation scores on round …").
 
+## `certificate accepted` (target `consensus::metrics`, INFO) — new line (B8-4: e8eb8e199; and 453123d5e, a fix to the vote round's lists)
+
+Once per certificate that enters its round's aggregator at this node (own and peers'), before that certificate's parent set is sent; a second certificate of an author already seen in the round logs nothing. Fields in order:
+
+| field | type | meaning |
+|---|---|---|
+| `epoch` | u32 | the certificate's epoch |
+| `round` | u32 | its round |
+| `origin` | id | its author |
+| `round_certs` | usize | certificates of that round this node holds now, this one included (distinct authors) |
+| `parents_sent` | bool | a parent set of that round had been handed to the proposer BEFORE this certificate |
+| `late_ms` | u64 | 0, or milliseconds since that first send (monotonic clock) |
+| `source` | `own` / `peer` / `recovered` | built here; another authority's verified certificate (a broadcast and a fetch are not told apart); reloaded from the store at start-up |
+| `parents_resent` | bool | this certificate was sent to the proposer on its own, after the first send (true on every certificate after the quorum) |
+| `quorum_reached` | bool | true on the one certificate that completed the quorum and caused the first send |
+
+Sample (the 8th of 10): `certificate accepted epoch=0 round=1 origin=<id> round_certs=8 parents_sent=true late_ms=25 source=peer parents_resent=true quorum_reached=false`
+What the proposer does with a late certificate (read at this tip): the parents of the round r+1 header are taken with `std::mem::take(&mut self.last_parents)` (`proposer.rs:1430`) and `self.round` moves up (`:1365`); a round r parent set that arrives after that falls into `process_parents`'s `Ordering::Less` arm (`:932-941`, "ignoring older parents") and is dropped, so no header of that node ever names the late certificate.
+Fix in 453123d5e: a vote that fails the aggregator's signature check is listed under its voter in `vote_errors` with kind `invalid_vote` (it stays in `vote_arrivals` too: the lists only grow).
+
 ## Still to come
 
-- B8-4: `certificate accepted` (`epoch`, `round`, `origin`, `round_certs`, `parents_sent`, `late_ms`, `source`, `parents_resent`).
 - B8-6: the engine's output lines: `store_bytes`, `outputs_behind`, `cpu_ms`, `commit_wait_ms` (and `txs`, `blocks` where missing).
 - B8-7: `order hold released`, `subdag parent skipped`.
