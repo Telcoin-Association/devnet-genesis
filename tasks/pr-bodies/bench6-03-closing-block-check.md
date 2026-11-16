@@ -55,7 +55,8 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 - Refusals: `closing_block_check_names_the_comparison_that_fails`, `a_closing_block_without_its_markers_stops_the_build_before_the_save`, `a_stored_record_without_the_closing_markers_stops_the_close`, `own_uncertified_record0_without_the_closing_markers_stops_the_close_before_the_rebuild` (`path=stored` with `beacon_root`, then `extra_data_seed`), `epoch_entry_stops_on_a_closing_block_without_the_records_markers`, `an_empty_ring_stops_the_build_as_no_block`, `a_rederived_record_is_refused_as_rederived`, `the_refusal_names_its_path_and_what_the_stop_prevents`.
 - At `c2f266b9c`: `cargo check --locked --all-targets -p tn-node` exit 0 (also at `128f4a5d4`); `cargo nextest run --locked --no-fail-fast -p tn-node` 236 passed, 1 skipped; `cargo +nightly-2026-03-20 fmt --all -- --check` clean.
 - `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` clean at `c2f266b9c`, also with `--features adiri`, where the 51 tests of the `close_epoch` and `metrics` modules, the entry test and the identity counter test passed.
-- Not run: no fleet has run this head (a benchmark of the stack's earlier cut on main at 45dce8947, which carries the check, is under way), and no e2e test makes the check fire.
+- Not run: no fleet has run this head, and no e2e test makes the check fire.
+  Bench 7 ran the stack's earlier cut on main at 45dce8947, which carries the check, on 2026-11-15: [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/) and [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/), ten validators at 20,000 IOPS, one run each; #1868 and #1869 report its results.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -85,4 +86,4 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 - Refs #1851: this implements its fix sketch; not `Fixes`: its e2e verification, the markers checked on chain, is in the epoch-close tests (`epoch_close_forms.rs`) of `fix/1804-quorum-exec-block`, a later head of the stack: every published record is compared there with the block in which the registry's epoch turned.
 - #1860: main's epoch loop can drop an output under lag; found while checking this path, not caught by this check, fixed separately in `fix/epoch-loop-output-drop`.
-- Next: `fix/epoch-record-collector-hardening` builds on this head.
+- Next: #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`) and #1869 (`fix/1807-digest-order-hold`) build on this head, and last {{pr-09}}, which removes the stack's switches.

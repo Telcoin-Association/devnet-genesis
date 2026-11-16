@@ -1,10 +1,15 @@
 ## Summary
 
-Adds two runtime switches for the author's side of #1804: `quorum_exec_block` (default `false`) and `quorum_exec_block_starved_rounds` (default `0`), off like every switch of the stack; at the defaults every header names the proposer's own newest executed block, as on main.
+Adds the author's side of #1804 behind two runtime switches, `quorum_exec_block` (default `false`) and `quorum_exec_block_starved_rounds` (default `0`); in this PR's diff, at the defaults, every header names the proposer's own newest executed block, as on main.
 With `quorum_exec_block: true` a header names the highest execution block that holders of 2f+1 voting weight, among the proposer's own tip and its same-epoch parents, have reached: capped at the own tip, never older than 8 entries back in the recent-blocks ring (the floor), never older than the block the epoch opened on.
-With the count left at `0` every header uses the rule: this always-on form is the one the repository owner chose as the default after bench 6 and bench 7, so turning the fix on is `quorum_exec_block: true` and nothing else.
+With the count left at `0` every header uses the rule: this always-on form is the one the repository owner chose, after bench 6 and bench 7, as the only form that ships.
 A count K above zero selects the adaptive form, kept for comparison: the own tip, and the rule only for the next K headers built after an own header was cancelled uncertified, K doubling up to 128 while cancels go on and returning to the configured value after 64 certified tip headers in a row.
 Every node, switch on or off, logs four new fields on `header proposed`.
+
+{{pr-09}}, the last PR of the stack, removes both switches and makes the always-on form the node's behaviour; once the stack is collapsed into #1862 there is no switch.
+{{pr-09}} also deletes the adaptive form: its window, its reset streak, its two constants (the 128-header cap and the 64-header streak) and their tests.
+The adaptive form is deleted because the repository owner chose always-on as the only form that ships, and because of bench 7: it ran one run of each form at 20,000 IOPS, and in that pair the adaptive form did not do better (in the table below three rows are not told apart, and on the two rows outside the always-on run's spread the adaptive run is behind); bench 7 made no run at 50,000 IOPS, where bench 6 had the adaptive form ahead on certification.
+The adaptive form also carries code the always-on form does not need: a window, a streak and two constants.
 
 PR 7 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
@@ -59,21 +64,28 @@ What the window bought is a fresher named block: the fleet mean distance from th
 - `618905035` test(e2e): fast executor certification and a mixed-switch fleet.
 - `38f00e88e` test(e2e): two epoch closes under each vote-fix form with members held behind.
 
-## With the switch off
+{{pr-09}} removes what these commits add for the adaptive form (the window, its reset streak, its cap and the warnings about `quorum_exec_block_starved_rounds`) and keeps the rule with its floor of 8.
 
-Every header names the block from the call main makes, `consensus_bus.app().latest_execution_block_num_hash()` (`proposer.rs:1908`).
-New with it off: two reads of the switches when each epoch's proposer is built, with a warning only for a count above zero (`proposer.rs:305-318`); per header, policy bookkeeping that returns at once; the fields `exec_block`, `exec_tip`, `exec_basis` and `exec_policy` (`off`) on `header proposed` (`proposer.rs:478-481`); and the two switches on the `node switches` line.
+## The switches, and where they go
+
+In this PR's diff, with the switch off, every header names the block from the call main makes, `consensus_bus.app().latest_execution_block_num_hash()` (`proposer.rs:1908`).
+New with it off, in this diff: two reads of the switches when each epoch's proposer is built, with a warning only for a count above zero (`proposer.rs:305-318`); per header, policy bookkeeping that returns at once; the fields `exec_block`, `exec_tip`, `exec_basis` and `exec_policy` (`off`) on `header proposed` (`proposer.rs:478-481`); and the two switches on the `node switches` line.
 `parameters.yaml` is unchanged at the defaults.
 
-A mixed fleet is one chain: the switch changes only a header's `latest_execution_block` (and so its digest), votes, certificates and batches are unchanged, and the voter never reads the switch.
+{{pr-09}}, the last PR of the stack, removes both switches and the adaptive form, so once the stack is collapsed into #1862 there is no switch and no off state.
+A reviewer should read the rule as unconditional: after {{pr-09}} every header of every node names the block `choose_exec_block` picks under the quorum rule with the floor of 8.
+
+In this PR's diff a mixed fleet is one chain: the switch changes only a header's `latest_execution_block` (and so its digest), votes, certificates and batches are unchanged, and the voter never reads the switch.
 Every choice is the proposer's own executed ring entry, at or below its tip and, once the proposer has executed the block the epoch opened on, at or above that block (before then it names its own tip, as the switch-off form does); a voter with the switch off answers it as it would answer an older tip.
-`test_mixed_switch_fleet_is_one_chain` runs a fleet with the switches mixed.
+`test_mixed_switch_fleet_is_one_chain` runs a fleet with the switches mixed; {{pr-09}} deletes it with the switches.
+After {{pr-09}} the mixed fleet that matters is main beside the stack during a rolling upgrade: `make test-upgrade` with main as the previous binary passed on the stack's top with the six switches on (see the gates below), and the limits say what that test does not cover.
 
 ## Testing
 
 Unit tests in `crates/consensus/primary/src/tests/proposer_tests.rs`, among 15: `test_quorum_exec_block_choice_table`, `test_quorum_exec_block_self_feeding_fleet`, `test_quorum_exec_block_switch_off_keeps_header_bytes`, `test_quorum_exec_block_window_counts_headers_across_a_round_jump`, `test_quorum_exec_block_reset_needs_a_streak_of_certified_tip_headers`, `test_quorum_exec_block_policy_model_holds_the_target`, `test_quorum_exec_block_never_names_a_block_before_the_epoch_opened`, `test_quorum_exec_block_faulty_high_parents_cost_the_gain_only`.
 In `crates/consensus/primary/src/tests/network_tests.rs`, the 14 `quorum_exec_block_voter_*` tests pin the voter's answers to an old block, seven cases each with `vote_queue_fix` off and on: an executed block is voted at once from the ring or, once it left the ring, from the database; previous-epoch blocks are answered; an old number with another hash is refused; a block above the voter's tip is waited for.
 E2e, in `crates/e2e-tests/tests/it/exec_block.rs`: `test_fast_executor_is_certified` (switches off, the fast node certifies at most 0.85 of its headers; the adaptive form with `vote_queue_fix`, at least 0.88 and more than with them off; the always-on form with `vote_queue_fix`, every node at least 0.93) and `test_mixed_switch_fleet_is_one_chain`; in `epoch_close_forms.rs`, `test_held_member_two_closes_always`, `test_held_member_two_closes_adaptive`, `test_missed_record_round_always` and `test_missed_record_round_adaptive`.
+{{pr-09}} deletes the adaptive form's tests (its eight unit tests, among them the window, streak and model tests above, `test_held_member_two_closes_adaptive` and `test_missed_record_round_adaptive`), `test_quorum_exec_block_switch_off_keeps_header_bytes` (`test_quorum_exec_block_header_names_the_own_ring_block` checks the header's block and its three fields instead), the control and adaptive arms of `test_fast_executor_is_certified`, `test_mixed_switch_fleet_is_one_chain` and, with `vote_queue_fix`, the seven voter tests that turn that switch off; the always-on tests and the other seven voter tests stay, some under new names.
 
 On main at 33b727fce, at this head's tip `38f00e88e`:
 - Every one of the 86 commits from main to the tip, this topic's 18 among them, compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied).
@@ -102,9 +114,16 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
   The storage engine, main's vote-handler rework, the order hold, the voters' execution lag and the run's shape changed together, and for the adaptive pair the window's rule too (it now counts headers built, not rounds); no counter separates them.
 - Under-held headers: over the whole load blast, 10.31 % of r20261115-1131's headers and 12.55 % of r20261115-1653's named a block that at most five other voters held at the proposal; they certified 61.25 % and 66.70 % of the time, the rest 99.53 % and 99.06 %.
   Arithmetic on these two runs, holding the rest fixed, says a floor of 16 entries leaves none under-held, at the cost of an older named block (14.71 and 13.81 block-bearing outputs from the tip, against the measured 7.57 and 4.83: about twice as far in r20261115-1131 and almost three times in r20261115-1653); that is arithmetic, not a result, and the floor stays at 8.
-- The floor counts ring entries, not rounds or time: under light traffic the named block can be old, and an honest node notices its own execution fork up to eight block-producing outputs later than with the switch off (`proposer.rs:1530-1545`).
+- The floor counts ring entries, not rounds or time: under light traffic the named block can be old, and an honest node notices its own execution fork up to eight block-producing outputs later than when it names its own tip, as main does (`proposer.rs:1530-1545`).
 - No bench 7 run at 50,000 IOPS, where bench 6 found the two forms differed.
 - The adaptive form adds code the always-on form does not need: the window, its 128-header cap, the 64-header reset streak and the return to the tip.
+  After {{pr-09}} always-on is the only form, on every node, and that code is gone.
+- {{pr-09}} deletes the control arm of `test_fast_executor_is_certified`, which showed that without the rule the fast node certifies at most 0.85 of its headers and every slow voter refuses some requests as execution behind; after it the test asserts absolute bounds under the rule, with no run without it to compare against.
+- {{pr-09}} deletes `test_mixed_switch_fleet_is_one_chain`: one chain while two nodes ran the fixes and two did not, across epochs and a restart, every node serving the same certified record per closed epoch, no record conflict, and a certified header of a fixed node naming an older block, which needs a vote from a node without the fixes.
+  `make test-upgrade` as it ran in the gates below, with main as the previous binary, covers old and new binaries making one chain through a rolling upgrade, but not that last point: it slows no node and reads no `exec_basis`, all four validators execute at the same speed, so an upgraded proposer names its own tip almost always, and nothing asserts that a voter running main ever voted for a header naming an older block.
+  The voter-side unit tests that stay exercise this tree's voter, not main's.
+  Whether a test of that point is added to the rolling-upgrade test: see {{pr-09}}.
+- {{pr-09}} removes the field `exec_policy` (values `off`, `always`, `tip`, `starved`) from `header proposed`; `exec_block`, `exec_tip` and `exec_basis` stay.
 - f faulty parents that name high blocks and withhold their votes can cancel a header under the rule; the loss is bounded by the rule's gain (`test_quorum_exec_block_faulty_high_parents_cost_the_gain_only`).
 - The rule relies on the voter answering an executed old block at once; the `quorum_exec_block_voter_*` tests pin that, and a recency check added to the voter would work against this rule.
 - The opening-block bound matches a restored voter's floor only because state exports are taken at an epoch's closing block (`proposer.rs:1949-1957`).
@@ -113,5 +132,5 @@ Nothing that should be fixed before merge is open.
 
 ## Related
 
-- Refs #1804: the author's side; the voter's side is `fix/1804-vote-queue` (#1864). The switch defaults off, so this does not close the issue.
-- Next: `fix/1807-digest-order-hold`, the order hold for #1807, builds on this head.
+- Refs #1804: the author's side; the voter's side is `fix/1804-vote-queue` (#1864); the closing keyword for #1804, if any, is in #1862's body, the only PR of the stack that merges into `main`.
+- Next: `fix/1807-digest-order-hold` (#1869), the order hold for #1807, builds on this head; {{pr-09}}, which removes the stack's switches, is the PR on top of #1869.

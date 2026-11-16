@@ -1,8 +1,10 @@
 ## Summary
 
-Adds the list the later PRs of this stack put their runtime switches into, a `node switches` log line and `tn_node_switch` gauge that show them, and three measurements the benchmark reads.
-A switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
-No switch is defined here, and nothing a node sends, accepts, decides or stores changes.
+Adds three measurements the benchmark reads, and the list the later PRs of this stack put their runtime switches into, with a `node switches` log line and a `tn_node_switch` gauge that show them.
+{{pr-09}}, the last PR of the stack, removes the switch list, the line and the gauge again, together with the six switches the later PRs add, and makes each change behind those switches the node's behaviour.
+So once the stack is collapsed into #1862, `main` receives the three measurements and the stack's fixes, and none of the switch machinery.
+In this PR's diff a switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
+This PR alone defines no switch and changes nothing a node sends, accepts, decides or stores; the collapsed #1862 carries the later PRs' behaviour changes to `main`.
 
 PR 1 of 8 in the stack #1862 to #1869; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
@@ -10,7 +12,10 @@ The stack will be collapsed into #1862 (each PR merged into the branch below it)
 ## Problem
 
 Four benchmark runs of the node (bench 6: [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) tested fixes behind runtime switches.
-This stack carries what carries to main: each behaviour change behind a switch whose default is main's behaviour, except the closing-block check, the epoch-loop fix and one eviction rule of the collector hardening, which have none; the vote fix and the order hold wait for the next benchmark.
+This stack carries what carries to main.
+In the PRs' own diffs each behaviour change sits behind a switch whose default is main's behaviour, except the closing-block check, the epoch-loop fix and one eviction rule of the collector hardening, which have none.
+Bench 7 ran the node logic of the author-side vote fix (#1868) and the order hold (#1869) on the stack's earlier cut on main at 45dce8947, once per form of the vote fix: always-on in [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/), adaptive in [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/); #1868 and #1869 report the results.
+{{pr-09}} then removes the six switches, so each fix is the node's behaviour, and of the two forms of #1868's fix it keeps only always-on.
 
 On main at 33b727fce, `Parameters` (`crates/config/src/node.rs:273-274`) does not deny unknown fields, so a mistyped switch key is ignored without an error and nothing shows which arm a node runs.
 A plain new field would also be written into every ceremony's `parameters.yaml` and the next regenerated mainnet preset.
@@ -24,6 +29,9 @@ Three measurements were missing on main:
   In r20261107-1504 one validator entered an epoch about one round inside it.
 
 ## Change
+
+Four of the twelve commits build the switch list, the `node switches` line and the `tn_node_switch` gauge (`8bbc4a009`, `d1cd20992`, `8093e1030`, `676692c6c`); {{pr-09}} removes what they add, with their tests, except two tests of `8bbc4a009` that pin main's parsing and stay: `reserializing_keeps_the_existing_keys` and `unknown_keys_are_ignored`.
+The other eight, the observability, stay.
 
 - `8bbc4a009` feat(config): list the runtime switches in Parameters.
   `runtime_switches!` generates `Parameters::switches()` from one list of field names; a topic adds its field, default and entry between marker lines.
@@ -55,7 +63,7 @@ Three measurements were missing on main:
 
 There is no switch, so all of this runs everywhere; none of it touches a header, vote, certificate, batch, database write or decision.
 - `Parameters` keeps main's fields, serde attributes and `Default` (only comments added): every existing `parameters.yaml` reads the same, and a written one is byte-identical.
-- At start: the bare `node switches` line; `tn_node_switch` has no series yet.
+- At start, in this PR's diff: the bare `node switches` line, and `tn_node_switch` has no series yet; after {{pr-09}} neither exists.
 - Each `RequestHandler::new`, and `behind_consensus` for a verified next-epoch certificate only, take a `parking_lot` mutex for a compare and a gauge set, never across an `.await`.
 - The proposer reads one `Instant::now()` per header and keeps a stamp map filled only from its own worker's digests, dropped with the proposer at each epoch.
   `header proposed` gains `oldest_requeue_wait_ms` between `requeued` and `pending_before`.
@@ -63,10 +71,13 @@ There is no switch, so all of this runs everywhere; none of it touches a header,
 - The ten histograms gain `le` 0.0001, 0.00025, 0.0005, 0.001 and 0.0025; no metric name or label changes.
 
 A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this head and one on main exchange identical messages.
+The collapsed stack does change what a node sends and decides, and no switch turns that off after {{pr-09}}: a reviewer checks the later PRs' changes as unconditional.
+For a fleet of old and new binaries the evidence is the rolling-upgrade test with main as the previous binary, which ran on the full stack with every switch off and with the six on (below), the author's rule there in its adaptive form, which {{pr-09}} deletes; #1868's limits say what that test does not cover, and whether a test of it is added: see {{pr-09}}.
 
 ## Testing
 
 Pinned by `switch_at_default_is_not_written`, `reserializing_keeps_the_existing_keys` (the mainnet and adiri presets round-trip), `node_switches_line_renders_yaml_tokens`, `test_engine_stage_histograms_render_sub_ms_buckets`, `epoch_entry_gauge_records_rounds_behind` and `test_requeued_digest_reports_its_wait_from_first_receipt`.
+{{pr-09}} deletes `switch_at_default_is_not_written` and `node_switches_line_renders_yaml_tokens` with the code they pin; the other four stay.
 
 On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, #1864, which contains this head's twelve commits):
 - `cargo check --locked --workspace --all-targets`, warnings denied: clean.
@@ -94,10 +105,13 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 ## Limits and what a reviewer should look at
 
-- No switch yet: the line is bare.
-  The first switch comes with `fix/1804-vote-queue`.
+- In this PR's diff no switch is defined, so the line is bare; the first switch comes with `fix/1804-vote-queue`.
+  {{pr-09}} removes the list, the line and the gauge with the six switches, so the collapsed #1862 brings none of them to `main`.
 - Every new `Parameters` field fails `switches_list_every_switch_field` until it is listed; the test cannot tell a behaviour switch filed under `NON_SWITCH_KEYS`, so a reviewer of any addition there has to.
+  This holds only inside the stack: {{pr-09}} deletes the test with the list.
 - An unknown key is still ignored without a warning, as on main (now pinned by `unknown_keys_are_ignored`).
+  After {{pr-09}} this covers the six removed keys: a `parameters.yaml` that still names one loads, and the key is ignored.
+- After {{pr-09}}, `Parameters` has the same fields and `Default` values as `main` at 0554efd4f, so the collapsed stack adds no parameter.
 - `tn_primary_digest_wait_seconds` changed meaning without a rename; on the ten stage histograms a `rate()` window spanning the upgrade sees the five new `le` series start at zero.
 - The epoch-entry gauge can read a few rounds high on a demoting epoch; nothing depends on it.
 
@@ -105,9 +119,18 @@ No fix is pending before merge.
 
 ## Related
 
-Refs #1806: the epoch-entry gauge measures how late a member enters an epoch.
-Refs #1819: its digest-wait histogram now counts across re-queues.
-Stacked on this: #1863 (`test/bench6-e2e-scaffold`), #1864 (`fix/1804-vote-queue`, `vote_queue_fix`), #1865 (`fix/epoch-record-closing-block-check`, no switch), #1866 (`fix/epoch-record-collector-hardening`, two switches), #1867 (`fix/epoch-loop-output-drop`, no switch), #1868 (`fix/1804-quorum-exec-block`) and #1869 (`fix/1807-digest-order-hold`).
+Only this PR of the stack merges into `main`, so this list closes the stack's issues.
+Fixes #1851: the closing-block check (#1865); its e2e verification, the markers checked on chain, is in the epoch-close tests #1868 adds.
+Fixes #1852: every point of its sketch, including its open question: the gauge reports the held certificate's signers (#1866).
+Fixes #1860: both parts of its proposed fix, and its reproducing test passes (#1867).
+Refs #1804: both sides are the node's behaviour after {{pr-09}}, the voter's (#1864) and the author's in its always-on form (#1868); left open: the depth of the floor of 8, which the executors' spread outgrew at 50,000 IOPS in bench 6, and the wait for a pending parent that #1842 put under the vote lock, which #1864 does not move.
+Refs #1807: the own-chain order hold (#1869) is the node's behaviour after {{pr-09}}; left open: the issue's second defect, a resend that executes beside the original because a sealed transaction is invisible to the pool and the RPC, which the hold does not touch, and why some re-queued batches never executed.
+Refs #1850: the walk past an uncertified epoch and the re-certify round (#1866) are the node's behaviour after {{pr-09}}, and its conflicting-record case was fixed on main by #1849; left open: the question in its comment, whether that stop should need a super-quorum of the full committee; a node without its own record of the epoch still needs re-certification, and no fleet run of either change is reported (#1866).
+Refs #1806: the epoch-entry gauge measures how late a member enters an epoch (this PR).
+Refs #1819: its digest-wait histogram now counts across re-queues (this PR).
+Refs #1782: the bounded execution wait, which #1864 moves in front of the author's vote lock.
+Refs #1794: a held digest keeps its slot in #1794's bound until it commits (#1869).
+Stacked on this: #1863 (`test/bench6-e2e-scaffold`), #1864 (`fix/1804-vote-queue`), #1865 (`fix/epoch-record-closing-block-check`), #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`), #1869 (`fix/1807-digest-order-hold`) and {{pr-09}} (`refactor/remove-bench-switches`), which removes the six switches of #1864, #1866, #1868 and #1869 and the switch list this PR adds.
 
 ## What bench 6 measured that is not in this stack
 

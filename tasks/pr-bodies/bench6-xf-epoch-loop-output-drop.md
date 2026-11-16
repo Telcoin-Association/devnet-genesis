@@ -63,7 +63,8 @@ The stop means a regression: report it with the log.
 - The drain: `the_leftover_drain_stops_on_a_gap_before_the_engine_gets_past_it` (nothing reaches the engine), `the_leftover_drain_skips_an_output_already_forwarded`, `the_leftover_drain_logs_and_counts_an_output_it_skips`.
 - On main at 33b727fce, on this head's tree but for comment lines in two `crates/state-sync` files (a doc-only commit of `fix/epoch-record-collector-hardening` landed after the run): `cargo check --locked --workspace --all-targets`, warnings denied, exit 0; `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p -p state-sync -p tn-engine` 2,048 passed, 10 skipped, these 11 among them.
 - On the stack's earlier cut on main at 45dce8947, with the same seven node commits: `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
-- Not run: no e2e test drives the race through the real loop, and no fleet has run this head yet.
+- Not run: no e2e test drives the race through the real loop, and no fleet has run this head.
+  Bench 7 ran the stack's earlier cut on main at 45dce8947, which carries the same seven node commits, on 2026-11-15: [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/) and [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/), ten validators at 20,000 IOPS, one run each; #1868 and #1869 report its results, and this text reports none of them.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -88,7 +89,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 ## Related
 
-- Fixes #1860: both parts of its proposed fix are here, and its reproducing test passes.
+- Refs #1860: both parts of its proposed fix are here, and its reproducing test passes (closed from #1862's body, the only PR of the stack that merges into main).
 - #1575, whose notes for review named this case.
 - #1618, the subscriber side of the same teardown, is not changed here.
-- Next: `fix/1804-quorum-exec-block` and `fix/1807-digest-order-hold` build on this head.
+- Next: `fix/1804-quorum-exec-block` (#1868) and `fix/1807-digest-order-hold` (#1869) build on this head, and {{pr-09}}, which removes the stack's switches, comes last.
