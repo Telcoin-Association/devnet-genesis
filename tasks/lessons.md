@@ -1680,3 +1680,41 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
 - An unquoted heredoc executes backticks: quote the delimiter (`<<'EOF'`) whenever the text holds code names.
 - A gate that calls a make target needs that target's prerequisites checked first (`make test-upgrade` wanted a previous binary and exited 2 with no test run; the gate's overall "rc=1" then had to be explained).
 - A figure-check by agents that did not write the text found about 20 wrong figures and about 45 over-strong sentences in about 1,750 figures, none changing a conclusion; the commonest kinds: a row's window or count named wrongly, "new" where the reference run had it too, an explanation written as an observation. Give writers the rule "name the window and the counting unit beside every figure" up front.
+
+## 2026-11-16 — bench 6/7 stack: I sent confirmed fixes upstream behind switches that default to off (corrected by the user's review of #1862-#1869)
+
+- **What happened.** The benches ran every fix behind a runtime switch so one image could carry the control and the treatment. I kept that shape for the upstream pull requests and made "switch off equals main" a gate, as my own choice. The user's review decided the opposite: a fix the benches confirmed is the node's behaviour, the six switches go (with the switch list, the `node switches` line and the gauge), and the adaptive form of the #1804 fix is deleted because always-on is the form that ships. An off-by-default fix merges code nobody runs and leaves the defect in place.
+- **Rules.**
+  - A runtime switch is the bench's instrument. It lives on `bench/*` branches and never in a pull request that targets `main`. When a fix is ported upstream, the port removes the switch and the off-arm tests.
+  - Where two forms of one fix were benched, ask which one ships before the upstream text is written, and delete the other upstream.
+  - What the removal loses is stated in the pull request (the "off equals main" tests, the mixed fleet) and covered another way (`make test-upgrade` with `main` as the previous binary).
+  - A parameter that tunes a shipped behaviour may stay. A boolean that turns the fix off may not.
+  - Every pull-request body carries a "Limits and what a reviewer should look at" section (said by the user on 2026-11-16 about #1866).
+
+## Copied 2026-11-16 from the `tn-node-deployment` submodule's uncommitted `tasks/lessons.md` (three devnet-launch lessons of 2026-11-02; they are about this repo's launch scripts, so they belong here; the submodule's file is not touched)
+
+## 2026-11-02 — a committee member that starts > gc_depth rounds after quorum sits out the whole epoch
+- Launch-1 F1: validators 1-3 reached quorum at 15:33:56Z; validator-4's unit started 36 s later, when
+  epoch 1 was already > 50 rounds in. Its vote requests were rejected "too new for max round 50"
+  (TooNew = committed_round + gc_depth), it stayed CvvInactive following via state-sync, and rejoined
+  only at the epoch-1 close an hour later. `devnet-finalize.sh` starts nodes serially ~80 s apart, so
+  on a fast chain only the first f+1 nodes ever form the first committee of an epoch.
+- Rule: no validator may run while the committee is incomplete long enough for rounds to pass. Stage
+  every node with its unit stopped, then start the whole fleet at one agreed wall-clock instant
+  (spread ≤ 10 s, ideally ≤ 5 s), and print the spread so a late node is visible before the first
+  epoch is wasted. A mid-epoch restart of an active member is fine (it rejoins within ~60 s).
+
+## 2026-11-02 — a transient ssh rc 255 in a read-only post-check must not fail the run or block a re-run
+- Launch-1 D3: node4's A3 post-check hit an IAP ssh rc 255 after A1/A2/A4/A5 had passed; finalize
+  exited 1 before step 9 and its gate refused a re-run (the unit was installed), so A3 had to be
+  re-verified by hand with `devnet-network-config.sh --verify node4`.
+- Rule: (a) read-only probes (gate, A1, A3, A4, A5, `.node-meta` reads) retry once after a short
+  pause on rc 255 before failing; (b) a driver whose phase B is read-only offers `--verify [node…]`
+  so the checks can be re-run without re-running the install.
+
+## 2026-11-02 — "after" checks on a restarted member must wait for it to reappear in commits
+- Launch-1 F2: `devnet-observability.sh` accepted CvvActive at 0 s after a restart, but the restarted
+  member is absent from commits for ~30-60 s, so the next node's quorum guard counted it as down and
+  refused; the sweep stopped at node 3 and had to be finished by hand.
+- Rule: after restarting a committee member, wait until it authors in the latest consensus header
+  (or ~90 s) before touching the next node; never judge "back" from `tn_nodeMode` alone.

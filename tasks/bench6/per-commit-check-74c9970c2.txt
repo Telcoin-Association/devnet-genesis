@@ -1,0 +1,23 @@
+OK a233d64dc 764s feat(config): list the runtime switches in Parameters
+OK 0777ed06e 78s feat(config): leave switches at their default out of a written parameters.yaml
+OK be63208e5 65s feat(node): log the node switches line and export tn_node_switch gauges
+OK 3d100a147 39s feat(primary): gauge how far behind a node enters an epoch
+OK adfd41f41 34s fix(metrics): give the execution stage histograms sub-millisecond buckets
+OK 7471f329e 50s fix(primary): keep a digest's first receipt across a re-queue
+OK a91cfe02a 35s fix(primary): keep the epoch-entry gauge across a mode change
+OK 12148de2c 59s docs(primary): say what a digest reported twice does to its first receipt
+OK d8273bbe3 7226s test(primary): pin the epoch-entry gauge's max over epoch and round
+OK 859b945d1 5851s docs(primary): say the epoch-entry gauge can pass the window by a few rounds
+OK 6007c08be 88s test(config): say behaviour switches never go into NON_SWITCH_KEYS
+OK 8a42fec57 54s fix(primary): keep the epoch-entry gauge's max on the bus, not in a static
+OK 422d3fbbd 25s test(e2e): start chosen nodes with their own parameters and environment
+OK 41b953c56 4476s test(e2e): move the node log helpers from restarts to common
+OK 4ab437182 20s test(e2e): key fleet overrides by datadir and rebuild parameters per start
+OK 90d38b400 17s test(e2e): fleet-wide parameters.yaml entries from TN_E2E_PARAMETERS
+OK 41b07e55a 17s test(e2e): close the gaps review found in the parameters override scaffold
+OK 1ebd9ddd7 17s test(e2e): apply every node's overrides before start_nodes_with_overrides spawns any
+OK 9ef55c989 14s test(e2e): say when a start drops parameters.yaml entries of the previous start
+OK bf9853709 18s docs(e2e): say what TN_E2E_PARAMETERS is checked with and which nodes it reaches
+OK 07189a807 16s test(primary): pin that one author's vote requests wait in turn on its lock
+OK 64c3bb06e 42s feat(config): add the vote_queue_fix switch
+OK 68ea027b4 382s fix(primary): wait for execution before the per-author vote lock

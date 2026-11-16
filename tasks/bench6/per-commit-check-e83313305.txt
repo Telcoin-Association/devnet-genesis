@@ -1,0 +1,104 @@
+OK a233d64dc 764s feat(config): list the runtime switches in Parameters
+OK 0777ed06e 78s feat(config): leave switches at their default out of a written parameters.yaml
+OK be63208e5 65s feat(node): log the node switches line and export tn_node_switch gauges
+OK 3d100a147 39s feat(primary): gauge how far behind a node enters an epoch
+OK 56e40e07a 34s fix(metrics): give the execution stage histograms sub-millisecond buckets
+OK 9987bb9eb 50s fix(primary): keep a digest's first receipt across a re-queue
+OK febd0551c 35s fix(primary): keep the epoch-entry gauge across a mode change
+OK 47fe32460 59s docs(primary): say what a digest reported twice does to its first receipt
+OK d1b89080d 7226s test(primary): pin the epoch-entry gauge's max over epoch and round
+OK 71e133376 5851s docs(primary): say the epoch-entry gauge can pass the window by a few rounds
+OK ae065c20a 88s test(config): say behaviour switches never go into NON_SWITCH_KEYS
+OK 81a06c4e1 54s fix(primary): keep the epoch-entry gauge's max on the bus, not in a static
+OK 29cfa7895 25s test(e2e): start chosen nodes with their own parameters and environment
+OK fca359747 4476s test(e2e): move the node log helpers from restarts to common
+OK af8a065e7 20s test(e2e): key fleet overrides by datadir and rebuild parameters per start
+OK 72424b8c8 17s test(e2e): fleet-wide parameters.yaml entries from TN_E2E_PARAMETERS
+OK fcdba0f3b 17s test(e2e): close the gaps review found in the parameters override scaffold
+OK e9ecfe49d 17s test(e2e): apply every node's overrides before start_nodes_with_overrides spawns any
+OK 6ea3dec7b 14s test(e2e): say when a start drops parameters.yaml entries of the previous start
+OK 48dae6a5f 18s docs(e2e): say what TN_E2E_PARAMETERS is checked with and which nodes it reaches
+OK abd4dcec3 16s test(primary): pin that one author's vote requests wait in turn on its lock
+OK c733bd06a 42s feat(config): add the vote_queue_fix switch
+OK d2d80ac04 382s fix(primary): wait for execution before the per-author vote lock
+OK e598b52f6 28s docs(primary): say that a requester's cancel does not reach the voter
+OK c5d69e649 23s feat(primary): count vote requests by outcome
+OK e7144dd7c 22s test(primary): pin the superseded check after the pre-lock wait
+OK 8655c2894 25s fix(primary): skip the wait before the vote lock for a header that fails its own checks
+OK 28f6ec34b 37s fix(config): keep vote_timeout plus the wait before the vote lock under the request timeout
+OK fb7093744 35s docs(primary): say what a vote permit is held through with vote_queue_fix on
+OK ad83a72f3 35s docs(config): state the 9 s vote_timeout ceiling with vote_queue_fix on
+OK 14690c4ac 20s fix(node): require an epoch record's final_state to be the block where the epoch-closing calls ran
+OK 1b1a02704 17s feat(node): count the close-time base-fee identity check
+OK cd52dcd81 19s fix(node): name what the closing-block halt prevents per path, the re-derive path and an empty ring
+OK a0f066bf3 24s feat(primary): name the peer that served an epoch certificate
+OK 804612e01 22s feat(state-sync): gauge how far every epoch record is certified
+OK 06bd23236 22s fix(node): no quorum error when the epoch record is already certified
+OK e02241b99 38s feat(config): add the epoch_record_recertify switch
+OK ca3fc40fd 18s feat(node): re-certify older uncertified epoch records
+OK 548e606fc 36s fix(node): keep re-certify rounds off the epoch record signers gauge
+OK 445c8ac78 36s feat(config): switches for the epoch record collector's walk and conflict halt
+OK 44c5b88ea 21s feat(state-sync): walk past an own uncertified epoch record, halt on a conflicting one
+OK 729c30a1b 41s test(node): add a hook that withholds a node's own epoch vote
+OK da7c8f465 40s docs(node): say what the withhold hook leaves in place
+OK 19aa21b01 22s fix(state-sync): log who certified a conflicting epoch record
+OK 0671e626d 20s fix(state-sync): say what the epoch record conflict halt has seen
+OK 3515fdd76 23s fix(state-sync): halt on an epoch record conflict only at a full super-quorum
+OK 90546d0d8 20s fix(state-sync): bound the epoch record gap retry by a deadline and shutdown
+OK 4d54cb784 19s fix(state-sync): keep an epoch record gap open when its read fails
+OK c7a366bdc 19s fix(state-sync): persist what a walking pass stored when a record is refused
+OK 7efa02c9a 22s fix(state-sync): retry an epoch record walk that did not land once per interval
+OK 3be004668 37s docs(config): describe the epoch record walk's retries and the halt threshold
+OK 42a33a914 22s fix(state-sync): lead the next gap retry with the gap its deadline cut short
+OK def55a937 37s docs(config): say where the epoch record walk is held back and how to read the conflict counters
+OK e2e8760c8 16s fix(node): keep older records' vote rounds off the epoch record signers gauge
+OK a804ce9c4 20s fix(node): let the conflict halt switch decide a re-certify round's stop
+OK e7f559696 21s fix(node): aggregate kept epoch votes once they reach a quorum
+OK 29c36a4ec 22s fix(node): never evict the latest close's epoch vote rounds
+OK 0fa7baa68 38s docs(node): say what a re-certify round does on a conflicting record
+OK 29929278a 18s fix(node): no missing-certificate alarm when kept votes certify the record
+OK c319adfac 36s docs(config): match the conflict halt doc to its counters and log lines
+OK ca258b37c 17s test(e2e): an epoch the network never certifies, walked past and re-certified
+OK fb9204bfc 18s fix(node): take room in the engine channel before taking a consensus output
+OK befa26c27 18s fix(node): stop the node on a gap in the leftover drain's queued outputs
+OK 98b3087b5 19s test(node): cover a forward cancelled while it waits for an output
+OK d7babdcb3 19s fix(node): take a queued output with one poll instead of try_recv
+OK 9e1456086 20s fix(node): fail the live forward when the engine is gone at the hand-over
+OK bc840b3cf 18s docs(node): say when the forward evicts and why the drain stays unraced
+OK b69e9c1a9 16s test(e2e): count the leftover drain's gap stop as a fatal line
+OK 9a7c380e6 38s feat(config): add the quorum_exec_block switches
+OK 756ab98ac 24s feat(primary): resolve recent blocks by number and by entries back from the tip
+OK 836e643d0 26s feat(primary): name an execution block a quorum holds behind quorum_exec_block
+OK 615b56ed8 23s fix(primary): reset the adaptive exec-block window only after a streak of certified tip headers
+OK d5a4b8d32 34s fix(primary): never name an execution block from before the epoch opened
+OK 4496ecc2f 38s fix(primary): warn on quorum_exec_block_starved_rounds values the proposer cannot use
+OK 699140631 35s docs(primary): say when the quorum rule skips a parent and what the opening-block bound assumes
+OK 0827fa173 17s test(primary): pin the quorum rule's inputs to the committee's epoch above epoch 0
+OK 08f459302 24s fix(primary): count the adaptive exec-block window in headers built
+OK 8d5f1c3db 24s fix(primary): bound the quorum exec-block choice at the epoch's opening block
+OK 667492855 25s test(primary): pin what faulty high parents cost the quorum exec-block rule
+OK f492991e2 28s docs(primary): say what the exec-block floor does not bound, and the upstream refusal
+OK 18a82ec09 16s test(primary): make the proposer's round-jump check tell windows of headers from rounds
+OK 6351bbc9d 25s docs(primary): say what the opening-block bound covers and what moves the run start
+OK 420c2ef35 17s test(primary): pin the voter's answers to an old execution block
+OK b0105f01b 36s docs(primary): say the adaptive exec-block window counts headers
+OK 9105fadd4 17s test(e2e): fast executor certification and a mixed-switch fleet
+OK 63516124a 18s test(e2e): two epoch closes under each vote-fix form with members held behind
+OK 29419916a 42s test(primary): hold a validator's own certificate on demand
+OK 28d611cbf 27s feat(primary): count dropped uncertified own header reports
+OK 48b34cc9d 19s feat(node): count what the orphan re-pool does with each transaction
+OK 4c1fd36c6 31s feat(tn-reth): re-export the pool's error kind
+OK 035707c8f 26s fix(node): name and count the outputs the leftover drain skips
+OK 038abadec 25s feat(node): split the orphan re-pool's refusals by the pool's error kind
+OK 93601996a 24s feat(primary): add the own-chain order hold rule for batch digests
+OK 03ad42f22 17s test(primary): model the own-chain order hold against one author's proposer
+OK 8d2cf7730 16s test(primary): pin the proposer's payload order through both re-queue paths
+OK e54fe9fda 26s feat(primary): count batch digests re-queued out of order
+OK 94f959613 22s feat(primary): report the own parent and the order hold on header proposed
+OK 325c61151 24s feat(primary): log what the proposer leaves when it stops
+OK 32a7c128e 28s fix(primary): release a stale re-send's digest numbers
+OK 0fefa666d 37s feat(config): add the digest_order_hold switch
+OK e316a0703 26s feat(primary): hold a worker lane behind an unproven older own header
+OK bdbc2fc55 37s docs(primary): say what the order hold changes besides header contents
+OK 2e67488d6 32s docs(worker): say that the batch ledger's age-out can drop batches that still commit
+OK e83313305 18s test(e2e): the own-chain hold keeps every accepted transaction while a validator's chain breaks

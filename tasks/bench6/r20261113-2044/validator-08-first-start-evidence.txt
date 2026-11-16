@@ -1,0 +1,93 @@
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+== telcoin-error.log
+Error response from daemon: No such container: telcoin
+Error: 
+
+Caused by:
+   0: Address already in use (os error 98)
+   1: Address already in use (os error 98)
+
+Location:
+    crates/node/src/manager/node.rs:1227:17
+Error response from daemon: No such container: telcoin
+== telcoin.log lines 1-60
+ts=2026-11-13T21:02:54.44324408Z level=info target=cli span=node-startup span_path=node-startup message="telcoin-network 0.1.0 (2df831e3ca34c06a361a7acca10397787e7b332e) starting"
+ts=2026-11-13T21:02:54.443275422Z level=info target=cli span=node-startup span_path=node-startup message="fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
+ts=2026-11-13T21:02:54.443617547Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/node-info.yaml\""
+ts=2026-11-13T21:02:54.443917457Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/parameters.yaml\""
+ts=2026-11-13T21:02:54.443993589Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/genesis/genesis.yaml\""
+ts=2026-11-13T21:02:54.450938187Z level=info target=cli span=node-startup span_path=node-startup message="config loaded" validator="\"node-VPQCb95nBVY\""
+ts=2026-11-13T21:02:54.451642954Z level=info target=tn::reth span=node-startup span_path=node-startup message="opening database" path="\"/home/nonroot/db\""
+ts=2026-11-13T21:02:54.498832689Z level=info target=epoch-manager message="opened consensus storage" consensus_db_path="\"/home/nonroot/consensus-db\""
+ts=2026-11-13T21:02:54.498873591Z level=info target=node::switches message="node switches" quorum_exec_block=false quorum_exec_block_starved_rounds=0 vote_queue_fix=false mdbx_random_advice=false sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=false parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+ts=2026-11-13T21:02:54.498893605Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/genesis/committee.yaml\""
+ts=2026-11-13T21:02:54.540652668Z level=info target=epoch-manager message="starting node and launching first epoch"
+ts=2026-11-13T21:02:54.540672942Z level=info target=engine message="cross-producer transaction re-packing monitor (issue #1259)" enabled=false
+ts=2026-11-13T21:02:54.542567752Z level=info target=reth::cli span=check_consistency span_path=check_consistency message="Healing static file inconsistencies."
+ts=2026-11-13T21:02:54.556034795Z level=info target=reth::cli span=check_consistency span_path=check_consistency>check_consistency message="Verifying storage consistency." read_only=false
+ts=2026-11-13T21:02:54.568592855Z level=info target=tn::listener message="operator listener bound" listener=healthcheck listen_on=127.0.0.1:43174 exposure=loopback
+ts=2026-11-13T21:02:54.568610862Z level=info target=epoch-manager message="healthcheck listening" listen_on=127.0.0.1:43174
+ts=2026-11-13T21:02:54.568664296Z level=info target=tn_node::engine::inner message="Engine stated from block 0/0x8a5852388f61ac2cecb6c64dd17abe4703a77c3f375b72ae047c3ca54a79c9ee, consensus output Some(0x0000000000000000000000000000000000000000000000000000000000000000)"
+ts=2026-11-13T21:02:54.569934883Z level=info target=epoch-manager message="creating committee from state"
+ts=2026-11-13T21:02:54.569984455Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/genesis/committee.yaml\""
+ts=2026-11-13T21:02:54.572289014Z level=info target=tn::execution message="Transaction pool initialized"
+ts=2026-11-13T21:02:54.573094476Z level=info target=tn::execution message="tn rpc extension successfully merged"
+ts=2026-11-13T21:02:54.573350859Z level=info target=tn::execution message="worker rpc endpoints resolved" worker_id=0 http=Some(127.0.0.1:8545) ws=Some(127.0.0.1:8546) ipc="Some(\"/tmp/tn.ipc\")"
+ts=2026-11-13T21:02:54.573372599Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/network-config\""
+ts=2026-11-13T21:02:54.576482444Z level=info target=libp2p_swarm local_peer_id=12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM
+ts=2026-11-13T21:02:54.578302003Z level=info target=libp2p_swarm local_peer_id=12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh
+ts=2026-11-13T21:02:54.579012475Z level=info target=network-kad message="Providing our record to kademlia for peer PeerId(\"12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM\")" record="Record { key: Key(b\"\\xa9\\xb5\\xc5S\\x13\\xe8/\'\\x17x\\xbe\\xb5\\xc3$\\x16\\xf9\\xdb\\xe5\\x10n!Gd\\x06>d\\x9c_8\\x92]\\xbc\\x0fS\\\\\\x06\\x18\\xb2\\x12k\\xf9\\x1d\\xaf\\x12>\\x80\\x93A\\x0fi\\x88-\\xb5_\\xd2m\\xe9\\xcej\\xc6e=\\x9a\\xadZL\\xd7\\xd36\\x18\\x07/\\t\\x07\\x11\\x8f$p\\xefE\\xb6\\xb0\\xdfV\\xdbJ\\xe0I\\x8eFs\\xe0Y\'?\\xfa\"), value: [36, 8, 1, 18, 32, 232, 61, 32, 194, 174, 140, 243, 98, 64, 117, 84, 145, 124, 20, 77, 176, 94, 149, 155, 78, 28, 255, 139, 173, 129, 230, 147, 216, 67, 5, 223, 10, 1, 52, 4, 35, 220, 136, 25, 145, 2, 193, 182, 205, 3, 165, 3, 38, 0, 36, 8, 1, 18, 32, 232, 61, 32, 194, 174, 140, 243, 98, 64, 117, 84, 145, 124, 20, 77, 176, 94, 149, 155, 78, 28, 255, 139, 173, 129, 230, 147, 216, 67, 5, 223, 10, 254, 122, 247, 106, 0, 0, 0, 0, 0, 48, 148, 11, 163, 80, 171, 95, 223, 69, 231, 49, 112, 247, 249, 171, 157, 111, 110, 11, 119, 31, 253, 89, 60, 145, 68, 224, 174, 6, 107, 243, 183, 95, 70, 179, 186, 196, 6, 167, 73, 161, 48, 212, 131, 2, 2, 211, 1, 143, 64, 163, 135, 30, 130, 225, 40, 90, 201, 7, 34, 82, 167, 100, 37, 136, 202, 145, 103, 26, 121, 67, 27, 134, 68, 152, 220, 144, 91, 40, 223, 143, 105, 46, 57, 124, 30, 234, 203, 90, 122, 36, 184, 5, 199, 167, 4, 61, 247, 249, 217, 20, 16, 60, 110, 190, 223, 172, 111, 239, 47, 225, 15, 252, 12], publisher: Some(PeerId(\"12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM\")), expires: None }"
+ts=2026-11-13T21:02:54.579014324Z level=info target=network-kad message="Providing our record to kademlia for peer PeerId(\"12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh\")" record="Record { key: Key(b\"\\xa9\\xb5\\xc5S\\x13\\xe8/\'\\x17x\\xbe\\xb5\\xc3$\\x16\\xf9\\xdb\\xe5\\x10n!Gd\\x06>d\\x9c_8\\x92]\\xbc\\x0fS\\\\\\x06\\x18\\xb2\\x12k\\xf9\\x1d\\xaf\\x12>\\x80\\x93A\\x0fi\\x88-\\xb5_\\xd2m\\xe9\\xcej\\xc6e=\\x9a\\xadZL\\xd7\\xd36\\x18\\x07/\\t\\x07\\x11\\x8f$p\\xefE\\xb6\\xb0\\xdfV\\xdbJ\\xe0I\\x8eFs\\xe0Y\'?\\xfa\"), value: [36, 8, 1, 18, 32, 31, 87, 70, 147, 69, 127, 97, 223, 239, 61, 243, 131, 81, 163, 174, 9, 207, 181, 226, 25, 97, 226, 161, 32, 143, 49, 225, 156, 79, 172, 69, 142, 1, 52, 4, 35, 220, 136, 25, 145, 2, 193, 186, 205, 3, 165, 3, 38, 0, 36, 8, 1, 18, 32, 31, 87, 70, 147, 69, 127, 97, 223, 239, 61, 243, 131, 81, 163, 174, 9, 207, 181, 226, 25, 97, 226, 161, 32, 143, 49, 225, 156, 79, 172, 69, 142, 254, 122, 247, 106, 0, 0, 0, 0, 1, 24, 104, 116, 116, 112, 58, 47, 47, 49, 48, 46, 49, 55, 48, 46, 48, 46, 53, 48, 58, 56, 53, 52, 53, 47, 1, 22, 119, 115, 58, 47, 47, 49, 48, 46, 49, 55, 48, 46, 48, 46, 53, 48, 58, 56, 53, 52, 54, 47, 48, 174, 211, 15, 215, 114, 150, 146, 224, 121, 194, 90, 71, 240, 65, 205, 238, 18, 32, 25, 6, 229, 217, 57, 103, 120, 231, 147, 232, 150, 161, 126, 52, 132, 149, 28, 38, 161, 230, 222, 65, 175, 146, 3, 188, 62, 5, 72, 227, 64, 23, 22, 145, 246, 182, 95, 95, 132, 194, 202, 106, 157, 248, 34, 27, 241, 252, 81, 68, 147, 129, 122, 190, 87, 42, 204, 158, 191, 30, 86, 139, 131, 168, 189, 0, 77, 171, 198, 101, 35, 226, 241, 183, 64, 8, 77, 36, 146, 176, 212, 90, 109, 207, 153, 170, 157, 214, 141, 32, 10, 178, 88, 153, 4], publisher: Some(PeerId(\"12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh\")), expires: None }"
+ts=2026-11-13T21:02:54.592445179Z level=info target=tn::network message="peer metrics heartbeat" connected_count=0 connected_or_dialing=0 banned_count=0
+ts=2026-11-13T21:02:54.594160167Z level=info target=network message="updating previous/current/next committees" this_node="PeerId(\"12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM\")"
+ts=2026-11-13T21:02:54.597621041Z level=info target=epoch-manager message="network reachability changed" readiness="NetworkReadiness { version: 1, status: NotReady, primary: Disconnected, workers: [WorkerNetworkReadiness { worker_id: 0, connectivity: Disconnected }] }"
+ts=2026-11-13T21:02:54.598465979Z level=info target=tn::network message="peer metrics heartbeat" connected_count=0 connected_or_dialing=0 banned_count=0
+ts=2026-11-13T21:02:54.599463771Z level=info target=network message="updating previous/current/next committees" this_node="PeerId(\"12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh\")"
+ts=2026-11-13T21:02:54.599829844Z level=info target=epoch-manager message="listening to /ip4/10.170.0.50/udp/49590/quic-v1/p2p/12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM" primary_address=/ip4/10.170.0.50/udp/49590/quic-v1/p2p/12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM
+ts=2026-11-13T21:02:54.60279608Z level=error target=tn_node message="Error running node: "
+ts=2026-11-13T21:03:05.167488897Z level=info target=cli span=node-startup span_path=node-startup message="telcoin-network 0.1.0 (2df831e3ca34c06a361a7acca10397787e7b332e) starting"
+ts=2026-11-13T21:03:05.167519734Z level=info target=cli span=node-startup span_path=node-startup message="fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis"
+ts=2026-11-13T21:03:05.167890331Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/node-info.yaml\""
+ts=2026-11-13T21:03:05.168151628Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/parameters.yaml\""
+ts=2026-11-13T21:03:05.168221301Z level=info target=tn::config span=node-startup span_path=node-startup message="Loading configuration" path="\"/home/nonroot/genesis/genesis.yaml\""
+ts=2026-11-13T21:03:05.175170879Z level=info target=cli span=node-startup span_path=node-startup message="config loaded" validator="\"node-VPQCb95nBVY\""
+ts=2026-11-13T21:03:05.175783209Z level=info target=tn::reth span=node-startup span_path=node-startup message="opening database" path="\"/home/nonroot/db\""
+ts=2026-11-13T21:03:05.183532143Z level=info target=epoch-manager message="opened consensus storage" consensus_db_path="\"/home/nonroot/consensus-db\""
+ts=2026-11-13T21:03:05.18356437Z level=info target=node::switches message="node switches" quorum_exec_block=false quorum_exec_block_starved_rounds=0 vote_queue_fix=false mdbx_random_advice=false sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=false parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+ts=2026-11-13T21:03:05.183589561Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/genesis/committee.yaml\""
+ts=2026-11-13T21:03:05.198678764Z level=info target=epoch-manager message="starting node and launching first epoch"
+ts=2026-11-13T21:03:05.198699574Z level=info target=engine message="cross-producer transaction re-packing monitor (issue #1259)" enabled=false
+ts=2026-11-13T21:03:05.20067798Z level=info target=reth::cli span=check_consistency span_path=check_consistency message="Healing static file inconsistencies."
+ts=2026-11-13T21:03:05.212952408Z level=info target=reth::cli span=check_consistency span_path=check_consistency>check_consistency message="Verifying storage consistency." read_only=false
+ts=2026-11-13T21:03:05.213348075Z level=info target=tn::listener message="operator listener bound" listener=healthcheck listen_on=127.0.0.1:43174 exposure=loopback
+ts=2026-11-13T21:03:05.213364331Z level=info target=epoch-manager message="healthcheck listening" listen_on=127.0.0.1:43174
+ts=2026-11-13T21:03:05.213428312Z level=info target=tn_node::engine::inner message="Engine stated from block 0/0x8a5852388f61ac2cecb6c64dd17abe4703a77c3f375b72ae047c3ca54a79c9ee, consensus output Some(0x0000000000000000000000000000000000000000000000000000000000000000)"
+ts=2026-11-13T21:03:05.21475759Z level=info target=epoch-manager message="creating committee from state"
+ts=2026-11-13T21:03:05.214809628Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/genesis/committee.yaml\""
+ts=2026-11-13T21:03:05.217089173Z level=info target=tn::execution message="Transaction pool initialized"
+ts=2026-11-13T21:03:05.217824681Z level=info target=tn::execution message="tn rpc extension successfully merged"
+ts=2026-11-13T21:03:05.21804694Z level=info target=tn::execution message="worker rpc endpoints resolved" worker_id=0 http=Some(127.0.0.1:8545) ws=Some(127.0.0.1:8546) ipc="Some(\"/tmp/tn.ipc\")"
+ts=2026-11-13T21:03:05.218064279Z level=info target=tn::config message="Loading configuration" path="\"/home/nonroot/network-config\""
+ts=2026-11-13T21:03:05.222455904Z level=info target=libp2p_swarm local_peer_id=12D3KooWRSvpKDqGL189yfm8JcsanBU5bgqUNpg7CYkCw6F5CwGM
+ts=2026-11-13T21:03:05.225232114Z level=info target=libp2p_swarm local_peer_id=12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh
+ts=2026-11-13T21:03:05.225947849Z level=info target=network-kad message="Providing our record to kademlia for peer PeerId(\"12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh\")" record="Record { key: Key(b\"\\xa9\\xb5\\xc5S\\x13\\xe8/\'\\x17x\\xbe\\xb5\\xc3$\\x16\\xf9\\xdb\\xe5\\x10n!Gd\\x06>d\\x9c_8\\x92]\\xbc\\x0fS\\\\\\x06\\x18\\xb2\\x12k\\xf9\\x1d\\xaf\\x12>\\x80\\x93A\\x0fi\\x88-\\xb5_\\xd2m\\xe9\\xcej\\xc6e=\\x9a\\xadZL\\xd7\\xd36\\x18\\x07/\\t\\x07\\x11\\x8f$p\\xefE\\xb6\\xb0\\xdfV\\xdbJ\\xe0I\\x8eFs\\xe0Y\'?\\xfa\"), value: [36, 8, 1, 18, 32, 31, 87, 70, 147, 69, 127, 97, 223, 239, 61, 243, 131, 81, 163, 174, 9, 207, 181, 226, 25, 97, 226, 161, 32, 143, 49, 225, 156, 79, 172, 69, 142, 1, 52, 4, 35, 220, 136, 25, 145, 2, 193, 186, 205, 3, 165, 3, 38, 0, 36, 8, 1, 18, 32, 31, 87, 70, 147, 69, 127, 97, 223, 239, 61, 243, 131, 81, 163, 174, 9, 207, 181, 226, 25, 97, 226, 161, 32, 143, 49, 225, 156, 79, 172, 69, 142, 9, 123, 247, 106, 0, 0, 0, 0, 1, 24, 104, 116, 116, 112, 58, 47, 47, 49, 48, 46, 49, 55, 48, 46, 48, 46, 53, 48, 58, 56, 53, 52, 53, 47, 1, 22, 119, 115, 58, 47, 47, 49, 48, 46, 49, 55, 48, 46, 48, 46, 53, 48, 58, 56, 53, 52, 54, 47, 48, 150, 202, 148, 115, 113, 44, 138, 124, 15, 83, 214, 155, 234, 227, 66, 75, 151, 172, 175, 62, 24, 189, 244, 234, 54, 146, 57, 11, 153, 137, 251, 121, 74, 203, 130, 252, 128, 80, 173, 105, 153, 59, 61, 62, 137, 221, 184, 138, 64, 213, 25, 4, 103, 203, 57, 251, 247, 11, 26, 126, 6, 177, 197, 86, 115, 36, 66, 50, 57, 94, 80, 210, 6, 101, 166, 178, 52, 111, 17, 224, 190, 176, 160, 160, 61, 114, 98, 21, 89, 100, 70, 239, 166, 156, 43, 245, 62, 84, 180, 74, 232, 24, 43, 114, 120, 46, 110, 132, 161, 167, 249, 219, 14], publisher: Some(PeerId(\"12D3KooWBvhzdkL5Vw9t8jUTU25aVx34mtcKH1jLe9FqWE4vMwkh\")), expires: None }"
+== node.env
+PRIMARY_LISTENER_MULTIADDR=/ip4/10.170.0.50/udp/49590/quic-v1
+WORKER_LISTENER_MULTIADDR=/ip4/10.170.0.50/udp/49594/quic-v1
+TN_RPC_ADDR=127.0.0.1
+== ephemeral range
+32768	60999
+
+== udp listeners now
+State  Recv-Q Send-Q    Local Address:Port  Peer Address:PortProcess                                                       
+UNCONN 0      0            127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=519,fd=16))                    
+UNCONN 0      0         127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=519,fd=14))                    
+UNCONN 0      0      10.170.0.50%ens3:68         0.0.0.0:*    users:(("systemd-network",pid=681,fd=21))                    
+UNCONN 0      0             127.0.0.1:323        0.0.0.0:*    users:(("chronyd",pid=1310,fd=5))                            
+UNCONN 0      0           10.170.0.50:49590      0.0.0.0:*    users:(("telcoin",pid=7512,fd=60),("telcoin",pid=7512,fd=59))
+UNCONN 0      0           10.170.0.50:49594      0.0.0.0:*    users:(("telcoin",pid=7512,fd=63),("telcoin",pid=7512,fd=62))
+UNCONN 0      0                 [::1]:323           [::]:*    users:(("chronyd",pid=1310,fd=6))                            
