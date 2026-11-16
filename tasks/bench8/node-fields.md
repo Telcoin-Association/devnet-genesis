@@ -46,7 +46,7 @@ On `quorum reached`, on `header uncertified … reason=no_certificate` and on `h
 | field | type | rendering |
 |---|---|---|
 | `vote_arrivals` | list, arrival order | `[voter:ms,…]`: every voter whose vote reached this node before the round ended ("received", not "counted") |
-| `vote_errors` | list, order of first such answer | `[voter:first_ms:last_ms:kind:count,…]`: one entry per voter that answered with something other than a vote |
+| `vote_errors` | list, order of first such answer | `[voter:first_ms:last_ms:kind:count,…]`: one entry per voter that answered with something other than a vote; `kind` is the code of its latest such answer, `count` counts all of them whatever their code |
 | `votes_at_end` | u64 | votes the round counted, the author's own included; 0 means the round never started |
 | `stake_at_end` | u64 | their voting power |
 
@@ -72,13 +72,13 @@ Once per certificate that enters its round's aggregator at this node (own and pe
 | `origin` | id | its author |
 | `round_certs` | usize | certificates of that round this node holds now, this one included (distinct authors) |
 | `parents_sent` | bool | a parent set of that round had been handed to the proposer BEFORE this certificate |
-| `late_ms` | u64 | 0, or milliseconds since that first send (monotonic clock) |
+| `late_ms` | u64 | 0, or milliseconds since the quorum certificate was appended, just before the first send was awaited (monotonic clock) |
 | `source` | `own` / `peer` / `recovered` | built here; another authority's verified certificate (a broadcast and a fetch are not told apart); reloaded from the store at start-up |
 | `parents_resent` | bool | this certificate was sent to the proposer on its own, after the first send (true on every certificate after the quorum) |
 | `quorum_reached` | bool | true on the one certificate that completed the quorum and caused the first send |
 
 Sample (the 8th of 10): `certificate accepted epoch=0 round=1 origin=<id> round_certs=8 parents_sent=true late_ms=25 source=peer parents_resent=true quorum_reached=false`
-What the proposer does with a late certificate (read at this tip): the parents of the round r+1 header are taken with `std::mem::take(&mut self.last_parents)` (`proposer.rs:1430`) and `self.round` moves up (`:1365`); a round r parent set that arrives after that falls into `process_parents`'s `Ordering::Less` arm (`:932-941`, "ignoring older parents") and is dropped, so no header of that node ever names the late certificate.
+What the proposer does with a late certificate (read at this tip): the parents of the round r+1 header are taken with `std::mem::take(&mut self.last_parents)` (`proposer.rs:1554` at fdb9d22a9; `:1430` at e8eb8e199) and `self.round` moves up (`:1479`); a round r parent set that arrives after that falls into `process_parents`'s `Ordering::Less` arm (`:998-1007`, "ignoring older parents") and is dropped, so no header of that node ever names the late certificate.
 Fix in 453123d5e: a vote that fails the aggregator's signature check is listed under its voter in `vote_errors` with kind `invalid_vote` (it stays in `vote_arrivals` too: the lists only grow).
 
 ## The engine's per-output lines (target `engine`, DEBUG) — one new key at the END of each (B8-6: 94ebb2e50, d7d9920eb)
@@ -100,7 +100,7 @@ One line per own header that an order-hold plan named a blocker, written when th
 | `epoch` | u32 | the committee's epoch |
 | `round` | u32 | the blocker header's round |
 | `lanes` | usize | distinct workers in that header's payload (the lanes it held) |
-| `digests` | usize | digests queued, when the line is written, in the lanes this header held that no other tracked blocker still holds (a lane two blockers share counts at the last to leave; on a cancel the line comes after the re-queue, so the cancelled header's own digests are counted) |
+| `digests` | usize | digests queued, when the line is written, in the lanes this header held that no other tracked blocker still holds (a lane two blockers share counts at the last to leave; on a cancel or a `requeue_on_commit` the line comes after the re-queue, so the header's own re-queued digests are counted) |
 | `waited_ms` | u64 | wall clock now minus the header's `created_at_ms` |
 | `cause` | quoted string | `cancel` (the uncertified header was re-queued), `commit` (a commit notice named it), `requeue_on_commit` (a commit notice for a higher own round re-queued it), `epoch_end` (the proposer stopped: epoch end or shutdown; not written on an error exit) |
 
@@ -108,7 +108,7 @@ Sample: `order hold released epoch=0 round=1 lanes=1 digests=3 waited_ms=4 cause
 
 ## `subdag parent skipped` (target `consensus::metrics`, INFO) — new line (B8-7: fdb9d22a9)
 
-At most one line per committed leader (per sub-dag ordered), only when at least one parent was skipped because its round is STRICTLY below its origin's last committed round (a parent at exactly that round is the routine frontier skip and is not counted). Each counted certificate was either committed by an earlier sub-dag or is never committed: join `(origin, round)` against the `certificate committed` lines to tell which. Fields in order: `epoch`, `leader_round`, `skipped` (distinct certificates skipped that way), `edges` (parent edges that hit such a skip), `skips` (`[origin:round:last_committed,…]`, the lowest ten by (round, origin); `skipped` keeps the full count).
+At most one line per committed leader (per sub-dag ordered), only when at least one parent was skipped because its round is STRICTLY below its origin's last committed round (a parent at exactly that round is the routine frontier skip and is not counted). Each counted certificate was either committed by an earlier sub-dag or is never committed: join `(origin, round)` against the `certificate committed` lines to tell which. Fields in order: `epoch`, `leader_round`, `skipped` (distinct certificates skipped that way), `edges` (parent edges that hit such a skip), `skips` (`[origin:round:last_committed,…]`, the lowest ten by (round, origin), origin ordered by its raw id bytes (not by the base58 text); `skipped` keeps the full count).
 Sample: `subdag parent skipped epoch=0 leader_round=3 skipped=3 edges=5 skips=[<idA>:1:2,<idB>:1:3,<idB>:2:3]`
 Rate: at most one line per two rounds per node (about 1.25 a second at bench load).
 
@@ -118,3 +118,4 @@ The side chain (`b8/side`, 91a15e223..d7d9920eb) was reviewed on 2026-11-16 by a
 
 The main chain's first three commits (the parameter and the `header proposed` fields: 77d7909c1, 19074c301, 1f87d7860) were reviewed on 2026-11-16 (`tasks/bench8/review/b8-main-chain-1.md`): approve with follow-ups, no Critical, High or Medium, seven Lows. At floor 8 a header comes out exactly as on 91a15e223; the moved floor read cannot change the choice; the final raise to the opening block cannot be reached at any floor; no code outside the proposer reads the floor.
 What a run at floor 16 exercises: only headers under the rule whose quorum value lies 9 to 16 ring entries below the proposer's tip (they name the quorum value, `exec_basis=quorum`, where they named the entry 8 back), and headers whose quorum value is deeper than 16 (they name the entry 16 back). It does not exercise: round 1 of an epoch (the header names the own tip), any voter-side change (there is none), a short ring (only on a node that restarts during the run). About 510 bytes more per `header proposed` line (about 1.3 kB per second per node).
+The main chain's five observability commits (3dfd7e0b0, 453123d5e, e8eb8e199, b3067a77e, fdb9d22a9) were reviewed on 2026-11-16 (`tasks/bench8/review/b8-main-chain-2.md`): approve with follow-ups, no Critical, High or Medium, seven Lows. With every parameter at its default they change only logging: no decision, send, stored value, returned error or sub-dag order differs from 91a15e223. Together they add or grow about 29-31 INFO lines per second per node, about 7.5 kB per second typical (most of it `certificate accepted`, about 24 lines per second at about 250 bytes).
