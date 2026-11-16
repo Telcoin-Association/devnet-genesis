@@ -7,7 +7,7 @@ No switch: this extends main's unconditional stored-record guard (#1834, #1849),
 New: an `epoch record published` info line and two counters.
 
 PR 4 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1864's branch (`fix/1804-vote-queue`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
-#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; it also carries the merge of `main` at f25a74eb7, so once it is merged #1862's branch holds `main` and `make attest` runs on the result.
 
 ## Problem
 
@@ -67,7 +67,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made once {{pr-09}} is merged.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in {{pr-09}}'s branch, against main at f25a74eb7.
 - The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at

@@ -6,11 +6,14 @@ Of the two forms of the author's side of #1804 it keeps always-on and deletes th
 The review of the stack decided that a fix the benchmarks confirmed is the node's behaviour, and that a runtime switch is an instrument of a benchmark, not something to ship.
 After this PR `Parameters` has the same fields and `Default` values as `main` at 0554efd4f, and a `parameters.yaml` that still names a removed key loads with the key ignored.
 
-This PR targets #1862's branch (`feat/bench6-switches-obs`), which holds the collapsed stack: #1863 to #1869 were merged into it on 2026-11-16, so the Files tab shows this change alone and the Commits tab its 20 commits.
-Two of those commits cancel out: `0a70b58f5` adds a mixed-binary vote test to `crates/e2e-tests/tests/it/upgrade.rs` and `e1a562cbb` reverts it, so the tree after the revert equals the tree before the test; the case it was written for is the first limit below.
-Once this PR is merged, #1862 carries the stack without the switches; `main` is then merged into #1862's branch and `make attest` runs on the result.
+This PR targets #1862's branch (`feat/bench6-switches-obs`), which holds the collapsed stack: #1863 to #1869 were merged into it on 2026-11-16.
+`main` at f25a74eb7 is merged into this branch (`02b9c5f31`), so that #1862 no longer conflicts with `main` once this PR is merged.
+The Files tab therefore also shows main's changes since the stack's base (#1859, #1861 and #1872); the removal alone is the 20 commits of [500e21afa...54aa60932](https://github.com/Telcoin-Association/telcoin-network/compare/500e21afa...54aa60932).
+The merge conflicted in one file, `crates/node/src/manager/epoch_votes.rs`; the merge commit's message says what was kept from each side.
+Two of the removal's 20 commits cancel out: `0a70b58f5` adds a mixed-binary vote test to `crates/e2e-tests/tests/it/upgrade.rs` and `e1a562cbb` reverts it, so the tree after the revert equals the tree before the test; the case it was written for is the first limit below.
+Once this PR is merged, #1862 carries the stack without the switches, together with `main`, and `make attest` runs on the result.
 Please merge with 'Create a merge commit', like the rest of the stack.
-Code locations in this text are given at `e1a562cbb`; the six commits after it (comments, docs, test names and one added test) move some of them.
+Code locations in this text are given at `e1a562cbb`; the six commits after it (comments, docs, test names and one added test) and the merge of `main` move some of them.
 
 ## Problem
 
@@ -134,9 +137,10 @@ One test is added, `test_startup_rearm_casts_no_own_vote_for_a_certified_latest_
 The mixed-binary vote test added on the way is reverted (see the Summary).
 The six commits after `e1a562cbb` change no assertion of a kept test: they reword comments and docs that still spoke of a switch, drop section markers, rename the e2e scaffold's example keys from `example_switch` and `other_switch` to `example_parameter` and `other_parameter`, make the e2e header-window helper private to `exec_block.rs`, and add the test above.
 
-Stack-wide gates for this PR run on its head, `refactor/remove-bench-switches` at `54aa60932` (20 commits on `500e21afa`), each once: no off arm is left to run them against.
-- The checks made with each group of commits passed: `cargo check --locked --all-targets`, fmt, clippy with warnings denied and `cargo nextest run` for the crates the commits touch.
-- Not finished when this text was last updated, and added here when they are: `cargo +nightly-2026-03-20 fmt --all -- --check`; `./etc/ci-lanes.sh clippy`; `cargo nextest run --locked --workspace`; every commit of this PR compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied); `make test-restarts`, `make test-epochs`, `make test-sigkill` and `make test-e2e-resync`; the e2e tests the stack adds (`exec_block`, `epoch_close_forms`, `epoch_record_walk`, `digest_order_hold`), three runs each; `make test-upgrade` with main at 33b727fce as the previous binary (four validators upgraded in place, one at a time); the three `state_export_import` tests, which restore a node from an exported state; the order hold's model hunt, 100,000 cases.
+Stack-wide gates for this PR run on its head, `refactor/remove-bench-switches` at `02b9c5f31` (the removal's 20 commits on `500e21afa` and the merge of `main` at f25a74eb7), each once: no off arm is left to run them against.
+- The checks made with each group of commits before the merge of `main` passed: `cargo check --locked --all-targets`, fmt, clippy with warnings denied and `cargo nextest run` for the crates the commits touch; on the merge commit `cargo check --locked --all-targets -p tn-node -p tn-primary` with warnings denied passed, and no test has run on it.
+- `cargo +nightly-2026-03-20 fmt --all -- --check`: clean on the merge commit.
+- Not run on this head; the repository's own suites run with `make attest` on #1862's branch once this PR is merged, and what runs before that is added here: `./etc/ci-lanes.sh clippy`; `cargo nextest run --locked --workspace`; every commit of this PR compiles alone (`cargo check --locked --workspace --all-targets`, warnings denied); `make test-restarts`, `make test-epochs`, `make test-sigkill` and `make test-e2e-resync`; the e2e tests the stack adds (`exec_block`, `epoch_close_forms`, `epoch_record_walk`, `digest_order_hold`), three runs each; `make test-upgrade` with main at 33b727fce as the previous binary (four validators upgraded in place, one at a time); the three `state_export_import` tests, which restore a node from an exported state; the order hold's model hunt, 100,000 cases.
 - Until the e2e gates above have run, the e2e tests this PR changes have been compiled and not run.
 
 ## Limits and what a reviewer should look at
@@ -155,7 +159,8 @@ Stack-wide gates for this PR run on its head, `refactor/remove-bench-switches` a
   The depth of the floor of 8 is open in #1804.
 - Each request's wait before the lock is capped at 1 s, but with the default serve budget nothing caps how many requests of one author wait at once: a serve class with capacity zero is unbounded, and zero is the default for every class (`crates/network-libp2p/src/serve_permits.rs:15-16`).
   Only the authenticated author can cause it, and on main N queued requests held their tasks for up to N × 1 s; counting waiters per author and answering `ExecutionBehind` past a small cap is a possible follow-up.
-- The e2e tests this PR changed were compiled with their commits and are run by the stack-wide gates above, not before; the before-store order-hold test has not run under the always-on rule before them.
+- The e2e tests this PR changed were compiled with their commits, and the e2e gates have not run on this head (see the stack-wide gates above).
+  One partial run on `54aa60932`, stopped when `main` was merged, finished `test_hold_keeps_every_transaction_after_store`, `test_hold_keeps_every_transaction_before_store` and `test_hold_survives_a_kill_of_the_far_validator`, each once, and they passed; for the before-store test that was its first run under the always-on rule.
 - The `stale_resend` classification and its metric label are dead code after this PR and are left in place: removing them is a change on a kept path, and a possible follow-up.
 
 ## Related

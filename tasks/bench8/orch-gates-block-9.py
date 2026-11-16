@@ -17,6 +17,8 @@ not finished, so the text never states a run that was not read from its log. Gat
   --restore   the three state_export_import tests                      e.g. "passed"
   --hunt      the order hold's 100,000-case model hunt                 e.g. "no counterexample"
   --own       what the commits' own checks covered (the whole sentence; default below)
+  --pending   the words in front of the list of gates without a result (default: "Not finished when ... are:")
+  --headnote  the words in the brackets after the head's commit (default: "<n> commits on `500e21afa`")
 """
 import sys
 
@@ -36,7 +38,7 @@ OWN_DEFAULT = ("The checks made with each group of commits passed: `cargo check 
 
 args = sys.argv[1:]
 opts, files = {}, []
-names = {g for g, _ in GATES} | {"tip", "commits", "own"}
+names = {g for g, _ in GATES} | {"tip", "commits", "own", "pending", "headnote"}
 i = 0
 while i < len(args):
     if args[i].startswith("--"):
@@ -55,14 +57,15 @@ if not files or "tip" not in opts or "commits" not in opts:
 def block() -> list[str]:
     done = [(g, text) for g, text in GATES if g in opts]
     left = [text[0].lower() + text[1:] for g, text in GATES if g not in opts]
+    headnote = opts.get("headnote", f"{opts['commits']} commits on `500e21afa`")
     out = [f"Stack-wide gates for this PR run on its head, `refactor/remove-bench-switches` at `{opts['tip']}` "
-           f"({opts['commits']} commits on `500e21afa`), each once: no off arm is left to run them against."]
+           f"({headnote}), each once: no off arm is left to run them against."]
     out.append("- " + opts.get("own", OWN_DEFAULT))
     for g, text in done:
         out.append(f"- {text}: {opts[g]}.")
     if left:
-        out.append("- Not finished when this text was last updated, and added here when they are: "
-                   + "; ".join(left) + ".")
+        out.append("- " + opts.get("pending", "Not finished when this text was last updated, and added here when they are:")
+                   + " " + "; ".join(left) + ".")
         if any(g not in opts for g in ("sets", "x3")):
             out.append("- Until the e2e gates above have run, the e2e tests this PR changes have been compiled and not run.")
     out.append("")
