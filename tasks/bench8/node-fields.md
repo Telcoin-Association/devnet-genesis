@@ -91,9 +91,26 @@ Fix in 453123d5e: a vote that fails the aggregator's signature check is listed u
 
 Not added, and why: a separate `commit_wait_ms`: `open_ms` on `persisted output` already is the wait for the store's single writer slot (the time inside `database_provider_rw()`); `txs` / `blocks` on the task line: join on `consensus_number`.
 
-## Still to come
+## `order hold released` (target `consensus::metrics`, INFO) — new line (B8-7: b3067a77e)
 
-- B8-7: `order hold released`, `subdag parent skipped`.
+One line per own header that an order-hold plan named a blocker, written when that header leaves the proposer's tracked set; never one per digest; nothing with `digest_order_hold` off. Fields in order:
+
+| field | type | meaning |
+|---|---|---|
+| `epoch` | u32 | the committee's epoch |
+| `round` | u32 | the blocker header's round |
+| `lanes` | usize | distinct workers in that header's payload (the lanes it held) |
+| `digests` | usize | digests queued, when the line is written, in the lanes this header held that no other tracked blocker still holds (a lane two blockers share counts at the last to leave; on a cancel the line comes after the re-queue, so the cancelled header's own digests are counted) |
+| `waited_ms` | u64 | wall clock now minus the header's `created_at_ms` |
+| `cause` | quoted string | `cancel` (the uncertified header was re-queued), `commit` (a commit notice named it), `requeue_on_commit` (a commit notice for a higher own round re-queued it), `epoch_end` (the proposer stopped: epoch end or shutdown; not written on an error exit) |
+
+Sample: `order hold released epoch=0 round=1 lanes=1 digests=3 waited_ms=4 cause="cancel"`
+
+## `subdag parent skipped` (target `consensus::metrics`, INFO) — new line (B8-7: fdb9d22a9)
+
+At most one line per committed leader (per sub-dag ordered), only when at least one parent was skipped because its round is STRICTLY below its origin's last committed round (a parent at exactly that round is the routine frontier skip and is not counted). Each counted certificate was either committed by an earlier sub-dag or is never committed: join `(origin, round)` against the `certificate committed` lines to tell which. Fields in order: `epoch`, `leader_round`, `skipped` (distinct certificates skipped that way), `edges` (parent edges that hit such a skip), `skips` (`[origin:round:last_committed,…]`, the lowest ten by (round, origin); `skipped` keeps the full count).
+Sample: `subdag parent skipped epoch=0 leader_round=3 skipped=3 edges=5 skips=[<idA>:1:2,<idB>:1:3,<idB>:2:3]`
+Rate: at most one line per two rounds per node (about 1.25 a second at bench load).
 
 ## Reviewed
 
