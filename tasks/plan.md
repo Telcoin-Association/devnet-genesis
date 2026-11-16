@@ -53,7 +53,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 
 ## Step 5 — bench 8
 - [x] (N0-N5, the summary and its figure-check done 2026-11-16) 5a N1 voters lacking the block per under-held header · N2 certified share against the laggards' wait · N3 held against not-held · N4 60-s course · N5 near headers after an uncommitted far certificate → `benchmark/private/bench8-prep/N1..N5/`, `tasks/bench8/no-run-findings.md`, figure-checked
-- [ ] 5b `bench/bench8-2026-11` from 91a15e223 (confirmed against run 7a's manifest): `quorum_exec_block_floor_outputs` (default 8), the log fields, gates (unit tests, golden payloads at floor 8, nextest for the touched crates, the restart e2e set), image built and pushed
+- [x] (2026-11-16: 21 commits, tip b1104905f, pushed; image `adiri:bench8-20261116`, digest sha256:e81f54d6…3e9a1a; cargo gates 1,879 tests, golden tests, restart e2e set 11/11 at the defaults and 11/11 with the floor-16 arm; the whole build reviewed) 5b `bench/bench8-2026-11` from 91a15e223 (confirmed against run 7a's manifest): `quorum_exec_block_floor_outputs` (default 8), the log fields, gates (unit tests, golden payloads at floor 8, nextest for the touched crates, the restart e2e set), image built and pushed
 - [ ] 5c harness: arms `bench8-floor16`, `bench8-control`, `bench8-nohold`, `arms/switches.tsv` rows, the reduced-load launch file, credentials check, the idle check's `up` rule, the endpoint sampler as a segment, the first-and-last-sample export check; harness tests pass
 - [ ] 5d run 1 (F, floor 16) — the user's go + a fresh `gcloud auth login`
 - [ ] 5d run 2 (R or H or C by run 1's result) — the user's go + a fresh login
