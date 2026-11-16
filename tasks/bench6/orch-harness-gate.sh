@@ -21,7 +21,10 @@ export GATE_LOG_DIR
 mkdir -p "${GATE_LOG_DIR}"
 echo "HARNESS-GATE start $(date -u +%FT%TZ) head=$(git rev-parse --short HEAD) logs=${GATE_LOG_DIR} load=$(cut -d' ' -f1-3 /proc/loadavg) pid=$$"
 if [ "$#" -eq 0 ]; then set -- --jobs 4; fi
-bash benchmark/tests/gate.sh "$@"
+# A job started with & from a non-interactive shell inherits SIGINT and SIGQUIT as ignored, and a shell cannot
+# un-ignore a signal it was started with: test_keygen's signal test then sees its SIGINT do nothing (the gate
+# of 2026-11-16T18:44Z failed on exactly that subtest). env resets both to the default for the gate.
+env --default-signal=INT,QUIT bash benchmark/tests/gate.sh "$@"
 rc=$?
 echo "HARNESS-GATE rc=${rc} $(date -u +%FT%TZ) load=$(cut -d' ' -f1-3 /proc/loadavg)"
 exit "${rc}"
