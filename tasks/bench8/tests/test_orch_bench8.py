@@ -352,6 +352,124 @@ class TestSampler(base.SandboxCase):
         self.assertIn("no project", out)
 
 
+# ---- 3b. the sampler's host readings (clock offset, CPU counters) and their reader ---------------------
+
+READER = os.path.join(base.BENCH8, "orch-host-readings.py")
+MARKED = "curl -s --max-time 10 http://127.0.0.1:9101/metrics | gzip -1 | base64 -w0; echo; echo TN_HOST_READINGS_V1; "
+CHRONY = ("clock chrony\n"
+          "Last offset     : +0.000002100 seconds\n"
+          "RMS offset      : 0.000011000 seconds\n"
+          "System time     : 0.000001234 seconds slow of NTP time\n")
+TIMESYNCD = "clock timesyncd\n       Offset: +2.5ms\n"
+NO_CLOCK = "clock none\n"
+CPU1 = "cpu  100 0 50 800 10 0 5 35 0 0"
+CPU2 = "cpu  200 0 100 1600 20 0 10 70 0 0"
+
+
+def host_block(clock, cpu):
+    return clock + cpu + "\nclk_tck 100\n"
+
+
+class TestSamplerHostReadings(base.SandboxCase):
+    def setUp(self):
+        super(TestSamplerHostReadings, self).setUp()
+        self.sb.write_manifest()
+        self.nodes = sorted(NODES)[:3]
+        self.out = os.path.join(self.sb.dir, "out")
+
+    def round(self, host):
+        cfg = {n: endpoint_text(n) for n in NODES}
+        cfg["host"] = host
+        self.sb.write_json("ssh.json", cfg)
+        p = subprocess.run(["bash", base.SAMPLER, RUN, self.out, "--once", "--nodes", ",".join(self.nodes)],
+                           cwd=self.sb.root, env=self.sb.env(SAMPLER_ROOT=self.sb.root), stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout)
+        return p.stdout
+
+    def files(self, kind):
+        return sorted(glob.glob(os.path.join(self.out, "*-%s-*" % kind)))
+
+    def assert_metrics_as_sent(self):
+        """Each node's newest metrics file holds, byte for byte, the gzip its session produced (the fake keeps a copy)."""
+        payload = os.path.join(self.sb.env()["FAKE_DIR"], "ssh-payload")
+        newest = {}
+        for f in self.files("metrics"):
+            newest[os.path.basename(f).split("-metrics-")[0]] = f
+        self.assertEqual(sorted(newest), self.nodes)
+        for node, f in sorted(newest.items()):
+            with open(f, "rb") as a, open(os.path.join(payload, node + ".gz"), "rb") as b:
+                self.assertEqual(a.read(), b.read(), node)
+        left = [n for n in os.listdir(self.out) if n.startswith(".") or n.endswith(".part")]
+        self.assertEqual(left, [])
+
+    def test_a_round_with_the_host_block(self):
+        host = {n: host_block(CHRONY, CPU1) for n in self.nodes}
+        out = self.round(host)
+        self.assertRegex(out, r"(?m)^ENDPOINT_SAMPLE run=%s round=1 ok=3/3 failed=- host=ok \d{4}-" % RUN)
+        self.assert_metrics_as_sent()
+        hosts = self.files("host")
+        self.assertEqual(len(hosts), 3, hosts)
+        for h in hosts:
+            node, stamp = os.path.basename(h)[:-len(".txt")].split("-host-")
+            with open(h) as f:
+                self.assertEqual(f.read(), host[node])
+            self.assertTrue(os.path.exists(os.path.join(self.out, "%s-metrics-%s.txt.gz" % (node, stamp))), h)
+        ssh = [c for c in self.sb.all_gcloud_calls() if c[:2] == ["compute", "ssh"]]
+        self.assertEqual(len(ssh), 3, ssh)
+        for c in ssh:
+            cmd = c[c.index("--command") + 1]
+            self.assertTrue(cmd.startswith(MARKED), cmd)
+            for part in ("chronyc -n tracking", "timedatectl timesync-status", "head -n 1 /proc/stat",
+                         "getconf CLK_TCK", "clock none"):
+                self.assertIn(part, cmd)
+
+    def test_b_a_round_without_the_host_block_or_with_a_malformed_one(self):
+        out = self.round({self.nodes[1]: "clock chrony\nclk_tck 100\n"})
+        m = re.search(r"(?m)^ENDPOINT_SAMPLE run=%s round=1 ok=3/3 failed=- host=missing:(\S+) \d{4}-" % RUN, out)
+        self.assertTrue(m, out)
+        self.assertEqual(sorted(m.group(1).split(",")), self.nodes)
+        self.assert_metrics_as_sent()
+        self.assertEqual(self.files("host"), [])
+
+    def test_c_none_for_the_clock_and_the_reader(self):
+        a, b, c = self.nodes
+        clocks = {a: CHRONY, b: TIMESYNCD, c: NO_CLOCK}
+        out = self.round({n: host_block(clocks[n], CPU1) for n in self.nodes})
+        self.assertRegex(out, r"(?m) host=ok ")
+        with open(os.path.join(self.out, os.path.basename(self.files("host")[2]))) as f:
+            self.assertEqual(f.read(), host_block(NO_CLOCK, CPU1))
+        time.sleep(1.1)  # the file names carry the UTC second
+        out = self.round({n: host_block(clocks[n], CPU2) for n in self.nodes})
+        self.assertRegex(out, r"(?m) host=ok ")
+        self.assert_metrics_as_sent()
+        with open(os.path.join(self.out, "%s-host-20261115T000000Z.txt" % a), "w") as f:
+            f.write("not a host block\n")
+        p = subprocess.run([sys.executable, READER, self.out], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("skipped, not a host block: %s-host-20261115T000000Z.txt" % a, p.stderr)
+        lines = p.stdout.splitlines()
+        self.assertEqual(lines[0], "utc\tnode\tclock_offset_s\tclock_source\tsteal_jiffies\ttotal_jiffies\t"
+                                   "steal_share_since_previous_round")
+        rows = [ln.split("\t") for ln in lines[1:]]
+        self.assertEqual(len(rows), 6, lines)
+        for r in rows:
+            self.assertRegex(r[0], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual([r[1:] for r in rows], [
+            [a, "-0.000001234", "chrony", "35", "1000", ""],
+            [b, "-0.002500000", "timesyncd", "35", "1000", ""],
+            [c, "", "none", "35", "1000", ""],
+            [a, "-0.000001234", "chrony", "70", "2000", "0.035000"],
+            [b, "-0.002500000", "timesyncd", "70", "2000", "0.035000"],
+            [c, "", "none", "70", "2000", "0.035000"],
+        ])
+        self.assertLess(rows[0][0], rows[3][0])
+        p = subprocess.run([sys.executable, READER, os.path.join(self.out, "no-such-dir")], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+        self.assertEqual(p.returncode, 2, p.stderr)
+
+
 # ---- 4. the export's coverage check -------------------------------------------------------------------
 
 class TestExportCoverage(unittest.TestCase):

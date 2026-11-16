@@ -5,13 +5,24 @@
 # write loses one batch per scrape on some nodes (tasks/checkpoint-bench7-orch.md, 12:40Z and 14:28Z of
 # 2026-11-15): what Prometheus lacks for a node is recovered from these files (cumulative since the node
 # process started).
-# Read-only on the fleet: one ssh per node per round, `curl` of the node's exporter, nothing else.
+# Read-only on the fleet: one ssh per node per round. In that one session: `curl` of the node's exporter, the
+# time daemon's status (`chronyc -n tracking`, else `timedatectl timesync-status`, else the word none), the
+# first line of /proc/stat and `getconf CLK_TCK`; nothing else.
 #   tasks/bench8/orch-endpoint-sampler.sh <run> <out-dir> [--once] [--interval <secs>] [--until-file <segment log>]
 #                                         [--max-secs <n>] [--nodes <name,name,...>] [--stop-file <file>]
 #                                         [--parent-pid <pid>]
 # Per round one line:
-#   ENDPOINT_SAMPLE run=<run> round=<n> ok=<n>/<nodes> failed=<node,...|-> <UTC>
-# Files: <out-dir>/<node>-metrics-<UTC compact>.txt.gz (a failed read leaves no file).
+#   ENDPOINT_SAMPLE run=<run> round=<n> ok=<n>/<nodes> failed=<node,...|-> host=<ok|missing:node,...> <UTC>
+# Files: <out-dir>/<node>-metrics-<UTC compact>.txt.gz (a failed read leaves no file) and, beside it,
+# <out-dir>/<node>-host-<UTC compact>.txt (the host readings; none when the block is missing or malformed,
+# and the node is then named in host=missing:). The session prints the metrics payload as before (one base64
+# line), a line break, the marker line TN_HOST_READINGS_V1, then the host block, which is saved as printed:
+#   clock <chrony|timesyncd|none>
+#   <chrony's "Last offset", "RMS offset", "System time" lines | timesyncd's "Offset:" line | nothing>
+#   cpu <user> <nice> <system> <idle> <iowait> <irq> <softirq> <steal> ...   (jiffies since boot)
+#   clk_tck <n>
+# Everything before the marker line is the payload; a session without the marker still saves the metrics.
+# Reader: tasks/bench8/orch-host-readings.py <out-dir>.
 # Ends: --once after one round; with --until-file when that file holds "== <segment> rc=" or
 # "== <segment> LEFT_RUNNING " (one more round is taken after the end line); after --max-secs [10800]; at once
 # (checked every second, no further round) when the --stop-file exists or the --parent-pid process is gone:
@@ -51,12 +62,32 @@ EOF
 )
 [ "${#pairs[@]}" -gt 0 ] || { echo "no nodes" >&2; exit 2; }
 mkdir -p "$out"
-one() { # <node> <zone> <stamp>: 0 when a valid gzip with series was written
-    local node="$1" zone="$2" stamp="$3" f tmp
-    f="${out}/${node}-metrics-${stamp}.txt.gz"; tmp="${f}.part"
+HOST_MARK=TN_HOST_READINGS_V1
+# The session's command: the metrics payload exactly as before, then the marker line, then the host block.
+# A missing chronyc or timedatectl only leaves its reading empty; the session never fails on it.
+REMOTE='curl -s --max-time 10 http://127.0.0.1:9101/metrics | gzip -1 | base64 -w0; echo; echo '"${HOST_MARK}"'; '\
+'c="$(chronyc -n tracking 2>/dev/null | grep -E "^(Last offset|RMS offset|System time) ")"; '\
+'if [ -n "$c" ]; then echo "clock chrony"; printf "%s\n" "$c"; '\
+'else c="$(timedatectl timesync-status 2>/dev/null | grep -E "^ *Offset:")"; '\
+'if [ -n "$c" ]; then echo "clock timesyncd"; printf "%s\n" "$c"; else echo "clock none"; fi; fi; '\
+'head -n 1 /proc/stat; echo "clk_tck $(getconf CLK_TCK)"'
+# host_ok <file>: 0 when it holds one clock line, one aggregate cpu line with 8 counters and one clk_tck line.
+host_ok() {
+    awk '$1 == "clock" && NF == 2 && ($2 == "chrony" || $2 == "timesyncd" || $2 == "none") { c++ }
+         $1 == "cpu" && NF >= 9 { ok = 1; for (i = 2; i <= 9; i++) if ($i !~ /^[0-9]+$/) ok = 0; if (ok) p++ }
+         $1 == "clk_tck" && NF == 2 && $2 ~ /^[0-9]+$/ && $2 > 0 { k++ }
+         END { exit !(c == 1 && p == 1 && k == 1) }' "$1" 2>/dev/null
+}
+one() { # <node> <zone> <stamp>: 0 when a valid gzip with series was written; .nohost.<node> without host readings
+    local node="$1" zone="$2" stamp="$3" f tmp raw h
+    f="${out}/${node}-metrics-${stamp}.txt.gz"; tmp="${f}.part"; raw="${out}/.ssh.${node}"
+    h="${out}/${node}-host-${stamp}.txt"
     timeout 50 gcloud compute ssh "$node" --zone="$zone" --project="$PROJECT" --tunnel-through-iap --quiet \
-        --command 'curl -s --max-time 10 http://127.0.0.1:9101/metrics | gzip -1 | base64 -w0' \
-        2>>"${out}/ssh.err" </dev/null | base64 -d >"$tmp" 2>/dev/null
+        --command "$REMOTE" 2>>"${out}/ssh.err" </dev/null >"$raw"
+    awk -v m="$HOST_MARK" '$0 == m { exit } { print }' "$raw" | base64 -d >"$tmp" 2>/dev/null
+    awk -v m="$HOST_MARK" 'f { print } $0 == m { f = 1 }' "$raw" >"${h}.part"
+    if host_ok "${h}.part"; then mv "${h}.part" "$h"; else rm -f "${h}.part"; : >"${out}/.nohost.${node}"; fi
+    rm -f "$raw"
     if gzip -t "$tmp" 2>/dev/null && [ "$(zcat "$tmp" | grep -vc '^#')" -gt 1000 ]; then
         mv "$tmp" "$f"; return 0
     fi
@@ -71,7 +102,7 @@ stop_reason() {
 start=$(date +%s); round=0; ended=0
 while :; do
     round=$((round + 1)); stamp="$(date -u +%Y%m%dT%H%M%SZ)"; t0=$(date +%s)
-    rm -f "${out}/.fail."*
+    rm -f "${out}/.fail."* "${out}/.nohost."*
     for p in "${pairs[@]}"; do
         set -- $p
         ( one "$1" "$2" "$stamp" || : >"${out}/.fail.$1" ) &
@@ -79,7 +110,8 @@ while :; do
     wait
     failed="$(ls -a "$out" | sed -n 's/^\.fail\.//p' | paste -sd, -)"; rm -f "${out}/.fail."*
     nfail=0; [ -n "$failed" ] && nfail=$(( $(printf '%s' "$failed" | tr -cd , | wc -c) + 1 ))
-    echo "ENDPOINT_SAMPLE run=${run} round=${round} ok=$(( ${#pairs[@]} - nfail ))/${#pairs[@]} failed=${failed:--} $(utc)"
+    nohost="$(ls -a "$out" | sed -n 's/^\.nohost\.//p' | paste -sd, -)"; rm -f "${out}/.nohost."*
+    echo "ENDPOINT_SAMPLE run=${run} round=${round} ok=$(( ${#pairs[@]} - nfail ))/${#pairs[@]} failed=${failed:--} host=${nohost:+missing:}${nohost:-ok} $(utc)"
     [ "$once" = 1 ] && break
     [ "$ended" = 1 ] && { echo "ENDPOINT_SAMPLE the segment ended; last round taken $(utc)"; break; }
     now=$(date +%s)

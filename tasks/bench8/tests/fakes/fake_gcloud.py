@@ -7,7 +7,10 @@ Bench 8, answered armed or not (read-only calls of the chain and the endpoint sa
   auth print-access-token  -> "fake-token", or as $FAKE_DIR/auth.json says: {"rc": <n>, "stderr": "<text>"}
   compute ssh <node> ...   -> with $FAKE_DIR/ssh.json {"<node>": "<metrics text>" | null, "sleep": <secs>}: the text
                               padded past the sampler's 1000-series floor, gzip -1 | base64 -w0 as the sampler's
-                              remote command prints it; exit 255 for null or a node not listed; REACHED/9 unarmed
+                              remote command prints it; exit 255 for null or a node not listed; REACHED/9 unarmed.
+                              With "host": {"<node>": "<host block>"} a node's answer goes on with a line break,
+                              the line TN_HOST_READINGS_V1 and that block (without it: the payload alone, as
+                              before). The gzip payload is also kept as $FAKE_DIR/ssh-payload/<node>.gz.
 Every call's argv is appended to $FAKE_DIR/gcloud.calls (one JSON array per line), and a `ps` snapshot is
 saved under $FAKE_DIR/ps/.
 """
@@ -51,7 +54,15 @@ def main():
             sys.stderr.write("ssh: connect to host %s: a fake failure\n" % args[2])
             return 255
         text += "".join('fake_pad_series{i="%d"} 0\n' % i for i in range(1100))
-        sys.stdout.write(base64.b64encode(gzip.compress(text.encode(), 1)).decode())
+        payload = gzip.compress(text.encode(), 1)
+        pdir = os.path.join(fake, "ssh-payload")
+        os.makedirs(pdir, exist_ok=True)
+        with open(os.path.join(pdir, args[2] + ".gz"), "wb") as f:
+            f.write(payload)
+        sys.stdout.write(base64.b64encode(payload).decode())
+        host = (scfg.get("host") or {}).get(args[2])
+        if host is not None:
+            sys.stdout.write("\nTN_HOST_READINGS_V1\n" + host)
         return 0
     path = os.path.join(fake, "gcloud.json")
     if not os.path.exists(path):
