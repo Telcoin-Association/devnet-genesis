@@ -2,13 +2,13 @@
 
 Adds the author's side of #1804 behind two runtime switches, `quorum_exec_block` (default `false`) and `quorum_exec_block_starved_rounds` (default `0`); in this PR's diff, at the defaults, every header names the proposer's own newest executed block, as on main.
 With `quorum_exec_block: true` a header names the highest execution block that holders of 2f+1 voting weight, among the proposer's own tip and its same-epoch parents, have reached: capped at the own tip, never older than 8 entries back in the recent-blocks ring (the floor), never older than the block the epoch opened on.
-With the count left at `0` every header uses the rule: this always-on form is the one the repository owner chose, after bench 6 and bench 7, as the only form that ships.
+With the count left at `0` every header uses the rule: this always-on form is the one the review of the stack chose, after bench 6 and bench 7, as the only form that ships.
 A count K above zero selects the adaptive form, kept for comparison: the own tip, and the rule only for the next K headers built after an own header was cancelled uncertified, K doubling up to 128 while cancels go on and returning to the configured value after 64 certified tip headers in a row.
 Every node, switch on or off, logs four new fields on `header proposed`.
 
 {{pr-09}}, the last PR of the stack, removes both switches and makes the always-on form the node's behaviour; once the stack is collapsed into #1862 there is no switch.
 {{pr-09}} also deletes the adaptive form: its window, its reset streak, its two constants (the 128-header cap and the 64-header streak) and their tests.
-The adaptive form is deleted because the repository owner chose always-on as the only form that ships, and because of bench 7: it ran one run of each form at 20,000 IOPS, and in that pair the adaptive form did not do better (in the table below three rows are not told apart, and on the two rows outside the always-on run's spread the adaptive run is behind); bench 7 made no run at 50,000 IOPS, where bench 6 had the adaptive form ahead on certification.
+The adaptive form is deleted because the review of the stack chose always-on as the only form that ships, and because of bench 7: it ran one run of each form at 20,000 IOPS, and in that pair the adaptive form did not do better (in the table below three rows are not told apart, and on the two rows outside the always-on run's spread the adaptive run is behind); bench 7 made no run at 50,000 IOPS, where bench 6 had the adaptive form ahead on certification.
 The adaptive form also carries code the always-on form does not need: a window, a streak and two constants.
 
 PR 7 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
