@@ -1,0 +1,65 @@
+# Review RV-2: `vote_queue_fix` removal (tn-b8-uc, b67c0acdd..6a7c3d7c5)
+
+Commits: d2b80ced5 (switch, handler arm, config, tests, e2e lists), adecca691 (dead `vote_timeout` check), 6a7c3d7c5 (four upstream vote tests). All reads at named commits; no cargo run.
+
+## Verdict: approve with follow-ups
+
+No Critical, High or Medium. Six Lows: one stale test doc, one test that lost part of what it covered, one e2e calibration that has to be re-run, and three behaviour facts that belong in the PR's "Limits" section.
+
+## The four questions of the rules file
+
+1. **Off arm left?** No. `git grep -n -w vote_queue_fix 6a7c3d7c5 -- crates docs` is empty. The lock-then-wait `else` arm (`tokio::time::timeout(VOTE_EXECUTION_WAIT, wait_for_execution(header_block)).await.ok()`) is gone, and handler.rs now calls `wait_for_execution` only in the pre-lock wait (handler.rs:1062-1068). `create_test_types_vote_queue_fix`, the `on: bool` helpers and every `_switch_off` / `_off_` twin are gone.
+2. **Kept-path statement changed?** No. `git diff -w` of handler.rs shows only the two removed `if …vote_queue_fix {` / `}` lines, the deleted `else` arm and four doc edits (`:211`, `:1361`, `:1536-1538`, `:2450`). `let execution = match self.consensus_bus.check_execution_block(header_block) { … }` keeps the same arms. The order of calls, errors, log fields and the `VoteStage::ExecWait` timing are unchanged. In config, the live check's condition and arguments are unchanged; its message only lost "while vote_queue_fix is on" and "or turn vote_queue_fix off".
+3. **Kept-behaviour test deleted or weakened?** One partial loss (L2). Everything else deleted is off-arm only (section C).
+4. **Comment, doc or log still naming the switch?** None for this switch. `metrics.rs:651` ("With the switch off neither moves from 0") is about the proposer's `quorum_exec_block` (R3). `exec_block.rs:48`'s "Every switch off" refers to the switches still there (R3/R5). One test doc still states the old behaviour (L1).
+
+## A. handler.rs: clean
+The deleted arm was only reachable with the switch off: it was the `else` of `if self.consensus_config.parameters().vote_queue_fix`. Both removed wrappers kept their bodies byte for byte under `-w`: the pre-lock block at handler.rs:1045-1076 and the post-lock `refuse_superseded_request(&header, false)?` at :1134-1139. The pre-lock wait already ran with the switch on; it is not new code.
+
+## B. config/consensus.rs: clean
+The removed `vote_timeout < LIBP2P_REQUEST_TIMEOUT` could never fire. If `vote_timeout >= 10 s`, then `vote_timeout.saturating_add(1 s) >= 10 s`, and saturating to `Duration::MAX` also stays `>= 10 s`. So the live check refuses every value the old one refused, and its message tells the operator what to do: "lower vote_timeout below 9s" (consensus.rs:544-556). The deleted test's cases (10 s and 20 s, both sub-second modes) now sit in `vote_timeout_plus_the_prelock_wait_stays_below_the_request_timeout` and assert that exact text, which is a stronger match than the old "libp2p request timeout" substring. That substring is still in the message too. The old test's "10 s − 1 ms is accepted" is now correctly refused, and the loop asserts the refusal. Nothing lost.
+A node now starts only if all three hold (consensus.rs:511-556; `LIBP2P_REQUEST_TIMEOUT` 10 s :450, `VOTE_EXECUTION_WAIT` 1 s :460):
+- `vote_timeout >= max_header_delay + drift wait`. The drift wait is `max_header_time_drift_tolerance`, rounded up to whole seconds while sub-second timestamps are inactive.
+- `vote_timeout > 1 s`.
+- `vote_timeout + 1 s < 10 s`, so `vote_timeout` must be strictly below 9 s.
+node.rs:307-309 and README:719 say "below 9 s". They match.
+
+## C. Deleted tests: fine
+- The seven `quorum_exec_block_voter_*_switch_off` tests turned off `vote_queue_fix`, not `quorum_exec_block`: `old_block_voter(…, on, …)` built `Parameters { vote_queue_fix: on, .. }`. Deleting them here was right. Their `on` bodies are now the `#[tokio::test(start_paused = true)]` tests `old_block_in_ring_is_voted_at_once`, `old_block_out_of_ring_is_voted_from_the_database`, `old_number_with_another_hash_is_refused_as_a_fork`, `previous_epoch_blocks_in_ring_are_voted_at_once`, `previous_epoch_blocks_out_of_ring_are_answered_at_once`, `block_above_the_tip_is_waited_for` and `author_stepping_back_is_voted_at_once`. Only assertion messages changed; none of these helpers had an `if on` branch.
+- `malformed_header_is_refused_without_the_wait` and `vote_refuses_repeat_of_voted_header_after_newer_request` lost only their `else` branches, which asserted `AlreadyVotedForLaterRound` and the cache answer with the switch off. `vote_path_timing_line_carries_prelock_wait` lost only its off half (`prelock_wait_ms=0`, `exec_wait_ms >= wait`), and its on half is intact.
+- `vote_queued_requests_of_one_author_wait_in_turn` (base :5714-5786) is not an upstream test: there are 0 hits at 0554efd4f, so #1864 added it to reproduce #1804. Its central assertion, that the k-th request is answered k execution waits in and the last one after `vote_timeout`, describes only the removed lock-then-wait path. Its other facts still hold and are still asserted by `vote_queued_requests_wait_once`: every answer is `ExecutionBehind`, two authors' queues run independently, and repeated copies of one header are each answered. The writer's call was correct.
+
+## D. The four upstream tests (6a7c3d7c5)
+- `test_vote_older_round_rejected`: correct. The round-2 request records the mark on arrival (handler.rs:1061 → :1376-1399), so round 1 gets `SupersededRequest{round:1,newest_round:2}`. The added first case (round-2 vote stored on disk, no request seen) is the one reachable case left for `AlreadyVotedForLaterRound` on an older round. The in-memory mark is empty after a restart; under the lock the stored vote refuses round 1. Keeping it was right.
+- `test_vote_cached_across_stale_headers`: correct. The same-round header is not superseded (only a strictly lower round is), so it still gets `AlreadyVotedForLaterRound` under the lock. The older round gets `SupersededRequest`. Both cases still assert the cached vote is kept, and the final repeat still asserts `again == vote`.
+- `test_vote_cached_across_dropped_request`: correct, and the writer's claim is **confirmed**. The round-2 header names an unexecuted block, sits in the window and passes `Header::validate`, so it is polled once and dropped inside the pre-lock `timeout(VOTE_EXECUTION_WAIT, …)` (handler.rs:1062-1068). It never takes the author lock or touches `auth_last_vote`. See L2.
+- `test_vote_tier_three_lead_waits_only_for_an_unexecuted_block`: correct. The drift tier is decided under the lock (handler.rs:1536-1541), after the pre-lock wait. A held block returns from the wait at once (0 s on the paused clock), a missing one only after `VOTE_EXECUTION_WAIT`. Both cases assert `InvalidTimestamp` with no penalty. The test doc's first line is stale (L1).
+
+## E. Behaviour differences from main, checked against 6a7c3d7c5
+1. Accurate. `refuse_superseded_request` runs on arrival (handler.rs:1061), after the pre-lock wait (:1075) and under the lock (:1138). It refuses only the same epoch and a strictly lower round, against a mark that only in-window requests from the authenticated author set. No penalty (error/network.rs:243); the requester gets a recoverable answer (error/network.rs:545-566 test). Needs saying: L4.
+2. Accurate. The arrival check runs before the `cast` lookup (handler.rs:~1086) and the stored-vote recast (~1094). Nothing is signed and the cached vote stays.
+3. Accurate, with three qualifiers. The wait happens only for a header that is in the window and passes `Header::validate`. It ends early if the block executes. Any header that fails only the drift, parent or seed-signature checks waits too (handler.rs:1058-1060 says so). Extension: L5.
+4. Accurate. `request_vote` retries a `RecoverableError` 6 times at 250 ms, then returns `RPCRetryable` (network/mod.rs:2041-2063). The certifier then backs off 0/0.1/0.5/1/2/5 s and then every 10 s until `cancel_proposal` fires (certifier.rs:296-313). `AlreadyVotedForLaterRound` maps to `PrimaryResponse::Error` → `RPCError`, and the certifier logs "fatal request for requested vote" and gives up on that voter (certifier.rs:~249-262). Amplification is small: every retry of a superseded header is refused on arrival, before any wait or lock (one mutex lookup), and stops when the author's proposal is cancelled. Mixed versions: `SupersededRequest` is new (0 hits in error/network.rs at 0554efd4f), but it goes over the wire as `RecoverableError(PrimaryRPCError(String))`, which a `main` author decodes and retries the same way. Hold-time bound: L6.
+
+## F. e2e lists: fine, one follow-up
+`fleet.rs` `STACK_SWITCHES_ON` / `STACK_SWITCHES_OFF` each lose exactly the one entry (now `[_; 3]`). In `exec_block.rs`, the Adaptive and Always arms lose `("vote_queue_fix","true")`. The Control arm doc (`:48`, "the base's proposer") is accurate. Its assertion, fast share ≤ `MAX_CONTROL_SHARE` and every slow voter's `ExecutionBehind` counter > 0 (`:230-243`), still applies because the pre-lock path still answers `ExecutionBehind`. Now only `quorum_exec_block` separates the arms, which makes the control a cleaner baseline. Calibration: L3.
+
+## Findings
+
+**Low**
+- L1. Stale test doc at network_tests.rs:3167 (tip): "A tier-three header is rejected before the voter waits for its execution block." contradicts the test's new name and body. Change: "A tier-three header is refused under the author lock, after the wait for execution before it."
+- L2. `test_vote_cached_across_dropped_request` no longer exercises #1836's case: a cast vote survives a newer request of the same author that is dropped while it is being evaluated under the lock. Its vote check also weakened, from `again == vote` to the digest-only `author_guard_holds_vote`. `vote_dropped_request_keeps_author_entry` (:6701-6705) still covers restoring the entry after a drop under the lock (#1842), but not with a cast vote. Change: drop the newer request while it waits under the lock (on a pending parent, as `PendingParentVoter` does) and assert the cast vote is unchanged.
+- L3. exec_block.rs:86-92 (`MAX_CONTROL_SHARE` 0.85, "measured 0.61 to 0.74") and :136 ("gain measured 0.20 to 0.30") were measured with the control on the lock-then-wait voter, and the control now runs the pre-lock voter. `test_fast_executor_is_certified` must be re-run before merge; if the control's share moves, refresh the figures or say which voter they came from.
+- L4 (PR disclosure for E1). The mark moves when a request *arrives*, not when a vote is cast. A newer request that is refused (`MissingParents`, `ExecutionBehind`, a drift refusal) or dropped still makes every lower round of that author `SupersededRequest`, even when this voter never voted for the newer round. On main such a voter would still vote for the older round. The mark is in memory only, so after a voter restart the stored-vote path answers `AlreadyVotedForLaterRound` again.
+- L5 (PR disclosure for E3). A cached refusal is replayed under the lock (handler.rs:~1143-1150), so a repeat of a refused header that names an unexecuted block also waits up to 1 s before it gets the cached answer. On main the replay came before any wait. A repeat of a header this node voted for is not delayed, because its block has executed.
+- L6 (PR disclosure for E3/E4). Each request's pre-lock wait is bounded at 1 s, but nothing bounds how many requests one author can have waiting at once. The superseded check refuses only lower rounds, so copies or variants of one round all wait side by side. The `vote` serve class is unbounded by default (serve_permits.rs:15-17), so its per-peer share of 2 (`MAX_PERMITS_PER_PEER`, :23-26, :66) applies only when an operator sets a capacity. The primary request-response protocol has no `max_concurrent_streams` (only `record_exchange` sets 2, network-libp2p/src/consensus.rs:810). This is not worse than main: there each queued request held its task on the lock for up to N × 1 s. And only the authenticated author can cause it. The PR should still state it; one sentence on a fix: count pre-lock waiters per author and answer `ExecutionBehind` at once past a small cap.
+
+## Checked and fine
+- handler.rs: wrappers, else arm, 4 docs only (-w).
+- config/consensus.rs: unreachable check gone, live text intact, test cases moved, doc :270 and :502-510 rewritten in present tense.
+- config/node.rs: field, doc, default, `runtime_switches!` entry gone; `vote_timeout` doc says 9 s.
+- metrics.rs, network/mod.rs, serve_permits.rs: doc-only, present tense.
+- README.md: two table rows, 9 s.
+- fleet.rs / exec_block.rs: one entry per list, arm docs.
+- network_tests.rs: 33 fns gone / 14 renamed or added. Every on body kept, with `#[tokio::test(start_paused = true)]` attributes present.
+- Commit messages: conventional subjects, plain bodies, no figure, no private label, no attribution, `Refs #1804`, `Topic: remove-bench-switches` last.

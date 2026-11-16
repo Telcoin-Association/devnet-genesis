@@ -28,7 +28,7 @@ What the removal loses: the "switch off equals main" tests and the mixed-switch 
 - No log line, field or metric changed in R1.
 - Not tested (review Low): that a certified latest record re-armed at start-up gets no vote of this node's own (one guard, `cert_by_digest(...).is_none()`).
 
-## R2 — `vote_queue_fix` (d2b80ced5, adecca691, 6a7c3d7c5; review running)
+## R2 — `vote_queue_fix` (d2b80ced5, adecca691, 6a7c3d7c5; review: approve, Lows only)
 
 - Gone: the switch; the wait for execution UNDER the author lock. A voter always waits for the execution block a header names BEFORE the author lock, at most `VOTE_EXECUTION_WAIT` (1 s), and always refuses a request that a newer request of the same author has superseded.
 - **What a voter answers differently from `main`** (four of `main`'s own tests pinned the old answers and now assert the kept ones):
@@ -39,6 +39,11 @@ What the removal loses: the "switch off equals main" tests and the mixed-switch 
 - **On the wire and on the requester:** `SupersededRequest` is not a new wire type: it goes out as `PrimaryResponse::RecoverableError(String)`, which `main` 0554efd4f has. A requester retries a recoverable error up to 6 times at 250 ms, then with backoff until its next proposal cancels the request; `AlreadyVotedForLaterRound` went out as `PrimaryResponse::Error`, which the certifier treats as fatal for that voter and header (no retry). Neither carries a penalty. So an older request now costs retries where it cost one give-up; they normally end at once because the author has moved on.
 - A coverage gap the writer names: `test_vote_cached_across_dropped_request` was written for the property that a request dropped mid-evaluation puts the decision entry back (#1836); its newer request is now dropped during the pre-lock wait, so that property is no longer exercised by it.
 - If the owner wants the tier-three refusal at once again: call `check_header_lead` in `vote_request` before the pre-lock wait for in-window headers and keep the check under the lock too; a tier-three refusal would then not be written to the author's vote state, so a repeat would be judged again each time, and after the clock catches up the header would be voted (the doc says "reject for good"). Not done: a design change.
+- **Three more points a reviewer must be told** (from the independent review of R2; all Low, none worse than `main`):
+  - A request moves its author's mark when it ARRIVES, not when a vote is cast: a newer request that is itself refused or dropped still makes every lower round of that author `SupersededRequest`, even if this voter never voted for the newer round. The mark lives in memory only.
+  - A cached refusal is replayed under the lock, so a repeat of a refused header that names a block this voter has not executed waits up to 1 s before it gets the cached answer; on `main` it came at once.
+  - Each request's wait before the lock is capped at 1 s, but nothing caps how many requests one author has waiting at once: the vote request class is unbounded by default (`crates/network-libp2p/src/serve_permits.rs:15-17`; its per-peer limit of 2 applies only when a capacity is configured) and the primary request protocol sets no stream cap. Only the authenticated author can cause it, and on `main` queued requests held their tasks for up to N × 1 s. A possible follow-up: count waiters per author and answer `ExecutionBehind` at once past a small cap.
+- `vote_queued_requests_of_one_author_wait_in_turn` was not an upstream test (#1864 added it to reproduce #1804); what else it asserted is covered by `vote_queued_requests_wait_once`.
 - Deleted tests: the seven `quorum_exec_block_voter_*_switch_off` (they turned off `vote_queue_fix`; their on bodies live on as `old_block_in_ring_is_voted_at_once` and six more), `vote_queue_fix_off_refuses_malformed_header_without_the_wait`, `vote_queue_fix_off_answers_repeat_of_voted_header_from_cache`, `vote_queued_requests_of_one_author_wait_in_turn`, and `vote_timeout_must_stay_below_the_libp2p_request_timeout` (its case moved into `vote_timeout_plus_the_prelock_wait_stays_below_the_request_timeout`).
 - No log line, field or metric changed in R2.
 

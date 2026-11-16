@@ -30,7 +30,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 
 ## Step 2 — the ninth PR `refactor/remove-bench-switches` (worktree `tn-b8-uc`, from 500e21afa)
 - [x] R1 records (walk, kept votes: switches and off-arm tests removed): a5be61615, b67c0acdd · both commits reviewed and approved (Lows only: `tasks/bench8/review/followups.md`)
-- [ ] R2 `vote_queue_fix` (off branch, wrappers, 7 `_off` twins; `vote_timeout` < 9 s always enforced) · review
+- [x] R2 `vote_queue_fix` (off branch, wrappers, 7 `_off` twins; `vote_timeout` < 9 s always enforced): d2b80ced5, adecca691, 6a7c3d7c5 · reviewed and approved (Lows only). Four of `main`'s vote tests now assert the kept answers: see `tasks/bench8/pr9-facts.md`
 - [ ] R3 always-on only (`quorum_exec_block`, `quorum_exec_block_starved_rounds`, window and streak state, adaptive tests, off/adaptive e2e arms, mixed-switch fleet) · review
 - [ ] R4 the hold (`Option` around `OwnChainOrder`, off drain branch, golden off test, no-hold control) · review
 - [ ] R5 machinery (`runtime_switches!`, `switches()`, `log_switches()`, `SwitchValue`, the `node switches` line, `tn_node_switch`, `assert_switches`, `STACK_SWITCHES_ON/OFF`) · review
