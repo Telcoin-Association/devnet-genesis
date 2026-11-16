@@ -1,0 +1,127 @@
+EXPORT_CHECK metric=tn_primary_vote_stage_seconds_count nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_node_switch nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_persist_duration_seconds_count nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_reth_persist_commit_seconds_count nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_reth_persist_save_blocks_seconds_count nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_executed_transactions_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_busy_milliseconds_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_consensus_exec_lag_rounds nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_queued_outputs nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=reth_db_table_pages nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=reth_db_table_entries nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_votes_refused_execution_behind_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_committed_round nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_executor_output_transactions_count nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_channel_depth nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_engine_outputs_executed_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_vote_outcomes_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_requeued_out_of_order_total nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_requeued_order_unknown_total nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_headers_held_total nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_digests_held nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_uncertified_report_dropped_total nodes=5/11 missing=bench-observer-11,bench-validator-01,bench-validator-03,bench-validator-04,bench-validator-07,bench-validator-09 status=lazy
+EXPORT_CHECK metric=tn_node_orphan_txs_total nodes=10/11 missing=bench-observer-11 status=lazy
+EXPORT_CHECK metric=tn_node_orphan_batches_total nodes=10/11 missing=bench-observer-11 status=lazy
+EXPORT_CHECK metric=tn_state_sync_epoch_records_certified_through nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_state_sync_epoch_record_gap_walks_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_state_sync_epoch_record_walk_parent_mismatches_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_state_sync_epoch_record_conflicts_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_state_sync_epoch_record_conflicts_below_halt_threshold_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_epoch_epoch_record_closing_block_check_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_epoch_epoch_close_identity_check_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_node_epoch_record_recertify_rounds_total nodes=0/11 missing=- status=absent
+EXPORT_CHECK metric=tn_node_epoch_record_round_conflicts_total nodes=0/11 missing=- status=absent
+EXPORT_CHECK metric=tn_node_epoch_record_round_ended_certified_total nodes=1/11 missing=bench-observer-11,bench-validator-01,bench-validator-02,bench-validator-03,bench-validator-04,bench-validator-05,bench-validator-06,bench-validator-07,bench-validator-09,bench-validator-10 status=lazy
+EXPORT_CHECK metric=tn_node_epoch_record_retained_votes nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_node_leftover_output_gaps_total nodes=0/11 missing=- status=absent
+EXPORT_CHECK metric=tn_node_leftover_outputs_skipped_total nodes=0/11 missing=- status=absent
+EXPORT_CHECK metric=tn_worker_batch_reports_over_quota_total nodes=11/11 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_vote_exec_deficit_outputs_bucket nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_vote_exec_deficit_outputs_sum nodes=10/10 missing=- status=ok
+EXPORT_CHECK metric=tn_primary_vote_exec_deficit_outputs_count nodes=10/10 missing=- status=ok
+EXPORT_COVERAGE metric=tn_primary_vote_stage_seconds_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_primary_vote_stage_seconds_count nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_node_switch node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_node_switch nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_engine_persist_duration_seconds_count node=bench-validator-03 first=2026-11-16T20:48:00Z last=2026-11-16T22:27:45Z samples=400/509 longest_gap=1635s status=stopped breaks=2026-11-16T22:27:45Z..2026-11-16T22:55:00Z(1635s,unexpected)
+EXPORT_COVERAGE metric=tn_engine_persist_duration_seconds_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_persist_duration_seconds_count nodes=11 whole=9 expected=bench-validator-05 stopped=bench-validator-03 gap=- missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_reth_persist_commit_seconds_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=487/509 longest_gap=345s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:32:00Z(345s,expected)
+EXPORT_COVERAGE metric=tn_reth_persist_commit_seconds_count nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_reth_persist_save_blocks_seconds_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=487/509 longest_gap=345s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:32:00Z(345s,expected)
+EXPORT_COVERAGE metric=tn_reth_persist_save_blocks_seconds_count nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_engine_executed_transactions_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_executed_transactions_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_engine_busy_milliseconds_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_busy_milliseconds_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_consensus_exec_lag_rounds node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_primary_consensus_exec_lag_rounds nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_engine_queued_outputs node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_queued_outputs nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=reth_db_table_pages node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=reth_db_table_pages nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=reth_db_table_entries node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=reth_db_table_entries nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_votes_refused_execution_behind_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_primary_votes_refused_execution_behind_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_committed_round node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_primary_committed_round nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_executor_output_transactions_count node=bench-observer-11 first=2026-11-16T20:48:00Z last=2026-11-16T22:36:15Z samples=434/509 longest_gap=1125s status=stopped breaks=2026-11-16T22:36:15Z..2026-11-16T22:55:00Z(1125s,unexpected)
+EXPORT_COVERAGE metric=tn_executor_output_transactions_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_executor_output_transactions_count nodes=11 whole=9 expected=bench-validator-05 stopped=bench-observer-11 gap=- missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_engine_channel_depth node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_channel_depth nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_engine_outputs_executed_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_engine_outputs_executed_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_vote_outcomes_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_primary_vote_outcomes_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_requeued_out_of_order_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=438/509 longest_gap=1080s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:44:15Z(1080s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_requeued_out_of_order_total nodes=10 whole=9 expected=- stopped=- gap=bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_requeued_order_unknown_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=438/509 longest_gap=1080s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:44:15Z(1080s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_requeued_order_unknown_total nodes=10 whole=9 expected=- stopped=- gap=bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_headers_held_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=438/509 longest_gap=1080s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:44:15Z(1080s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_headers_held_total nodes=10 whole=9 expected=- stopped=- gap=bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_digests_held node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=438/509 longest_gap=1080s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:44:15Z(1080s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_digests_held nodes=10 whole=9 expected=- stopped=- gap=bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_uncertified_report_dropped_total node=bench-validator-05 first=2026-11-16T21:07:30Z last=2026-11-16T22:55:00Z samples=347/509 longest_gap=1275s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:47:30Z(1275s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_uncertified_report_dropped_total nodes=11 whole=4 expected=- stopped=- gap=bench-validator-05 missing=- lazy=bench-observer-11,bench-validator-01,bench-validator-03,bench-validator-04,bench-validator-07,bench-validator-09 status=broken
+EXPORT_COVERAGE metric=tn_node_orphan_txs_total node=bench-validator-05 first=2026-11-16T22:07:30Z last=2026-11-16T22:55:00Z samples=165/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_node_orphan_txs_total nodes=11 whole=9 expected=bench-validator-05 stopped=- gap=- missing=- lazy=bench-observer-11 status=expected
+EXPORT_COVERAGE metric=tn_node_orphan_batches_total node=bench-validator-05 first=2026-11-16T22:07:30Z last=2026-11-16T22:55:00Z samples=165/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_node_orphan_batches_total nodes=11 whole=9 expected=bench-validator-05 stopped=- gap=- missing=- lazy=bench-observer-11 status=expected
+EXPORT_COVERAGE metric=tn_state_sync_epoch_records_certified_through node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_state_sync_epoch_records_certified_through nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_gap_walks_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_gap_walks_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_walk_parent_mismatches_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_walk_parent_mismatches_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_conflicts_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_conflicts_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_conflicts_below_halt_threshold_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_state_sync_epoch_record_conflicts_below_halt_threshold_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_epoch_epoch_record_closing_block_check_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_epoch_epoch_record_closing_block_check_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_epoch_epoch_close_identity_check_total node=bench-observer-11 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=465/509 longest_gap=675s status=gap breaks=2026-11-16T22:36:15Z..2026-11-16T22:47:30Z(675s,unexpected)
+EXPORT_COVERAGE metric=tn_epoch_epoch_close_identity_check_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=470/509 longest_gap=600s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:36:15Z(600s,unexpected)
+EXPORT_COVERAGE metric=tn_epoch_epoch_close_identity_check_total nodes=11 whole=9 expected=- stopped=- gap=bench-observer-11,bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_node_epoch_record_recertify_rounds_total nodes=0/11 status=absent
+EXPORT_COVERAGE metric=tn_node_epoch_record_round_conflicts_total nodes=0/11 status=absent
+EXPORT_COVERAGE metric=tn_node_epoch_record_round_ended_certified_total nodes=11 whole=1 expected=- stopped=- gap=- missing=- lazy=bench-observer-11,bench-validator-01,bench-validator-02,bench-validator-03,bench-validator-04,bench-validator-05,bench-validator-06,bench-validator-07,bench-validator-09,bench-validator-10 status=whole
+EXPORT_COVERAGE metric=tn_node_epoch_record_retained_votes node=bench-observer-11 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=465/509 longest_gap=675s status=gap breaks=2026-11-16T22:36:15Z..2026-11-16T22:47:30Z(675s,unexpected)
+EXPORT_COVERAGE metric=tn_node_epoch_record_retained_votes node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=470/509 longest_gap=600s status=gap breaks=2026-11-16T22:26:15Z..2026-11-16T22:36:15Z(600s,unexpected)
+EXPORT_COVERAGE metric=tn_node_epoch_record_retained_votes nodes=11 whole=9 expected=- stopped=- gap=bench-observer-11,bench-validator-05 missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_node_leftover_output_gaps_total nodes=0/11 status=absent
+EXPORT_COVERAGE metric=tn_node_leftover_outputs_skipped_total nodes=0/11 status=absent
+EXPORT_COVERAGE metric=tn_worker_batch_reports_over_quota_total node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=489/509 longest_gap=315s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:31:30Z(315s,expected)
+EXPORT_COVERAGE metric=tn_worker_batch_reports_over_quota_total nodes=11 whole=10 expected=bench-validator-05 stopped=- gap=- missing=- lazy=- status=expected
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_bucket node=bench-validator-03 first=2026-11-16T20:48:00Z last=2026-11-16T22:27:45Z samples=400/509 longest_gap=1635s status=stopped breaks=2026-11-16T22:27:45Z..2026-11-16T22:55:00Z(1635s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_bucket node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_bucket nodes=10 whole=8 expected=bench-validator-05 stopped=bench-validator-03 gap=- missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_sum node=bench-validator-03 first=2026-11-16T20:48:00Z last=2026-11-16T22:27:45Z samples=400/509 longest_gap=1635s status=stopped breaks=2026-11-16T22:27:45Z..2026-11-16T22:55:00Z(1635s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_sum node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_sum nodes=10 whole=8 expected=bench-validator-05 stopped=bench-validator-03 gap=- missing=- lazy=- status=broken
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_count node=bench-validator-03 first=2026-11-16T20:48:00Z last=2026-11-16T22:27:45Z samples=400/509 longest_gap=1635s status=stopped breaks=2026-11-16T22:27:45Z..2026-11-16T22:55:00Z(1635s,unexpected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_count node=bench-validator-05 first=2026-11-16T20:48:00Z last=2026-11-16T22:55:00Z samples=483/509 longest_gap=405s status=gap-expected breaks=2026-11-16T22:26:15Z..2026-11-16T22:33:00Z(405s,expected)
+EXPORT_COVERAGE metric=tn_primary_vote_exec_deficit_outputs_count nodes=10 whole=8 expected=bench-validator-05 stopped=bench-validator-03 gap=- missing=- lazy=- status=broken
+EXPORT_COVERAGE_RESULT broken metrics=41 broken=12 expected=24 scrape=15s gap_max=120s
+EXPORT_REFUSED coverage_broken=12: nothing exported (read the EXPORT_COVERAGE lines; --allow-missing exports anyway)

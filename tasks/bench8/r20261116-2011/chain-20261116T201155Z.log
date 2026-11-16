@@ -1,0 +1,27 @@
+CHAIN start mode=live env=tasks/bench8/r20261116-2011/bench8-floor16.env pid=3751626 2026-11-16T20:11:55Z
+CHAIN precondition ok launch-dry seg=deploy12 run=r20261116-2011 2026-11-16T20:11:55Z
+CHAIN precondition ok launch-dry seg=blast15 run=r20261116-2011 2026-11-16T20:11:55Z
+CHAIN credentials ok at=preconditions token=ok login_age=294 source=credentials.db-mtime max=3600s 2026-11-16T20:11:55Z
+CHAIN preconditions ok run=r20261116-2011 2026-11-16T20:11:55Z
+CHAIN deploy12 launch 2026-11-16T20:11:55Z
+    LAUNCHED segment=deploy12 run=r20261116-2011 pid=3752250 harness=14e20773c566 log=tasks/bench6/r20261116-2011/deploy12-20261116T201156Z.log
+      wait for: ^== deploy12 rc=  in tasks/bench6/r20261116-2011/deploy12-20261116T201156Z.log  (the last tag of the driver before it: BENCH_DEPLOY_RESULT)
+      status:   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/launch/launch.sh /home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench8/r20261116-2011/bench8-floor16.env status
+CHAIN deploy12 launched pid=3752250 log=tasks/bench6/r20261116-2011/deploy12-20261116T201156Z.log 2026-11-16T20:11:56Z
+CHAIN deploy12 rc=0 result=ok 2026-11-16T21:16:51Z
+CHAIN sampler started pid=4031265 interval=60s out=tasks/bench8/r20261116-2011/endpoint-samples log=tasks/bench8/r20261116-2011/endpoint-sampler-20261116T211651Z.log stop_file=tasks/bench8/r20261116-2011/endpoint-sampler.stop 2026-11-16T21:16:51Z
+CHAIN idle-check up ok up=11/11 missing=- round=1 2026-11-16T21:16:51Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=1 2026-11-16T21:16:51Z
+CHAIN idle-check switches ok switches=8 nodes=11 problems=0 round=1 2026-11-16T21:16:51Z
+CHAIN credentials ok at=blast15 token=ok login_age=4190 source=credentials.db-mtime max=7200s 2026-11-16T21:16:51Z
+CHAIN idle-checks ok round=1 engine=tn-lmdb key=.storage_engine host_probe=uniform up_fallback=- quorum_exec_block_floor_outputs=16 2026-11-16T21:16:51Z
+CHAIN blast15 launch 2026-11-16T21:16:51Z
+    LAUNCHED segment=blast15 run=r20261116-2011 pid=4031585 harness=16d1a3623748 log=tasks/bench6/r20261116-2011/blast15-20261116T211652Z.log
+      wait for: ^== blast15 rc=  in tasks/bench6/r20261116-2011/blast15-20261116T211652Z.log  (the last tag of the driver before it: BENCH_DEPLOY_RESULT)
+      status:   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/launch/launch.sh /home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench8/r20261116-2011/bench8-floor16.env status
+CHAIN blast15 launched pid=4031585 log=tasks/bench6/r20261116-2011/blast15-20261116T211652Z.log 2026-11-16T21:16:52Z
+CHAIN watch started pid=4031730 log=tasks/bench8/r20261116-2011/fleet-health-blast15-20261116T211652Z.log 2026-11-16T21:16:52Z
+CHAIN blast15 rc=0 result=present 2026-11-16T22:53:49Z
+CHAIN watch rc=0 log=tasks/bench8/r20261116-2011/fleet-health-blast15-20261116T211652Z.log 2026-11-16T22:53:56Z
+CHAIN done rc=0 2026-11-16T22:53:56Z
+CHAIN FLEET IS UP: read and export while it is, then teardown-dry and teardown by hand 2026-11-16T22:53:56Z
