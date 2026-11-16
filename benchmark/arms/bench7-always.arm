@@ -3,6 +3,7 @@
 # header names the execution block a quorum holds.
 # No host step: the bench 7 build stores its execution state in tn-lmdb, and a node that never
 # started has nothing to evict.
+build bench7
 name bench7-always
 param quorum_exec_block true
 param quorum_exec_block_starved_rounds 0

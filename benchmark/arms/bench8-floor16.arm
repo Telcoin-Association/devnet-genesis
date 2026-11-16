@@ -1,0 +1,13 @@
+# bench8-floor16: the control (bench8-control) with quorum_exec_block_floor_outputs 16 in place of 8; run F.
+# Every other line is the control's.
+# No host step: the bench 8 build stores its execution state in tn-lmdb, and a node that never
+# started has nothing to evict.
+name bench8-floor16
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 0
+param quorum_exec_block_floor_outputs 16
+param vote_queue_fix true
+param digest_order_hold true
+param epoch_record_collect_past_uncertified true
+param epoch_record_conflict_halt true
+param epoch_record_recertify true

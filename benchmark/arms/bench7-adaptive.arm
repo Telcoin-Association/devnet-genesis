@@ -3,6 +3,7 @@
 # headers the node builds after one of its own was cancelled uncertified use the quorum rule (the
 # window counts headers built, not rounds, and doubles while cancels repeat, up to 128).
 # No host step, as in bench7-always.
+build bench7
 name bench7-adaptive
 param quorum_exec_block true
 param quorum_exec_block_starved_rounds 4

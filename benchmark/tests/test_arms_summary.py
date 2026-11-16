@@ -1388,15 +1388,18 @@ class ArmsSummaryTests(unittest.TestCase):
                           ("a0b", ["bound", "grace", "pipe", "pool"], False)])
         self.assertEqual(self.switch_notes(doc), [])
         mod = load("arms_summary_lists", TOOL)
-        for run, want in ((self.tmp / "b7", "switches.tsv"), (self.tmp / "b6", "switches-bench6.tsv")):
+        for run, want in ((self.tmp / "b7", "switches-bench7.tsv"), (self.tmp / "b6", "switches-bench6.tsv")):
             man = json.loads((run / "r20261112-0000" / "manifest.json").read_text())
             self.assertEqual(mod.run_switch_list(man), (want, "manifest"))
+        # A bench 8 run (bench 7's keys and the count): the live list.
+        b8 = dict(B7_DEFAULTS, quorum_exec_block_floor_outputs="8")
+        self.assertEqual(mod.run_switch_list({"param_arms": [{"name": "a0", "switches": b8}]}), ("switches.tsv", "manifest"))
 
     def test_the_nodes_switch_lines_tell_the_build_when_param_arms_does_not(self):
         """param_arms[] without a switch state: the keys on the run's 'node switches' lines choose the list, and a note
         names it; with no key anywhere the live list, and a note saying so; a run without param_arms[] reads no switch
         state and gets no note; recorded states win over the lines."""
-        for name, keys, want in (("b7", list(B7_DEFAULTS), "switches.tsv"), ("b6", list(DEFAULTS), "switches-bench6.tsv")):
+        for name, keys, want in (("b7", list(B7_DEFAULTS), "switches-bench7.tsv"), ("b6", list(DEFAULTS), "switches-bench6.tsv")):
             doc, md = self.summary(make_bench7_run(self.tmp / name, recorded=False, line_keys=keys), "--no-stages")
             note = ("switch list: arms/%s, the list whose keys the run's 'node switches' lines match best (param_arms[] "
                     "records no switch state)" % want)
@@ -1415,6 +1418,9 @@ class ArmsSummaryTests(unittest.TestCase):
         self.assertEqual(mod.run_switch_list({}, ["digest_dedupe", "sealed_tx_keep", "quorum_exec_block"]),
                          ("switches-bench6.tsv", "lines"))
         self.assertEqual(mod.run_switch_list({}, ["quorum_exec_block", "vote_queue_fix"]), ("switches.tsv", "lines"))
+        self.assertEqual(mod.run_switch_list({}, list(B7_DEFAULTS)), ("switches-bench7.tsv", "lines"))
+        self.assertEqual(mod.run_switch_list({}, list(B7_DEFAULTS) + ["quorum_exec_block_floor_outputs"]),
+                         ("switches.tsv", "lines"))
         self.assertEqual(mod.run_switch_list({"param_arms": [{"name": "a0"}]}), ("switches.tsv", None))
 
     def test_the_vote_gate_reads_the_whole_vote_path(self):

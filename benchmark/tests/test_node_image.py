@@ -3048,13 +3048,19 @@ BOOT_IMAGE = "projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20
 SWITCHES_TSV = BENCH / "arms" / "switches.tsv"
 # Bench 6's list, kept for reading its runs and arm files; the switch-line helpers below default to it.
 SWITCHES6_TSV = BENCH / "arms" / "switches-bench6.tsv"
+# Bench 7's list, kept for reading its runs and arm files.
+SWITCHES7_TSV = BENCH / "arms" / "switches-bench7.tsv"
 SWITCHES_HEADER = ["key", "type", "default", "arm_values", "topic", "optional"]
-# The frozen switch keys and types of the live build (bench 7), in row order (the node prints them in its
+# The frozen switch keys and types of the live build (bench 8), in row order (the node prints them in its
 # `node switches` startup line, in its own order). Renaming one is a contract change for the node image and every
 # harness unit.
-SWITCH_KEYS = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
-               "bool:digest_order_hold", "bool:epoch_record_collect_past_uncertified", "bool:epoch_record_conflict_halt",
-               "bool:epoch_record_recertify"]
+SWITCH_KEYS = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "int:quorum_exec_block_floor_outputs",
+               "bool:vote_queue_fix", "bool:digest_order_hold", "bool:epoch_record_collect_past_uncertified",
+               "bool:epoch_record_conflict_halt", "bool:epoch_record_recertify"]
+# Bench 7's seven (arms/switches-bench7.tsv, unchanged).
+SWITCH_KEYS_BENCH7 = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
+                      "bool:digest_order_hold", "bool:epoch_record_collect_past_uncertified",
+                      "bool:epoch_record_conflict_halt", "bool:epoch_record_recertify"]
 # Bench 6's twelve (arms/switches-bench6.tsv, unchanged).
 SWITCH_KEYS_BENCH6 = ["bool:quorum_exec_block", "int:quorum_exec_block_starved_rounds", "bool:vote_queue_fix",
                       "bool:mdbx_random_advice", "bool:sealed_tx_keep", "bool:digest_dedupe", "int:recovery_threads",
@@ -3256,12 +3262,17 @@ class Bench6KnobTests(BashCase):
                                             BENCH_NODE_READ_AHEAD_KB="")["BENCH_NODE_EVICT_MDBX"], "0")
 
     def test_switch_keys_are_the_rows_of_switches_tsv(self):
-        # The live list (bench 7) and bench 6's, each in the frozen format; config.sh carries the live one.
-        for tsv, keys, optional, non_bool in (
-                (SWITCHES_TSV, SWITCH_KEYS, [], {"quorum_exec_block_starved_rounds": "0,4"}),
+        # The live list (bench 8), bench 7's and bench 6's, each in the frozen format; config.sh carries the live
+        # one. <own>: a row whose (default, arm_values) are its own, not a switch's (bench 8: a count whose default
+        # is 8, and a bool armed both ways); every other row has the switch's default and true as its bool value.
+        for tsv, keys, optional, non_bool, own in (
+                (SWITCHES_TSV, SWITCH_KEYS, [],
+                 {"quorum_exec_block_starved_rounds": "0,4", "quorum_exec_block_floor_outputs": "8,16"},
+                 {"quorum_exec_block_floor_outputs": ("8", "8,16"), "digest_order_hold": ("false", "true,false")}),
+                (SWITCHES7_TSV, SWITCH_KEYS_BENCH7, [], {"quorum_exec_block_starved_rounds": "0,4"}, {}),
                 (SWITCHES6_TSV, SWITCH_KEYS_BENCH6, ["pipelined_persist"],
                  {"quorum_exec_block_starved_rounds": "0,4", "recovery_threads": "3",
-                  "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "3"})):
+                  "parent_grace": "150ms,100ms", "rpc_admission_backlog_outputs": "3"}, {})):
             header, rows = switch_rows(tsv)
             self.assertEqual(header, SWITCHES_HEADER)
             self.assertEqual(["%s:%s" % (r["type"], r["key"]) for r in rows], keys)
@@ -3269,9 +3280,13 @@ class Bench6KnobTests(BashCase):
                 with self.subTest(key=r["key"]):
                     self.assertEqual(len(r), len(SWITCHES_HEADER), r)
                     self.assertRegex(r["key"], r"^[a-z][a-z0-9_]{0,62}$")
-                    self.assertEqual(r["default"], SWITCH_DEFAULT[r["type"]])   # the behaviour before the switch
+                    default, arm_values = own.get(r["key"], (SWITCH_DEFAULT[r["type"]], None))
+                    self.assertEqual(r["default"], default)   # a switch's: the behaviour before the switch
                     values = r["arm_values"].split(",")
-                    self.assertTrue(values and all(SWITCH_ARM_VALUE[r["type"]].match(v) for v in values), r)
+                    if arm_values is None:
+                        self.assertTrue(values and all(SWITCH_ARM_VALUE[r["type"]].match(v) for v in values), r)
+                    else:
+                        self.assertEqual(r["arm_values"], arm_values)
                     self.assertEqual(len(values), len(set(values)), r)
                     self.assertRegex(r["topic"], r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
                     self.assertIn(r["optional"], ("yes", "no"))
@@ -3287,9 +3302,12 @@ class Bench6KnobTests(BashCase):
         self.assertEqual(line, TIMING_KEYS)
 
     def test_switch_keys_pass_the_per_node_override_check(self):
-        # The live list's keys (bench 7); bench 6's own keys are unknown to it now.
+        # The live list's keys (bench 8): an override as bench 7 had it passes unchanged, and the count too;
+        # bench 6's own keys are unknown to it now.
         ov = ("4:quorum_exec_block=true,quorum_exec_block_starved_rounds=4,digest_order_hold=true "
               "2:epoch_record_recertify=true,epoch_record_conflict_halt=true,vote_queue_fix=true")
+        self.assertEqual(self.bench_exports(BENCH_NODE_PARAM_OVERRIDES=ov)["BENCH_NODE_PARAM_OVERRIDES"], ov)
+        ov = "4:quorum_exec_block_floor_outputs=16,quorum_exec_block=true"
         self.assertEqual(self.bench_exports(BENCH_NODE_PARAM_OVERRIDES=ov)["BENCH_NODE_PARAM_OVERRIDES"], ov)
         for value, phrase in (("4:quorum_exec_block=yes", "is not true or false"),
                               ("4:quorum_exec_block_starved_rounds=x", "is not a positive integer"),

@@ -746,7 +746,9 @@ class SwitchCheckTests(RunDirCase):
 
 # ---- bench7 switch lists ----
 # The bench 7 build prints exactly its seven switches, in its own macro's order (not the list's); bench 6's
-# twelve stay readable through arms/switches-bench6.tsv. One tree reads both kinds of run.
+# twelve stay readable through arms/switches-bench6.tsv, and bench 7's seven, retired on 2026-11-16, through
+# arms/switches-bench7.tsv. The live list is bench 8's: bench 7's seven and the count
+# quorum_exec_block_floor_outputs (default 8). One tree reads every kind of run.
 
 B7_KEYS = ["quorum_exec_block", "quorum_exec_block_starved_rounds", "vote_queue_fix", "digest_order_hold",
            "epoch_record_collect_past_uncertified", "epoch_record_conflict_halt", "epoch_record_recertify"]
@@ -756,11 +758,22 @@ B7_LINE_ORDER = ["quorum_exec_block", "quorum_exec_block_starved_rounds", "epoch
                  "digest_order_hold"]
 B7_OFF = {k: ("0" if k == "quorum_exec_block_starved_rounds" else "false") for k in B7_KEYS}
 B7_ALWAYS = {k: ("0" if k == "quorum_exec_block_starved_rounds" else "true") for k in B7_KEYS}
+B7_TSV = BENCH / "arms" / "switches-bench7.tsv"
+# Bench 8's: a bench 7 line with the count; its default, 8, is written out in both states.
+B8_KEYS = B7_KEYS[:2] + ["quorum_exec_block_floor_outputs"] + B7_KEYS[2:]
+B8_OFF = dict(B7_OFF, quorum_exec_block_floor_outputs="8")
+B8_ALWAYS = dict(B7_ALWAYS, quorum_exec_block_floor_outputs="8")
 
 
 def b7_line(values):
     """<values> in the node's order, as the bench 7 node logs them."""
     return {k: values[k] for k in B7_LINE_ORDER if k in values}
+
+
+def b8_line(values):
+    """<values> as a bench 8 node logs them: bench 7's order, the count after the starved rounds."""
+    return {k: values[k] for k in B7_LINE_ORDER[:2] + ["quorum_exec_block_floor_outputs"] + B7_LINE_ORDER[2:]
+            if k in values}
 
 
 class Bench7SwitchListTests(RunDirCase):
@@ -781,10 +794,12 @@ class Bench7SwitchListTests(RunDirCase):
         return self.run_with(logs, node_probe=CONTRACT, param_arms=[prestart])
 
     def test_the_lists(self):
-        self.assertEqual([r["key"] for r in P.switch_rows()], B7_KEYS)
+        self.assertEqual([r["key"] for r in P.switch_rows(str(B7_TSV))], B7_KEYS)
+        self.assertEqual([r["key"] for r in P.switch_rows(str(B7_TSV)) if r["optional"]], [])
+        self.assertEqual([r["key"] for r in P.switch_rows()], B8_KEYS)
         self.assertEqual([r["key"] for r in P.switch_rows() if r["optional"]], [])
         self.assertEqual([(name, len(rows)) for name, rows in P.switch_lists()],
-                         [("switches.tsv", 7), ("switches-bench6.tsv", 12)])
+                         [("switches.tsv", 8), ("switches-bench6.tsv", 12), ("switches-bench7.tsv", 7)])
 
     def test_a_bench6_run_and_a_bench7_run_from_the_same_tree(self):
         scan, m = self.prestart_run(ALL_OFF, FINAL, FINAL)
@@ -795,7 +810,17 @@ class Bench7SwitchListTests(RunDirCase):
         self.assertNotIn("extra", r["switches"])
         self.assertIn("  node switches: read with arms/switches-bench6.tsv, the list of the run's build",
                       P._report("run", scan, r).splitlines())
+        # A bench 7 run's seven keys are all in the live list too: the list without a key the run lacks wins.
         scan, m = self.prestart_run(b7_line(B7_OFF), b7_line(B7_ALWAYS), B7_ALWAYS)
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertEqual(r["switch_list"], "switches-bench7.tsv")
+        self.assertEqual((r["switches"]["checked"], r["switches"]["matched"], r["switches"]["pre_arm"]), (4, 4, 2))
+        self.assertNotIn("extra", r["switches"])
+        self.assertIn("  node switches: read with arms/switches-bench7.tsv, the list of the run's build",
+                      P._report("run", scan, r).splitlines())
+        # A bench 8 run: the live list.
+        scan, m = self.prestart_run(b8_line(B8_OFF), b8_line(B8_ALWAYS), B8_ALWAYS)
         r = P.check(scan, m)
         self.assertTrue(r["ok"], r["problems"])
         self.assertEqual(r["switch_list"], "switches.tsv")
@@ -806,7 +831,7 @@ class Bench7SwitchListTests(RunDirCase):
         line = {k: v for k, v in b7_line(B7_ALWAYS).items() if k != "digest_order_hold"}
         scan, m = self.prestart_run(b7_line(B7_OFF), line, B7_ALWAYS)
         r = P.check(scan, m)
-        self.assertEqual(r["switch_list"], "switches.tsv")
+        self.assertEqual(r["switch_list"], "switches-bench7.tsv")
         self.assertEqual(r["problems"], [
             "node switches lack digest_order_hold at 2 start(s) (bench-validator-01 at 2026-01-01T00:01:00.000Z, "
             "bench-validator-02 at 2026-01-01T00:01:00.000Z); arm final sets digest_order_hold=true"])
@@ -815,24 +840,25 @@ class Bench7SwitchListTests(RunDirCase):
         scan, m = self.prestart_run(b7_line(B7_OFF), b7_line(B7_ALWAYS), B7_ALWAYS, extra_line="new_switch=true")
         r = P.check(scan, m)
         self.assertTrue(r["ok"], r["problems"])
-        self.assertEqual(r["switch_list"], "switches.tsv")
+        self.assertEqual(r["switch_list"], "switches-bench7.tsv")
         self.assertEqual(r["switches"].get("extra"), {"new_switch": 4})
         self.assertIn("  node switches: note: the lines carry new_switch (4 start(s)), which the list does not have "
                       "(not compared)", P._report("run", scan, r).splitlines())
 
     def test_the_arm_state_names_the_list_before_the_lines_do(self):
         # A bench 7 run whose nodes logged bench 6's twelve switches (a wrong image): the arm's seven keys pick
-        # the live list, so every bench 7 switch the lines lack is a problem.
+        # bench 7's list, so every bench 7 switch the lines lack is a problem.
         scan, m = self.prestart_run(ALL_OFF, ALL_OFF, B7_ALWAYS)
         r = P.check(scan, m)
-        self.assertEqual(r["switch_list"], "switches.tsv")
+        self.assertEqual(r["switch_list"], "switches-bench7.tsv")
         self.assertFalse(r["ok"])
         lacks = [p.split(" at ")[0] for p in r["problems"] if p.startswith("node switches lack ")]
         self.assertEqual(sorted(set(lacks)), ["node switches lack " + k for k in sorted(B7_KEYS[3:])])
         self.assertEqual((r["switches"].get("extra") or {}).get("mdbx_random_advice"), 4)
         # No arm state: the lines name the list; no key recorded at all: the live list.
         self.assertEqual(P.run_switch_rows({}, scan["starts"])[0], "switches-bench6.tsv")
-        self.assertEqual(P.run_switch_rows({}, [{"switches": b7_line(B7_OFF)}])[0], "switches.tsv")
+        self.assertEqual(P.run_switch_rows({}, [{"switches": b7_line(B7_OFF)}])[0], "switches-bench7.tsv")
+        self.assertEqual(P.run_switch_rows({}, [{"switches": b8_line(B8_OFF)}])[0], "switches.tsv")
         self.assertEqual(P.run_switch_rows({}, [])[0], "switches.tsv")
         self.assertEqual(P.run_switch_rows({"param_arms": [{"name": "s", "nodes": {}}]}, [])[0], "switches.tsv")
 

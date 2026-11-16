@@ -322,11 +322,12 @@ export BENCH_NODE_PARAM_OVERRIDES="${BENCH_NODE_PARAM_OVERRIDES:-}"
 # <type>:<key>; dur = <int>ms|<int>s, int = positive integer, bool = true|false. This line (the timing keys) stays in
 # step with tools/params-apply.sh PARAM_KEYS (tests/test_params_apply.py compares the two).
 export BENCH_NODE_PARAM_KEYS="dur:max_header_delay dur:min_header_delay dur:vote_timeout dur:max_batch_delay dur:sync_retry_delay int:header_num_of_batches_threshold int:max_header_num_of_batches int:sync_retry_nodes int:max_concurrent_requests bool:allow_private_forward_targets"
-# Node switches of the live build (bench 7 since 2026-11-14): one <type>:<key> per row of arms/switches.tsv, in row
+# Node switches of the live build (bench 8 since 2026-11-16): one <type>:<key> per row of arms/switches.tsv, in row
 # order. The tsv is their single source of truth (the arm tool reads it; tests/test_node_image.py keeps this list equal
 # to it). Each is a top-level parameters.yaml key whose node default is upstream main's behaviour; the allowlist above
-# gains them so a per-node override may set one too. Bench 6's twelve keys are in arms/switches-bench6.tsv.
-export BENCH_NODE_SWITCH_KEYS="bool:quorum_exec_block int:quorum_exec_block_starved_rounds bool:vote_queue_fix bool:digest_order_hold bool:epoch_record_collect_past_uncertified bool:epoch_record_conflict_halt bool:epoch_record_recertify"
+# gains them so a per-node override may set one too. Bench 6's twelve keys are in arms/switches-bench6.tsv, bench 7's
+# seven in arms/switches-bench7.tsv.
+export BENCH_NODE_SWITCH_KEYS="bool:quorum_exec_block int:quorum_exec_block_starved_rounds int:quorum_exec_block_floor_outputs bool:vote_queue_fix bool:digest_order_hold bool:epoch_record_collect_past_uncertified bool:epoch_record_conflict_halt bool:epoch_record_recertify"
 BENCH_NODE_PARAM_KEYS="${BENCH_NODE_PARAM_KEYS} ${BENCH_NODE_SWITCH_KEYS}"
 # Node log filter: step 7's pre-start config puts --log.stdout.filter <f> --log.file.filter <f>
 # --log.file.max-files <n> on the node's command line (step 9 checks it). The default (bench 4, the design's

@@ -1,7 +1,7 @@
 # Node switches and arm files
 
 This directory holds the node switches a bench run may flip (`switches.tsv`) and the arm files that set them (`<name>.arm`).
-Each node build has its own switch list: `switches.tsv` is the live build's (bench 7 since 2026-11-14), and `switches-bench6.tsv` keeps bench 6's (see "Builds").
+Each node build has its own switch list: `switches.tsv` is the live build's (bench 8 since 2026-11-16), `switches-bench7.tsv` keeps bench 7's and `switches-bench6.tsv` bench 6's (see "Builds").
 `tools/params-apply.sh` applies an arm to a running fleet by rolling restart.
 With `BENCH_ARM_FILE=<file>`, deploy step 7 applies the same arm to every node before the first start, through the same remote snippet.
 `MANIFEST-FIELDS.md` lists the manifest fields both of them write.
@@ -34,14 +34,15 @@ The rows of the bench 7 build, frozen on 2026-11-14 (renaming one changes the co
 |---|---|---|---|---|---|
 | `quorum_exec_block` | bool | false | true | quorum-exec-block | no |
 | `quorum_exec_block_starved_rounds` | int | 0 | 0, 4 | quorum-exec-block | no |
+| `quorum_exec_block_floor_outputs` | int | 8 | 8, 16 | quorum-exec-block | no |
 | `vote_queue_fix` | bool | false | true | voter-lock | no |
-| `digest_order_hold` | bool | false | true | digest-order-hold | no |
+| `digest_order_hold` | bool | false | true, false | digest-order-hold | no |
 | `epoch_record_collect_past_uncertified` | bool | false | true | epoch-record-collector-hardening | no |
 | `epoch_record_conflict_halt` | bool | false | true | epoch-record-collector-hardening | no |
 | `epoch_record_recertify` | bool | false | true | epoch-record-collector-hardening | no |
 
 The bench 7 node is upstream `main` plus the ported topics, and every switch defaults to `main`'s behaviour.
-Its `node switches` line carries exactly these seven keys, in the order of the node's own list (not this file's); the harness reads the line by key.
+Its `node switches` line carries exactly these eight keys, in the order of the node's own list (not this file's); the harness reads the line by key.
 The closing-block check of bench 7 has no switch: it extends `main`'s unconditional guard.
 
 Bench 6's rows, frozen on 2026-11-10 and kept in `switches-bench6.tsv`:
@@ -74,10 +75,12 @@ To allow another value for an existing switch, add it to that row's `arm_values`
 
 A switch list belongs to one node build.
 `switches.tsv` is the live build's list; a retired build's list stays beside it as `switches-<build>.tsv`, in the same format, so the runs of that build stay readable.
-Today that is `switches-bench6.tsv`, bench 6's twelve switches, byte for byte the `switches.tsv` bench 6 ran with.
+Today those are `switches-bench6.tsv`, bench 6's twelve switches, byte for byte the `switches.tsv` bench 6 ran with, and `switches-bench7.tsv`, bench 7's seven, byte for byte the `switches.tsv` bench 7 ran with (retired on 2026-11-16).
 
-An arm file written for a retired build says so with a `build <build>` line (bench 6's eleven arm files carry `build bench6`).
+An arm file written for a retired build says so with a `build <build>` line (bench 6's eleven arm files carry `build bench6`, bench 7's two, `bench7-always` and `bench7-adaptive`, `build bench7`).
 An arm file without one is for the live build.
+Bench 8's three are: `bench8-control` (bench7-always's switches, with the count `quorum_exec_block_floor_outputs 8` written out; runs C and R), `bench8-floor16` (the same with the count at 16; run F) and `bench8-nohold` (the same with `digest_order_hold false`; run H).
+A run is read with the list of its build: of the lists, the one that shares the most keys with what the run recorded, and of lists that share as many, one with no key the run lacks, so a bench 7 run, whose seven keys are all in bench 8's list too, is read with `switches-bench7.tsv` (`report/provenance.py`, `run_switch_rows()`).
 
 The tools that act on a fleet read the live list: `tools/params-apply.sh` (the arm tool), deploy step 7, which reads the arm through the tool's `--print-state`, and deploy step 9, which reads each node's `node switches` line back.
 They refuse an arm file whose `build` line names another build before anything changes, with one line that names the file, the line, the arm's build and the list in force:

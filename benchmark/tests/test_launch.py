@@ -1491,5 +1491,40 @@ class Bench7EnvTests(unittest.TestCase):
             self.assertNotIn(name, "\n".join(always + adaptive))
 
 
+
+class Bench8EnvTests(LaunchBase):
+    """bench8-*.env: bench7-always.env with the bench 8 arm, the kill held past the read window, and (run R) the
+    load blast's senders and window; each accepted by a dry run of deploy12 and blast15, no driver reached."""
+
+    NAMES = {"control": "bench8-control", "floor16": "bench8-floor16", "nohold": "bench8-nohold",
+             "reduced": "bench8-control"}
+
+    def keys(self, path):
+        return dict(l.split("=", 1) for l in path.read_text().splitlines() if l.strip() and not l.startswith("#"))
+
+    def test_each_is_bench7_always_with_its_differences(self):
+        base = self.keys(LAUNCH / "bench7-always.env")
+        for form, arm in sorted(self.NAMES.items()):
+            with self.subTest(form=form):
+                want = dict(base, BENCH_ARM_FILE="benchmark/arms/%s.arm" % arm, BENCH_CHAOS_MIN_LOAD_SECS="817")
+                if form == "reduced":
+                    want.update(BENCH_SENDERS="300", BENCH_WINDOW="3")
+                self.assertEqual(self.keys(LAUNCH / ("bench8-%s.env" % form)), want)
+                self.assertTrue((BENCH / "arms" / (arm + ".arm")).is_file())
+        self.assertRegex((BENCH / "config.sh").read_text(), r"\$\{BENCH_CHAOS_MIN_LOAD_SECS:-600\}")
+
+    def test_a_dry_run_accepts_each(self):
+        for form in sorted(self.NAMES):
+            text = (LAUNCH / ("bench8-%s.env" % form)).read_text()
+            for k, v in FILL.items():
+                text = text.replace(k, v)
+            self.t.write("tasks/test8.env", text)
+            for seg in ("deploy12", "blast15"):
+                with self.subTest(form=form, seg=seg):
+                    p = self.launch("--dry-run", "tasks/test8.env", seg)
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertEqual(self.t.calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

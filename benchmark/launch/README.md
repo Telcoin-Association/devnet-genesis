@@ -477,6 +477,26 @@ The export's check knows three kinds of must-have series: on every node; on ever
 
 No pre-flight for the conflict halt: on a fresh genesis no node holds an epoch record from before the run, so there is no stored record a certified one could conflict with.
 
+## Bench 8
+
+Four runs of the bench 8 build (bench 7's image commit with more log fields and one count, `quorum_exec_block_floor_outputs`, default 8), each in the shape of bench 7's always-on run `r20261115-1131`, the kill of validator-05 included.
+Against `bench7-always.env`, each file names its own arm in `BENCH_ARM_FILE`, holds the kill back with `BENCH_CHAOS_MIN_LOAD_SECS=817`, and has its own header; the reduced run also sets the load blast's senders and window.
+
+| file | run | arm | what it changes against bench 7's always-on run |
+|---|---|---|---|
+| `bench8-control.env` | C | `benchmark/arms/bench8-control.arm` | nothing: bench7-always's switches, with `quorum_exec_block_floor_outputs 8` written out |
+| `bench8-floor16.env` | F | `benchmark/arms/bench8-floor16.arm` | `quorum_exec_block_floor_outputs 16` |
+| `bench8-nohold.env` | H | `benchmark/arms/bench8-nohold.arm` | `digest_order_hold false` |
+| `bench8-reduced.env` | R | `benchmark/arms/bench8-control.arm` | the load blast at `BENCH_SENDERS=300` and `BENCH_WINDOW=3` per generator |
+
+The read window is the load blast before the kill.
+The kill falls at a random time in the load blast's mixed phase, no earlier than `BENCH_CHAOS_MIN_LOAD_SECS` and less than 1,200 s after it: with 817, between 817 s and 2,016 s in.
+So every run has at least 817 s before the kill, the length of the stretch `r20261115-1131` had (its kill came 817.1 s into the mixed phase; `r20261115-1653`'s came 1,121.2 s in).
+Every figure names its window and the window's length: the first 817 s, the same in every run and in `r20261115-1131`, or the whole stretch before the kill, which differs from run to run.
+
+Run R is void when its load blast's rate falls outside 4,500-6,500 tx/s; the harness has no pacing option, so the senders and the window are the only levers, and they aim at about 5,300 tx/s.
+Per run, the calls and the idle checks are bench 7's (above), with the arm's values in the switch series.
+
 ## Monitor
 
 Poll each segment's log every 30 s with a deadline, never with a pattern that can match the poll's own command line:

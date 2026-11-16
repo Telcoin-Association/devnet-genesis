@@ -667,15 +667,20 @@ def recorded_switch_keys(manifest: Optional[Dict[str, Any]], starts: Optional[Li
 def run_switch_rows(manifest: Optional[Dict[str, Any]],
                     starts: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
     """(file name, rows) of the switch list a run is read with: of switch_lists(), the one that
-    shares the most keys with recorded_switch_keys(); a tie, and a run that recorded no key, goes
-    to the live list. Raises like switch_lists()."""
+    shares the most keys with recorded_switch_keys(); of lists that share as many, one with no key
+    the run lacks (a bench 7 run's seven keys are all in the bench 8 build's eight-key list too, and
+    only its own list has no key it lacks); a remaining tie, and a run that recorded no key, goes to
+    the live list. Raises like switch_lists()."""
     lists = switch_lists()
     keys = recorded_switch_keys(manifest, starts)
-    best, shared = lists[0], len(keys & {r["key"] for r in lists[0][1]})
-    for name, rows in lists[1:]:
-        n = len(keys & {r["key"] for r in rows})
-        if n > shared:
-            best, shared = (name, rows), n
+    if not keys:
+        return lists[0]
+    best, rank = lists[0], (-1, False)
+    for name, rows in lists:
+        listed = {r["key"] for r in rows}
+        r = (len(keys & listed), listed <= keys)
+        if r > rank:
+            best, rank = (name, rows), r
     return best
 
 

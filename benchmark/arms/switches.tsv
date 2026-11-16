@@ -1,8 +1,9 @@
 key	type	default	arm_values	topic	optional
 quorum_exec_block	bool	false	true	quorum-exec-block	no
 quorum_exec_block_starved_rounds	int	0	0,4	quorum-exec-block	no
+quorum_exec_block_floor_outputs	int	8	8,16	quorum-exec-block	no
 vote_queue_fix	bool	false	true	voter-lock	no
-digest_order_hold	bool	false	true	digest-order-hold	no
+digest_order_hold	bool	false	true,false	digest-order-hold	no
 epoch_record_collect_past_uncertified	bool	false	true	epoch-record-collector-hardening	no
 epoch_record_conflict_halt	bool	false	true	epoch-record-collector-hardening	no
 epoch_record_recertify	bool	false	true	epoch-record-collector-hardening	no

@@ -39,6 +39,7 @@ ARMS = BENCH / "arms"
 # files and switches run under (run_tool passes it as PARAMS_APPLY_SWITCHES_TSV).
 LIVE_TSV = ARMS / "switches.tsv"
 TSV = ARMS / "switches-bench6.tsv"
+B7_TSV = ARMS / "switches-bench7.tsv"
 FIX = TESTS / "fixtures" / "params-apply"
 COMMITTED = BENCH / "consensus-parameters.yaml"
 # The v2 fixtures name the node's real datadir; a fake node gets its own in its place.
@@ -1919,7 +1920,8 @@ class DryRunTests(ParamsApplyCase):
                  "p1-mdbx-advice.arm": "params,host", "v-vote.arm": "params,host", "v-vote-floor.arm": "params,host",
                  "pool-local.arm": "params,host", "pipe.arm": "params,host", "bound.arm": "params,host",
                  "gr150.arm": "params,host", "gr100.arm": "params,host",
-                 "bench7-always.arm": "params", "bench7-adaptive.arm": "params"}
+                 "bench7-always.arm": "params", "bench7-adaptive.arm": "params",
+                 "bench8-control.arm": "params", "bench8-floor16.arm": "params", "bench8-nohold.arm": "params"}
         self.assertEqual(sorted(f.name for f in files), sorted(plans))
         for f in files:
             p = self.run_tool("--nodes", str(nf), "--arm-file", str(f), "--dry-run", PATH=path, **arm_env(f))
@@ -1998,14 +2000,18 @@ class ArmFilesTests(ParamsApplyCase):
         for name in ("a0-control", "final"):
             self.assertEqual(state[name][1], "none", name)
         # ---- bench7 switch lists ----
-        # Bench 6's arms name their build; bench 7's are for the live list and set every one of its switches.
+        # Bench 6's and bench 7's arms name their build; bench 8's are for the live list.
         b6 = {"a0-control", "p1-mdbx-advice", "v-vote", "v-vote-floor", "pool-local", "pipe", "bound", "gr150",
               "gr100", "a0-prime", "final"}
         self.assertEqual({f.stem for f in ARMS.glob("*.arm") if arm_list(f) == TSV}, b6)
-        self.assertEqual({f.stem for f in ARMS.glob("*.arm") if arm_list(f) == LIVE_TSV}, {"bench7-always", "bench7-adaptive"})
-        live = [r["key"] for r in switch_rows(LIVE_TSV)]
-        self.assertEqual(list(state["bench7-always"][0]), live)
-        self.assertEqual(on["bench7-always"], set(live) - {"quorum_exec_block_starved_rounds"})
+        self.assertEqual({f.stem for f in ARMS.glob("*.arm") if arm_list(f) == B7_TSV}, {"bench7-always", "bench7-adaptive"})
+        self.assertEqual({f.stem for f in ARMS.glob("*.arm") if arm_list(f) == LIVE_TSV},
+                         {"bench8-control", "bench8-floor16", "bench8-nohold"})
+        b7 = [r["key"] for r in switch_rows(B7_TSV)]
+        self.assertEqual(list(state["bench7-always"][0]), b7)
+        self.assertEqual(on["bench7-always"], set(b7) - {"quorum_exec_block_starved_rounds"})
+        for name in ("bench8-control", "bench8-floor16", "bench8-nohold"):
+            self.assertEqual(list(state[name][0]), [r["key"] for r in switch_rows(LIVE_TSV)], name)
         self.assertEqual(state["bench7-always"][0]["quorum_exec_block_starved_rounds"], "0")
         self.assertEqual(state["bench7-adaptive"][0], dict(state["bench7-always"][0], quorum_exec_block_starved_rounds="4"))
         for name in ("bench7-always", "bench7-adaptive"):
@@ -2013,19 +2019,21 @@ class ArmFilesTests(ParamsApplyCase):
 
 
 # ---- bench7 switch lists ----
-# The live list is bench 7's seven switches (arms/switches.tsv). These tests run the tool under it
-# (PARAMS_APPLY_SWITCHES_TSV empty); every test above runs under bench 6's list.
+# Bench 7's seven switches, retired on 2026-11-16 to arms/switches-bench7.tsv (bench 7's arms carry
+# `build bench7`). These tests run the tool under that list (PARAMS_APPLY_SWITCHES_TSV names it), except
+# where a test names the live list (bench 8's, arms/switches.tsv); every test above runs under bench 6's list.
 
 B7_NODE_ORDER = ["quorum_exec_block", "quorum_exec_block_starved_rounds", "epoch_record_recertify",
                  "epoch_record_collect_past_uncertified", "epoch_record_conflict_halt", "vote_queue_fix",
                  "digest_order_hold"]
 LIVE = {"PARAMS_APPLY_SWITCHES_TSV": "", "PA_SWITCHES_TSV": str(LIVE_TSV)}
+B7 = {"PARAMS_APPLY_SWITCHES_TSV": str(B7_TSV), "PA_SWITCHES_TSV": str(B7_TSV)}
 
 
 class Bench7ListTests(ParamsApplyCase):
 
-    def test_the_live_list_is_bench_7_s_seven_switches(self):
-        rows = switch_rows(LIVE_TSV)
+    def test_the_bench7_list_is_its_seven_switches(self):
+        rows = switch_rows(B7_TSV)
         self.assertEqual([r["key"] for r in rows],
                          ["quorum_exec_block", "quorum_exec_block_starved_rounds", "vote_queue_fix", "digest_order_hold",
                           "epoch_record_collect_past_uncertified", "epoch_record_conflict_halt", "epoch_record_recertify"])
@@ -2037,11 +2045,28 @@ class Bench7ListTests(ParamsApplyCase):
         self.assertEqual(len(switch_rows(TSV)), 12)
         self.assertEqual([r["key"] for r in switch_rows(TSV) if r["optional"] == "yes"], ["pipelined_persist"])
 
-    def test_the_bench7_arms_print_their_state(self):
+    def test_the_live_list_is_bench_8_s_eight_switches(self):
+        # Bench 7's list with the count quorum_exec_block_floor_outputs after the starved rounds (default 8,
+        # arm values 8,16) and digest_order_hold's arm values true,false; every other cell as in bench 7's.
         rows = switch_rows(LIVE_TSV)
+        keys = [r["key"] for r in rows]
+        self.assertEqual(keys, ["quorum_exec_block", "quorum_exec_block_starved_rounds", "quorum_exec_block_floor_outputs",
+                                "vote_queue_fix", "digest_order_hold", "epoch_record_collect_past_uncertified",
+                                "epoch_record_conflict_halt", "epoch_record_recertify"])
+        self.assertEqual({r["optional"] for r in rows}, {"no"})
+        self.assertEqual({r["key"]: r["arm_values"] for r in rows if r["arm_values"] != "true"},
+                         {"quorum_exec_block_starved_rounds": "0,4", "quorum_exec_block_floor_outputs": "8,16",
+                          "digest_order_hold": "true,false"})
+        floor = rows[keys.index("quorum_exec_block_floor_outputs")]
+        self.assertEqual((floor["type"], floor["default"]), ("int", "8"))
+        self.assertEqual([dict(r, arm_values="true") if r["key"] == "digest_order_hold" else r
+                          for r in rows if r["key"] != "quorum_exec_block_floor_outputs"], switch_rows(B7_TSV))
+
+    def test_the_bench7_arms_print_their_state(self):
+        rows = switch_rows(B7_TSV)
         for name, starved in (("bench7-always", "0"), ("bench7-adaptive", "4")):
             f = ARMS / (name + ".arm")
-            p = self.run_tool("--arm-file", str(f), "--print-state", **LIVE)
+            p = self.run_tool("--arm-file", str(f), "--print-state", **B7)
             self.assertEqual((p.returncode, p.stderr), (0, ""), name)
             self.assertEqual(p.stdout, expected_state(f, rows), name)
             self.assertEqual(p.stdout.splitlines()[2:], [
@@ -2053,11 +2078,26 @@ class Bench7ListTests(ParamsApplyCase):
 
     def test_every_bench6_arm_is_refused_on_the_live_list(self):
         nf = self.nodes_file(self.line("bench-validator-01"))
-        files = sorted(f for f in ARMS.glob("*.arm") if arm_list(f) != LIVE_TSV)
+        files = sorted(f for f in ARMS.glob("*.arm") if arm_list(f) == TSV)
         self.assertEqual(len(files), 11)
         for f in files:
             ln = f.read_text().splitlines().index("build bench6") + 1
             why = ("%s:%d: the arm is for the bench6 build (arms/switches-bench6.tsv); the switch list in force is the "
+                   "live build's, benchmark/arms/switches.tsv; the arm file is refused, nothing was contacted" % (f, ln))
+            p = self.run_tool("--arm-file", str(f), "--print-state", **LIVE)
+            self.assertEqual((p.returncode, p.stdout, p.stderr), (1, "", "params-apply: %s\n" % why), f.name)
+            p = self.run_tool("--nodes", str(nf), "--arm-file", str(f), "--dry-run", **LIVE)
+            self.assertEqual((p.returncode, p.stdout), (2, ""), f.name)
+            self.assertIn(why, p.stderr, f.name)
+        self.assertEqual(self.calls(), [])
+
+    def test_every_bench7_arm_is_refused_on_the_live_list(self):
+        nf = self.nodes_file(self.line("bench-validator-01"))
+        files = sorted(f for f in ARMS.glob("*.arm") if arm_list(f) == B7_TSV)
+        self.assertEqual([f.name for f in files], ["bench7-adaptive.arm", "bench7-always.arm"])
+        for f in files:
+            ln = f.read_text().splitlines().index("build bench7") + 1
+            why = ("%s:%d: the arm is for the bench7 build (arms/switches-bench7.tsv); the switch list in force is the "
                    "live build's, benchmark/arms/switches.tsv; the arm file is refused, nothing was contacted" % (f, ln))
             p = self.run_tool("--arm-file", str(f), "--print-state", **LIVE)
             self.assertEqual((p.returncode, p.stdout, p.stderr), (1, "", "params-apply: %s\n" % why), f.name)
@@ -2079,8 +2119,15 @@ class Bench7ListTests(ParamsApplyCase):
                           "all:recovery_threads=3", "--arm", "x", "--dry-run", **LIVE)
         self.assertEqual(p.returncode, 2)
         self.assertIn("unknown key 'recovery_threads'", p.stderr)
-        # A bench 7 arm under bench 6's list is refused the same way (the other direction).
-        p = self.run_tool("--arm-file", str(ARMS / "bench7-always.arm"), "--print-state")
+        # A bench 7 arm under bench 6's list is refused by its build line, and without that line by its first
+        # key bench 6's list lacks (the other direction).
+        f = ARMS / "bench7-always.arm"
+        p = self.run_tool("--arm-file", str(f), "--print-state")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("%s:6: the arm is for the bench7 build (arms/switches-bench7.tsv); the switch list in force is the "
+                      "bench6 build's, benchmark/arms/switches-bench6.tsv" % f, p.stderr)
+        f = self.arm_file(f.read_text().replace("build bench7\n", ""), name="bench7-always.arm")
+        p = self.run_tool("--arm-file", str(f), "--print-state")
         self.assertEqual(p.returncode, 1)
         self.assertIn("bench7-always.arm:10: unknown switch 'digest_order_hold' (benchmark/arms/switches-bench6.tsv: ",
                       p.stderr)
@@ -2096,7 +2143,7 @@ class Bench7ListTests(ParamsApplyCase):
             self.assertIn(why, p.stderr, value)
 
     def b7_fleet(self, line_rows, pre_rows=None):
-        """bench-validator-01..03 under the live list, each logging its `node switches` line with the rows
+        """bench-validator-01..03, each logging its `node switches` line with the rows
         <line_rows> in that order after the restart (the fake node prints every row of PA_SWITCHES_TSV, the
         returned file), and <pre_rows> (else the same) at its defaults before it."""
         tsv = self.tmp / "line-switches.tsv"
@@ -2110,8 +2157,8 @@ class Bench7ListTests(ParamsApplyCase):
         self.manifest()
         return self.nodes_file(*(self.line("bench-validator-0%d" % i) for i in (1, 2, 3))), tsv
 
-    def live_rows(self, order, extra=()):
-        by_key = {r["key"]: r for r in switch_rows(LIVE_TSV)}
+    def live_rows(self, order, extra=(), tsv=B7_TSV):
+        by_key = {r["key"]: r for r in switch_rows(tsv)}
         return [(k, by_key[k]["type"], by_key[k]["default"], by_key[k]["arm_values"], by_key[k]["topic"], "no")
                 for k in order] + list(extra)
 
@@ -2119,37 +2166,37 @@ class Bench7ListTests(ParamsApplyCase):
         nf, tsv = self.b7_fleet(self.live_rows(B7_NODE_ORDER, [("new_switch", "bool", "false", "true", "x", "no")]))
         p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results),
                           "--arm-file", str(ARMS / "bench7-adaptive.arm"),
-                          PARAMS_APPLY_SWITCHES_TSV="", PA_SWITCHES_TSV=str(tsv))
+                          PARAMS_APPLY_SWITCHES_TSV=str(B7_TSV), PA_SWITCHES_TSV=str(tsv))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         state = ("quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true digest_order_hold=true "
                  "epoch_record_collect_past_uncertified=true epoch_record_conflict_halt=true epoch_record_recertify=true")
         self.assertEqual(self.tagged(p, "SWITCHES_OK"), ["SWITCHES_OK bench-validator-0%d %s" % (i, state) for i in (1, 2, 3)])
         for i in (1, 2, 3):
             self.assertIn("params-apply: note: bench-validator-0%d's node switches line carries new_switch, which "
-                          "benchmark/arms/switches.tsv does not list (not compared)\n" % i, p.stderr)
+                          "benchmark/arms/switches-bench7.tsv does not list (not compared)\n" % i, p.stderr)
         arm = self.arms()[0]
         self.assertEqual(arm["switches"], dict(kv.split("=") for kv in state.split()))
         self.assertEqual(arm.get("failed"), None)
 
     def test_deploy_step_9_reads_a_bench7_line_back(self):
-        # bench-lib.sh's bench_switch_readback (step 9 after the coordinated start) under the live list, cut out
+        # bench-lib.sh's bench_switch_readback (step 9 after the coordinated start) under bench 7's list, cut out
         # of bench-lib.sh by name: the line in the node's order, a key the list lacks, a listed key the line lacks.
         text = (BENCH / "bench-lib.sh").read_text()
         fns = "".join(re.search(r"(?ms)^%s\(\) \{\n.*?^\}\n" % n, text).group(0) for n in (
             "_bench_switch_rows", "_bench_switch_norm", "bench_switch_line_values", "bench_switch_readback"))
         script = 'BENCH_SWITCHES_TSV="$3"\n' + fns + 'bench_switch_readback "$1" "$2"\n'
-        on = {r["key"]: ("4" if r["type"] == "int" else "true") for r in switch_rows(LIVE_TSV)}
+        on = {r["key"]: ("4" if r["type"] == "int" else "true") for r in switch_rows(B7_TSV)}
 
         def readback(values, extra=""):
             line = ('ts=2026-11-14T00:00:00Z level=info target=node::switches message="node switches" '
                     + " ".join("%s=%s" % (k, values[k]) for k in B7_NODE_ORDER if k in values) + extra)
-            p = subprocess.run(["bash", "-c", script, "readback", json.dumps(on), line, str(LIVE_TSV)],
+            p = subprocess.run(["bash", "-c", script, "readback", json.dumps(on), line, str(B7_TSV)],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
             return p.returncode, p.stdout.strip(), p.stderr.strip()
 
         self.assertEqual(readback(on), (0, "", ""))
         self.assertEqual(readback(on, " new_switch=true"), (0, "", "note: the node switches line carries new_switch, "
-                                                               "which switches.tsv does not list (not compared)"))
+                                                               "which switches-bench7.tsv does not list (not compared)"))
         self.assertEqual(readback({k: v for k, v in on.items() if k != "digest_order_hold"}),
                          (1, "digest_order_hold is not on the line (expected true)", ""))
         self.assertEqual(readback(dict(on, vote_queue_fix="false")), (1, "vote_queue_fix=false (expected true)", ""))
@@ -2160,7 +2207,7 @@ class Bench7ListTests(ParamsApplyCase):
         nf, tsv = self.b7_fleet(self.live_rows(order))
         p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results),
                           "--arm-file", str(ARMS / "bench7-always.arm"),
-                          PARAMS_APPLY_SWITCHES_TSV="", PA_SWITCHES_TSV=str(tsv))
+                          PARAMS_APPLY_SWITCHES_TSV=str(B7_TSV), PA_SWITCHES_TSV=str(tsv))
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("  bench-validator-01: its image does not know digest_order_hold (its running 'node switches' line "
                       "has no digest_order_hold); the arm sets digest_order_hold=true\n", p.stderr)
@@ -2171,13 +2218,79 @@ class Bench7ListTests(ParamsApplyCase):
         nf, tsv = self.b7_fleet(self.live_rows(order), pre_rows=self.live_rows(B7_NODE_ORDER))
         p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results),
                           "--arm-file", str(ARMS / "bench7-always.arm"),
-                          PARAMS_APPLY_SWITCHES_TSV="", PA_SWITCHES_TSV=str(tsv))
+                          PARAMS_APPLY_SWITCHES_TSV=str(B7_TSV), PA_SWITCHES_TSV=str(tsv))
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertEqual(self.tagged(p, "PA_FAIL"), [
             "PA_FAIL bench-validator-01 switches readback: digest_order_hold is not on the line (the image does not "
             "know it; expected true)"])
         self.assertEqual(self.arms()[0]["failed"], "bench-validator-01")
         self.assertNotIn("systemctl stop telcoin", self.node_calls("bench-validator-02"))
+
+    def test_a_bench8_arm_on_a_bench7_image_stops_before_any_change(self):
+        # The live list's twin: a bench 7 image's line has no quorum_exec_block_floor_outputs.
+        nf, tsv = self.b7_fleet(self.live_rows(B7_NODE_ORDER))
+        p = self.run_tool("--nodes", str(nf), "--results-dir", str(self.results),
+                          "--arm-file", str(ARMS / "bench8-floor16.arm"),
+                          PARAMS_APPLY_SWITCHES_TSV="", PA_SWITCHES_TSV=str(tsv))
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("  bench-validator-01: its image does not know quorum_exec_block_floor_outputs (its running "
+                      "'node switches' line has no quorum_exec_block_floor_outputs); the arm sets "
+                      "quorum_exec_block_floor_outputs=16\n", p.stderr)
+        self.assertEqual(self.phase_calls("B"), [])
+
+
+
+# ---- bench8 arms ----
+# Bench 8's list is bench 7's plus the count quorum_exec_block_floor_outputs (default 8, arm values 8,16):
+# a count whose default is not 0, and digest_order_hold written out at false in the no-hold arm.
+
+class Bench8ArmTests(ParamsApplyCase):
+
+    STATE = {"bench8-control": ("8", "true"), "bench8-floor16": ("16", "true"), "bench8-nohold": ("8", "false")}
+
+    def test_the_bench8_arms_print_their_state(self):
+        rows = switch_rows(LIVE_TSV)
+        for name, (floor, hold) in sorted(self.STATE.items()):
+            f = ARMS / (name + ".arm")
+            p = self.run_tool("--arm-file", str(f), "--print-state", **LIVE)
+            self.assertEqual((p.returncode, p.stderr), (0, ""), name)
+            self.assertEqual(p.stdout, expected_state(f, rows), name)
+            self.assertEqual(p.stdout.splitlines()[2:], [
+                "ARM_SWITCH quorum_exec_block bool true", "ARM_SWITCH quorum_exec_block_starved_rounds int 0",
+                "ARM_SWITCH quorum_exec_block_floor_outputs int %s" % floor,
+                "ARM_SWITCH vote_queue_fix bool true", "ARM_SWITCH digest_order_hold bool %s" % hold,
+                "ARM_SWITCH epoch_record_collect_past_uncertified bool true",
+                "ARM_SWITCH epoch_record_conflict_halt bool true", "ARM_SWITCH epoch_record_recertify bool true"], name)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_floor_outside_its_arm_values_is_refused(self):
+        f = self.tmp / "floor12.arm"
+        f.write_text((ARMS / "bench8-floor16.arm").read_text().replace("floor_outputs 16", "floor_outputs 12"))
+        p = self.run_tool("--arm-file", str(f), "--print-state", **LIVE)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("quorum_exec_block_floor_outputs 12: not one of its arm values (8,16)", p.stderr)
+
+    def test_deploy_step_9_reads_a_floor_of_16_back(self):
+        text = (BENCH / "bench-lib.sh").read_text()
+        fns = "".join(re.search(r"(?ms)^%s\(\) \{\n.*?^\}\n" % n, text).group(0) for n in (
+            "_bench_switch_rows", "_bench_switch_norm", "bench_switch_line_values", "bench_switch_readback"))
+        script = 'BENCH_SWITCHES_TSV="$3"\n' + fns + 'bench_switch_readback "$1" "$2"\n'
+        state = {}
+        for l in self.run_tool("--arm-file", str(ARMS / "bench8-floor16.arm"), "--print-state", **LIVE).stdout.splitlines():
+            if l.startswith("ARM_SWITCH "):
+                state[l.split()[1]] = l.split()[3]
+
+        def readback(values):
+            line = ('ts=2026-11-16T00:00:00Z level=info target=node::switches message="node switches" '
+                    + " ".join("%s=%s" % kv for kv in values.items()))
+            p = subprocess.run(["bash", "-c", script, "readback", json.dumps(state), line, str(LIVE_TSV)],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+        self.assertEqual(state["quorum_exec_block_floor_outputs"], "16")
+        self.assertEqual(readback(state), (0, "", ""))
+        self.assertEqual(readback(dict(state, quorum_exec_block_floor_outputs="8")),
+                         (1, "quorum_exec_block_floor_outputs=8 (expected 16)", ""))
 
 
 if __name__ == "__main__":

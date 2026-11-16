@@ -1,0 +1,13 @@
+# bench8-nohold: the control (bench8-control) with digest_order_hold false (no order hold); run H.
+# false is the switch's default, written out so the one difference is plain; every other line is the control's.
+# No host step: the bench 8 build stores its execution state in tn-lmdb, and a node that never
+# started has nothing to evict.
+name bench8-nohold
+param quorum_exec_block true
+param quorum_exec_block_starved_rounds 0
+param quorum_exec_block_floor_outputs 8
+param vote_queue_fix true
+param digest_order_hold false
+param epoch_record_collect_past_uncertified true
+param epoch_record_conflict_halt true
+param epoch_record_recertify true
