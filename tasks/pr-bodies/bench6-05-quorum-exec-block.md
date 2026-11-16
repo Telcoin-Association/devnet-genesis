@@ -11,7 +11,7 @@ Every node, switch on or off, logs four new fields on `header proposed`.
 The adaptive form is deleted because the repository owner chose always-on as the only form that ships, and because of bench 7: it ran one run of each form at 20,000 IOPS, and in that pair the adaptive form did not do better (in the table below three rows are not told apart, and on the two rows outside the always-on run's spread the adaptive run is behind); bench 7 made no run at 50,000 IOPS, where bench 6 had the adaptive form ahead on certification.
 The adaptive form also carries code the always-on form does not need: a window, a streak and two constants.
 
-PR 7 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
+PR 7 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 

@@ -4,7 +4,7 @@ The epoch loop now reserves room in the engine channel before it takes a consens
 The leftover drain's queue phase skips an output already forwarded and stops the node on a gap, before the engine executes past it.
 No switch: it fixes a loss on main.
 
-PR 6 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1866's branch (`fix/epoch-record-collector-hardening`), so the Files tab shows this change alone (8 commits).
+PR 6 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1866's branch (`fix/epoch-record-collector-hardening`), so the Files tab shows this change alone (8 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz in the import block and the test-module ends (checked with `patch -F3`, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
 Please merge with 'Create a merge commit'.

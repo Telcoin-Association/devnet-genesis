@@ -7,7 +7,7 @@ A test that passes no override, with the variable unset, starts its nodes as on 
 The stack added the scaffold to test its switches on part of a fleet; {{pr-09}}, the last PR of the stack, removes the switches and keeps the scaffold.
 After it, the stack's later e2e tests pass test hook variables and cadence parameters (header and batch delays) through `NodeOverrides` and `FleetOverrides`; no test sets `TN_E2E_PARAMETERS`, but a lane can still run a whole test set with a parameter set from outside.
 
-PR 2 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1862's branch (`feat/bench6-switches-obs`), so the Files tab shows this change alone (8 commits).
+PR 2 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1862's branch (`feat/bench6-switches-obs`), so the Files tab shows this change alone (8 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 

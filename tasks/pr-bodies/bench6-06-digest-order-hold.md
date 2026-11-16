@@ -7,7 +7,7 @@ Every node, switch on or off, counts digests re-queued out of order, what the or
 
 {{pr-09}}, the last PR of the stack, removes the switch and makes the hold the node's behaviour; once the stack is collapsed into #1862 there is no switch.
 
-PR 8 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1868's branch (`fix/1804-quorum-exec-block`), so the Files tab shows this change alone (17 commits).
+PR 8 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1868's branch (`fix/1804-quorum-exec-block`), so the Files tab shows this change alone (17 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit', like the rest of the stack.
 

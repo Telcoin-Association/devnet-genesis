@@ -6,7 +6,7 @@ The voter also refuses at once a request older than that author's newest (`Super
 Every node, switch on or off, counts vote requests by outcome.
 {{pr-09}}, the last PR of the stack, removes the switch and makes the change the node's behaviour: once the stack is collapsed into #1862 there is no switch, every voter waits before the lock, and a node starts only with `vote_timeout` below 9 s.
 
-PR 3 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1863's branch (`test/bench6-e2e-scaffold`), so the Files tab shows this change alone (10 commits).
+PR 3 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1863's branch (`test/bench6-e2e-scaffold`), so the Files tab shows this change alone (10 commits).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 

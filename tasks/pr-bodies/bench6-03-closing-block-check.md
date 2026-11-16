@@ -6,7 +6,7 @@ A failing block stops the node.
 No switch: this extends main's unconditional stored-record guard (#1834, #1849), and a genuine close passes by construction, so blocks, records and votes do not change.
 New: an `epoch record published` info line and two counters.
 
-PR 4 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1864's branch (`fix/1804-vote-queue`), so the Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
+PR 4 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1864's branch (`fix/1804-vote-queue`), so the Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 

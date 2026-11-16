@@ -6,7 +6,7 @@ So once the stack is collapsed into #1862, `main` receives the three measurement
 In this PR's diff a switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
 This PR alone defines no switch and changes nothing a node sends, accepts, decides or stores; the collapsed #1862 carries the later PRs' behaviour changes to `main`.
 
-PR 1 of 8 in the stack #1862 to #1869; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
+PR 1 of 9 in the stack #1862 to {{pr-09}}; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 
 ## Problem

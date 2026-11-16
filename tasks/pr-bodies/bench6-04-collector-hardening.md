@@ -5,7 +5,7 @@ This PR adds both behind two switches, default off: `epoch_record_collect_past_u
 No switch: the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error (#1852), an evidence line and a counter in front of main's stop on a conflicting certified record.
 In this PR's diff one behaviour changes with every switch off: a full vote queue never evicts the rounds of the newest record or the one before it.
 
-PR 5 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1865's branch (`fix/epoch-record-closing-block-check`), so the Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
+PR 5 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1865's branch (`fix/epoch-record-closing-block-check`), so the Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 
