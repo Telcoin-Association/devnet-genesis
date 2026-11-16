@@ -1,9 +1,0 @@
-TOP-E2E start 2026-11-15T00:39:38Z worktree=/home/drtnarg/coding/telcoin/tn-b7-gate head=91a15e223 pid=1369176
-E2E-SETS start 2026-11-15T00:39:38Z worktree=/home/drtnarg/coding/telcoin/tn-b7-gate head=91a15e223 sets=[restarts epochs sigkill] labels=2 pid=1417043
-E2E-SETS 91a15e223 off params=[] restarts=0([ 380.224s] 11 tests run: 11 passed, 5669 skipped) epochs=0([ 349.235s] 11 tests run: 11 passed, 70 skipped) sigkill=0([ 111.114s] 12 tests run: 12 passed, 69 skipped) 2026-11-15T01:11:53Z
-E2E-SETS 91a15e223 on params=[quorum_exec_block: true; quorum_exec_block_starved_rounds: 4; vote_queue_fix: true; digest_order_hold: true; epoch_record_collect_past_uncertified: true; epoch_record_conflict_halt: true; epoch_record_recertify: true] restarts=0([ 382.077s] 11 tests run: 11 passed, 5669 skipped) epochs=0([ 349.527s] 11 tests run: 11 passed, 70 skipped) sigkill=0([ 101.086s] 12 tests run: 12 passed, 69 skipped) 2026-11-15T01:33:01Z
-E2E-SETS done rc=0 2026-11-15T01:33:01Z
-TOP-E2E sets rc=0 2026-11-15T01:33:01Z
-TOP-E2E new-x3 rc=0 (Summary [10080.134s] 3/3 stress run iterations: 3 passed) 2026-11-15T04:21:50Z
-TOP-E2E hunt rc=0 (order hold long hunt: cases=100000 seed=1575588037: no schedule breaks the rule) 2026-11-15T04:25:38Z
-TOP-E2E done rc=0 2026-11-15T04:25:38Z

@@ -1,9 +1,0 @@
-HARNESS-GATE start 2026-11-15T05:53:04Z head=35f88aa logs=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261115T055304Z load=1.20 5.06 6.06 pid=3150905
-gate: unit suite, 44 module(s), BENCH_TEST_TIMEOUT_SCALE=3, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261115T055304Z/unittest.log
-  Ran 1626 tests in 1916.789s
-  
-  OK (skipped=12)
-gate: mutation checker, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261115T055304Z/mutations.log
-  554 of 554 mutations killed
-GATE unittest=0 isolated=none mutations=0 load=quiet secs=2710
-HARNESS-GATE rc=0 2026-11-15T06:38:14Z load=1.03 1.49 1.77

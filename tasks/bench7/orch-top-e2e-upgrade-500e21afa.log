@@ -1,7 +1,0 @@
-TOP-UPGRADE start 2026-11-15T18:41:22Z worktree=/home/drtnarg/coding/telcoin/tn-b7-ngate head=500e21afa prev=33b727fce pid=3652462
-TOP-UPGRADE prev rc=0 (build-e2e-bin-prev: /home/drtnarg/coding/telcoin/tn-b7-ngate/target/prev-e2e/e2e/telcoin-network is 33b727fce (33b727fce)) 2026-11-15T18:50:09Z
-E2E-SETS start 2026-11-15T18:50:09Z worktree=/home/drtnarg/coding/telcoin/tn-b7-ngate head=500e21afa sets=[upgrade] labels=2 pid=303248
-E2E-SETS 500e21afa off params=[] upgrade=0([ 126.077s] 1 test run: 1 passed, 80 skipped) 2026-11-15T18:54:48Z
-E2E-SETS 500e21afa on params=[quorum_exec_block: true; quorum_exec_block_starved_rounds: 4; vote_queue_fix: true; digest_order_hold: true; epoch_record_collect_past_uncertified: true; epoch_record_recertify: true] upgrade=0([ 127.191s] 1 test run: 1 passed, 80 skipped) 2026-11-15T18:59:08Z
-E2E-SETS done rc=0 2026-11-15T18:59:08Z
-TOP-UPGRADE done rc=0 2026-11-15T18:59:08Z
