@@ -1,0 +1,11 @@
+HARNESS-GATE start 2026-11-16T18:44:40Z head=3806540 logs=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261116T184440Z load=0.39 1.79 3.41 pid=1668208
+gate: unit suite, 44 module(s), BENCH_TEST_TIMEOUT_SCALE=3, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261116T184440Z/unittest.log
+  Ran 1640 tests in 1987.118s
+  
+  FAILED (failures=1, skipped=12)
+gate: test_keygen failed in the suite; once more alone, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261116T184440Z/isolated-test_keygen.log
+  FAILED (failures=1)
+gate: mutation checker, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261116T184440Z/mutations.log
+  555 of 555 mutations killed
+GATE unittest=1 isolated=test_keygen:1 mutations=0 load=quiet secs=2909
+HARNESS-GATE rc=1 2026-11-16T19:33:09Z load=1.83 1.81 1.74

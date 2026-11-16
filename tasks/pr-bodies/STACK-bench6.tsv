@@ -7,3 +7,4 @@ xf	fix/epoch-loop-output-drop	staging/benchmark-bench6-2026-11	fix(node): lose n
 04	fix/epoch-record-collector-hardening	staging/benchmark-bench6-2026-11	fix(node): epoch record collector walk, re-certify and conflict evidence
 05	fix/1804-quorum-exec-block	staging/benchmark-bench6-2026-11	fix(primary): quorum_exec_block names an execution block a quorum holds
 06	fix/1807-digest-order-hold	staging/benchmark-bench6-2026-11	fix(primary): digest_order_hold keeps each worker lane in order
+09	refactor/remove-bench-switches	feat/bench6-switches-obs	refactor: remove the runtime switches; each fix is the node's behaviour
