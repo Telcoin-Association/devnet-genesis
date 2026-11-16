@@ -6,7 +6,8 @@
 #   cargo    fmt --check; ./etc/ci-lanes.sh clippy; cargo nextest run --locked --workspace
 #   sets     make test-restarts, test-epochs, test-sigkill, test-e2e-resync (tasks/bench7/orch-e2e-sets.sh, no parameters)
 #   x3       every e2e test the stack adds, three times in a row
-#   upgrade  make build-e2e-bin-prev TN_PREV_REF=<prev ref>, then make test-upgrade three times (a SKIPPED line fails the stage)
+#   upgrade  make build-e2e-bin-prev TN_PREV_REF=<prev ref>, then make test-upgrade once and make test-upgrade-votes
+#            three times (a SKIPPED line fails a run)
 #   restore  the three state_export_import tests
 #   hunt     the order hold model's long hunt, 100,000 cases
 # Everything e2e goes through the second lane (one e2e job on the machine at a time).
@@ -63,13 +64,18 @@ for stage in ${stages}; do
             echo "EXIT=${rc}" >> "${log}"
             note prev-build "${rc}" "$(grep -E 'build-e2e-bin-prev:' "${log}" | tail -1 | cut -c1-160)"
             if [ "${rc}" -eq 0 ]; then
-                # Three runs of make test-upgrade (the rolling test and the mixed-binary vote test). A passing
-                # test's output is kept (NEXTEST_SUCCESS_OUTPUT=final): the vote test prints its counts, and a
-                # SKIPPED line there means the previous binary had no execution-delay hook.
-                NEXTEST_SUCCESS_OUTPUT=final E2E_SETS="upgrade" bash "${ROOT}/tasks/bench7/orch-e2e-sets.sh" "${wt}" "${rev}" "run1=" "run2=" "run3="; rc=$?
-                skipped="$(grep -l 'SKIPPED' target/tmp/orch-e2e-${head}-run[123]-upgrade.log 2>/dev/null | wc -l)"
-                [ "${skipped}" -eq 0 ] || rc=1
-                note upgrade "${rc}" "three runs, ${skipped} with a SKIPPED line; see the E2E-SETS lines above"
+                E2E_SETS="upgrade" bash "${ROOT}/tasks/bench7/orch-e2e-sets.sh" "${wt}" "${rev}" "plain="; rc=$?
+                note upgrade "${rc}" "make test-upgrade, the rolling test; see the E2E-SETS line above"
+                # The mixed-binary vote test has its own target (make test-upgrade-votes stops when the previous
+                # binary has no execution-delay hook). Three runs; a passing test's output is kept
+                # (NEXTEST_SUCCESS_OUTPUT=final) because the test prints its counts; a SKIPPED line fails the run.
+                for i in 1 2 3; do
+                    log="target/tmp/top8-${head}-upgrade-votes-${i}.log"
+                    NEXTEST_SUCCESS_OUTPUT=final "${LANE}" make test-upgrade-votes > "${log}" 2>&1; rc=$?
+                    echo "EXIT=${rc}" >> "${log}"
+                    if grep -q 'SKIPPED' "${log}"; then rc=1; fi
+                    note "upgrade-votes-${i}" "${rc}" "$(grep -E 'Summary' "${log}" | tail -1 | sed 's/^ *//')"
+                done
             fi
             ;;
         restore)
