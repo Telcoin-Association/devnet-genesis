@@ -29,14 +29,14 @@ Sample tail: `… held=1 held_lanes=1 blockers=1 exec_quorum=0 exec_floor=0 pare
 | field | type | meaning |
 |---|---|---|
 | `exec_named` | u64 | number of the execution block the header names |
-| `exec_tip_arrival` | u64 | this voter's latest executed block number when the request arrived, before any wait |
-| `exec_tip_answer` | u64 | the same when the answer was decided (for a vote: after it was stored, so a few ms later) |
-| `exec_deficit_outputs` | u64, ring entries | block-bearing outputs the voter still had to execute at arrival to hold the named block: 0 when held; else the ring entries above the arrival tip up to and including the first at or above the named block; a lower bound when `exec_deficit_open=true` or when more outputs than the ring holds ran |
-| `exec_deficit_open` | bool, on every line | true when the wait ended without the block |
+| `exec_tip_arrival` | u64 | this voter's latest executed block number when the request arrived, before any wait; 0 while the ring is empty (start-up) |
+| `exec_tip_answer` | u64 | the same when the answer was decided (for a vote: after it was stored, so a few ms later); 0 while the ring is empty |
+| `exec_deficit_outputs` | u64, ring entries | block-bearing outputs the voter still had to execute at arrival to hold the named block: 0 when held; else the ring entries above the arrival tip up to and including the first at or above the named block; a lower bound when `exec_deficit_open=true` (and 0 for an open request refused before any output executed) or when more outputs than the ring holds ran |
+| `exec_deficit_open` | bool, on every line | true when the named block was above the arrival tip and still not in the ring at the answer, for ANY outcome, including requests refused on arrival without a wait (`exec_deficit_outputs` is then the outputs executed between arrival and answer, often 0): split by `outcome` and by `prelock_wait_ms + exec_wait_ms > 0` in analysis |
 | `superseded_by_round` | u32 | outcome `superseded` only: the round of the author's newest request mark at the refusal (may be more than one above this request's round); else 0 |
-| `superseded_after_ms` | u64 | outcome `superseded` only: from this request's arrival to the FIRST arrival of that mark round's request; 0 when the newer request had arrived first (refused on arrival); else 0 |
+| `superseded_after_ms` | u64 | outcome `superseded` only: from this request's arrival to the first arrival of that round's request that raised the mark (from its author, inside the vote window); 0 when the newer request had arrived first (refused on arrival); else 0 |
 
-Histogram `tn_primary_vote_exec_deficit_outputs{open="true"|"false"}` (crate name `tn_primary.vote_exec_deficit_outputs`), one sample per request, buckets 0, 1, 2, 4, 8, 12, 16, 24, 32, 64.
+Histogram `tn_primary_vote_exec_deficit_outputs{open="true"|"false"}` (crate name `tn_primary.vote_exec_deficit_outputs`), one sample per request, buckets 0, 1, 2, 4, 8, 12, 16, 24, 32, 64; `open="true"` includes requests refused without a wait (they land in bucket 0): split by `outcome` in analysis.
 What `superseded` means: a newer-round request of the same author, authenticated and inside the vote window, reached this voter (`refuse_superseded_request`); checked on arrival, after the pre-lock wait and once the author lock is taken. The pre-lock wait (`VOTE_EXECUTION_WAIT`, 1 s) is not woken by a newer request.
 
 ## The lines that end a vote round at the author (target `consensus::metrics`, INFO) — appended in this order (B8-3: 3dfd7e0b0)
@@ -56,7 +56,7 @@ Answers after the round's end are not listed.
 
 ## `leader schedule updated` (target `consensus::metrics`, INFO) — new line (B8-5: 48991d94c)
 
-Fields in order: `epoch` (u32), `round` (u64: the committed leader round the scores belong to), `scores` (`[id:score,…]`, every authority), `good` (`[id,…]`: swapped in), `bad` (`[id,…]`: swapped out), `final_of_schedule` (bool, always true).
+Fields in order: `epoch` (u32), `round` (u32, `Round`: the committed leader round the scores belong to), `scores` (`[id:score,…]`, every authority), `good` (`[id,…]`: swapped in), `bad` (`[id,…]`: swapped out), `final_of_schedule` (bool, always true).
 At most ten entries per list, a closing `+N` for the rest; `[]` when empty.
 Once per schedule change: at most once per window of 60 committed leader rounds (120 rounds), only if the window's last leader is committed; once more per restart, restating the restored table (de-duplicate on `(epoch, round)`).
 Removed with it: three DEBUG lines of target `primary::leader_schedule` ("Good node on round …", "Bad node on round …", "Reputation scores on round …").
@@ -85,8 +85,8 @@ Fix in 453123d5e: a vote that fails the aggregator's signature check is listed u
 
 | line | fields before | new key | meaning |
 |---|---|---|---|
-| `output executed` | consensus_number, leader_round, blocks, batches, execute_ms, persist_ms, announce_ms, txs, recover_wait_ms, evm_ms, root_ms, finish_ms, other_ms, max_block_root_ms, max_block_evm_ms | `cpu_ms` (u64, optional) | CPU time of the executing thread over exactly the span of `execute_ms`, from `/proc/thread-self/schedstat` read at both ends (each reading can lag one scheduler tick: 4 ms at HZ=250); not counted: the parallel signer recovery and other pool threads; the key is absent where the file is missing; always 0 on a kernel without scheduler statistics |
-| `persisted output` | first, last, blocks, txs, receipts, accounts, storage_slots, open_ms, save_blocks_ms, markers_ms, commit_ms | `store_bytes` (u64, optional) | pages of the newest committed state × page size, read right after the commit from the node's own tn-lmdb handle (an in-memory read; the high-water mark, free pages included); absent on an MDBX build |
+| `output executed` | consensus_number, leader_round, blocks, batches, execute_ms, persist_ms, announce_ms, txs, recover_wait_ms, evm_ms, root_ms, finish_ms, other_ms, max_block_root_ms, max_block_evm_ms | `cpu_ms` (u64, optional) | CPU time of the executing thread over exactly the span of `execute_ms`, from `/proc/thread-self/schedstat` read at both ends (each reading can lag one scheduler tick: 4 ms at HZ=250; the start reading lies inside `execute_ms`'s span: one procfs read, about 10-30 µs); not counted: the parallel signer recovery and other pool threads; the key is absent where the file is missing; always 0 on a kernel without scheduler statistics |
+| `persisted output` | first, last, blocks, txs, receipts, accounts, storage_slots, open_ms, save_blocks_ms, markers_ms, commit_ms | `store_bytes` (u64, optional) | pages of the newest committed state × page size, read right after the commit from a clone of the `Arc<TnLmdbEnv>` the provider factory holds (the same environment, no second opening; one read of the current snapshot pointer, no writer slot, no I/O; the high-water mark, free pages included); absent on an MDBX build |
 | `output execution task finished` | consensus_number, queue_wait_ms, task_ms, forward_wait_ms | `outputs_behind` (usize) | outputs still in the engine's queue when this output's task ends (not those still in the channel the engine has not polled) |
 
 Not added, and why: a separate `commit_wait_ms`: `open_ms` on `persisted output` already is the wait for the store's single writer slot (the time inside `database_provider_rw()`); `txs` / `blocks` on the task line: join on `consensus_number`.
@@ -94,3 +94,7 @@ Not added, and why: a separate `commit_wait_ms`: `open_ms` on `persisted output`
 ## Still to come
 
 - B8-7: `order hold released`, `subdag parent skipped`.
+
+## Reviewed
+
+The side chain (`b8/side`, 91a15e223..d7d9920eb) was reviewed on 2026-11-16 by a reader that did not write it (`tasks/bench8/review/b8-side-chain.md`): approve with follow-ups, no Critical or High, one Medium (the meaning of `exec_deficit_open`, corrected above) and nine Lows (test strength; an empty ring logs tip 0). With every parameter at its default no decision, send, stored value or error differs from 91a15e223. The line that grows most is `vote path timing`: about 150 bytes more per line, about 3.3 kB per second per node at DEBUG.
