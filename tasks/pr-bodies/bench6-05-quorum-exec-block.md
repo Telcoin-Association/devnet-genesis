@@ -6,8 +6,8 @@ With the count left at `0` every header uses the rule: this always-on form is th
 A count K above zero selects the adaptive form, kept for comparison: the own tip, and the rule only for the next K headers built after an own header was cancelled uncertified, K doubling up to 128 while cancels go on and returning to the configured value after 64 certified tip headers in a row.
 Every node, switch on or off, logs four new fields on `header proposed`.
 
-The seventh pull request of the stack into `staging/benchmark-bench6-2026-11`, after #1862-#1867.
-Stacked on `fix/epoch-loop-output-drop` (#1867): this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/f5f7589f52fff080fe909354b9a5086a73a3762f...38f00e88ea178f56cfcf5cba3e7495e339ce06ae (18 commits).
+PR 7 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -84,7 +84,7 @@ This topic's 18 commits applied on an earlier tip of `fix/epoch-loop-output-drop
 
 Not run on this head: the bench 7 runs above ran its node logic on main at 45dce8947; no bench 7 run was made at 50,000 IOPS.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight heads of the stack.
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.

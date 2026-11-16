@@ -5,8 +5,8 @@ With it on, a voter waits for execution (up to 1 s) before the per-author vote l
 The voter also refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty), and the node needs `vote_timeout` below 9 s.
 Every node, switch on or off, counts vote requests by outcome.
 
-PR 3 of 6 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`).
-Stacked on `test/bench6-e2e-scaffold`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/87be966514802e039b7f7ba87452bfc7e2e57f5d...17327280d54590d74581fc1abc40d03dd2961c3d (10 commits).
+PR 3 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1863's branch (`test/bench6-e2e-scaffold`), so the Files tab shows this change alone (10 commits).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -58,7 +58,7 @@ On the stack's earlier cut on main at 45dce8947, on a form of this head's first 
 
 Not run: no e2e test covers the switch, and no benchmark has run this head; a benchmark of the stack's earlier form on main at 45dce8947 runs it on, with the author-side switch, and has not finished.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.

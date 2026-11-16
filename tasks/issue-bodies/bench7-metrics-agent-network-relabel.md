@@ -2,7 +2,7 @@
 
 ## What happens
 
-`observability/config.alloy` sets `network` to the chain's name on every series it scrapes from the node (lines 126-129 on main; the file last changed in af97ae7):
+`observability/config.alloy` sets `network` to the chain's name on every series it scrapes from the node (lines 143-146 on main at b89ada4; the file last changed in a2162b6):
 
 ```alloy
 	rule {
@@ -43,7 +43,7 @@ The fleets of r20261115-1131, of an earlier, lost attempt at the adaptive run (r
 
 The idle check stopped the benchmark's step sequence (the blockchain kept running) at 12:30:02 (`up` missing for validator-09), at 16:04:23 (the earlier attempt; `up` missing for validators 09 and 10) and at 17:45:57 (`up` missing for validator-05).
 Validator-05 is killed and restarted by design in the load blast; its missing series came back after the restart.
-The collapsed per-network series were seen on every node in both runs, nodes that lost no batch included, and are not new in bench 7.
+The collapsed per-network series were seen on every node in both runs, nodes that lost no batch included, and were already there before these runs.
 
 ## The explanation (inferred, not reproduced)
 
@@ -71,13 +71,13 @@ Keep the node's value under another name before the `network` rule overwrites it
 ```
 
 With the default `replace` action (regex `(.*)`, replacement `$1`) this should copy `primary` or `worker-0` to `tn_network`; for a series without a `network` label the result is empty, and as we read Prometheus's relabelling an empty result sets no label (not tested).
-`network` still carries the chain's name, so the dashboard's `$network` variable (the comment at lines 104-105) and queries on `network="<chain>"` keep working.
+`network` still carries the chain's name, so the dashboard's `$network` variable (the comment at lines 121-122) and queries on `network="<chain>"` keep working.
 
 The other way is to drop the `network` rule and keep the node's label.
-The `chain` rule just above it (lines 121-124) already writes the same value, `sys.env("TN_CHAIN")`.
+The `chain` rule just above it (lines 138-141) already writes the same value, `sys.env("TN_CHAIN")`.
 The dashboard's variable and every query that selects the chain by `network`, such as the benchmark harness's `network="bench"` selectors, would then have to move to `chain`.
 
-Either way the file's functional blocks are kept byte-identical with an upstream copy (the sync note in `docs/testnet-addons.md`), so the change goes there too.
+Either way the file's functional blocks are kept byte-identical with an upstream copy (the file's header comment, lines 8-18, says so), so the change goes there too; `observability/config.alloy.sha256` holds the file's checksum and changes with it.
 
 ## How to verify
 

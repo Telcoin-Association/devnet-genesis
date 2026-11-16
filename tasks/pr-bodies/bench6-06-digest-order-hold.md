@@ -5,8 +5,8 @@ With it on, a validator's next own header leaves queued every digest of a worker
 Header validity, the messages and what peers vote for do not change; the header trigger still counts held digests, so at light load a held backlog can build a header earlier (see Limits).
 Every node, switch on or off, counts digests re-queued out of order, what the orphan re-pool does with each transaction and dropped cancel reports, and logs its own parent on `header proposed`.
 
-PR 8 of 8 into `staging/benchmark-bench6-2026-11`, after #1862-#1867 and #1868 (merge order: #1862, #1863, #1864, #1865, #1866, #1867, #1868, this one).
-Stacked on `fix/1804-quorum-exec-block` (#1868): this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/38f00e88ea178f56cfcf5cba3e7495e339ce06ae...500e21afa6205b3b9cb39a05e5dc1fefc145747e (17 commits).
+PR 8 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1868's branch (`fix/1804-quorum-exec-block`), so the Files tab shows this change alone (17 commits).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit', like the rest of the stack.
 
 ## Problem
@@ -90,7 +90,7 @@ Each validator runs one worker, so a held header carries no batch.
 Each longest run is validator-06's maximum in the window named; r20261115-1131's two come from different windows, and the windows differ in length (before the kill 817 s and 1,121 s, after validator-05's start 1,308 s and 990 s), so a row compares two runs only where its windows match.
 Held headers certified less often than the rest in both runs; that is an association, and no counter says the hold caused it.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight heads of the stack.
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.

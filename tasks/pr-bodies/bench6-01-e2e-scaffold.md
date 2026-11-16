@@ -5,8 +5,8 @@ The node log helpers of `restarts.rs` move to `common.rs`.
 Test code only: no node crate changes, and there is no switch.
 A test that passes no override, with the variable unset, starts its nodes as on main.
 
-PR 2 of 6 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`).
-Stacked on `feat/bench6-switches-obs`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/b29d59bef7b46220aad81ddaeb48101f197a14b4...87be966514802e039b7f7ba87452bfc7e2e57f5d (8 commits).
+PR 2 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1862's branch (`feat/bench6-switches-obs`), so the Files tab shows this change alone (8 commits).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -55,7 +55,7 @@ The scaffold builds mixed fleets on purpose, and its docs warn that a key that c
 
 Among the e2e library's 16 unit tests, `merge_later_entry_wins_and_is_idempotent`, `apply_parameters_reaches_the_node_loader`, `apply_parameters_starts_each_run_from_the_harness_file`, `fleet_apply_fails_on_the_node_that_cannot_take_its_overrides` and `dropped_entries_notice_names_the_datadir_and_the_dropped_keys` pin the claims above.
 
-On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, PR 3 of 6, which contains this head's eight commits): `cargo check --locked --workspace --all-targets`, warnings denied, which builds the e2e crate and its tests: clean.
+On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, #1864, which contains this head's eight commits): `cargo check --locked --workspace --all-targets`, warnings denied, which builds the e2e crate and its tests: clean.
 The e2e library's unit tests were not run on today's main.
 
 On the stack's earlier cut on main at 45dce8947 (the same eight commits before the move; main has not changed the three files they edit since), at the head's seventh commit (the eighth changes doc comments only):
@@ -69,7 +69,7 @@ On the first five commits, `restarts::test_restarts_observer` and `common::test_
 Not run on this head: the rest of the e2e suite, and any lane with `TN_E2E_PARAMETERS` set; the stack-wide gates below ran the repo's e2e sets on the top of the stack, once with the variable unset and once with it set.
 No test in this PR calls `start_validator_with_overrides` or `start_nodes_with_overrides`; the first callers in the stack are the e2e tests of `fix/epoch-record-collector-hardening` (`epoch_record_walk.rs`), which start their fleets through the shared helpers that head adds.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
@@ -94,4 +94,4 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 ## Related
 
 No issue: test scaffolding for the stack.
-Stacked on this: `fix/1804-vote-queue`, `fix/epoch-record-closing-block-check`, `fix/epoch-record-collector-hardening` and `fix/epoch-loop-output-drop`, and later `fix/1804-quorum-exec-block`, whose e2e test runs a mixed-switch fleet with `FleetOverrides`.
+Stacked on this: #1864 (`fix/1804-vote-queue`), #1865 (`fix/epoch-record-closing-block-check`), #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`), whose e2e test runs a mixed-switch fleet with `FleetOverrides`, and #1869 (`fix/1807-digest-order-hold`).

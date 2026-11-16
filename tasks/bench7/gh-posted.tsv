@@ -24,3 +24,5 @@
 2026-11-15T19:03:06Z	pr	xf	1867	https://github.com/Telcoin-Association/telcoin-network/pull/1867	54c80d2ed5b82dd8cdba86dab03233377501df7998b5fce5735ee2fa89de4b91
 2026-11-15T22:32:56Z	pr	05	1868	https://github.com/Telcoin-Association/telcoin-network/pull/1868	bb5c8261547955fa1b88cd36f1b17120b0db3bc65a321c0efa5c48572bcc8812
 2026-11-15T22:33:15Z	pr	06	1869	https://github.com/Telcoin-Association/telcoin-network/pull/1869	014bf36b956c372bae80ee1cb0ae008fe51061fad19abfa8c8534220427e5f37
+2026-11-16T16:04:26Z	issue	far-validator-batches-not-committed	1870	https://github.com/Telcoin-Association/telcoin-network/issues/1870	328b0c891121cd91101aff057a4a1e59e21b5123c5ad3b9bf4f4fd157347b5e0
+2026-11-16T16:07:30Z	issue	metrics-agent-network-relabel	66	https://github.com/Telcoin-Association/tn-node-deployment/issues/66	814d16e0b2315c9b5fcc8b773ac5cf661206b26b8dd3135f3972ad00e9be00ee

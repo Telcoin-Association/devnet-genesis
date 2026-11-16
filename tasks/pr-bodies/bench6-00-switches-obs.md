@@ -4,8 +4,8 @@ Adds the list the later PRs of this stack put their runtime switches into, a `no
 A switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
 No switch is defined here, and nothing a node sends, accepts, decides or stores changes.
 
-PR 1 of 6 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`).
-The first of the stack: its base is `main` at 33b727fce; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/33b727fcea4f6004d4b0cd2bd7923258e081e94f...b29d59bef7b46220aad81ddaeb48101f197a14b4 (12 commits).
+PR 1 of 8 in the stack #1862 to #1869; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -69,7 +69,7 @@ A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and t
 
 Pinned by `switch_at_default_is_not_written`, `reserializing_keeps_the_existing_keys` (the mainnet and adiri presets round-trip), `node_switches_line_renders_yaml_tokens`, `test_engine_stage_histograms_render_sub_ms_buckets`, `epoch_entry_gauge_records_rounds_behind` and `test_requeued_digest_reports_its_wait_from_first_receipt`.
 
-On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, PR 3 of 6, which contains this head's twelve commits):
+On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, #1864, which contains this head's twelve commits):
 - `cargo check --locked --workspace --all-targets`, warnings denied: clean.
 - `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p`: 1,825 passed, 9 skipped.
 
@@ -81,7 +81,7 @@ On the stack's earlier cut on main at 45dce8947 (the same twelve commits before 
 Not run: e2e tests (none added) and a fleet.
 Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
@@ -107,7 +107,7 @@ No fix is pending before merge.
 
 Refs #1806: the epoch-entry gauge measures how late a member enters an epoch.
 Refs #1819: its digest-wait histogram now counts across re-queues.
-Stacked on this: `test/bench6-e2e-scaffold`, `fix/1804-vote-queue` (`vote_queue_fix`), `fix/epoch-record-closing-block-check` (no switch), `fix/epoch-record-collector-hardening` (two switches), `fix/epoch-loop-output-drop` (no switch).
+Stacked on this: #1863 (`test/bench6-e2e-scaffold`), #1864 (`fix/1804-vote-queue`, `vote_queue_fix`), #1865 (`fix/epoch-record-closing-block-check`, no switch), #1866 (`fix/epoch-record-collector-hardening`, two switches), #1867 (`fix/epoch-loop-output-drop`, no switch), #1868 (`fix/1804-quorum-exec-block`) and #1869 (`fix/1807-digest-order-hold`).
 
 ## What bench 6 measured that is not in this stack
 

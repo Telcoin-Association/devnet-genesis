@@ -23,7 +23,8 @@
 # Bodies reach gh only through a mktemp file (--body-file), removed on exit; never as an argument.
 # Exit: 0 ok, 2 usage or missing file, 3 lint, 4 duplicate, 5 gh failed (nothing recorded),
 #   6 gh exited 0 but printed no URL, or the record could not be written (check GitHub by hand).
-# Environment: GH_REPO (the repository), POST_ROOT (the devnet-genesis checkout; default two up).
+# Environment: GH_REPO (the repository), POST_ROOT (the devnet-genesis checkout; default two up),
+#   POST_SET (the issue set, default bench6: bodies <set>-<slug>.md, titles TITLES-<set>.md).
 set -uo pipefail
 
 GH_REPO="${GH_REPO:-Telcoin-Association/telcoin-network}"
@@ -32,7 +33,10 @@ POST_ROOT="${POST_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 ISSUE_DIR="${POST_ROOT}/tasks/issue-bodies"
 COMMENT_DIR="${POST_ROOT}/tasks/issue-comments"
 PR_DIR="${POST_ROOT}/tasks/pr-bodies"
-TITLES_FILE="${ISSUE_DIR}/TITLES-bench6.md"
+# POST_SET selects the issue set: bodies tasks/issue-bodies/<set>-<slug>.md, titles TITLES-<set>.md.
+POST_SET="${POST_SET:-bench6}"
+case "${POST_SET}" in ''|*[!a-z0-9]*) printf 'POST_SET must be a-z, 0-9: %s\n' "${POST_SET}" >&2; exit 2 ;; esac
+TITLES_FILE="${ISSUE_DIR}/TITLES-${POST_SET}.md"
 STACK_FILE="${PR_DIR}/STACK-bench6.tsv"
 RECORD="${POST_ROOT}/tasks/bench7/gh-posted.tsv"
 FIXTURE_DIR="${SCRIPT_DIR}/tests/fixtures"
@@ -542,7 +546,7 @@ post_one() {
     case "${kind}" in
         issue)
             case "${key}" in ''|[!a-z0-9]*|*[!a-z0-9-]*) usage_error "issue takes a slug of a-z, 0-9 and '-', not '${key}'" ;; esac
-            src="${ISSUE_DIR}/bench6-${key}.md"
+            src="${ISSUE_DIR}/${POST_SET}-${key}.md"
             [ -f "${TITLES_FILE}" ] || { printf 'MISSING %s\n' "${TITLES_FILE}"; return 2; }
             title="$(issue_title "${key}")" || { printf 'MISSING exactly one row for %s in %s\n' "${key}" "${TITLES_FILE}"; return 2; }
             long="$(issue_long_title "${key}")" || long=""

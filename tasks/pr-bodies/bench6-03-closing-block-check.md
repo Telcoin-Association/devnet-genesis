@@ -6,8 +6,8 @@ A failing block stops the node.
 No switch: this extends main's unconditional stored-record guard (#1834, #1849), and a genuine close passes by construction, so blocks, records and votes do not change.
 New: an `epoch record published` info line and two counters.
 
-PR 4 of 6 into `staging/benchmark-bench6-2026-11`, which is main at 33b727fce (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`).
-Stacked on `fix/1804-vote-queue`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/17327280d54590d74581fc1abc40d03dd2961c3d...c2f266b9c458cad9f238a5ff1100f280e38da9f8 (3 commits).
+PR 4 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1864's branch (`fix/1804-vote-queue`), so the Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -57,7 +57,7 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 - `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` clean at `c2f266b9c`, also with `--features adiri`, where the 51 tests of the `close_epoch` and `metrics` modules, the entry test and the identity counter test passed.
 - Not run: no fleet has run this head (a benchmark of the stack's earlier cut on main at 45dce8947, which carries the check, is under way), and no e2e test makes the check fire.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.

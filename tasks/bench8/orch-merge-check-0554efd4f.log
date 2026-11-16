@@ -1,0 +1,2 @@
+MERGE-CHECK start 2026-11-16T16:11:08Z worktree=/home/drtnarg/coding/telcoin/tn-b7-pcc head=b23472a43 parents=[500e21afa 0554efd4f] pid=2785537
+MERGE-CHECK check rc=0 (    Finished `dev` profile [unoptimized] target(s) in 42.88s) 2026-11-16T16:12:16Z

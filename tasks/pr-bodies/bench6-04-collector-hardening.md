@@ -4,8 +4,8 @@ The epoch record collector can get past an epoch the network left uncertified, a
 No switch: the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error (#1852), an evidence line and a counter in front of main's stop on a conflicting certified record.
 One behaviour changes with every switch off: a full vote queue never evicts the rounds of the newest record or the one before it.
 
-PR 5 of 6 into `staging/benchmark-bench6-2026-11` (merge order: 00, 01, 02, 03, 04, then `fix/epoch-loop-output-drop`), on main at 33b727fce.
-Stacked on `fix/epoch-record-closing-block-check`: this head contains its commits, so the Files tab shows them until that PR merges; this topic alone is https://github.com/Telcoin-Association/telcoin-network/compare/c2f266b9c458cad9f238a5ff1100f280e38da9f8...ff877fb0ef97dcba56a76bb7df3b957a9bc9592e (27 commits).
+PR 5 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1865's branch (`fix/epoch-record-closing-block-check`), so the Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Please merge with 'Create a merge commit' so the next PR's diff collapses.
 
 ## Problem
@@ -64,7 +64,7 @@ The e2e commit on `8c76745f2` (this head's tree without `d6992db59` and `b7f008d
 Switches off, an observer holding that record collects nothing past it and closes no epoch after it comes back (`test_uncertified_epoch_stops_the_collector_with_every_switch_off`); with the walk, it and the validators walk past and it executes on, a fresh observer still stops (`test_uncertified_epoch_walked_past`); with re-certify, epoch 3's close certifies epoch 1 and both observers collect every record (`test_uncertified_epoch_recertified`).
 Not run on a fleet; a benchmark of this stack's earlier cut on main at 45dce8947 is running, and this text reports none of its results.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.

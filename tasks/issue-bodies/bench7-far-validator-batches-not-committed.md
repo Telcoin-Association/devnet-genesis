@@ -1,4 +1,4 @@
-# A far validator's certified headers are often never committed, so its batches wait up to about 50-60 rounds to be re-proposed
+# A far validator's certified headers often go uncommitted, so its batches wait up to about 50-60 rounds to be re-proposed
 
 ## What happens
 

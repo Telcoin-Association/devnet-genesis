@@ -4,8 +4,8 @@ The epoch loop now reserves room in the engine channel before it takes a consens
 The leftover drain's queue phase skips an output already forwarded and stops the node on a gap, before the engine executes past it.
 No switch: it fixes a loss on main.
 
-PR 6 of 6 into `staging/benchmark-bench6-2026-11`, after the stack's first five pull requests (merge order: 00, 01, 02, 03, 04, then this).
-Stacked on `fix/epoch-record-collector-hardening`: this head contains its commits, so the Files tab shows them until that PR merges; this change alone is https://github.com/Telcoin-Association/telcoin-network/compare/ff877fb0ef97dcba56a76bb7df3b957a9bc9592e...f5f7589f52fff080fe909354b9a5086a73a3762f (8 commits).
+PR 6 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1866's branch (`fix/epoch-record-collector-hardening`), so the Files tab shows this change alone (8 commits).
+The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
 Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz in the import block and the test-module ends (checked with `patch -F3`, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
 Please merge with 'Create a merge commit'.
 
@@ -65,7 +65,7 @@ The stop means a regression: report it with the log.
 - On the stack's earlier cut on main at 45dce8947, with the same seven node commits: `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
 - Not run: no e2e test drives the race through the real loop, and no fleet has run this head yet.
 
-Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of the six heads sent as pull requests and of two later heads not sent yet (`fix/1804-quorum-exec-block`, `fix/1807-digest-order-hold`).
+Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
 - `./etc/ci-lanes.sh clippy`: passed.
 - `cargo nextest run --locked --workspace`: 5,624 passed, 149 skipped.
