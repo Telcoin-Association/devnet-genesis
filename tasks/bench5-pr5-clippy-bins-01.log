@@ -1,0 +1,10 @@
+    Checking tn-reth v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/tn-reth)
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+    Checking tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+    Checking tn-exex v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/exex)
+    Checking tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+    Checking tn-rpc v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/execution/tn-rpc)
+    Checking tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.27s

@@ -1,0 +1,15 @@
+HARNESS-GATE start 2026-11-13T03:34:32Z head=a10adaf logs=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261113T033432Z load=0.59 0.50 0.41 pid=3008437
+gate: unit suite, 12 module(s), BENCH_TEST_TIMEOUT_SCALE=3, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261113T033432Z/unittest.log
+  Ran 625 tests in 1149.454s
+  
+  FAILED (failures=3, skipped=11)
+gate: test_node_image failed in the suite; once more alone, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261113T033432Z/isolated-test_node_image.log
+  FAILED (failures=1, skipped=11)
+gate: test_params_apply failed in the suite; once more alone, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261113T033432Z/isolated-test_params_apply.log
+  FAILED (failures=2)
+gate: mutation checker, log /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/bench6-scratch/gate-20261113T033432Z/mutations.log
+  220 of 222 mutations killed
+    broken    benchmark/tools/params-apply.sh    test_params_apply.DryRunTests.test_no_arm_file_reaches_gcloud_in_a_dry_run
+    broken    benchmark/tools/params-apply.sh    test_params_apply.DryRunTests.test_no_arm_file_reaches_gcloud_in_a_dry_run
+GATE unittest=1 isolated=test_node_image:1,test_params_apply:1 mutations=1 load=quiet secs=2435
+HARNESS-GATE rc=1 2026-11-13T04:15:07Z load=1.25 1.39 1.32

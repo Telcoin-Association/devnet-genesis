@@ -1,0 +1,7 @@
+    Checking tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+    Checking state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+    Checking tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+    Checking tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+    Checking telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.23s

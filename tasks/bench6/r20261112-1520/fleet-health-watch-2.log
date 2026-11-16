@@ -1,0 +1,121 @@
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-07: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=54889
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=54889
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=17 (bench-validator-01) fatal_db=0 block_min=54889 block_max=54889 2026-11-12T18:31:56Z
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-07: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=54889
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=54889
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=54889
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=17 (bench-validator-01) fatal_db=0 block_min=54889 block_max=54889 2026-11-12T18:37:18Z
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=54946
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=54952
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=54955
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=54952
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=55213
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=55217
+  bench-validator-07: root_used_pct=17 fatal_db=0 block=55234
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=55223
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=54891
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=54891
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=55279
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=17 (bench-validator-01) fatal_db=0 block_min=54891 block_max=55279 2026-11-12T18:42:39Z
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=57266
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=57279
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=57286
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=57272
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=56760
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=56762
+  bench-validator-07: root_used_pct=18 fatal_db=0 block=56775
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=56775
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=57075
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=57086
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=56816
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=18 (bench-validator-07) fatal_db=0 block_min=56760 block_max=57286 2026-11-12T18:48:00Z
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-07: root_used_pct=18 fatal_db=0 block=57645
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=57645
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=57656
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=57645
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=18 (bench-validator-07) fatal_db=0 block_min=57645 block_max=57656 2026-11-12T18:53:21Z
+  bench-validator-01: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-02: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-03: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-04: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-05: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-06: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-07: root_used_pct=18 fatal_db=0 block=57656
+  bench-validator-08: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-09: root_used_pct=17 fatal_db=0 block=57656
+  bench-validator-10: root_used_pct=17 fatal_db=0 block=57656
+  bench-observer-11: root_used_pct=14 fatal_db=0 block=57656
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=18 (bench-validator-07) fatal_db=0 block_min=57656 block_max=57656 2026-11-12T18:58:42Z
+  bench-validator-01: root_used_pct=19 fatal_db=0 block=61345
+  bench-validator-02: root_used_pct=18 fatal_db=0 block=61370
+  bench-validator-03: root_used_pct=19 fatal_db=0 block=61380
+  bench-validator-04: root_used_pct=19 fatal_db=0 block=61367
+  bench-validator-05: root_used_pct=18 fatal_db=0 block=60109
+  bench-validator-06: root_used_pct=18 fatal_db=0 block=60116
+  bench-validator-07: root_used_pct=19 fatal_db=0 block=60157
+  bench-validator-08: root_used_pct=18 fatal_db=0 block=60157
+  bench-validator-09: root_used_pct=18 fatal_db=0 block=60864
+  bench-validator-10: root_used_pct=18 fatal_db=0 block=60904
+  bench-observer-11: root_used_pct=15 fatal_db=0 block=60252
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=19 (bench-validator-01) fatal_db=0 block_min=60109 block_max=61380 2026-11-12T19:04:03Z
+  bench-validator-01: root_used_pct=19 fatal_db=0 block=65400
+  bench-validator-02: root_used_pct=19 fatal_db=0 block=65420
+  bench-validator-03: root_used_pct=19 fatal_db=0 block=65449
+  bench-validator-04: root_used_pct=19 fatal_db=0 block=65422
+  bench-validator-05: root_used_pct=19 fatal_db=0 block=66179
+  bench-validator-06: root_used_pct=19 fatal_db=0 block=66214
+  bench-validator-07: root_used_pct=20 fatal_db=0 block=66238
+  bench-validator-08: root_used_pct=19 fatal_db=0 block=66238
+  bench-validator-09: root_used_pct=19 fatal_db=0 block=67004
+  bench-validator-10: root_used_pct=19 fatal_db=0 block=67039
+  bench-observer-11: root_used_pct=16 fatal_db=0 block=66365
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=20 (bench-validator-07) fatal_db=0 block_min=65400 block_max=67039 2026-11-12T19:09:25Z
+  bench-validator-01: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-02: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-03: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-04: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-05: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-06: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-07: root_used_pct=20 fatal_db=0 block=67524
+  bench-validator-08: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-09: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-10: root_used_pct=19 fatal_db=0 block=67524
+  bench-observer-11: root_used_pct=16 fatal_db=0 block=67524
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=20 (bench-validator-07) fatal_db=0 block_min=67524 block_max=67524 2026-11-12T19:14:45Z
+  bench-validator-01: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-02: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-03: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-04: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-05: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-06: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-07: root_used_pct=20 fatal_db=0 block=67524
+  bench-validator-08: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-09: root_used_pct=19 fatal_db=0 block=67524
+  bench-validator-10: root_used_pct=19 fatal_db=0 block=67524
+  bench-observer-11: root_used_pct=16 fatal_db=0 block=67524
+FLEET_HEALTH run=r20261112-1520 nodes=11/11 disk_max=20 (bench-validator-07) fatal_db=0 block_min=67524 block_max=67524 2026-11-12T19:20:07Z
+FLEET_HEALTH the walk ended

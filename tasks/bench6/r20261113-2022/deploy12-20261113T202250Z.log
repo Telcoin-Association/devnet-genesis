@@ -1,0 +1,95 @@
+== deploy12 start 2026-11-13T20:22:50Z bench6-launch:r20261113-2022:deploy12 pid=1353847 harness=b76ba87b906b
+== deploy12 command: benchmark/benchmark-deploy.sh --yes --with-contracts --to 12
+BENCH_ARM_FILE=tasks/bench6/arms/final-adaptive.arm
+BENCH_CHAOS=1
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DURATION_SECS=2400
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=1
+BENCH_LIGHT_SENDERS=8 600
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_LIGHT_WINDOWS=16 4
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=2df831e3ca34c06a361a7acca10397787e7b332e
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261113-2022
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench6/r20261113-2022/bench6-run3.env
+LAUNCH_SEGMENT=deploy12
+output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-2022/logs/deploy-20261113T202250Z.log
+==========================================
+benchmark deploy — run r20261113-2022, project tn-devnet, chain 32286
+==========================================
+>>> gate: prerequisites of the selected steps
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f
+    ✓ /home/drtnarg/coding/telcoin/tn-transaction-generator/cloudbuild.yaml
+    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF d9446f720026fa5ce8b64fce9074e56b05b3f4eb (step 7)
+    ✓ every node's effective parameters pass the node's startup checks
+    ✓ bench-obs knobs (bench-obs, e2-standard-4 in us-west2-a)
+    ✓ bench-obs startup script /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/../common/observability/obs-vm/startup-obs.sh
+    ✓ bench-obs bring-up session (bundle /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/obs, dashboards /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/../common/observability/obs-vm/grafana/dashboards)
+    probing node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+    ✓ node image digest: sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+    ✓ pinned ref: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+    ✓ version 0.1.0, git sha 2df831e3ca34c06a361a7acca10397787e7b332e
+    ✓ flags ok: node, genesis, keytool generate validator --help carry every contract flag
+    ✓ fork schedule: subsecond-from-genesis
+    ✓ 13 contract strings checked (11 required, all present)
+    ✓ node image pinned: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745 (git 2df831e3ca34c06a361a7acca10397787e7b332e, forks subsecond-from-genesis)
+    ✓ manifest initialised: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-2022/manifest.json
+    ✓ manifest: node_image_pinned, node_git_sha, node_fork_schedule, node_probe
+    ✓ manifest: consensus_parameters {"file":"consensus-parameters.yaml","max_header_delay_ms":1000,"min_header_delay_ms":350,"max_batch_delay_ms":250}
+    ✓ manifest: consensus_parameters.overrides {}, node_startup[*].log_filter info,primary=debug,engine=debug,subscriber=debug,worker::network=debug,network::reqres=debug,primary::cert_validator=info,primary::cert_manager=info,primary::cert_fetcher=info
+
+##########################################
+>>> Step 0: preflight
+    fleet: 11 x c3-highcpu-8, 100 GB hyperdisk-balanced (provisioned 20000 IOPS, 800 MiB/s), node image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745 (git 2df831e3ca34c06a361a7acca10397787e7b332e, forks subsecond-from-genesis; image probed at gate)
+    ✓ gcloud
+    ✓ cast
+    ✓ jq
+    ✓ python3
+    ✓ curl
+    ✓ docker
+    ✓ git
+    ✓ openssl
+    ✓ forge
+    ✓ python3 PyYAML, TN_NODE_SCRIPTS_REF d9446f720026fa5ce8b64fce9074e56b05b3f4eb (step 7)
+    ✓ gcloud auth (grant@telcoin.org)
+    ✓ no bench-* / benchmark=1 instance, disk, firewall rule or bucket exists
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/testnet_accounts.yaml funds 0xb1F7fB246DDF3F621442368e4122b087b1Ea3C8E
+    ✓ benchmark/genesis empty
+    ✓ bench BLS passphrase present
+    ✓ no non-bench firewall rule targets bench-node
+    c3-highcpu-8 must exist in every zone it is created in (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+    ✓ c3-highcpu-8 offered in all 10 zones
+    e2-standard-2 must exist in every zone it is created in (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+    ✓ e2-standard-2 offered in all 10 zones
+    e2-standard-4 must exist in every zone it is created in (us-west2-a)
+    ✓ e2-standard-4 offered in all 1 zones
+    zone fallbacks 3:asia-northeast1-c 4:us-east4-c,us-east4-a 7:asia-east1-a 8:asia-northeast3-b: c3-highcpu-8 should exist in asia-east1-a asia-northeast1-c asia-northeast3-b us-east4-a us-east4-c (warning only)
+    ✓ c3-highcpu-8 offered in all 5 fallback zones
+    hyperdisk-balanced must be offered in every fleet zone (asia-east2-a asia-northeast1-b asia-northeast3-a asia-south1-c asia-southeast1-b australia-southeast1-c europe-west2-b europe-west4-a us-east4-b us-west2-a)
+WARNING: --filter : operator evaluation is changing for consistency across Google APIs.  name=hyperdisk-balanced currently does not match but will match in the near future.  Run `gcloud topic filters` for details.
+    + perl -e alarm\ shift\;\ exec\ @ARGV 120 gcloud compute disk-types list --project=tn-devnet --filter=name=hyperdisk-balanced\ AND\ zone:\(asia-east2-a\ asia-northeast1-b\ asia-northeast3-a\ asia-south1-c\ asia-southeast1-b\ australia-southeast1-c\ europe-west2-b\ europe-west4-a\ us-east4-b\ us-west2-a\) --format=value\(zone.basename\(\)\)
+    ✓ hyperdisk-balanced offered in all fleet zones
+    quota headroom (limit - usage) in each region must cover its nodes plus one blaster per validator (and bench-obs in us-west2):
+      asia-east2: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      asia-northeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      asia-northeast3: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      asia-south1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      asia-southeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      australia-southeast1: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      europe-west2: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      europe-west4: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      us-east4: C3_CPUS 8, CPUS 2, IN_USE_ADDRESSES 2, HDB_TOTAL_GB 100, HDB_TOTAL_IOPS 20000, HDB_TOTAL_THROUGHPUT 800, SSD_TOTAL_GB 20
+      us-west2: C3_CPUS 16, CPUS 6, IN_USE_ADDRESSES 4, HDB_TOTAL_GB 200, HDB_TOTAL_IOPS 40000, HDB_TOTAL_THROUGHPUT 1600, SSD_TOTAL_GB 90
+    ✓ asia-east2 need/headroom: C3_CPUS 8/300, CPUS 2/1500, IN_USE_ADDRESSES 2/575, HDB_TOTAL_GB 100/40960, HDB_TOTAL_IOPS 20000/unlimited, HDB_TOTAL_THROUGHPUT 800/unlimited, SSD_TOTAL_GB 20/40960
+    ✓ asia-northeast1 need/headroom: C3_CPUS 8/100, CPUS 2/1500, IN_USE_ADDRESSES 2/575, HDB_TOTAL_GB 100/40960, HDB_TOTAL_IOPS 20000/unlimited, HDB_TOTAL_THROUGHPUT 800/unlimited, SSD_TOTAL_GB 20/40960
+== deploy12 signal TERM 2026-11-13T20:24:20Z: passed to pid 1353877; the rc line follows once nothing of the segment runs
+BENCH_DEPLOY_RESULT rc=0 last_step=0 first_error=- log=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-2022/logs/deploy-20261113T202250Z.log
+== deploy12 driver pid=1353877 exit=143 after TERM 2026-11-13T20:24:22Z
+== deploy12 rc=143 2026-11-13T20:24:22Z

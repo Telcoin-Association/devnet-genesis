@@ -1,0 +1,383 @@
+== teardown-dry start 2026-11-13T16:10:56Z bench6-launch:r20261113-1351:teardown-dry pid=3371014 harness=74e9456ae628
+== teardown-dry command: benchmark/benchmark-teardown.sh --run r20261113-1351
+BENCH_ARM_FILE=benchmark/arms/final.arm
+BENCH_CHAOS=1
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DURATION_SECS=2400
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=1
+BENCH_LIGHT_SENDERS=8 600
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_LIGHT_WINDOWS=16 4
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=2df831e3ca34c06a361a7acca10397787e7b332e
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261113-1351
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench6/r20261113-1351/bench6-run2.env
+LAUNCH_SEGMENT=teardown-dry
+==========================================
+benchmark teardown — project tn-devnet, run r20261113-1351
+Mode: DRY RUN — nothing will be changed
+==========================================
+>>> gcloud credentials: gcloud auth print-access-token (60 s)
+    ✓ gcloud prints an access token
+>>> devnet denylist (never deleted): validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet obs-devnet txgen-devnet devnet-indexer
+>>> instance candidates (12):
+    - bench-validator-04 (asia-northeast1-b)
+    - bench-validator-07 (asia-southeast1-b)
+    - bench-validator-05 (us-east4-b)
+    - bench-validator-03 (australia-southeast1-c)
+    - bench-validator-02 (europe-west2-b)
+    - bench-validator-10 (asia-south1-c)
+    - bench-validator-06 (europe-west4-a)
+    - bench-obs (us-west2-a)
+    - bench-observer-11 (us-west2-a)
+    - bench-validator-01 (us-west2-a)
+    - bench-validator-08 (asia-east2-a)
+    - bench-validator-09 (asia-northeast3-a)
+    ✓ no devnet instance is a candidate
+    ✓ every candidate instance is labelled bench-run=r20261113-1351
+>>> firewall candidates (2): bench-allow-consensus bench-allow-iap-rpc
+>>> bucket candidates (1): tn-devnet-bench-r20261113-1351
+>>> disk candidates (13; boot disks auto-delete with their instance):
+    - bench-validator-04 (asia-northeast1-b): deleted once unattached
+    - bench-validator-07 (asia-southeast1-b): deleted once unattached
+    - bench-validator-05 (us-east4-b): deleted once unattached
+    - bench-validator-03 (australia-southeast1-c): deleted once unattached
+    - bench-validator-02 (europe-west2-b): deleted once unattached
+    - bench-validator-10 (asia-south1-c): deleted once unattached
+    - bench-validator-06 (europe-west4-a): deleted once unattached
+    - bench-obs (us-west2-a): deleted once unattached
+    - bench-obs-data (us-west2-a): deleted once unattached
+    - bench-observer-11 (us-west2-a): deleted once unattached
+    - bench-validator-01 (us-west2-a): deleted once unattached
+    - bench-validator-08 (asia-east2-a): deleted once unattached
+    - bench-validator-09 (asia-northeast3-a): deleted once unattached
+>>> IAP tunnel pids: 3052257 3052261 3052325 3052385 3052389 3052475 3070716 3070719 3070782 
+>>> contracts worktree: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts; branches: bench/r20261113-1351
+>>> secrets: bench-txgen-master-key bench-txgen-children-seed — kept; accessor binding for the compute SA removed
+>>> local: move /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/genesis
+
+>>> bench-obs: bench-obs (us-west2-a), the run's Prometheus, read before any delete
+    tunnel already up (pid 3052257) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 3052385) -> http://127.0.0.1:13000
+
+>>> node health (Prometheus network="bench"; informs, never blocks)
+    query: tn_node_mode{network="bench"} == 1
+    query: sum by (node) (increase(tn_batch_builder_seal_failures_total{network="bench",reason="failed_to_report"}[30m]))
+    query: bench_prom_rounds max = max by (node) (tn_epoch_current{network="bench"}) * 100000000 + max by (node) (tn_primary_round{network="bench"})
+      (dry run — not queried)
+
+>>> node logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs (nothing is deleted until these are saved)
+    + bench-validator-01: to pull (instance 3584559298582849756)
+        no marker
+    + bench-validator-02: to pull (instance 1050795732318726362)
+        no marker
+    + bench-validator-03: to pull (instance 8187663001690220759)
+        no marker
+    + bench-validator-04: to pull (instance 4460490253372401877)
+        no marker
+    + bench-validator-05: to pull (instance 1349241563629922518)
+        no marker
+    + bench-validator-06: to pull (instance 569005009930987731)
+        no marker
+    + bench-validator-07: to pull (instance 4167749259616757969)
+        no marker
+    + bench-validator-08: to pull (instance 1908856462060988591)
+        no marker
+    + bench-validator-09: to pull (instance 2334683816416422062)
+        no marker
+    + bench-validator-10: to pull (instance 1636002657239476395)
+        no marker
+    + bench-observer-11: to pull (instance 3586462750779025581)
+        no marker
+    ✓ 433.1 GB free under /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs (BENCH_TEARDOWN_MIN_FREE_GB=20) for 11 node(s)
+    + bench_pull_unit_span bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01.logspan
+      + tn_iap_ssh bench-validator-01 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01-telcoin.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01-<file>
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-01-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02.logspan
+      + tn_iap_ssh bench-validator-02 europe-west2-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02-telcoin.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02-<file>
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-02-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03.logspan
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03-telcoin.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03-<file>
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-03-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04.logspan
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04-telcoin.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04-<file>
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-04-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05.logspan
+      + tn_iap_ssh bench-validator-05 us-east4-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05-telcoin.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05-<file>
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-05-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06.logspan
+      + tn_iap_ssh bench-validator-06 europe-west4-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06-telcoin.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06-<file>
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-06-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07.logspan
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07-telcoin.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07-<file>
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-07-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08.logspan
+      + tn_iap_ssh bench-validator-08 asia-east2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08-telcoin.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08-<file>
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-08-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09.logspan
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09-telcoin.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09-<file>
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-09-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10.logspan
+      + tn_iap_ssh bench-validator-10 asia-south1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10-telcoin.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10-<file>
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-validator-10-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11.logspan
+      + tn_iap_ssh bench-observer-11 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11-telcoin.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11-<file>
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11-unit-stdout.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-observer-11-unit-<stream>.rotated-<N>.log.gz
+      (dry run — not executed)
+    + recovery evidence: bench-validator-01 (instance 3584559298582849756) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-02 (instance 1050795732318726362) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-03 (instance 8187663001690220759) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-04 (instance 4460490253372401877) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-05 (instance 1349241563629922518) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-06 (instance 569005009930987731) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-07 (instance 4167749259616757969) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-08 (instance 1908856462060988591) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-09 (instance 2334683816416422062) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-validator-10 (instance 1636002657239476395) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+    + recovery evidence: bench-observer-11 (instance 3586462750779025581) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs
+
+>>> persist sampler files -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/ (informs, never blocks)
+    + persist files: bench-validator-01 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-01.{csv,folios.txt}
+    + persist files: bench-validator-02 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-02.{csv,folios.txt}
+    + persist files: bench-validator-03 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-03.{csv,folios.txt}
+    + persist files: bench-validator-04 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-04.{csv,folios.txt}
+    + persist files: bench-validator-05 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-05.{csv,folios.txt}
+    + persist files: bench-validator-06 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-06.{csv,folios.txt}
+    + persist files: bench-validator-07 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-07.{csv,folios.txt}
+    + persist files: bench-validator-08 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-08.{csv,folios.txt}
+    + persist files: bench-validator-09 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-09.{csv,folios.txt}
+    + persist files: bench-validator-10 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-validator-10.{csv,folios.txt}
+    + persist files: bench-observer-11 /var/lib/bench-sampler/<host>.{persist.csv,folios.txt} -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/persist/bench-observer-11.{csv,folios.txt}
+
+>>> prefilter: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351/logs (the lines the readers below match)
+    + prefilter 23 log(s) of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351/logs/ (8 at a time): gzip -dcf <log> | LC_ALL=C grep -F -f <the non-comment lines of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/log-shapes.txt> | gzip -1 -n
+      (dry run — not executed)
+
+>>> certification outcome: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs (before the local gate, which requires every log manifest.cert_failures lists)
+    certification -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/certification.json and manifest.certification (informational)
+      + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/cert-rate.py --logs /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs --windows /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/manifest.json --format json --node-glob 'bench-validator-*-unit-stdout*.log.gz' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/certification.json
+      + manifest.certification, .certification_meta and .cert_failures (below 90 % in a window with >= 50 proposed)
+      (dry run — not executed)
+    certification snapshots -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/ (informational; the local gate requires what manifest.cert_failures[].logs lists)
+      ✓ no validator in manifest.cert_failures — no snapshot
+
+>>> bench-obs Prometheus snapshot -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs (informs, never blocks)
+    + curl -sS -XPOST http://127.0.0.1:19090/api/v1/admin/tsdb/snapshot
+    + bench_pull_stream bench-obs us-west2-a gz /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs/bench-obs-prometheus-20261113T161105Z.tar.gz cmd 'sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots <name> | gzip -1'
+      (dry run — not executed)
+
+>>> log coverage: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs (each node's logs from the coordinated start to the blast end)
+LOGCOV bench-validator-01 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-01: no recorded span (logs/bench-validator-01.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-02 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-02: no recorded span (logs/bench-validator-02.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-03 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-03: no recorded span (logs/bench-validator-03.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-04 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-04: no recorded span (logs/bench-validator-04.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-05 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-05: no recorded span (logs/bench-validator-05.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-06 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-06: no recorded span (logs/bench-validator-06.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-07 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-07: no recorded span (logs/bench-validator-07.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-08 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-08: no recorded span (logs/bench-validator-08.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-09 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-09: no recorded span (logs/bench-validator-09.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-validator-10 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-validator-10: no recorded span (logs/bench-validator-10.logspan) for a live node of a run whose start and end are known — counted as not covered
+LOGCOV bench-observer-11 gens=- first=- last=- due=2026-11-13T14:10:04Z end=2026-11-13T16:00:29Z ok=-
+    ✗ bench-observer-11: no recorded span (logs/bench-observer-11.logspan) for a live node of a run whose start and end are known — counted as not covered
+    ✗ with --yes the teardown stops here, before any delete: bench-validator-01 bench-validator-02 bench-validator-03 bench-validator-04 bench-validator-05 bench-validator-06 bench-validator-07 bench-validator-08 bench-validator-09 bench-validator-10 bench-observer-11 (BENCH_TEARDOWN_SKIP_COVERAGE=1 deletes without their coverage)
+
+>>> local gate: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351 (nothing is deleted until it holds every node's logs)
+    (dry run — the pulls above did not run; this is what results/r20261113-1351/ holds now)
+    ✗ missing or empty: logs/bench-validator-01-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-01-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-01-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-02-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-02-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-02-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-03-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-03-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-03-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-04-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-04-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-04-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-05-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-05-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-05-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-06-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-06-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-06-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-07-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-07-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-07-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-08-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-08-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-08-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-09-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-09-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-09-recovery-*.tgz
+    ✗ missing or empty: logs/bench-validator-10-telcoin.log.gz
+    ✗ missing or empty: logs/bench-validator-10-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-validator-10-recovery-*.tgz
+    ✗ missing or empty: logs/bench-observer-11-telcoin.log.gz
+    ✗ missing or empty: logs/bench-observer-11-unit-stdout.log.gz
+    ✗ missing or empty: logs/bench-observer-11-recovery-*.tgz
+    ✗ with --yes the teardown stops here, before any delete, unless the pulls above land them (BENCH_TEARDOWN_SKIP_LOCAL_GATE=1 deletes without them)
+
+>>> archive: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351 -> the archive bucket, size and MD5 verified (nothing is deleted until it is) — BENCH_TEARDOWN_SKIP_ARCHIVE=1
+⚠ BENCH_TEARDOWN_SKIP_ARCHIVE=1 — deleting without a verified archive copy of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351
+
+>>> plan / execution
+    + kill 3052257 3052261 3052325 3052385 3052389 3052475 3070716 3070719 3070782
+      (dry run — not executed)
+    (just before this delete: bench-validator-08 must still be instance 1908856462060988591, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-08 --zone=asia-east2-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-04 must still be instance 4460490253372401877, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-04 --zone=asia-northeast1-b --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-09 must still be instance 2334683816416422062, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-09 --zone=asia-northeast3-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-10 must still be instance 1636002657239476395, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-10 --zone=asia-south1-c --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-07 must still be instance 4167749259616757969, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-07 --zone=asia-southeast1-b --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-03 must still be instance 8187663001690220759, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-03 --zone=australia-southeast1-c --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-02 must still be instance 1050795732318726362, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-02 --zone=europe-west2-b --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-06 must still be instance 569005009930987731, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-06 --zone=europe-west4-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-05 must still be instance 1349241563629922518, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-05 --zone=us-east4-b --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-obs must still be instance 5441836344309098547, else the teardown stops here)
+    + gcloud compute instances delete bench-obs --zone=us-west2-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-observer-11 must still be instance 3586462750779025581, else the teardown stops here)
+    + gcloud compute instances delete bench-observer-11 --zone=us-west2-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (just before this delete: bench-validator-01 must still be instance 3584559298582849756, else the teardown stops here)
+    + gcloud compute instances delete bench-validator-01 --zone=us-west2-a --project=tn-devnet --quiet
+      (dry run — not executed)
+    (then one describe per instance every 10 s until each is gone, at most 600 s: BENCH_TEARDOWN_DELETE_WAIT_SECS)
+    + gcloud compute firewall-rules delete bench-allow-consensus --project=tn-devnet --quiet
+      (dry run — not executed)
+    + gcloud compute firewall-rules delete bench-allow-iap-rpc --project=tn-devnet --quiet
+      (dry run — not executed)
+    (orphan disks are re-listed after the instances; only unattached ones labelled bench-run=r20261113-1351 are deleted)
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261113-1351/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/bucket/tn-devnet-bench-r20261113-1351/
+      (dry run — not executed)
+    + gcloud storage rm -r gs://tn-devnet-bench-r20261113-1351 --project=tn-devnet
+      (dry run — not executed)
+    + gcloud secrets remove-iam-policy-binding bench-txgen-master-key --project=tn-devnet --member=serviceAccount:1095385745561-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor --format=none
+      (dry run — not executed)
+    + gcloud secrets remove-iam-policy-binding bench-txgen-children-seed --project=tn-devnet --member=serviceAccount:1095385745561-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor --format=none
+      (dry run — not executed)
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch worktree remove --force /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts
+      (dry run — not executed)
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch worktree prune
+      (dry run — not executed)
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch branch -D bench/r20261113-1351
+      (dry run — not executed)
+    + mv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/genesis
+      (dry run — not executed)
+
+>>> node startup provenance (informational — never blocks the teardown)
+    + prefilter 23 log(s) of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351/logs/ (8 at a time): gzip -dcf <log> | LC_ALL=C grep -F -f <the non-comment lines of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/log-shapes.txt> | gzip -1 -n
+      (dry run — not executed)
+    + cp /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/manifest.json /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351/manifest.json
+    + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/report/provenance.py --run-dir /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351 --update-manifest
+      (dry run — not executed)
+    + manifest.node_startup_check <- /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1351/manifest.json
+
+>>> final local index: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351 (informational — never blocks the teardown)
+    analysis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/ (informational)
+      + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/cert-rate.py --from-json /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/certification.json > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/cert-rate.md (without it: --logs /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/logs --windows /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/manifest.json --node-glob 'bench-validator-*-unit-stdout*.log.gz')
+      + python3 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/tools/block-rate.py --run /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351 > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/analysis/block-rate.md
+      (dry run — not executed)
+      (dry run) would write /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/INDEX.md and /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351/CHECKSUMS.sha256
+
+>>> final archive: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1351 -> the archive bucket (informational — never blocks the teardown)
+    - skipped (BENCH_TEARDOWN_SKIP_ARCHIVE=1): tools/archive-run.sh --run r20261113-1351 archives and verifies it by hand
+
+>>> left-nothing checks (current state — dry run deleted nothing)
+    ✗ instances labelled benchmark=1: 12 bench-validator-04,bench-validator-07,bench-validator-05,bench-validator-03,bench-validator-02,bench-validator-10,bench-validator-06,bench-obs,bench-observer-11,bench-validator-01,bench-validator-08,bench-validator-09
+    ✗ instances named bench-*: 12 
+    ✗ bench-obs (bench-obs): 1 
+    ✗ firewall rules ^bench- or targeting bench-node: 2 
+    ✗ buckets labelled benchmark=1 / named tn-devnet-bench-*: 1 
+    ✗ disks of run r20261113-1351 (labelled benchmark=1 / named bench-*): 13 
+    ✗ disks labelled bench-run=r20261113-1351 (any name): 13 bench-validator-04,bench-validator-07,bench-validator-05,bench-validator-03,bench-validator-02,bench-validator-10,bench-validator-06,bench-obs,bench-obs-data,bench-observer-11,bench-validator-01,bench-validator-08,bench-validator-09
+    ✗ local IAP tunnels on :18545, :19090, :13000 (supervisor, ssh forward or websocket): 9 
+    ✗ contracts worktree: 1 /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts
+    ✗ bench/r* branches: 1 
+    ✗ compute-SA bindings on bench secrets: 2 
+    · results/r20261113-1351/ kept, a working copy: 375 file(s), 419591075 bytes; archive: none verified
+    · certification: not recorded (no validator log or phase when it ran)
+    devnet instances (must all be present):
+      ✓ validator-1-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-2-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-3-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-4-devnet RUNNING (pre-run RUNNING)
+      ✓ observer-5-devnet RUNNING (pre-run RUNNING)
+      ✓ obs-devnet RUNNING (pre-run RUNNING)
+      ✓ txgen-devnet RUNNING (pre-run RUNNING)
+      ✓ devnet-indexer TERMINATED (pre-run TERMINATED)
+    ✓ devnet-allow-consensus identical to the run pre-snapshot
+
+>>> gcloud argv check: every gcloud command and flag this teardown can issue, against this SDK's --help (dry run only)
+GCLOUD_ARGV_OK 21 commands, 48 flags
+DRY RUN — re-run with --yes to delete the candidates above.
+TEARDOWN_DONE run=r20261113-1351 deleted=0 left=67 at=2026-11-13T16:11:18Z dry_run=1
+== teardown-dry rc=0 2026-11-13T16:11:18Z

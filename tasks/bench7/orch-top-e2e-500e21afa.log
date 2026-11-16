@@ -1,0 +1,10 @@
+TOP-E2E start 2026-11-15T14:30:34Z worktree=/home/drtnarg/coding/telcoin/tn-b7-ngate head=500e21afa pid=2571887
+E2E-SETS start 2026-11-15T14:30:34Z worktree=/home/drtnarg/coding/telcoin/tn-b7-ngate head=500e21afa sets=[restarts epochs sigkill upgrade resync] labels=2 pid=3077305
+E2E-SETS 500e21afa off params=[] restarts=0([ 394.636s] 11 tests run: 11 passed, 5762 skipped) epochs=0([ 353.248s] 11 tests run: 11 passed, 70 skipped) sigkill=0([ 120.874s] 12 tests run: 12 passed, 69 skipped) upgrade=2() resync=0([ 50.608s] 1 test run: 1 passed, 80 skipped) 2026-11-15T15:13:27Z
+E2E-SETS 500e21afa on params=[quorum_exec_block: true; quorum_exec_block_starved_rounds: 4; vote_queue_fix: true; digest_order_hold: true; epoch_record_collect_past_uncertified: true; epoch_record_recertify: true] restarts=0([ 375.114s] 11 tests run: 11 passed, 5762 skipped) epochs=0([ 356.138s] 11 tests run: 11 passed, 70 skipped) sigkill=0([ 103.715s] 12 tests run: 12 passed, 69 skipped) upgrade=2() resync=0([ 51.028s] 1 test run: 1 passed, 80 skipped) 2026-11-15T15:41:20Z
+E2E-SETS done rc=1 2026-11-15T15:41:20Z
+TOP-E2E sets rc=1 2026-11-15T15:41:20Z
+TOP-E2E new-x3 rc=0 (Summary [10104.317s] 3/3 stress run iterations: 3 passed) 2026-11-15T18:30:33Z
+TOP-E2E hunt rc=0 (order hold long hunt: cases=100000 seed=1223617546: no schedule breaks the rule) 2026-11-15T18:32:41Z
+TOP-E2E restore rc=0 (Summary [ 349.460s] 3 tests run: 3 passed, 78 skipped) 2026-11-15T18:40:53Z
+TOP-E2E done rc=1 2026-11-15T18:40:53Z

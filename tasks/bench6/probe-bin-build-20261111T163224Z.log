@@ -1,0 +1,126 @@
+[b6-slot] slot 1: bash benchmark/tools/build-probe-bin.sh --crate ../mdbx-writeback-probe --out benchmark/work/probe-bin
+build-probe-bin: crate /home/drtnarg/coding/telcoin/mdbx-writeback-probe (source sha256 da92e6435513435f707e573db2a379a1ee7a864dd752e52e75ab91a99babe8af), image rust:1.94-bookworm, out /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/probe-bin
+Unable to find image 'rust:1.94-bookworm' locally
+1.94-bookworm: Pulling from library/rust
+c150dd3f5fc9: Pulling fs layer
+5b2cfb71264f: Pulling fs layer
+de73ef470b7b: Pulling fs layer
+b267853a2602: Pulling fs layer
+c2c3414b1d6b: Pulling fs layer
+c150dd3f5fc9: Download complete
+de73ef470b7b: Download complete
+c2c3414b1d6b: Download complete
+2491e245e482: Download complete
+c150dd3f5fc9: Pull complete
+c2c3414b1d6b: Pull complete
+de73ef470b7b: Pull complete
+01a655010d87: Download complete
+5b2cfb71264f: Download complete
+b267853a2602: Download complete
+b267853a2602: Pull complete
+5b2cfb71264f: Pull complete
+Digest: sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
+Status: Downloaded newer image for rust:1.94-bookworm
+debconf: delaying package configuration, since apt-utils is not installed
+    Updating crates.io index
+    Updating git repository `https://github.com/paradigmxyz/reth`
+ Downloading crates ...
+  Downloaded cfg-if v1.0.4
+  Downloaded scopeguard v1.2.0
+  Downloaded unicode-xid v0.2.6
+  Downloaded rustc-hash v2.1.2
+  Downloaded rustc_version v0.4.1
+  Downloaded convert_case v0.10.0
+  Downloaded cexpr v0.6.0
+  Downloaded shlex v1.3.0
+  Downloaded byteorder v1.5.0
+  Downloaded lock_api v0.4.14
+  Downloaded pin-project-lite v0.2.17
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded semver v1.0.27
+  Downloaded bitflags v2.11.0
+  Downloaded thiserror v2.0.18
+  Downloaded thiserror-impl v2.0.18
+  Downloaded parking_lot_core v0.9.12
+  Downloaded tracing-attributes v0.1.31
+  Downloaded libloading v0.8.9
+  Downloaded parking_lot v0.12.5
+  Downloaded either v1.18.0
+  Downloaded quote v1.0.45
+  Downloaded clang-sys v1.8.1
+  Downloaded unicode-ident v1.0.24
+  Downloaded tracing-core v0.1.36
+  Downloaded glob v0.3.3
+  Downloaded smallvec v1.15.1
+  Downloaded proc-macro2 v1.0.106
+  Downloaded minimal-lexical v0.2.1
+  Downloaded cc v1.2.58
+  Downloaded derive_more v2.1.1
+  Downloaded unicode-segmentation v1.13.2
+  Downloaded memchr v2.8.0
+  Downloaded derive_more-impl v2.1.1
+  Downloaded nom v7.1.3
+  Downloaded itertools v0.13.0
+  Downloaded regex v1.13.1
+  Downloaded aho-corasick v1.1.4
+  Downloaded bindgen v0.72.1
+  Downloaded syn v2.0.117
+  Downloaded regex-syntax v0.8.11
+  Downloaded tracing v0.1.44
+  Downloaded regex-automata v0.4.18
+  Downloaded libc v0.2.183
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling glob v0.3.3
+   Compiling libc v0.2.183
+   Compiling memchr v2.8.0
+   Compiling cfg-if v1.0.4
+   Compiling minimal-lexical v0.2.1
+   Compiling regex-syntax v0.8.11
+   Compiling shlex v1.3.0
+   Compiling bindgen v0.72.1
+   Compiling either v1.18.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling rustc-hash v2.1.2
+   Compiling bitflags v2.11.0
+   Compiling libloading v0.8.9
+   Compiling parking_lot_core v0.9.12
+   Compiling unicode-segmentation v1.13.2
+   Compiling thiserror v2.0.18
+   Compiling smallvec v1.15.1
+   Compiling itertools v0.13.0
+   Compiling cc v1.2.58
+   Compiling scopeguard v1.2.0
+   Compiling unicode-xid v0.2.6
+   Compiling tracing-core v0.1.36
+   Compiling pin-project-lite v0.2.17
+   Compiling lock_api v0.4.14
+   Compiling byteorder v1.5.0
+   Compiling clang-sys v1.8.1
+   Compiling nom v7.1.3
+   Compiling convert_case v0.10.0
+   Compiling syn v2.0.117
+   Compiling regex-automata v0.4.18
+   Compiling parking_lot v0.12.5
+   Compiling cexpr v0.6.0
+   Compiling regex v1.13.1
+   Compiling thiserror-impl v2.0.18
+   Compiling derive_more-impl v2.1.1
+   Compiling tracing-attributes v0.1.31
+   Compiling tracing v0.1.44
+   Compiling derive_more v2.1.1
+   Compiling reth-mdbx-sys v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+   Compiling reth-libmdbx v1.11.3 (https://github.com/paradigmxyz/reth?tag=v1.11.3#d6324d63)
+   Compiling mdbx-writeback-probe v0.1.0 (/src)
+    Finished `release` profile [optimized] target(s) in 1m 03s
+binary_sha256=513f42bae61d44e2f55a58fad30393e1a6b6b9faa132a15b468e9f5b5cc56406
+source_sha256=da92e6435513435f707e573db2a379a1ee7a864dd752e52e75ab91a99babe8af
+image=rust:1.94-bookworm
+image_id=sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
+glibc_max=2.34
+rustc=rustc 1.94.1 (e408947bf 2026-03-25)
+built_utc=2026-11-11T16:35:02Z
+BINARY_SHA256 513f42bae61d44e2f55a58fad30393e1a6b6b9faa132a15b468e9f5b5cc56406
+SOURCE_SHA256 da92e6435513435f707e573db2a379a1ee7a864dd752e52e75ab91a99babe8af
+== probe-bin rc=0 2026-11-11T16:35:02Z

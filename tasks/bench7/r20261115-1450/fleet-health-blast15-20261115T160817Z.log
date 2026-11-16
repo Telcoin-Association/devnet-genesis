@@ -1,0 +1,41 @@
+  bench-validator-01: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-02: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-03: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-04: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-05: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-06: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-07: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-08: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-09: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-validator-10: root_used_pct=7 fatal_db=0 halt=0 block=185
+  bench-observer-11: root_used_pct=6 fatal_db=0 halt=0 block=185
+FLEET_HEALTH run=r20261115-1450 nodes=11/11 disk_max=7 (bench-validator-01) fatal_db=0 halt=0 block_min=185 block_max=185 2026-11-15T16:08:41Z
+  bench-validator-01: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-02: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-03: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-04: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-05: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-06: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-07: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-08: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-09: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-validator-10: root_used_pct=7 fatal_db=0 halt=0 block=197
+  bench-observer-11: root_used_pct=6 fatal_db=0 halt=0 block=197
+FLEET_HEALTH run=r20261115-1450 nodes=11/11 disk_max=7 (bench-validator-01) fatal_db=0 halt=0 block_min=197 block_max=197 2026-11-15T16:14:06Z
+  bench-validator-01: root_used_pct=7 fatal_db=0 halt=0 block=257
+  bench-validator-02: root_used_pct=7 fatal_db=0 halt=0 block=251
+  bench-validator-03: root_used_pct=7 fatal_db=0 halt=0 block=282
+  bench-validator-04: root_used_pct=7 fatal_db=0 halt=0 block=1151
+  bench-validator-05: root_used_pct=7 fatal_db=0 halt=0 block=561
+  bench-validator-06: root_used_pct=7 fatal_db=0 halt=0 block=570
+  bench-validator-07: root_used_pct=7 fatal_db=0 halt=0 block=584
+  bench-validator-08: root_used_pct=7 fatal_db=0 halt=0 block=584
+  bench-validator-09: root_used_pct=7 fatal_db=0 halt=0 block=908
+  bench-validator-10: root_used_pct=7 fatal_db=0 halt=0 block=937
+  bench-observer-11: root_used_pct=6 fatal_db=0 halt=0 block=630
+FLEET_HEALTH run=r20261115-1450 nodes=11/11 disk_max=7 (bench-validator-01) fatal_db=0 halt=0 block_min=251 block_max=1151 2026-11-15T16:19:46Z
+FLEET_HEALTH run=r20261115-1450 list-failed 2026-11-15T16:24:46Z
+FLEET_HEALTH run=r20261115-1450 list-failed 2026-11-15T16:29:48Z
+FLEET_HEALTH run=r20261115-1450 list-failed 2026-11-15T16:34:48Z
+FLEET_HEALTH run=r20261115-1450 list-failed 2026-11-15T16:39:49Z
+FLEET_HEALTH the walk ended (== blast15 rc=1 2026-11-15T16:40:25Z)

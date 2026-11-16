@@ -1,0 +1,2 @@
+AFTER-TRIAL gate rc=0 log=tasks/bench7/harness-gate-20261115T0553Z.log 2026-11-15T06:38:14Z
+AFTER-TRIAL per-commit rc=0 PER-COMMIT 521689d48 ok=23 fail=0 left=82 stopped 2026-11-15T06:38:14Z 2026-11-15T06:38:14Z

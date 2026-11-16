@@ -1,0 +1,11 @@
+BUNDLES start 2026-11-14T15:42:04Z head=86cb3f20cea4 only=''
+  launch: LAUNCHED segment=bundle run=r20261113-1351 pid=2582009 harness=86cb3f20cea4 log=tasks/bench6/r20261113-1351/bundle-20261114T154204Z.log
+  launch:   wait for: ^== bundle rc=  in tasks/bench6/r20261113-1351/bundle-20261114T154204Z.log
+  launch:   status:   benchmark/launch/launch.sh tasks/bench6/r20261113-1351/bench6-run2.env status
+BUNDLE r20261113-1351 launched 2026-11-14T15:42:04Z log=tasks/bench6/r20261113-1351/bundle-20261114T154204Z.log
+BUNDLE r20261113-1351 rc=1 secs=562 2026-11-14T15:51:26Z
+  tail:   - node switches show mdbx_random_advice=false at 11 start(s) (bench-observer-11 at 2026-11-13T14:06:24.226552883Z, bench-validator-01 at 2026-11-13T14:02:48.836230277Z, bench-validator-02 at 2026-11-13T14:03:01.623832529Z, bench-validator-03 at 2026-11-13T14:03:13.407995564Z, bench-validator-04 at
+  tail:   - node switches show quorum_exec_block=false at 11 start(s) (bench-observer-11 at 2026-11-13T14:06:24.226552883Z, bench-validator-01 at 2026-11-13T14:02:48.836230277Z, bench-validator-02 at 2026-11-13T14:03:01.623832529Z, bench-validator-03 at 2026-11-13T14:03:13.407995564Z, bench-validator-04 at 
+  tail:   - node switches show vote_queue_fix=false at 11 start(s) (bench-observer-11 at 2026-11-13T14:06:24.226552883Z, bench-validator-01 at 2026-11-13T14:02:48.836230277Z, bench-validator-02 at 2026-11-13T14:03:01.623832529Z, bench-validator-03 at 2026-11-13T14:03:13.407995564Z, bench-validator-04 at 202
+  tail: == bundle rc=1 2026-11-14T15:51:25Z
+BUNDLES done rc=1 2026-11-14T15:51:26Z

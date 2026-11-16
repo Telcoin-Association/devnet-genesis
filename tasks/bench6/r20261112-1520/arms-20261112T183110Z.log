@@ -1,0 +1,1222 @@
+== arms start 2026-11-12T18:31:10Z bench6-launch:r20261112-1520:arms pid=2840463 harness=26d0e083d1c5
+== arms command: benchmark/launch/run-arms.sh --plan benchmark/launch/bench6-run1.plan --from-arm 3
+BENCH_CHAOS=0
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=0
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=2df831e3ca34c06a361a7acca10397787e7b332e
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261112-1520
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench6/r20261112-1520/bench6-run1.env
+LAUNCH_SEGMENT=arms
+RUN_ARMS_MAX_QUEUED=1000
+ARMS_START plan=benchmark/launch/bench6-run1.plan run=r20261112-1520 arms=3..8 from_step=1 2026-11-12T18:31:10Z
+>>> run-arms: output copied to benchmark/results/r20261112-1520/logs/run-arms-arms-20261112T183110Z.log
+ARMS_ARM k=3 arm=v-vote-floor-r2 file=benchmark/arms/v-vote-floor.arm steps=L,M16
+>>> 2026-11-12T18:31:11Z env benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/v-vote-floor.arm --arm v-vote-floor-r2
+[18:31:11] nodes from benchmark/config.sh (r20261112-1520) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/nodes.txt
+[18:31:11] phase A: reading 11 node(s), up to 5 at once
+  bench-validator-01       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-02       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-03       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-04       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-05       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-06       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-07       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-08       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-09       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-10       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-observer-11        observer  /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+[18:31:33] plan for arm v-vote-floor-r2: 11 node(s) to restart one at a time, 0 already in it; record: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/manifest.json
+  arm file benchmark/arms/v-vote-floor.arm (sha256 13384634a86997ef7f715063a0e622c47a217483c29b300c9d8cacc371ff1f39); switches: quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0ms rpc_admission_backlog_outputs=0 pipelined_persist=false
+  host steps: evict-mdbx
+  read-ahead: not in the arm; each node's deploy value (node_startup.<node>.host.read_ahead_kb) is put back where it differs
+  bench-observer-11        observer  no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-01       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-02       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-03       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-04       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-05       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-06       validator no key to rewrite; restart (host); host steps: evict-mdbx
+  bench-validator-07       validator quorum_exec_block_starved_rounds 4 -> 0; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-08       validator quorum_exec_block_starved_rounds 4 -> 0; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-09       validator quorum_exec_block_starved_rounds 4 -> 0; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-10       validator quorum_exec_block_starved_rounds 4 -> 0; restart (params,unread,host); host steps: evict-mdbx
+[18:31:34] phase B 1/11: bench-observer-11 (observer): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-observer-11 sample=1/8 rc=0 log: this node is Observer: stopping it does not change the committee's quorum.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183136Z.log.gz
+      PA_PRE 0 15396
+      PA_EPOCH bench-observer-11 secs_left=536 since_boundary=664 waited=0
+      PA_GUARD_SUMMARY bench-observer-11 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183136Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183136Z 2026-11-12T18:31:36Z
+      PA_UNIT STOP_AT 2026-11-12T18:31:36Z 1794508296
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:31:38Z 1794508298
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:31:36Z
+      PA_PROGRESS consensus number: 0 15396 -> 0 15403
+      PA_PROGRESS_AT 2026-11-12T18:31:40Z
+      PA_RESTART_SECS 4
+      PA_STOP_AT 2026-11-12T18:31:36Z
+      PA_SWITCH_LINE ts=2026-11-12T18:31:39.294093691Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-observer-11 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-observer-11 max=1000 min=350 batch=250 thr=5 vote=-
+[18:31:41] phase B 2/11: bench-validator-01 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-01 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183143Z.log.gz
+      PA_PRE 9 1866
+      PA_EPOCH bench-validator-01 secs_left=528 since_boundary=672 waited=0
+      PA_GUARD_SUMMARY bench-validator-01 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183144Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183144Z 2026-11-12T18:31:44Z
+      PA_UNIT STOP_AT 2026-11-12T18:31:44Z 1794508304
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:31:46Z 1794508306
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:31:44Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 1866 -> 9 1884
+      PA_PROGRESS_AT 2026-11-12T18:31:51Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:31:44Z
+      PA_SWITCH_LINE ts=2026-11-12T18:31:47.388939041Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-01 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-01 max=1000 min=350 batch=250 thr=5 vote=-
+[18:31:52] phase B 3/11: bench-validator-02 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-02 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183156Z.log.gz
+      PA_PRE 9 1899
+      PA_EPOCH bench-validator-02 secs_left=515 since_boundary=685 waited=0
+      PA_GUARD_SUMMARY bench-validator-02 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183157Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183157Z 2026-11-12T18:31:57Z
+      PA_UNIT STOP_AT 2026-11-12T18:31:57Z 1794508317
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:31:59Z 1794508319
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:31:57Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 1899 -> 9 1920
+      PA_PROGRESS_AT 2026-11-12T18:32:04Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:31:57Z
+      PA_SWITCH_LINE ts=2026-11-12T18:31:59.774189787Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-02 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-02 max=1000 min=350 batch=250 thr=5 vote=-
+[18:32:04] phase B 4/11: bench-validator-03 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-03 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183210Z.log.gz
+      PA_PRE 9 1940
+      PA_EPOCH bench-validator-03 secs_left=501 since_boundary=699 waited=0
+      PA_GUARD_SUMMARY bench-validator-03 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183211Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183211Z 2026-11-12T18:32:11Z
+      PA_UNIT STOP_AT 2026-11-12T18:32:11Z 1794508331
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:32:13Z 1794508333
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:32:11Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 1940 -> 9 1960
+      PA_PROGRESS_AT 2026-11-12T18:32:18Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:32:11Z
+      PA_SWITCH_LINE ts=2026-11-12T18:32:13.760959229Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-03 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-03 max=1000 min=350 batch=250 thr=5 vote=-
+[18:32:19] phase B 5/11: bench-validator-04 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-04 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183223Z.log.gz
+      PA_PRE 9 1978
+      PA_EPOCH bench-validator-04 secs_left=488 since_boundary=712 waited=0
+      PA_GUARD_SUMMARY bench-validator-04 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183224Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183224Z 2026-11-12T18:32:24Z
+      PA_UNIT STOP_AT 2026-11-12T18:32:24Z 1794508344
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:32:26Z 1794508346
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:32:24Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 1978 -> 9 1997
+      PA_PROGRESS_AT 2026-11-12T18:32:31Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:32:24Z
+      PA_SWITCH_LINE ts=2026-11-12T18:32:27.424663145Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-04 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-04 max=1000 min=350 batch=250 thr=5 vote=-
+[18:32:32] phase B 6/11: bench-validator-05 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-05 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183235Z.log.gz
+      PA_PRE 9 2008
+      PA_EPOCH bench-validator-05 secs_left=476 since_boundary=724 waited=0
+      PA_GUARD_SUMMARY bench-validator-05 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183236Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183236Z 2026-11-12T18:32:36Z
+      PA_UNIT STOP_AT 2026-11-12T18:32:36Z 1794508356
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:32:38Z 1794508358
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:32:36Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2008 -> 9 2026
+      PA_PROGRESS_AT 2026-11-12T18:32:43Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:32:36Z
+      PA_SWITCH_LINE ts=2026-11-12T18:32:38.786899479Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-05 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-05 max=1000 min=350 batch=250 thr=5 vote=-
+[18:32:43] phase B 7/11: bench-validator-06 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-06 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183248Z.log.gz
+      PA_PRE 9 2043
+      PA_EPOCH bench-validator-06 secs_left=463 since_boundary=737 waited=0
+      PA_GUARD_SUMMARY bench-validator-06 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183249Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183249Z 2026-11-12T18:32:49Z
+      PA_UNIT STOP_AT 2026-11-12T18:32:49Z 1794508369
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 119, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:32:51Z 1794508371
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:32:49Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2043 -> 9 2065
+      PA_PROGRESS_AT 2026-11-12T18:32:56Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:32:49Z
+      PA_SWITCH_LINE ts=2026-11-12T18:32:51.742837287Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-06 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-06 max=1000 min=350 batch=250 thr=5 vote=-
+[18:32:56] phase B 8/11: bench-validator-07 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-07 sample=1/8 rc=0 log: committee of 10: 0 member(s) down; stopping this node leaves 1, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183302Z.log.gz
+      PA_PRE 9 2090
+      PA_EPOCH bench-validator-07 secs_left=447 since_boundary=753 waited=0
+      PA_GUARD_SUMMARY bench-validator-07 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183305Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183305Z 2026-11-12T18:33:05Z
+      PA_UNIT STOP_AT 2026-11-12T18:33:05Z 1794508385
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 493238, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:33:08Z 1794508388
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:33:05Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2090 -> 9 2118
+      PA_PROGRESS_AT 2026-11-12T18:33:15Z
+      PA_RESTART_SECS 10
+      PA_STOP_AT 2026-11-12T18:33:05Z
+      PA_SWITCH_LINE ts=2026-11-12T18:33:08.970975454Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-07 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-07 max=1000 min=350 batch=250 thr=5 vote=-
+[18:33:16] phase B 9/11: bench-validator-08 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-08 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183322Z.log.gz
+      PA_PRE 9 2145
+      PA_EPOCH bench-validator-08 secs_left=428 since_boundary=772 waited=0
+      PA_GUARD_SUMMARY bench-validator-08 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183324Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183324Z 2026-11-12T18:33:24Z
+      PA_UNIT STOP_AT 2026-11-12T18:33:24Z 1794508404
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 483088, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:33:28Z 1794508408
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:33:24Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2145 -> 9 2170
+      PA_PROGRESS_AT 2026-11-12T18:33:35Z
+      PA_RESTART_SECS 11
+      PA_STOP_AT 2026-11-12T18:33:24Z
+      PA_SWITCH_LINE ts=2026-11-12T18:33:28.587429706Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-08 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-08 max=1000 min=350 batch=250 thr=5 vote=-
+[18:33:35] phase B 10/11: bench-validator-09 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-09 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183341Z.log.gz
+      PA_PRE 9 2194
+      PA_EPOCH bench-validator-09 secs_left=409 since_boundary=791 waited=0
+      PA_GUARD_SUMMARY bench-validator-09 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183343Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183343Z 2026-11-12T18:33:43Z
+      PA_UNIT STOP_AT 2026-11-12T18:33:43Z 1794508423
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 494981, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:33:46Z 1794508426
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:33:43Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2194 -> 9 2213
+      PA_PROGRESS_AT 2026-11-12T18:33:50Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T18:33:43Z
+      PA_SWITCH_LINE ts=2026-11-12T18:33:47.339351909Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-09 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-09 max=1000 min=350 batch=250 thr=5 vote=-
+[18:33:51] phase B 11/11: bench-validator-10 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-10 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-v-vote-floor-r2-20261112T183358Z.log.gz
+      PA_PRE 9 2242
+      PA_EPOCH bench-validator-10 secs_left=391 since_boundary=809 waited=0
+      PA_GUARD_SUMMARY bench-validator-10 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T183401Z
+      PA_UNIT_LAUNCHED bench-arm-v-vote-floor-r2-20261112T183401Z 2026-11-12T18:34:01Z
+      PA_UNIT STOP_AT 2026-11-12T18:34:01Z 1794508441
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 469301, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T18:34:04Z 1794508444
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T18:34:01Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 9 2242 -> 9 2268
+      PA_PROGRESS_AT 2026-11-12T18:34:11Z
+      PA_RESTART_SECS 10
+      PA_STOP_AT 2026-11-12T18:34:01Z
+      PA_SWITCH_LINE ts=2026-11-12T18:34:04.823153377Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-10 quorum_exec_block=true quorum_exec_block_starved_rounds=0 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=false digest_dedupe=false recovery_threads=0 epoch_close_task_drain=false epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-10 max=1000 min=350 batch=250 thr=5 vote=-
+[18:34:12] arm v-vote-floor-r2: 11 node(s) restarted and read back; begin 2026-11-12T18:31:36Z; ready 2026-11-12T18:36:11Z; recorded in /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/manifest.json
+ARM_READY v-vote-floor-r2 ready=2026-11-12T18:36:11Z restarted=11 nodes=11
+{"name":"v-vote-floor-r2","begin":"2026-11-12T18:31:36Z","end":null,"via":"params-apply","file":"benchmark/arms/v-vote-floor.arm","sha256":"13384634a86997ef7f715063a0e622c47a217483c29b300c9d8cacc371ff1f39","switches":{"quorum_exec_block":"true","quorum_exec_block_starved_rounds":"0","vote_queue_fix":"true","mdbx_random_advice":"true","sealed_tx_keep":"false","digest_dedupe":"false","recovery_threads":"0","epoch_close_task_drain":"false","epoch_record_state_check":"true","parent_grace":"0ms","rpc_admission_backlog_outputs":"0","pipelined_persist":"false"},"nodes":{"bench-observer-11":{},"bench-validator-01":{},"bench-validator-02":{},"bench-validator-03":{},"bench-validator-04":{},"bench-validator-05":{},"bench-validator-06":{},"bench-validator-07":{"quorum_exec_block_starved_rounds":"0"},"bench-validator-08":{"quorum_exec_block_starved_rounds":"0"},"bench-validator-09":{"quorum_exec_block_starved_rounds":"0"},"bench-validator-10":{"quorum_exec_block_starved_rounds":"0"}},"host":[{"step":"evict-mdbx","value":null,"nodes":{"bench-observer-11":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-01":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-02":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-03":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-04":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-05":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-06":{"resident_pages_before":119,"resident_pages_after":0},"bench-validator-07":{"resident_pages_before":493238,"resident_pages_after":0},"bench-validator-08":{"resident_pages_before":483088,"resident_pages_after":0},"bench-validator-09":{"resident_pages_before":494981,"resident_pages_after":0},"bench-validator-10":{"resident_pages_before":469301,"resident_pages_after":0}}}],"restart_secs":{"bench-observer-11":4.0,"bench-validator-01":7.0,"bench-validator-02":7.0,"bench-validator-03":7.0,"bench-validator-04":7.0,"bench-validator-05":7.0,"bench-validator-06":7.0,"bench-validator-07":10.0,"bench-validator-08":11.0,"bench-validator-09":7.0,"bench-validator-10":10.0},"guard":{"bench-observer-11":{"samples":1,"refused":0},"bench-validator-01":{"samples":1,"refused":0},"bench-validator-02":{"samples":1,"refused":0},"bench-validator-03":{"samples":1,"refused":0},"bench-validator-04":{"samples":1,"refused":0},"bench-validator-05":{"samples":1,"refused":0},"bench-validator-06":{"samples":1,"refused":0},"bench-validator-07":{"samples":1,"refused":0},"bench-validator-08":{"samples":1,"refused":0},"bench-validator-09":{"samples":1,"refused":0},"bench-validator-10":{"samples":1,"refused":0}},"marks":[],"ready":"2026-11-12T18:36:11Z"}
+ARMS_STEP arm=v-vote-floor-r2 step=0 kind=apply rc=0 2026-11-12T18:34:12Z
+ARMS_READY arm=v-vote-floor-r2 ready=2026-11-12T18:36:11Z wait=119
+ARMS_HEALTH arm=v-vote-floor-r2 after=0 verdict=unknown read=0/11 disk_max=? fatal_db=0 2026-11-12T18:36:50Z
+  (status rc=0; an unreadable node is not a stop; watch it: README.md, Monitor)
+>>> 2026-11-12T18:36:50Z env BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-1520
+>>> fund: output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/logs/blast-fund-20261112T183650Z.log
+>>> preflight
+    ✓ gcloud
+    ✓ jq
+    ✓ txgen config /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml
+    ✓ address book /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f
+    ✓ us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f blast --help carries every contract flag (incl. --stdout-json)
+    ✓ image, bucket and secret access present
+>>> fund: bench-funder (us-west2-a) --prepare senders=80 sender-start=600000 against bench-validator-01=http://10.168.15.230:8545
+    bucket prefix: gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/funder/
+>>> move the funder output of BENCH_RUN_INDEX 5 (3 files in funder/) into /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder-5-<UTC>/
+    mv funder
+    mv meta/bench-funder
+    cp manifest.json
+    ✓ funder output moved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder-5-20261112T183657Z/
+    + perl -e alarm\ shift\;\ exec\ @ARGV 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-funder --project=tn-devnet --zone=us-west2-a --machine-type=e2-standard-2 --image-family=cos-stable --image-project=cos-cloud --boot-disk-size=20GB --boot-disk-type=pd-balanced --service-account=1095385745561-compute@developer.gserviceaccount.com --scopes=cloud-platform --tags=bench-blaster --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --metadata-from-file=startup-script=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/blaster-startup.sh\,txgen-config=/home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml\,txgen-deployments=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json\,NODE_URLS=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/meta/bench-funder/NODE_URLS --metadata=\^##\^BENCH_MODE=fund##TXGEN_IMAGE=us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f##SENDERS=80##SENDER_START=600000##BENCH_BUCKET=tn-devnet-bench-r20261112-1520##RUN_ID=r20261112-1520##RUN_INDEX=6##LABEL=bench-funder##MASTER_SECRET=bench-txgen-master-key##SEED_SECRET=bench-txgen-children-seed##WARMUP_SECS=60##DURATION_SECS=360##COOLDOWN_SECS=60
+Created [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-funder].
+WARNING: Some requests generated warnings:
+ - Disk size: '20 GB' is larger than image size: '10 GB'. You might need to resize the root repartition manually if the operating system does not support automatic resizing. See https://cloud.google.com/compute/docs/disks/add-persistent-disk#resize_pd for details.
+
+NAME          ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP    STATUS
+bench-funder  us-west2-a  e2-standard-2               10.168.0.10  35.236.12.108  RUNNING
+    + gcloud compute disks add-labels bench-funder --zone=us-west2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-funder]...
+.......done.
+      …bench-funder waiting for 'BENCH_FUND_DONE rc=' (60s/3600s)
+      ✓ bench-funder: 'BENCH_FUND_DONE rc=' (after 60s)
+    funder: [   14.222861] google_metadata_script_runner_adapt[846]: startup-script: [bench-startup] BENCH_FUND_DONE rc=0 reason=ok
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/funder/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/bench-funder.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/funder/bench-funder.txgen-20261112T183722Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/bench-funder.txgen-20261112T183722Z.log
+  
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/prepare.json
+
+
+Average throughput: 683.4kiB/s
+    + gcloud compute instances delete bench-funder --zone=us-west2-a --project=tn-devnet --quiet
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-funder].
+    ✓ funded
+>>> 2026-11-12T18:38:35Z env BENCH_RUN_INDEX=6 BENCH_BLAST_KIND=light BENCH_SENDERS=8 BENCH_WINDOW=16 BENCH_WARMUP_SECS=60 BENCH_DURATION_SECS=360 BENCH_COOLDOWN_SECS=60 BENCH_TAIL_SCAN_SECS=0 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-1520
+>>> run: output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/logs/blast-run-20261112T183835Z.log
+>>> preflight
+    ✓ gcloud
+    ✓ jq
+    ✓ txgen config /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml
+    ✓ address book /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f
+    ✓ us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f blast --help carries every contract flag (incl. --stdout-json)
+    ✓ image, bucket and secret access present
+    start_at lead: 150s (BENCH_LIGHT_START_DELAY_SECS, a light blast), not raised to 240s: a create that needs its retry stops the blast unsent at start_at - 30 s
+>>> run r20261112-1520 index 6: 10 blasters x 8 senders, start_at 2026-11-12T18:41:09Z
+    phases (planned): preamble 90s, warmup 60s, mixed 360s, cooldown 60s; wait deadline 2026-11-12T19:01:09Z (cooldown end + 600 s + 30 s for the tail scan and the unlanded lookups)
+    tunnel already up (pid 2038465) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 2039169) -> http://127.0.0.1:13000
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ bench-obs: Prometheus answers; data disk 1%
+    chaos: disabled (BENCH_CHAOS=0)
+    lag injection: off (BENCH_LAG_INJECT=0)
+>>> archive the previous blast (BENCH_RUN_INDEX 5) into /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blast-5-<UTC>/ with a copy of manifest.json
+    mv blasters
+    mv meta/bench-blaster-01
+    mv meta/bench-blaster-02
+    mv meta/bench-blaster-03
+    mv meta/bench-blaster-04
+    mv meta/bench-blaster-05
+    mv meta/bench-blaster-06
+    mv meta/bench-blaster-07
+    mv meta/bench-blaster-08
+    mv meta/bench-blaster-09
+    mv meta/bench-blaster-10
+    mv logs/create-bench-blaster-01.log
+    mv logs/create-bench-blaster-02.log
+    mv logs/create-bench-blaster-03.log
+    mv logs/create-bench-blaster-04.log
+    mv logs/create-bench-blaster-05.log
+    mv logs/create-bench-blaster-06.log
+    mv logs/create-bench-blaster-07.log
+    mv logs/create-bench-blaster-08.log
+    mv logs/create-bench-blaster-09.log
+    mv logs/create-bench-blaster-10.log
+    mv logs/blast-run-20261112T180605Z.log
+    manifest: .blasters=[] .chaos=[] .abort=null .phases=[], drop .blast, .phases_planned and timestamps blast_start_at/blast_end/collect_start/step_14_done/step_15_done
+    ✓ previous blast archived: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blast-5-20261112T183858Z/
+    blast: BENCH_RUN_INDEX=6 chaos=0 lag_inject=0 (node idx 2, mixed+300s for 180s)
+    bucket prefix: gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/
+>>> bench-blaster-01 (us-west2-a) -> bench-validator-01=http://10.168.15.230:8545 senders 8@600000
+>>> bench-blaster-02 (europe-west2-b) -> bench-validator-02=http://10.154.0.61:8545 senders 8@600008
+>>> bench-blaster-03 (australia-southeast1-c) -> bench-validator-03=http://10.152.0.55:8545 senders 8@600016
+>>> bench-blaster-04 (asia-northeast1-b) -> bench-validator-04=http://10.146.0.25:8545 senders 8@600024
+>>> bench-blaster-05 (us-east4-b) -> bench-validator-05=http://10.150.0.13:8545 senders 8@600032
+>>> bench-blaster-06 (europe-west4-a) -> bench-validator-06=http://10.164.0.59:8545 senders 8@600040
+>>> bench-blaster-07 (asia-southeast1-b) -> bench-validator-07=http://10.148.0.24:8545 senders 8@600048
+>>> bench-blaster-08 (asia-east2-a) -> bench-validator-08=http://10.170.0.24:8545 senders 8@600056
+>>> bench-blaster-09 (asia-northeast3-a) -> bench-validator-09=http://10.178.0.25:8545 senders 8@600064
+>>> bench-blaster-10 (asia-south1-c) -> bench-validator-10=http://10.160.0.24:8545 senders 8@600072
+    ✓ created bench-blaster-01 (e2-standard-2)
+    ✓ created bench-blaster-02 (e2-standard-2)
+    ✓ created bench-blaster-03 (e2-standard-2)
+    ✓ created bench-blaster-04 (e2-standard-2)
+    ✓ created bench-blaster-05 (e2-standard-2)
+    ✓ created bench-blaster-06 (e2-standard-2)
+    ✓ created bench-blaster-07 (e2-standard-2)
+    ✓ created bench-blaster-08 (e2-standard-2)
+    ✓ created bench-blaster-09 (e2-standard-2)
+    ✓ created bench-blaster-10 (e2-standard-2)
+    + gcloud compute disks add-labels bench-blaster-01 --zone=us-west2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-01]...
+......done.
+    + gcloud compute disks add-labels bench-blaster-02 --zone=europe-west2-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-02]...
+.........done.
+    + gcloud compute disks add-labels bench-blaster-03 --zone=australia-southeast1-c --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-03]...
+..........done.
+    + gcloud compute disks add-labels bench-blaster-04 --zone=asia-northeast1-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-04]...
+..........done.
+    + gcloud compute disks add-labels bench-blaster-05 --zone=us-east4-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-05]...
+......done.
+    + gcloud compute disks add-labels bench-blaster-06 --zone=europe-west4-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-06]...
+.........done.
+    + gcloud compute disks add-labels bench-blaster-07 --zone=asia-southeast1-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-07]...
+...........done.
+    + gcloud compute disks add-labels bench-blaster-08 --zone=asia-east2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-08]...
+...........done.
+    + gcloud compute disks add-labels bench-blaster-09 --zone=asia-northeast3-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-09]...
+..........done.
+    + gcloud compute disks add-labels bench-blaster-10 --zone=asia-south1-c --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-10]...
+........done.
+POOL_AT_START blast=6 at=2026-11-12T18:41:08Z read=11/11 queued_max=0 (bench-observer-11) pending_max=0 (bench-observer-11)
+18:42:39Z LOG_RATE: bench-validator-01's unit log over 60 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOG_RATE bench-validator-01 blast=6 mb_per_min=8.3
+18:43:44Z poll: blasters + node status + obs memory
+    bench-validator-01: root=17% fatal_db=0 block=55686
+    bench-validator-02: root=17% fatal_db=0 block=55692
+    bench-validator-03: root=17% fatal_db=0 block=55700
+    bench-validator-04: root=17% fatal_db=0 block=55698
+    bench-validator-05: root=17% fatal_db=0 block=55986
+    bench-validator-06: root=17% fatal_db=0 block=55995
+    bench-validator-07: root=18% fatal_db=0 block=56005
+    bench-validator-08: root=17% fatal_db=0 block=55997
+    bench-validator-09: root=17% fatal_db=0 block=55495
+    bench-validator-10: root=17% fatal_db=0 block=55504
+    bench-observer-11: root=14% fatal_db=0 block=56047
+    bench-obs memory: 8.0154351388734035%
+18:47:44Z poll: blasters + node status + obs memory
+    bench-validator-01: root=17% fatal_db=0 block=57266
+    bench-validator-02: root=17% fatal_db=0 block=57279
+    bench-validator-03: root=17% fatal_db=0 block=57286
+    bench-validator-04: root=17% fatal_db=0 block=57272
+    bench-validator-05: root=17% fatal_db=0 block=56760
+    bench-validator-06: root=17% fatal_db=0 block=56762
+    bench-validator-07: root=18% fatal_db=0 block=57597
+    bench-validator-08: root=17% fatal_db=0 block=57586
+    bench-validator-09: root=17% fatal_db=0 block=57075
+    bench-validator-10: root=17% fatal_db=0 block=57086
+    bench-observer-11: root=14% fatal_db=0 block=57630
+    consensus rounds: 11 node(s) advanced (1000001310..1000001353)
+    bench-obs memory: 8.0109864253307972%
+    bench-blaster-01: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-02: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-03: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-04: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-05: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-06: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-07: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-08: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-09: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-10: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+18:49:58Z all blasters reported BENCH_BLAST_DONE
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.json
+  
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-01.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-02.txgen-20261112T184110Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.txgen-20261112T184110Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-03.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-04.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-05.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-06.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-07.txgen-20261112T184110Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.txgen-20261112T184110Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-08.txgen-20261112T184110Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.txgen-20261112T184110Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-09.txgen-20261112T184110Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.txgen-20261112T184110Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/bench-blaster-10.txgen-20261112T184109Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.txgen-20261112T184109Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-6/blasters/unlanded-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-10.ndjson.gz
+..........
+
+Average throughput: 6.6MiB/s
+    + gcloud compute instances delete bench-blaster-01 --zone=us-west2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-02 --zone=europe-west2-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-03 --zone=australia-southeast1-c --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-04 --zone=asia-northeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-05 --zone=us-east4-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-06 --zone=europe-west4-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-07 --zone=asia-southeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-08 --zone=asia-east2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-09 --zone=asia-northeast3-a --project=tn-devnet --quiet
+    waiting for 10 blaster delete(s): a describe each every 10 s, at most 300 s
+    + gcloud compute instances delete bench-blaster-10 --zone=asia-south1-c --project=tn-devnet --quiet
+    ✓ bench-blaster-01 deleted
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-blaster-01].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/europe-west2-b/instances/bench-blaster-02].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/australia-southeast1-c/instances/bench-blaster-03].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-northeast1-b/instances/bench-blaster-04].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-east4-b/instances/bench-blaster-05].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/europe-west4-a/instances/bench-blaster-06].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-east2-a/instances/bench-blaster-08].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-northeast3-a/instances/bench-blaster-09].
+    ✓ bench-blaster-10 deleted
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-south1-c/instances/bench-blaster-10].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-southeast1-b/instances/bench-blaster-07].
+    ✓ bench-blaster-02 deleted
+    ✓ bench-blaster-03 deleted
+    ✓ bench-blaster-04 deleted
+    ✓ bench-blaster-05 deleted
+    ✓ bench-blaster-06 deleted
+    ✓ bench-blaster-07 deleted
+    ✓ bench-blaster-08 deleted
+    ✓ bench-blaster-09 deleted
+    phases (real, the blasters' run.phases; the plan is kept as phases_planned): preamble 2026-11-12T18:41:09Z - 2026-11-12T18:41:30Z, warmup 2026-11-12T18:41:12Z - 2026-11-12T18:42:30Z, mixed 2026-11-12T18:42:12Z - 2026-11-12T18:48:30Z, cooldown 2026-11-12T18:48:12Z - 2026-11-12T18:48:40Z
+    ✓ run complete: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/
+ARMS_BLAST arm=v-vote-floor-r2 step=1 kind=L index=6 attempt=1 fund_rc=0 run_rc=0 2026-11-12T18:50:57Z
+ARMS_STEP arm=v-vote-floor-r2 step=1 kind=L rc=0 2026-11-12T18:50:57Z
+ARMS_HEALTH arm=v-vote-floor-r2 after=1 verdict=unknown read=0/11 disk_max=? fatal_db=0 2026-11-12T18:51:37Z
+  (status rc=0; an unreadable node is not a stop; watch it: README.md, Monitor)
+>>> 2026-11-12T18:51:37Z env BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh fund --yes --run r20261112-1520
+>>> fund: output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/logs/blast-fund-20261112T185137Z.log
+>>> preflight
+    ✓ gcloud
+    ✓ jq
+    ✓ txgen config /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml
+    ✓ address book /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f
+    ✓ us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f blast --help carries every contract flag (incl. --stdout-json)
+    ✓ image, bucket and secret access present
+>>> fund: bench-funder (us-west2-a) --prepare senders=6000 sender-start=700000 against bench-validator-01=http://10.168.15.230:8545
+    bucket prefix: gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/funder/
+>>> move the funder output of BENCH_RUN_INDEX 6 (3 files in funder/) into /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder-6-<UTC>/
+    mv funder
+    mv meta/bench-funder
+    cp manifest.json
+    ✓ funder output moved: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder-6-20261112T185143Z/
+    + perl -e alarm\ shift\;\ exec\ @ARGV 90 env CLOUDSDK_CORE_HTTP_TIMEOUT=60 gcloud compute instances create bench-funder --project=tn-devnet --zone=us-west2-a --machine-type=e2-standard-2 --image-family=cos-stable --image-project=cos-cloud --boot-disk-size=20GB --boot-disk-type=pd-balanced --service-account=1095385745561-compute@developer.gserviceaccount.com --scopes=cloud-platform --tags=bench-blaster --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --metadata-from-file=startup-script=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/blaster-startup.sh\,txgen-config=/home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml\,txgen-deployments=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json\,NODE_URLS=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/meta/bench-funder/NODE_URLS --metadata=\^##\^BENCH_MODE=fund##TXGEN_IMAGE=us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f##SENDERS=6000##SENDER_START=700000##BENCH_BUCKET=tn-devnet-bench-r20261112-1520##RUN_ID=r20261112-1520##RUN_INDEX=7##LABEL=bench-funder##MASTER_SECRET=bench-txgen-master-key##SEED_SECRET=bench-txgen-children-seed##WARMUP_SECS=120##DURATION_SECS=480##COOLDOWN_SECS=180
+Created [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-funder].
+WARNING: Some requests generated warnings:
+ - Disk size: '20 GB' is larger than image size: '10 GB'. You might need to resize the root repartition manually if the operating system does not support automatic resizing. See https://cloud.google.com/compute/docs/disks/add-persistent-disk#resize_pd for details.
+
+NAME          ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP   STATUS
+bench-funder  us-west2-a  e2-standard-2               10.168.0.18  34.94.87.179  RUNNING
+    + gcloud compute disks add-labels bench-funder --zone=us-west2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-funder]...
+......done.
+      …bench-funder waiting for 'BENCH_FUND_DONE rc=' (60s/3600s)
+      ✓ bench-funder: 'BENCH_FUND_DONE rc=' (after 60s)
+    funder: [   42.857444] google_metadata_script_runner_adapt[873]: startup-script: [bench-startup] BENCH_FUND_DONE rc=0 reason=ok
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/funder/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/bench-funder.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/funder/bench-funder.txgen-20261112T185219Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/bench-funder.txgen-20261112T185219Z.log
+  
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/funder/prepare.json
+.
+
+Average throughput: 29.2kiB/s
+    + gcloud compute instances delete bench-funder --zone=us-west2-a --project=tn-devnet --quiet
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-funder].
+    ✓ funded
+ARMS_POOL arm=v-vote-floor-r2 step=2 verdict=ok queued_max=0 (bench-validator-10) read=11/11 limit=1000 2026-11-12T18:53:23Z
+>>> 2026-11-12T18:53:23Z env BENCH_RUN_INDEX=7 BENCH_BLAST_KIND=load BENCH_SENDERS=600 BENCH_WINDOW=16 BENCH_WARMUP_SECS=120 BENCH_DURATION_SECS=480 BENCH_COOLDOWN_SECS=180 BENCH_TAIL_SCAN_SECS=180 BENCH_LIGHT_LOAD=0 BENCH_CHAOS=0 BENCH_LAG_INJECT=0 BENCH_LOG_RATE_CHECK=1 benchmark/benchmark-blast.sh run --yes --run r20261112-1520
+>>> run: output copied to /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/logs/blast-run-20261112T185323Z.log
+>>> preflight
+    ✓ gcloud
+    ✓ jq
+    ✓ txgen config /home/drtnarg/coding/telcoin/tn-transaction-generator/config.bench.toml
+    ✓ address book /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/deployments-bench.json
+    image us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f
+    ✓ us-west2-docker.pkg.dev/tn-devnet/txgen/tn-transaction-generator:blast-v2-62bbd5f blast --help carries every contract flag (incl. --stdout-json)
+    ✓ image, bucket and secret access present
+>>> run r20261112-1520 index 7: 10 blasters x 600 senders, start_at 2026-11-12T18:58:28Z
+    phases (planned): preamble 90s, warmup 120s, mixed 480s, cooldown 180s, tail scan 180s (not a phase); wait deadline 2026-11-12T19:26:28Z (cooldown end + 600 s + 210 s for the tail scan and the unlanded lookups)
+    tunnel already up (pid 2038465) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 2039169) -> http://127.0.0.1:13000
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ bench-obs: Prometheus answers; data disk 1%
+    chaos: disabled (BENCH_CHAOS=0)
+    lag injection: off (BENCH_LAG_INJECT=0)
+>>> archive the previous blast (BENCH_RUN_INDEX 6) into /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blast-6-<UTC>/ with a copy of manifest.json
+    mv blasters
+    mv meta/bench-blaster-01
+    mv meta/bench-blaster-02
+    mv meta/bench-blaster-03
+    mv meta/bench-blaster-04
+    mv meta/bench-blaster-05
+    mv meta/bench-blaster-06
+    mv meta/bench-blaster-07
+    mv meta/bench-blaster-08
+    mv meta/bench-blaster-09
+    mv meta/bench-blaster-10
+    mv logs/create-bench-blaster-01.log
+    mv logs/create-bench-blaster-02.log
+    mv logs/create-bench-blaster-03.log
+    mv logs/create-bench-blaster-04.log
+    mv logs/create-bench-blaster-05.log
+    mv logs/create-bench-blaster-06.log
+    mv logs/create-bench-blaster-07.log
+    mv logs/create-bench-blaster-08.log
+    mv logs/create-bench-blaster-09.log
+    mv logs/create-bench-blaster-10.log
+    mv logs/blast-run-20261112T183835Z.log
+    manifest: .blasters=[] .chaos=[] .abort=null .phases=[], drop .blast, .phases_planned and timestamps blast_start_at/blast_end/collect_start/step_14_done/step_15_done
+    ✓ previous blast archived: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blast-6-20261112T185346Z/
+    blast: BENCH_RUN_INDEX=7 chaos=0 lag_inject=0 (node idx 2, mixed+300s for 180s) tail_scan=180s
+    bucket prefix: gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/
+>>> bench-blaster-01 (us-west2-a) -> bench-validator-01=http://10.168.15.230:8545 senders 600@700000
+>>> bench-blaster-02 (europe-west2-b) -> bench-validator-02=http://10.154.0.61:8545 senders 600@700600
+>>> bench-blaster-03 (australia-southeast1-c) -> bench-validator-03=http://10.152.0.55:8545 senders 600@701200
+>>> bench-blaster-04 (asia-northeast1-b) -> bench-validator-04=http://10.146.0.25:8545 senders 600@701800
+>>> bench-blaster-05 (us-east4-b) -> bench-validator-05=http://10.150.0.13:8545 senders 600@702400
+>>> bench-blaster-06 (europe-west4-a) -> bench-validator-06=http://10.164.0.59:8545 senders 600@703000
+>>> bench-blaster-07 (asia-southeast1-b) -> bench-validator-07=http://10.148.0.24:8545 senders 600@703600
+>>> bench-blaster-08 (asia-east2-a) -> bench-validator-08=http://10.170.0.24:8545 senders 600@704200
+>>> bench-blaster-09 (asia-northeast3-a) -> bench-validator-09=http://10.178.0.25:8545 senders 600@704800
+>>> bench-blaster-10 (asia-south1-c) -> bench-validator-10=http://10.160.0.24:8545 senders 600@705400
+    ✓ created bench-blaster-01 (e2-standard-2)
+    ✓ created bench-blaster-02 (e2-standard-2)
+    ✓ created bench-blaster-03 (e2-standard-2)
+    ✓ created bench-blaster-04 (e2-standard-2)
+    ✓ created bench-blaster-05 (e2-standard-2)
+    ✓ created bench-blaster-06 (e2-standard-2)
+    ✓ created bench-blaster-07 (e2-standard-2)
+    ✓ created bench-blaster-08 (e2-standard-2)
+    ✓ created bench-blaster-09 (e2-standard-2)
+    ✓ created bench-blaster-10 (e2-standard-2)
+    + gcloud compute disks add-labels bench-blaster-01 --zone=us-west2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-01]...
+......done.
+    + gcloud compute disks add-labels bench-blaster-02 --zone=europe-west2-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-02]...
+.........done.
+    + gcloud compute disks add-labels bench-blaster-03 --zone=australia-southeast1-c --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-03]...
+...........done.
+    + gcloud compute disks add-labels bench-blaster-04 --zone=asia-northeast1-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-04]...
+.........done.
+    + gcloud compute disks add-labels bench-blaster-05 --zone=us-east4-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-05]...
+......done.
+    + gcloud compute disks add-labels bench-blaster-06 --zone=europe-west4-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-06]...
+.........done.
+    + gcloud compute disks add-labels bench-blaster-07 --zone=asia-southeast1-b --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-07]...
+...........done.
+    + gcloud compute disks add-labels bench-blaster-08 --zone=asia-east2-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-08]...
+...........done.
+    + gcloud compute disks add-labels bench-blaster-09 --zone=asia-northeast3-a --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-09]...
+..........done.
+    + gcloud compute disks add-labels bench-blaster-10 --zone=asia-south1-c --project=tn-devnet --labels=benchmark=1\,network=bench\,bench-run=r20261112-1520\,tn-role=blaster --format=none
+Updating labels of disk [bench-blaster-10]...
+.............done.
+POOL_AT_START blast=7 at=2026-11-12T18:58:27Z read=11/11 queued_max=0 (bench-observer-11) pending_max=0 (bench-observer-11)
+18:59:58Z LOG_RATE: bench-validator-01's unit log over 60 s
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+LOG_RATE bench-validator-01 blast=7 mb_per_min=10.7
+19:01:03Z poll: blasters + node status + obs memory
+    bench-validator-01: root=18% fatal_db=0 block=58052
+    bench-validator-02: root=18% fatal_db=0 block=58023
+    bench-validator-03: root=18% fatal_db=0 block=58068
+    bench-validator-04: root=18% fatal_db=0 block=59429
+    bench-validator-05: root=18% fatal_db=0 block=58456
+    bench-validator-06: root=18% fatal_db=0 block=58504
+    bench-validator-07: root=18% fatal_db=0 block=58536
+    bench-validator-08: root=18% fatal_db=0 block=58597
+    bench-validator-09: root=18% fatal_db=0 block=59050
+    bench-validator-10: root=18% fatal_db=0 block=59070
+    bench-observer-11: root=15% fatal_db=0 block=58645
+    bench-obs memory: 7.9964627434142148%
+19:05:03Z poll: blasters + node status + obs memory
+    bench-validator-01: root=19% fatal_db=0 block=61345
+    bench-validator-02: root=18% fatal_db=0 block=61370
+    bench-validator-03: root=19% fatal_db=0 block=61380
+    bench-validator-04: root=19% fatal_db=0 block=61367
+    bench-validator-05: root=18% fatal_db=0 block=62075
+    bench-validator-06: root=19% fatal_db=0 block=62096
+    bench-validator-07: root=19% fatal_db=0 block=62118
+    bench-validator-08: root=19% fatal_db=0 block=62118
+    bench-validator-09: root=19% fatal_db=0 block=62891
+    bench-validator-10: root=19% fatal_db=0 block=62931
+    bench-observer-11: root=15% fatal_db=0 block=62230
+    consensus rounds: 11 node(s) advanced (1100000795..1100000831)
+    bench-obs memory: 7.936276496229838%
+19:09:03Z poll: blasters + node status + obs memory
+    bench-validator-01: root=19% fatal_db=0 block=65400
+    bench-validator-02: root=19% fatal_db=0 block=65420
+    bench-validator-03: root=19% fatal_db=0 block=65449
+    bench-validator-04: root=19% fatal_db=0 block=65422
+    bench-validator-05: root=19% fatal_db=0 block=66179
+    bench-validator-06: root=19% fatal_db=0 block=66214
+    bench-validator-07: root=20% fatal_db=0 block=66238
+    bench-validator-08: root=19% fatal_db=0 block=66238
+    bench-validator-09: root=19% fatal_db=0 block=67004
+    bench-validator-10: root=19% fatal_db=0 block=67039
+    bench-observer-11: root=16% fatal_db=0 block=66365
+    consensus rounds: 11 node(s) advanced (1100001454..1100001492)
+    bench-obs memory: 8.08058500893306%
+    bench-blaster-01: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-03: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-04: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-05: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-07: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-08: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-09: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-10: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+    bench-blaster-02: BENCH_BLAST_DONE rc=0 reason=ok (result in the bucket)
+19:13:03Z poll: blasters + node status + obs memory
+    bench-blaster-06: BENCH_BLAST_DONE rc=0 reason=ok
+    bench-validator-01: root=19% fatal_db=0 block=67524
+    bench-validator-02: root=19% fatal_db=0 block=67524
+    bench-validator-03: root=19% fatal_db=0 block=67524
+    bench-validator-04: root=19% fatal_db=0 block=67524
+    bench-validator-05: root=19% fatal_db=0 block=67524
+    bench-validator-06: root=19% fatal_db=0 block=67524
+    bench-validator-07: root=20% fatal_db=0 block=67524
+    bench-validator-08: root=19% fatal_db=0 block=67524
+    bench-validator-09: root=19% fatal_db=0 block=67524
+    bench-validator-10: root=19% fatal_db=0 block=67524
+    bench-observer-11: root=16% fatal_db=0 block=67524
+    consensus rounds: 11 node(s) advanced (1100002107..1100002149)
+    idle: blocks flat at 67524 since 2026-11-12T19:09:24Z (211s), consensus rounds advancing (+174 in 60s) — not a stall
+    bench-obs memory: 7.8581273624195713%
+19:13:27Z all blasters reported BENCH_BLAST_DONE
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.json
+  
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-01.txgen-20261112T185828Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-01.txgen-20261112T185828Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-02.txgen-20261112T185828Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-02.txgen-20261112T185828Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-03.txgen-20261112T185829Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-03.txgen-20261112T185829Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-04.txgen-20261112T185829Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-04.txgen-20261112T185829Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-05.txgen-20261112T185828Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-05.txgen-20261112T185828Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-06.txgen-20261112T185829Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-06.txgen-20261112T185829Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-07.txgen-20261112T185828Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-07.txgen-20261112T185828Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-08.txgen-20261112T185829Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-08.txgen-20261112T185829Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-09.txgen-20261112T185828Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-09.txgen-20261112T185828Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/bench-blaster-10.txgen-20261112T185829Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/bench-blaster-10.txgen-20261112T185829Z.log
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/landings-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261112-1520/r20261112-1520/index-7/blasters/unlanded-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/unlanded-bench-blaster-10.ndjson.gz
+........................
+
+Average throughput: 9.0MiB/s
+    + gcloud compute instances delete bench-blaster-01 --zone=us-west2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-02 --zone=europe-west2-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-03 --zone=australia-southeast1-c --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-04 --zone=asia-northeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-05 --zone=us-east4-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-06 --zone=europe-west4-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-07 --zone=asia-southeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-08 --zone=asia-east2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-blaster-09 --zone=asia-northeast3-a --project=tn-devnet --quiet
+    waiting for 10 blaster delete(s): a describe each every 10 s, at most 300 s
+    + gcloud compute instances delete bench-blaster-10 --zone=asia-south1-c --project=tn-devnet --quiet
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-west2-a/instances/bench-blaster-01].
+    ✓ bench-blaster-01 deleted
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/europe-west2-b/instances/bench-blaster-02].
+    ✓ bench-blaster-02 deleted
+    ✓ bench-blaster-04 deleted
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/australia-southeast1-c/instances/bench-blaster-03].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-northeast1-b/instances/bench-blaster-04].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/us-east4-b/instances/bench-blaster-05].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/europe-west4-a/instances/bench-blaster-06].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-southeast1-b/instances/bench-blaster-07].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-east2-a/instances/bench-blaster-08].
+    ✓ bench-blaster-09 deleted
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-northeast3-a/instances/bench-blaster-09].
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/zones/asia-south1-c/instances/bench-blaster-10].
+    ✓ bench-blaster-03 deleted
+    ✓ bench-blaster-05 deleted
+    ✓ bench-blaster-06 deleted
+    ✓ bench-blaster-07 deleted
+    ✓ bench-blaster-08 deleted
+    ✓ bench-blaster-10 deleted
+    phases (real, the blasters' run.phases; the plan is kept as phases_planned): preamble 2026-11-12T18:58:31Z - 2026-11-12T18:59:07Z, warmup 2026-11-12T18:58:52Z - 2026-11-12T19:01:07Z, mixed 2026-11-12T19:00:52Z - 2026-11-12T19:09:07Z, cooldown 2026-11-12T19:08:52Z - 2026-11-12T19:09:52Z
+    ✓ run complete: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/blasters/
+ARMS_BLAST arm=v-vote-floor-r2 step=2 kind=M16 index=7 attempt=1 fund_rc=0 run_rc=0 2026-11-12T19:14:29Z
+ARMS_STEP arm=v-vote-floor-r2 step=2 kind=M16 rc=0 2026-11-12T19:14:29Z
+ARMS_HEALTH arm=v-vote-floor-r2 after=2 verdict=unknown read=0/11 disk_max=? fatal_db=0 2026-11-12T19:15:09Z
+  (status rc=0; an unreadable node is not a stop; watch it: README.md, Monitor)
+>>> 2026-11-12T19:15:09Z env benchmark/tools/params-apply.sh --from-config --close-arm v-vote-floor-r2
+[19:15:09] nodes from benchmark/config.sh (r20261112-1520) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/nodes.txt
+[19:15:10] arm v-vote-floor-r2 closed at 2026-11-12T19:15:10Z (/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/manifest.json)
+ARMS_STEP arm=v-vote-floor-r2 step=3 kind=close rc=0 2026-11-12T19:15:10Z
+ARMS_ARM k=4 arm=pool-local file=benchmark/arms/pool-local.arm steps=M16@epoch
+>>> 2026-11-12T19:15:10Z env benchmark/tools/params-apply.sh --from-config --arm-file benchmark/arms/pool-local.arm --arm pool-local
+[19:15:10] nodes from benchmark/config.sh (r20261112-1520) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/nodes.txt
+[19:15:11] phase A: reading 11 node(s), up to 5 at once
+  bench-validator-01       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-02       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-03       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-04       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-05       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-06       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-07       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-08       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-09       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-validator-10       validator /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+  bench-observer-11        observer  /var/lib/telcoin/parameters.yaml  container running  chain 0x7e1e  5 bench-override line(s), .bak yes
+                           launch file /usr/local/libexec/telcoin/tn-start-docker; datadir /var/lib/telcoin (from the nodes file)
+                           read_ahead_kb 128
+[19:15:31] plan for arm pool-local: 11 node(s) to restart one at a time, 0 already in it; record: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/manifest.json
+  arm file benchmark/arms/pool-local.arm (sha256 da8f803161fcaf043885bc009e46cd37f5cb11efcada8c37a7452992cb3862d0); switches: quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0ms rpc_admission_backlog_outputs=0 pipelined_persist=false
+  host steps: evict-mdbx
+  read-ahead: not in the arm; each node's deploy value (node_startup.<node>.host.read_ahead_kb) is put back where it differs
+  bench-observer-11        observer  quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,live,host); host steps: evict-mdbx
+  bench-validator-01       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-02       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-03       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-04       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-05       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-06       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-07       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-08       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-09       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+  bench-validator-10       validator quorum_exec_block_starved_rounds 0 -> 4, sealed_tx_keep (absent) -> true, digest_dedupe (absent) -> true, recovery_threads (absent) -> 3, epoch_close_task_drain (absent) -> true; restart (params,unread,host); host steps: evict-mdbx
+[19:15:32] phase B 1/11: bench-observer-11 (observer): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-observer-11 sample=1/8 rc=0 log: this node is Observer: stopping it does not change the committee's quorum.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191534Z.log.gz
+      PA_PRE 0 19136
+      PA_EPOCH bench-observer-11 secs_left=297 since_boundary=903 waited=0
+      PA_GUARD_SUMMARY bench-observer-11 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191535Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191535Z 2026-11-12T19:15:35Z
+      PA_UNIT STOP_AT 2026-11-12T19:15:35Z 1794510935
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 565003, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:15:38Z 1794510938
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:15:35Z
+      PA_PROGRESS consensus number: 0 19136 -> 0 19147
+      PA_PROGRESS_AT 2026-11-12T19:15:42Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T19:15:35Z
+      PA_SWITCH_LINE ts=2026-11-12T19:15:38.63450287Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-observer-11 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-observer-11 max=1000 min=350 batch=250 thr=5 vote=-
+[19:15:43] phase B 2/11: bench-validator-01 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-01 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191546Z.log.gz
+      PA_PRE 11 2564
+      PA_EPOCH bench-validator-01 secs_left=284 since_boundary=916 waited=0
+      PA_GUARD_SUMMARY bench-validator-01 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191548Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191548Z 2026-11-12T19:15:48Z
+      PA_UNIT STOP_AT 2026-11-12T19:15:48Z 1794510948
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 561723, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:15:51Z 1794510951
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:15:48Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2564 -> 11 2565
+      PA_PROGRESS_AT 2026-11-12T19:15:55Z
+      PA_RESTART_SECS 7
+      PA_STOP_AT 2026-11-12T19:15:48Z
+      PA_SWITCH_LINE ts=2026-11-12T19:15:52.082201759Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-01 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-01 max=1000 min=350 batch=250 thr=5 vote=-
+[19:15:55] phase B 3/11: bench-validator-02 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-02 sample=1/8 rc=0 log: committee of 10: 0 member(s) down; stopping this node leaves 1, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191600Z.log.gz
+      PA_PRE 11 2600
+      PA_EPOCH bench-validator-02 secs_left=271 since_boundary=929 waited=0
+      PA_GUARD_SUMMARY bench-validator-02 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191601Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191601Z 2026-11-12T19:16:01Z
+      PA_UNIT STOP_AT 2026-11-12T19:16:01Z 1794510961
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 558881, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:16:05Z 1794510965
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:16:01Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2600 -> 11 2601
+      PA_PROGRESS_AT 2026-11-12T19:16:09Z
+      PA_RESTART_SECS 8
+      PA_STOP_AT 2026-11-12T19:16:01Z
+      PA_SWITCH_LINE ts=2026-11-12T19:16:05.793535694Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-02 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-02 max=1000 min=350 batch=250 thr=5 vote=-
+[19:16:09] phase B 4/11: bench-validator-03 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-03 sample=1/8 rc=0 log: committee of 10: 0 member(s) down; stopping this node leaves 1, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191615Z.log.gz
+      PA_PRE 11 2645
+      PA_EPOCH bench-validator-03 secs_left=255 since_boundary=945 waited=0
+      PA_GUARD_SUMMARY bench-validator-03 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191617Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191617Z 2026-11-12T19:16:17Z
+      PA_UNIT STOP_AT 2026-11-12T19:16:17Z 1794510977
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 560431, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:16:20Z 1794510980
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:16:17Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2645 -> 11 2671
+      PA_PROGRESS_AT 2026-11-12T19:16:27Z
+      PA_RESTART_SECS 10
+      PA_STOP_AT 2026-11-12T19:16:17Z
+      PA_SWITCH_LINE ts=2026-11-12T19:16:21.170567168Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-03 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-03 max=1000 min=350 batch=250 thr=5 vote=-
+[19:16:28] phase B 5/11: bench-validator-04 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-04 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191633Z.log.gz
+      PA_PRE 11 2692
+      PA_EPOCH bench-validator-04 secs_left=237 since_boundary=963 waited=0
+      PA_GUARD_SUMMARY bench-validator-04 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191635Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191635Z 2026-11-12T19:16:35Z
+      PA_UNIT STOP_AT 2026-11-12T19:16:35Z 1794510995
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 555339, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:16:38Z 1794510998
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:16:35Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2692 -> 11 2720
+      PA_PROGRESS_AT 2026-11-12T19:16:45Z
+      PA_RESTART_SECS 10
+      PA_STOP_AT 2026-11-12T19:16:35Z
+      PA_SWITCH_LINE ts=2026-11-12T19:16:39.191987252Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-04 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-04 max=1000 min=350 batch=250 thr=5 vote=-
+[19:16:46] phase B 6/11: bench-validator-05 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-05 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191649Z.log.gz
+      PA_PRE 11 2735
+      PA_EPOCH bench-validator-05 secs_left=221 since_boundary=979 waited=0
+      PA_GUARD_SUMMARY bench-validator-05 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191651Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191651Z 2026-11-12T19:16:51Z
+      PA_UNIT STOP_AT 2026-11-12T19:16:51Z 1794511011
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 565013, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:16:54Z 1794511014
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:16:51Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2735 -> 11 2764
+      PA_PROGRESS_AT 2026-11-12T19:17:01Z
+      PA_RESTART_SECS 10
+      PA_STOP_AT 2026-11-12T19:16:51Z
+      PA_SWITCH_LINE ts=2026-11-12T19:16:55.199035762Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-05 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-05 max=1000 min=350 batch=250 thr=5 vote=-
+[19:17:02] phase B 7/11: bench-validator-06 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-06 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191708Z.log.gz
+      PA_PRE 11 2787
+      PA_EPOCH bench-validator-06 secs_left=203 since_boundary=997 waited=0
+      PA_GUARD_SUMMARY bench-validator-06 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191709Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191709Z 2026-11-12T19:17:09Z
+      PA_UNIT STOP_AT 2026-11-12T19:17:09Z 1794511029
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 565014, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:17:13Z 1794511033
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:17:09Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2787 -> 11 2788
+      PA_PROGRESS_AT 2026-11-12T19:17:17Z
+      PA_RESTART_SECS 8
+      PA_STOP_AT 2026-11-12T19:17:09Z
+      PA_SWITCH_LINE ts=2026-11-12T19:17:13.833255045Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-06 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-06 max=1000 min=350 batch=250 thr=5 vote=-
+[19:17:17] phase B 8/11: bench-validator-07 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-07 sample=1/8 rc=0 log: committee of 10: 0 member(s) down; stopping this node leaves 1, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191723Z.log.gz
+      PA_PRE 11 2834
+      PA_EPOCH bench-validator-07 secs_left=187 since_boundary=1013 waited=0
+      PA_GUARD_SUMMARY bench-validator-07 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191725Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191725Z 2026-11-12T19:17:25Z
+      PA_UNIT STOP_AT 2026-11-12T19:17:25Z 1794511045
+      PA_UNIT Warning: The unit file, source configuration file or drop-ins of telcoin.service changed on disk. Run 'systemctl daemon-reload' to reload units.
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"resident_pages_before": 565013, "resident_pages_after": 0}
+      PA_UNIT HOOK_RC 0
+      PA_UNIT START_AT 2026-11-12T19:17:29Z 1794511049
+      PA_UNIT Warning: The unit file, source configuration file or drop-ins of telcoin.service changed on disk. Run 'systemctl daemon-reload' to reload units.
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:17:25Z
+      PA_PROGRESS (epoch round) of its quorum reached/header proposed lines: 11 2834 -> 11 2854
+      PA_PROGRESS_AT 2026-11-12T19:17:33Z
+      PA_RESTART_SECS 8
+      PA_STOP_AT 2026-11-12T19:17:25Z
+      PA_SWITCH_LINE ts=2026-11-12T19:17:29.819842065Z level=info target=node::switches message="node switches" quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+SWITCHES_OK bench-validator-07 quorum_exec_block=true quorum_exec_block_starved_rounds=4 vote_queue_fix=true mdbx_random_advice=true sealed_tx_keep=true digest_dedupe=true recovery_threads=3 epoch_close_task_drain=true epoch_record_state_check=true parent_grace=0s rpc_admission_backlog_outputs=0 pipelined_persist=false
+PARAMS_OK bench-validator-07 max=1000 min=350 batch=250 thr=5 vote=-
+[19:17:33] phase B 9/11: bench-validator-08 (validator): guard, save log, epoch check, rewrite, stop/start unit, wait up to 180 s
+      PA_LAUNCH /usr/local/libexec/telcoin/tn-start-docker
+      PA_DATADIR /var/lib/telcoin (from the nodes file)
+      PA_GUARD bench-validator-08 sample=1/8 rc=0 log: committee of 10: 2 member(s) down; stopping this node leaves 3, below the 4 that halts consensus.
+      PA_SAVED /var/lib/bench-logs/telcoin-pre-arm-pool-local-20261112T191739Z.log.gz
+      PA_PRE 11 2878
+      PA_EPOCH bench-validator-08 secs_left=171 since_boundary=1029 waited=0
+      PA_GUARD_SUMMARY bench-validator-08 samples=1 refused=0
+      PA_BACKUP /var/lib/telcoin/parameters.yaml.bak-20261112T191741Z
+      PA_UNIT_LAUNCHED bench-arm-pool-local-20261112T191741Z 2026-11-12T19:17:41Z
+      PA_UNIT STOP_AT 2026-11-12T19:17:41Z 1794511061
+      PA_UNIT STOP_RC 0
+      PA_UNIT HOST_RESULT evict-mdbx - {"failed": "/var/lib/telcoin/db/mdbx.dat keeps 8 resident page(s) after fsync and posix_fadvise DONTNEED (565013 before)"}
+      PA_UNIT HOOK_RC 1
+      PA_UNIT START_AT 2026-11-12T19:17:44Z 1794511064
+      PA_UNIT START_RC 0
+      RESTART_AT 2026-11-12T19:17:41Z
+      PARAMS_FAIL bench-validator-08 the host steps failed in bench-arm-pool-local-20261112T191741Z (rc 1): HOST_RESULT evict-mdbx - {"failed": "/var/lib/telcoin/db/mdbx.dat keeps 8 resident page(s) after fsync and posix_fadvise DONTNEED (565013 before)"}; telcoin was started again (rc 0)
+PA_FAIL bench-validator-08 the host steps failed in bench-arm-pool-local-20261112T191741Z (rc 1): HOST_RESULT evict-mdbx - {"failed": "/var/lib/telcoin/db/mdbx.dat keeps 8 resident page(s) after fsync and posix_fadvise DONTNEED (565013 before)"}; telcoin was started again (rc 0)
+params-apply: bench-validator-08 did not come back: the host steps failed in bench-arm-pool-local-20261112T191741Z (rc 1): HOST_RESULT evict-mdbx - {"failed": "/var/lib/telcoin/db/mdbx.dat keeps 8 resident page(s) after fsync and posix_fadvise DONTNEED (565013 before)"}; telcoin was started again (rc 0)
+  it was restarted at 2026-11-12T19:17:41Z with the new file
+  its stop and start ran in the unit bench-arm-pool-local-20261112T191741Z: sudo systemctl status bench-arm-pool-local-20261112T191741Z; sudo cat /var/lib/bench-logs/arm-units/bench-arm-pool-local-20261112T191741Z.out
+  later nodes were not touched: bench-validator-09 bench-validator-10 
+  inspect:  gcloud compute ssh bench-validator-08 --zone=asia-east2-a --project=tn-devnet --tunnel-through-iap
+  on it:    sudo docker logs --tail 200 telcoin; sudo systemctl status telcoin; ls -l /var/lib/telcoin/parameters.yaml*
+  rollback: sudo cp -p /var/lib/telcoin/parameters.yaml.bak-20261112T191741Z /var/lib/telcoin/parameters.yaml && sudo systemctl restart telcoin
+  recorded: arm pool-local failed at bench-validator-08; to resume, re-run with --arm <new name> (nodes already in the arm are not restarted)
+ARMS_STEP arm=pool-local step=0 kind=apply rc=1 2026-11-12T19:17:45Z
+ARMS_STOPPED arm=pool-local step=0 reason=node-failed-bench-validator-08 2026-11-12T19:17:45Z
+ARMS_RESUME benchmark/launch/launch.sh tasks/bench6/r20261112-1520/bench6-run1.env arms --plan benchmark/launch/bench6-run1.plan --from-arm 4
+== arms rc=1 2026-11-12T19:17:45Z

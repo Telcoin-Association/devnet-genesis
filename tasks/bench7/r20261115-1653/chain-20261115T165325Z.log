@@ -1,0 +1,60 @@
+CHAIN start mode=live env=tasks/bench7/r20261115-1653/bench7-adaptive.env pid=3846188 2026-11-15T16:53:25Z
+CHAIN precondition ok launch-dry seg=deploy12 run=r20261115-1653 2026-11-15T16:53:25Z
+CHAIN precondition ok launch-dry seg=blast15 run=r20261115-1653 2026-11-15T16:53:25Z
+CHAIN preconditions ok run=r20261115-1653 2026-11-15T16:53:25Z
+CHAIN deploy12 launch 2026-11-15T16:53:25Z
+    LAUNCHED segment=deploy12 run=r20261115-1653 pid=3846380 harness=2ff39153a9d0 log=tasks/bench6/r20261115-1653/deploy12-20261115T165326Z.log
+      wait for: ^== deploy12 rc=  in tasks/bench6/r20261115-1653/deploy12-20261115T165326Z.log  (the last tag of the driver before it: BENCH_DEPLOY_RESULT)
+      status:   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/launch/launch.sh /home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench7/r20261115-1653/bench7-adaptive.env status
+CHAIN deploy12 launched pid=3846380 log=tasks/bench6/r20261115-1653/deploy12-20261115T165326Z.log 2026-11-15T16:53:26Z
+CHAIN deploy12 rc=0 result=ok 2026-11-15T17:40:48Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=1 2026-11-15T17:40:48Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=1 2026-11-15T17:40:48Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=1 2026-11-15T17:40:49Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=2 2026-11-15T17:41:09Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=2 2026-11-15T17:41:09Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=2 2026-11-15T17:41:09Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=3 2026-11-15T17:41:29Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=3 2026-11-15T17:41:30Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=3 2026-11-15T17:41:30Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=4 2026-11-15T17:41:50Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=4 2026-11-15T17:41:50Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=4 2026-11-15T17:41:50Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=5 2026-11-15T17:42:11Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=5 2026-11-15T17:42:11Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=5 2026-11-15T17:42:11Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=6 2026-11-15T17:42:31Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=6 2026-11-15T17:42:31Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=6 2026-11-15T17:42:32Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=7 2026-11-15T17:42:52Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=7 2026-11-15T17:42:52Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=7 2026-11-15T17:42:52Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=8 2026-11-15T17:43:12Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=8 2026-11-15T17:43:13Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=8 2026-11-15T17:43:13Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=9 2026-11-15T17:43:33Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=9 2026-11-15T17:43:33Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=9 2026-11-15T17:43:33Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=10 2026-11-15T17:43:54Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=10 2026-11-15T17:43:54Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=10 2026-11-15T17:43:54Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=11 2026-11-15T17:44:14Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=11 2026-11-15T17:44:14Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=11 2026-11-15T17:44:15Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=12 2026-11-15T17:44:35Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=12 2026-11-15T17:44:35Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=12 2026-11-15T17:44:35Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=13 2026-11-15T17:44:55Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=13 2026-11-15T17:44:56Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=13 2026-11-15T17:44:56Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=14 2026-11-15T17:45:16Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=14 2026-11-15T17:45:16Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=14 2026-11-15T17:45:16Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=15 2026-11-15T17:45:36Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=15 2026-11-15T17:45:37Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=15 2026-11-15T17:45:37Z
+CHAIN idle-check up fail up=10/11 missing=bench-validator-05 round=16 2026-11-15T17:45:57Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=16 2026-11-15T17:45:57Z
+CHAIN idle-check switches ok switches=7 nodes=11 problems=0 round=16 2026-11-15T17:45:57Z
+CHAIN stop reason=idle-check up up=10/11 missing=bench-validator-05 after 16 rounds 2026-11-15T17:45:57Z
+CHAIN FLEET IS UP AND IDLE: decide teardown or blast by hand 2026-11-15T17:45:57Z

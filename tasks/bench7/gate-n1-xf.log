@@ -1,0 +1,4 @@
+GATE-N1-XF start 15f60ff82 2026-11-15T13:10:39Z
+GATE-N1-XF check --workspace --all-targets rc=0 2026-11-15T13:11:20Z
+GATE-N1-XF nextest rc=0 (Summary [  38.200s] 2048 tests run: 2048 passed, 10 skipped) 2026-11-15T13:13:11Z
+GATE-N1-XF done rc=0 2026-11-15T13:13:11Z

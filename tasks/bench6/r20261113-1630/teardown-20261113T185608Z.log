@@ -1,0 +1,1309 @@
+== teardown start 2026-11-13T18:56:08Z bench6-launch:r20261113-1630:teardown pid=372133 harness=0b1e52c6d056
+== teardown command: benchmark/benchmark-teardown.sh --run r20261113-1630 --yes
+BENCH_ARM_FILE=benchmark/arms/final.arm
+BENCH_CHAOS=1
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DURATION_SECS=2400
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=1
+BENCH_LIGHT_SENDERS=8 600
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_LIGHT_WINDOWS=16 4
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_DISK_IOPS=50000
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=2df831e3ca34c06a361a7acca10397787e7b332e
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261113-1630
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench6/r20261113-1630/bench6-run2b.env
+LAUNCH_SEGMENT=teardown
+==========================================
+benchmark teardown — project tn-devnet, run r20261113-1630
+Mode: APPLY (--yes)
+==========================================
+>>> gcloud credentials: gcloud auth print-access-token (60 s)
+    ✓ gcloud prints an access token
+>>> devnet denylist (never deleted): validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet obs-devnet txgen-devnet devnet-indexer
+>>> instance candidates (12):
+    - bench-validator-04 (asia-northeast1-b)
+    - bench-validator-07 (asia-southeast1-b)
+    - bench-validator-05 (us-east4-b)
+    - bench-validator-03 (australia-southeast1-c)
+    - bench-validator-02 (europe-west2-b)
+    - bench-validator-10 (asia-south1-c)
+    - bench-validator-06 (europe-west4-a)
+    - bench-obs (us-west2-a)
+    - bench-observer-11 (us-west2-a)
+    - bench-validator-01 (us-west2-a)
+    - bench-validator-08 (asia-east2-a)
+    - bench-validator-09 (asia-northeast3-a)
+    ✓ no devnet instance is a candidate
+    ✓ every candidate instance is labelled bench-run=r20261113-1630
+>>> firewall candidates (2): bench-allow-consensus bench-allow-iap-rpc
+>>> bucket candidates (1): tn-devnet-bench-r20261113-1630
+>>> disk candidates (13; boot disks auto-delete with their instance):
+    - bench-validator-04 (asia-northeast1-b): deleted once unattached
+    - bench-validator-07 (asia-southeast1-b): deleted once unattached
+    - bench-validator-05 (us-east4-b): deleted once unattached
+    - bench-validator-03 (australia-southeast1-c): deleted once unattached
+    - bench-validator-02 (europe-west2-b): deleted once unattached
+    - bench-validator-10 (asia-south1-c): deleted once unattached
+    - bench-validator-06 (europe-west4-a): deleted once unattached
+    - bench-obs (us-west2-a): deleted once unattached
+    - bench-obs-data (us-west2-a): deleted once unattached
+    - bench-observer-11 (us-west2-a): deleted once unattached
+    - bench-validator-01 (us-west2-a): deleted once unattached
+    - bench-validator-08 (asia-east2-a): deleted once unattached
+    - bench-validator-09 (asia-northeast3-a): deleted once unattached
+>>> IAP tunnel pids: 3524029 3524033 3524093 3524189 3524195 3524237 3542644 3542647 3542725 
+>>> contracts worktree: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts; branches: bench/r20261113-1630
+>>> secrets: bench-txgen-master-key bench-txgen-children-seed — kept; accessor binding for the compute SA removed
+>>> local: move /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/genesis
+
+>>> bench-obs: bench-obs (us-west2-a), the run's Prometheus, read before any delete
+    tunnel already up (pid 3524029) -> http://127.0.0.1:19090/api/v1
+    tunnel already up (pid 3524189) -> http://127.0.0.1:13000
+
+>>> node health (Prometheus network="bench"; informs, never blocks)
+    node                 role      mode           failed_rpt  epoch/round 
+    bench-validator-01   validator cvv_active              0  6/2459       
+    bench-validator-02   validator cvv_active              0  6/2442       
+    bench-validator-03   validator cvv_active              0  6/2453       
+    bench-validator-04   validator cvv_active              0  6/2445       
+    bench-validator-05   validator cvv_active              0  6/2434       
+    bench-validator-06   validator cvv_active              0  6/2456       
+    bench-validator-07   validator cvv_active              0  6/2435       
+    bench-validator-08   validator cvv_active              0  6/2443       
+    bench-validator-09   validator cvv_active              0  6/2422       
+    bench-validator-10   validator cvv_active              0  6/2423       
+    bench-observer-11    observer  observer                0  6/2430       
+
+>>> node logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs (nothing is deleted until these are saved)
+    + bench-validator-01: to pull (instance 3932494092425659750)
+        no marker
+    + bench-validator-02: to pull (instance 7770155535858042211)
+        no marker
+    + bench-validator-03: to pull (instance 2523434649684444513)
+        no marker
+    + bench-validator-04: to pull (instance 8720500621571687776)
+        no marker
+    + bench-validator-05: to pull (instance 8357711533011797344)
+        no marker
+    + bench-validator-06: to pull (instance 3118556038456575357)
+        no marker
+    + bench-validator-07: to pull (instance 822638007174202746)
+        no marker
+    + bench-validator-08: to pull (instance 1365860398415906169)
+        no marker
+    + bench-validator-09: to pull (instance 4653111517894051192)
+        no marker
+    + bench-validator-10: to pull (instance 3635814905717359951)
+        no marker
+    + bench-observer-11: to pull (instance 3451343693827179894)
+        no marker
+    ✓ 416.9 GB free under /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs (BENCH_TEARDOWN_MIN_FREE_GB=20) for 11 node(s)
+    + bench_pull_unit_span bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01.logspan
+      + tn_iap_ssh bench-validator-01 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-telcoin.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-<file>
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-01 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-01 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02.logspan
+      + tn_iap_ssh bench-validator-02 europe-west2-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-telcoin.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-<file>
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-02 europe-west2-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03.logspan
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-telcoin.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-<file>
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-03 australia-southeast1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-03 australia-southeast1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04.logspan
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-telcoin.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-<file>
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-04 asia-northeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-04 asia-northeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05.logspan
+      + tn_iap_ssh bench-validator-05 us-east4-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-telcoin.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-<file>
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-05 us-east4-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-05 us-east4-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-01 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-01: no rotated unit log to pull
+      ✓ bench-validator-01: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06.logspan
+      + tn_iap_ssh bench-validator-06 europe-west4-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-telcoin.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-<file>
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-06 europe-west4-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-02: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-telcoin.log.gz
+      ✓ bench-validator-02: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07.logspan
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-telcoin.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-<file>
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-07 asia-southeast1-b sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-07 asia-southeast1-b /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-04 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-telcoin-pre-kill-20261113T182055Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-04: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-04: current-container log, unit stdout, unit stderr
+      ✓ bench-validator-03 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-03: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-telcoin.log.gz
+      ✓ bench-validator-03: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08.logspan
+      + tn_iap_ssh bench-validator-08 asia-east2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-telcoin.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-<file>
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-08 asia-east2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-08 asia-east2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-unit-<stream>.rotated-<N>.log.gz
+    + bench_pull_unit_span bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09.logspan
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-telcoin.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-<file>
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-09 asia-northeast3-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-09 asia-northeast3-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-05 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-05: no rotated unit log to pull
+      ✓ bench-validator-05: current-container log, 1 saved log(s), unit stdout, unit stderr
+    + bench_pull_unit_span bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10.logspan
+      + tn_iap_ssh bench-validator-10 asia-south1-c bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-telcoin.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-<file>
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-unit-stdout.log.gz
+      + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-validator-10 asia-south1-c /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-06: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06: current-container log, unit stdout, unit stderr
+    + bench_pull_unit_span bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # LOGSPAN per unit log generation -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11.logspan
+      + tn_iap_ssh bench-observer-11 us-west2-a bash\ -o\ pipefail\ -c\ \'e=\$\(sudo\ docker\ container\ inspect\ telcoin\ 2\>\&1\ \>/dev/null\)\ \|\|\ \{\ case\ \$e\ in\ \*\"No\ such\ container\"\*\)\ exit\ 0\ \;\;\ esac\;\ echo\ \"docker\ container\ inspect\ failed:\ \$e\"\ \>\&2\;\ exit\ 1\;\ \}\;\ sudo\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\' > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-telcoin.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ shift\;\ \[\ -d\ \"\$d\"\ \]\ \|\|\ exit\ 0\;\ cd\ \"\$d\"\ \|\|\ exit\ 1\;\ shopt\ -s\ nullglob\;\ keep=\(\)\;\ for\ f\ in\ \*.log.gz\;\ do\ for\ s\ in\ \"\$@\"\;\ do\ \[\ \"\$f\"\ =\ \"\$s\"\ \]\ \&\&\ continue\ 2\;\ done\;\ keep+=\(\"\$f\"\)\;\ done\;\ \[\ \$\{#keep\[@\]\}\ -eq\ 0\ \]\ \|\|\ tar\ -cf\ -\ --\ \"\$\{keep\[@\]\}\"\'\ _\ /var/lib/bench-logs | tar -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-<file>
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-unit-stdout.log.gz
+      + tn_iap_ssh bench-observer-11 us-west2-a sudo\ bash\ -c\ \'\[\ -s\ \"\$1\"\ \]\ \|\|\ exit\ 0\;\ gzip\ -1\ \<\ \"\$1\"\'\ _\ /var/log/telcoin/telcoin-error.log > /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-unit-stderr.log.gz
+      + bench_pull_rotated_logs bench-observer-11 us-west2-a /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs   # each <unit file>.1 gzipped, .<N>.gz as is -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-unit-<stream>.rotated-<N>.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-telcoin.log.gz
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-08 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-07 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-08: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-08: current-container log, unit stdout, unit stderr
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-07: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-unit-stderr.log.gz
+      ✓ bench-validator-07: current-container log, unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-09: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-09: current-container log, unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-telcoin.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-telcoin-pre-restart-20261113T183055Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+gzip: stdin: file size changed while zipping
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-unit-stdout.log.gz
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-unit-stdout.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-observer-11 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-unit-stderr.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-observer-11: no rotated unit log to pull
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-unit-stderr.log.gz
+      ✓ bench-observer-11: current-container log, 1 saved log(s), unit stdout, unit stderr
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      - bench-validator-10: no rotated unit log to pull
+      ✓ bench-validator-10: current-container log, unit stdout, unit stderr
+    ✓ logs of 11 nodes in /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs
+    markers after the pull (one this teardown pulled is exempt from the 15-min age rule):
+        marker bench-validator-01.pulled: accepted — instance 3932494092425659750 (created 2026-11-13T08:32:10.023-08:00), run r20261113-1630, pulled 2026-11-13T18:57:56Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-02.pulled: accepted — instance 7770155535858042211 (created 2026-11-13T08:32:12.417-08:00), run r20261113-1630, pulled 2026-11-13T18:58:18Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-03.pulled: accepted — instance 2523434649684444513 (created 2026-11-13T08:32:14.975-08:00), run r20261113-1630, pulled 2026-11-13T18:58:38Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-04.pulled: accepted — instance 8720500621571687776 (created 2026-11-13T08:32:15.999-08:00), run r20261113-1630, pulled 2026-11-13T18:58:28Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-05.pulled: accepted — instance 8357711533011797344 (created 2026-11-13T08:32:15.572-08:00), run r20261113-1630, pulled 2026-11-13T18:59:04Z; its 4 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-06.pulled: accepted — instance 3118556038456575357 (created 2026-11-13T08:32:18.109-08:00), run r20261113-1630, pulled 2026-11-13T18:59:39Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-07.pulled: accepted — instance 822638007174202746 (created 2026-11-13T08:32:21.607-08:00), run r20261113-1630, pulled 2026-11-13T19:00:39Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-08.pulled: accepted — instance 1365860398415906169 (created 2026-11-13T08:32:22.942-08:00), run r20261113-1630, pulled 2026-11-13T19:00:32Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-09.pulled: accepted — instance 4653111517894051192 (created 2026-11-13T08:32:23.185-08:00), run r20261113-1630, pulled 2026-11-13T19:00:49Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-validator-10.pulled: accepted — instance 3635814905717359951 (created 2026-11-13T08:32:32.796-08:00), run r20261113-1630, pulled 2026-11-13T19:01:31Z; its 3 log(s) are here at their recorded sizes [fresh:this-invocation]
+        marker bench-observer-11.pulled: accepted — instance 3451343693827179894 (created 2026-11-13T08:32:25.606-08:00), run r20261113-1630, pulled 2026-11-13T19:01:22Z; its 4 log(s) are here at their recorded sizes [fresh:this-invocation]
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-01-recovery-3932494092425659750.JusFGS.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-recovery-7770155535858042211.Tk87sg.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-03-recovery-2523434649684444513.c7MAd1.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-04-recovery-8720500621571687776.2WOCOk.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-05-recovery-8357711533011797344.Bh6vGV.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-recovery-3118556038456575357.f9iTPj.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-07-recovery-822638007174202746.YlsLdZ.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-08-recovery-1365860398415906169.2Qh1g8.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-09-recovery-4653111517894051192.IaeSyg.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-recovery-3635814905717359951.O3zonp.tgz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    recovery evidence: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-observer-11-recovery-3451343693827179894.n3pmoa.tgz
+
+>>> persist sampler files -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/persist/ (informs, never blocks)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-01.csv bench-validator-01.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-02.csv bench-validator-02.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-03.csv bench-validator-03.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-04.csv bench-validator-04.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-05.csv bench-validator-05.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-06.csv bench-validator-06.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-07.csv bench-validator-07.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-08.csv bench-validator-08.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-09.csv bench-validator-09.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-validator-10.csv bench-validator-10.folios.txt
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ persist files: bench-observer-11.csv bench-observer-11.folios.txt
+
+>>> prefilter: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1630/logs (the lines the readers below match)
+      bench-observer-11-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-01-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-02-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-observer-11-telcoin.log.gz rc=0 in=2931529 out=1002576
+      bench-validator-03-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-02-telcoin.log.gz rc=0 in=11932203 out=1958024
+      bench-validator-03-telcoin.log.gz rc=0 in=11592604 out=1901962
+      bench-validator-01-telcoin.log.gz rc=0 in=12157965 out=2019265
+      bench-observer-11-telcoin-pre-restart-20261113T183055Z.log.gz rc=0 in=14500194 out=6077617
+      bench-observer-11-unit-stdout.log.gz rc=0 in=28421818 out=11669822
+      bench-validator-04-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-05-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-05-telcoin-pre-kill-20261113T182055Z.log.gz rc=0 in=13111354 out=3294723
+      bench-validator-05-telcoin.log.gz rc=0 in=15194207 out=2704421
+      bench-validator-04-telcoin.log.gz rc=0 in=10829279 out=1775322
+      bench-validator-06-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-06-telcoin.log.gz rc=0 in=12589362 out=2071235
+      bench-validator-07-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-07-telcoin.log.gz rc=0 in=12409830 out=2044649
+      bench-validator-08-telcoin.log.gz rc=0 in=13273722 out=2150890
+      bench-validator-08-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-01-unit-stdout.log.gz rc=0 in=155853768 out=33974302
+      bench-validator-03-unit-stdout.log.gz rc=0 in=165277782 out=35123728
+      bench-validator-09-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-02-unit-stdout.log.gz rc=0 in=158819213 out=33383991
+      bench-validator-10-telcoin.log.gz rc=0 in=10176173 out=1686856
+      bench-validator-10-unit-stderr.log.gz rc=0 in=78 out=20
+      bench-validator-09-telcoin.log.gz rc=0 in=13000010 out=2130788
+      blast-collect-20261113T184252Z.log rc=0 in=19879 out=0
+      blast-fund-20261113T171551Z.log rc=0 in=4387 out=0
+      blast-fund-20261113T171739Z.log rc=0 in=4764 out=0
+      blast-fund-20261113T171926Z.log rc=0 in=4765 out=0
+      blast-light-fund-20261113T171551Z.log rc=0 in=14754 out=0
+      blast-light-run-20261113T172108Z.log rc=0 in=86316 out=164
+      blast-run-20261113T174818Z.log rc=0 in=35264 out=164
+      bench-validator-05-unit-stdout.log.gz rc=0 in=135972411 out=30521261
+      create-bench-blaster-01.log rc=0 in=2005 out=0
+      create-bench-blaster-02.log rc=0 in=2023 out=0
+      create-bench-blaster-03.log rc=0 in=2057 out=0
+      create-bench-blaster-04.log rc=0 in=2029 out=0
+      create-bench-blaster-05.log rc=0 in=2001 out=0
+      create-bench-blaster-06.log rc=0 in=2019 out=0
+      create-bench-blaster-07.log rc=0 in=2033 out=0
+      create-bench-blaster-08.log rc=0 in=2011 out=0
+      create-bench-blaster-09.log rc=0 in=2029 out=0
+      create-bench-blaster-10.log rc=0 in=2013 out=0
+      create-instances-20261113T163207Z.log rc=0 in=3565 out=0
+      deploy-20261113T163049Z.log rc=0 in=1344650 out=22838
+      deploy-20261113T171459Z.log rc=0 in=142027 out=174
+      finalize-stage-20261113T164253Z.log rc=0 in=60519 out=770
+      finalize-start-20261113T164841Z.log rc=0 in=22799 out=0
+      keygen-20261113T163638Z.log rc=0 in=23671 out=0
+      bench-validator-04-unit-stdout.log.gz rc=0 in=164117274 out=34972020
+      bench-validator-06-unit-stdout.log.gz rc=0 in=158935129 out=33063949
+      bench-validator-07-unit-stdout.log.gz rc=0 in=166104688 out=35152265
+      bench-validator-08-unit-stdout.log.gz rc=0 in=167282589 out=35374631
+      bench-validator-09-unit-stdout.log.gz rc=0 in=166104970 out=35110981
+      bench-validator-10-unit-stdout.log.gz rc=0 in=163224540 out=34311017
+    PREFILTER logs=58 read=58 reused=0 in_bytes=1785601052 out_bytes=383500625 secs=20 failed=0
+
+>>> certification outcome: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs (before the local gate, which requires every log manifest.cert_failures lists)
+    certification -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/analysis/certification.json and manifest.certification (informational)
+      ✓ bench-validator-01: at or above 90 % in every window it was judged in (lowest 99.9 % in blast 1 mixed)
+      ✗ bench-validator-02: 78.6 % of 6195 own headers certified in blast 2 mixed (below 90 % in: blast 2 mixed, run)
+      ✓ bench-validator-03: at or above 90 % in every window it was judged in (lowest 99.4 % in blast 2 preamble)
+      ✓ bench-validator-04: at or above 90 % in every window it was judged in (lowest 99.4 % in blast 2 preamble)
+      ✓ bench-validator-05: at or above 90 % in every window it was judged in (lowest 99.0 % in blast 1 warmup)
+      ✗ bench-validator-06: 44.5 % of 6196 own headers certified in blast 2 mixed (below 90 % in: blast 2 mixed, run)
+      ✓ bench-validator-07: at or above 90 % in every window it was judged in (lowest 99.9 % in blast 1 mixed)
+      ✓ bench-validator-08: at or above 90 % in every window it was judged in (lowest 99.4 % in blast 2 preamble)
+      ✓ bench-validator-09: at or above 90 % in every window it was judged in (lowest 95.8 % in blast 2 mixed)
+      ✗ bench-validator-10: 68.2 % of 6206 own headers certified in blast 2 mixed (below 90 % in: blast 2 mixed, run)
+    certification snapshots -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/ (informational; the local gate requires what manifest.cert_failures[].logs lists)
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-02 europe-west2-b sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261113T190439Z.log.gz
+      ✓ bench-validator-02: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261113T190439Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-02 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-02-telcoin-cert-fail-20261113T190439Z.log.gz
+      ✓ bench-validator-02: snapshot logs/bench-validator-02-telcoin-cert-fail-20261113T190439Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-06 europe-west4-a sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261113T190455Z.log.gz
+      ✓ bench-validator-06: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261113T190455Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-06 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-06-telcoin-cert-fail-20261113T190455Z.log.gz
+      ✓ bench-validator-06: snapshot logs/bench-validator-06-telcoin-cert-fail-20261113T190455Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    + tn_iap_ssh bench-validator-10 asia-south1-c sudo\ bash\ -o\ pipefail\ -c\ \'d=\$1\;\ f=\$1/\$2\;\ docker\ container\ inspect\ telcoin\ \>/dev/null\ \|\|\ exit\ 1\;\ mkdir\ -p\ \"\$d\"\ \|\|\ exit\ 1\;\ if\ \[\ -e\ \"\$f\"\ \]\;\ then\ echo\ \"\$f\ exists\ already\"\ \>\&2\;\ exit\ 1\;\ fi\;\ p=\$\(mktemp\ \"\$d/.\$2.XXXXXX\"\)\ \|\|\ exit\ 1\;\ docker\ logs\ telcoin\ 2\>\&1\ \|\ gzip\ -1\ \>\ \"\$p\"\ \|\|\ exit\ 1\;\ \[\ \"\$\(gzip\ -cd\ \"\$p\"\ \|\ head\ -c\ 1\ \|\ wc\ -c\)\"\ -eq\ 1\ \]\ \|\|\ \{\ echo\ \"the\ telcoin\ container\ log\ is\ empty\"\ \>\&2\;\ exit\ 1\;\ \}\;\ mv\ -n\ \"\$p\"\ \"\$f\"\ \&\&\ \[\ \!\ -e\ \"\$p\"\ \]\ \&\&\ \[\ -s\ \"\$f\"\ \]\'\ _\ /var/lib/bench-logs\ telcoin-cert-fail-20261113T190512Z.log.gz
+      ✓ bench-validator-10: container log saved on the node as /var/lib/bench-logs/telcoin-cert-fail-20261113T190512Z.log.gz
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+      ✓ bench-validator-10 -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-validator-10-telcoin-cert-fail-20261113T190512Z.log.gz
+      ✓ bench-validator-10: snapshot logs/bench-validator-10-telcoin-cert-fail-20261113T190512Z.log.gz; 3 log(s) listed in cert_failures[].logs: current-container log, 1 saved log(s), unit stdout
+
+>>> bench-obs Prometheus snapshot -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs (informs, never blocks)
+    + curl -sS -XPOST http://127.0.0.1:19090/api/v1/admin/tsdb/snapshot
+    + bench_pull_stream bench-obs us-west2-a gz /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs/bench-obs-prometheus-20261113T190533Z.tar.gz cmd 'sudo tar -cf - -C /mnt/obs-data/prometheus/snapshots <name> | gzip -1'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+OBS_SNAPSHOT inst=bench-obs name=20261113T190533Z-4f1bed1ce75bffd8 bytes=13288380 file=logs/bench-obs-prometheus-20261113T190533Z.tar.gz
+
+>>> log coverage: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/logs (each node's logs from the coordinated start to the blast end)
+LOGCOV bench-validator-01 gens=1 first=2026-11-13T16:43:11Z last=2026-11-13T18:56:45Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-02 gens=1 first=2026-11-13T16:43:24Z last=2026-11-13T18:56:47Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-03 gens=1 first=2026-11-13T16:43:36Z last=2026-11-13T18:56:49Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-04 gens=1 first=2026-11-13T16:43:27Z last=2026-11-13T18:56:48Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-05 gens=1 first=2026-11-13T16:44:59Z last=2026-11-13T18:58:04Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-06 gens=1 first=2026-11-13T16:45:13Z last=2026-11-13T18:58:26Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-07 gens=1 first=2026-11-13T16:45:26Z last=2026-11-13T18:58:49Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-08 gens=1 first=2026-11-13T16:45:24Z last=2026-11-13T18:58:49Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-09 gens=1 first=2026-11-13T16:47:08Z last=2026-11-13T18:59:14Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-validator-10 gens=1 first=2026-11-13T16:47:22Z last=2026-11-13T18:59:53Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+LOGCOV bench-observer-11 gens=1 first=2026-11-13T16:46:48Z last=2026-11-13T19:00:45Z due=2026-11-13T16:50:28Z end=2026-11-13T18:40:43Z ok=1
+    ✓ 11 node(s): 11 cover the run
+
+>>> local gate: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630 (nothing is deleted until it holds every node's logs)
+    ✓ 43 required file(s) present and non-empty: logs of 11 node(s) (container, unit stdout, recovery evidence), manifest.json, manifest.cert_failures logs
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/INDEX.md and CHECKSUMS.sha256: 470 file(s), 2301629143 bytes
+
+>>> archive: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630 -> the archive bucket, size and MD5 verified (nothing is deleted until it is) — BENCH_TEARDOWN_SKIP_ARCHIVE=1
+⚠ BENCH_TEARDOWN_SKIP_ARCHIVE=1 — deleting without a verified archive copy of /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630
+
+>>> plan / execution
+    stopped tunnel pid 3542644
+    stopped tunnel pid 3524189 (tunnel-obs-grafana.pid)
+    stopped tunnel pid 3524029 (tunnel-obs-prom.pid)
+    + kill 3524033 3524093 3524195 3524237 3542647 3542725
+    + gcloud compute instances delete bench-validator-08 --zone=asia-east2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-04 --zone=asia-northeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-09 --zone=asia-northeast3-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-10 --zone=asia-south1-c --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-07 --zone=asia-southeast1-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-03 --zone=australia-southeast1-c --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-02 --zone=europe-west2-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-06 --zone=europe-west4-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-05 --zone=us-east4-b --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-obs --zone=us-west2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-observer-11 --zone=us-west2-a --project=tn-devnet --quiet
+    + gcloud compute instances delete bench-validator-01 --zone=us-west2-a --project=tn-devnet --quiet
+    waiting for 12 instance delete(s): a describe each every 10 s, at most 600 s (BENCH_TEARDOWN_DELETE_WAIT_SECS)
+    ✓ bench-obs (us-west2-a) deleted
+    ✓ bench-validator-08 (asia-east2-a) deleted
+    ✓ bench-validator-04 (asia-northeast1-b) deleted
+    ✓ bench-validator-09 (asia-northeast3-a) deleted
+    ✓ bench-validator-10 (asia-south1-c) deleted
+    ✓ bench-validator-07 (asia-southeast1-b) deleted
+    ✓ bench-validator-03 (australia-southeast1-c) deleted
+    ✓ bench-validator-02 (europe-west2-b) deleted
+    ✓ bench-validator-06 (europe-west4-a) deleted
+    ✓ bench-validator-05 (us-east4-b) deleted
+    ✓ bench-observer-11 (us-west2-a) deleted
+    ✓ bench-validator-01 (us-west2-a) deleted
+    + gcloud compute firewall-rules delete bench-allow-consensus --project=tn-devnet --quiet
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/global/firewalls/bench-allow-consensus].
+    + gcloud compute firewall-rules delete bench-allow-iap-rpc --project=tn-devnet --quiet
+Deleted [https://www.googleapis.com/compute/v1/projects/tn-devnet/global/firewalls/bench-allow-iap-rpc].
+    + gcloud storage cp -r gs://tn-devnet-bench-r20261113-1630/\* /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.json
+  
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.txgen-20261113T172344Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.txgen-20261113T172344Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.txgen-20261113T172343Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.txgen-20261113T172343Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.txgen-20261113T171632Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.txgen-20261113T171632Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/prepare.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.txgen-20261113T173605Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.txgen-20261113T173605Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.txgen-20261113T173605Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.txgen-20261113T173605Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.txgen-20261113T173604Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.txgen-20261113T173604Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.txgen-20261113T171813Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.txgen-20261113T171813Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/prepare.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.json
+.Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.docker.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.json
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.txgen-20261113T175323Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.txgen-20261113T175323Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-10.ndjson.gz
+.Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-01.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-01.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-02.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-02.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-03.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-03.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-04.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-04.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-05.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-05.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-06.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-06.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-07.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-07.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-08.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-08.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-09.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-09.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-10.ndjson.gz to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-10.ndjson.gz
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.docker.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.docker.log
+.Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.txgen-20261113T171957Z.log to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.txgen-20261113T171957Z.log
+Copying gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/prepare.json to file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/bucket/tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/prepare.json
+........................................................................................................................................................................................
+
+Average throughput: 9.4MiB/s
+    + gcloud storage rm -r gs://tn-devnet-bench-r20261113-1630 --project=tn-devnet
+Removing objects:
+  
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.docker.log#1794591046712146...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.txgen-20261113T172343Z.log#1794591046811155...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.docker.log#1794591048842766...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.txgen-20261113T172343Z.log#1794591046370446...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-01.ndjson.gz#1794591047002717...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.docker.log#1794591799732284...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-03.ndjson.gz#1794591803445825...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.txgen-20261113T175323Z.log#1794594949488771...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.docker.log#1794594953418794...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.json#1794594956430868...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-07.docker.log#1794594948421671...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.txgen-20261113T175323Z.log#1794595224201412...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.json#1794595230666278...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-06.docker.log#1794595223935273...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.txgen-20261113T175323Z.log#1794595191080550...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.json#1794595194768352...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-05.docker.log#1794595193467050...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.txgen-20261113T175323Z.log#1794594953590594...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.json#1794594955729996...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-04.docker.log#1794594950659523...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.txgen-20261113T175323Z.log#1794595158032398...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.docker.log#1794595155988052...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-03.json#1794595163211199...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.txgen-20261113T175323Z.log#1794595193592140...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.json#1794595199333203...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.txgen-20261113T175323Z.log#1794594980584848...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.docker.log#1794594980484867...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-02.docker.log#1794595195421087...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/prepare.json#1794590309896109...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.txgen-20261113T171813Z.log#1794590309799142...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/funder/bench-funder.docker.log#1794590309693430...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-10.ndjson.gz#1794591800730631...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-01.json#1794594981184983...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-09.ndjson.gz#1794591798161831...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-08.ndjson.gz#1794591798681600...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-07.ndjson.gz#1794591801259217...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-05.ndjson.gz#1794591800135651...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-04.ndjson.gz#1794591801497110...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-06.ndjson.gz#1794592022844662...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-03.ndjson.gz#1794591801093392...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-02.ndjson.gz#1794592018501500...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/unlanded-bench-blaster-01.ndjson.gz#1794592010245678...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-09.ndjson.gz#1794591797292314...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-10.ndjson.gz#1794591806088463...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-08.ndjson.gz#1794591799449627...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-07.ndjson.gz#1794591802893645...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-05.ndjson.gz#1794591800741106...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-04.ndjson.gz#1794591800791122...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-02.ndjson.gz#1794592015673828...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-06.ndjson.gz#1794592021824867...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/landings-bench-blaster-01.ndjson.gz#1794592010357640...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.txgen-20261113T173604Z.log#1794591807510697...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.json#1794591810985979...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-10.docker.log#1794591803935160...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.txgen-20261113T173605Z.log#1794591800938112...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.json#1794591803008565...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-09.docker.log#1794591800055023...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.txgen-20261113T173604Z.log#1794591798422507...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.docker.log#1794591800764191...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-08.json#1794591803100656...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.txgen-20261113T173605Z.log#1794591800196047...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.docker.log#1794594945972436...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.txgen-20261113T175323Z.log#1794594948411043...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-08.json#1794594956425415...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.json#1794591805453980...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-07.docker.log#1794591799113727...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.txgen-20261113T173604Z.log#1794592020772617...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.docker.log#1794592019769790...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-06.json#1794592025210791...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.json#1794594949577250...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-09.txgen-20261113T175323Z.log#1794594946829830...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.txgen-20261113T173604Z.log#1794591799656934...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.json#1794591802826950...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-05.docker.log#1794591801712823...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.txgen-20261113T173604Z.log#1794591802208932...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.docker.log#1794594949172840...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.txgen-20261113T173604Z.log#1794591802027953...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-04.json#1794591803925524...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.json#1794594958371197...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/bench-blaster-10.txgen-20261113T175323Z.log#1794594953681553...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-01.ndjson.gz#1794594980768567...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.json#1794591805687727...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-03.ndjson.gz#1794595160210299...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-04.ndjson.gz#1794594952186225...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-06.ndjson.gz#1794595225780589...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-10.ndjson.gz#1794594952252985...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-09.ndjson.gz#1794594942907354...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-02.ndjson.gz#1794595196349166...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-01.ndjson.gz#1794594980680371...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-05.ndjson.gz#1794595191568796...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-05.ndjson.gz#1794595192263884...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-07.ndjson.gz#1794594952955543...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-06.ndjson.gz#1794595227521074...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-08.ndjson.gz#1794594950786401...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/landings-bench-blaster-02.ndjson.gz#1794595193342475...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-03.ndjson.gz#1794595157090501...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-04.ndjson.gz#1794594952892504...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-03.docker.log#1794591800161212...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-09.ndjson.gz#1794594943764923...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-08.ndjson.gz#1794594949408760...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-07.ndjson.gz#1794591051411680...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-06.ndjson.gz#1794591073039660...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.docker.log#1794590412538406...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-10.ndjson.gz#1794594945266948...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-04.ndjson.gz#1794591048492256...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/prepare.json#1794590412731057...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/funder/bench-funder.txgen-20261113T171957Z.log#1794590412628718...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-03.ndjson.gz#1794591051851609...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.txgen-20261113T173604Z.log#1794592015924446...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.json#1794592020155661...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.docker.log#1794592010043983...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-02.ndjson.gz#1794591069616417...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.txgen-20261113T173604Z.log#1794592010144581...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.txgen-20261113T171632Z.log#1794590195788635...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-06.ndjson.gz#1794591074044600...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-2/blasters/unlanded-bench-blaster-07.ndjson.gz#1794594950548429...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-02.docker.log#1794592017441171...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.txgen-20261113T172343Z.log#1794591051283307...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-07.ndjson.gz#1794591050349260...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.json#1794591052986422...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/prepare.json#1794590195899646...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.txgen-20261113T172343Z.log#1794591066192565...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-01.ndjson.gz#1794591046901580...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-09.docker.log#1794591050442627...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.docker.log#1794591063336699...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-10.ndjson.gz#1794591064780786...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-08.ndjson.gz#1794591049207322...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.txgen-20261113T172343Z.log#1794591048235653...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-03.ndjson.gz#1794591049935476...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/funder/bench-funder.docker.log#1794590195671932...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-05.ndjson.gz#1794591047046085...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-1/blasters/bench-blaster-01.json#1794592010506872...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-02.ndjson.gz#1794591068143684...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-09.ndjson.gz#1794591048206582...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-10.json#1794591069261281...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-10.ndjson.gz#1794591060834730...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/landings-bench-blaster-08.ndjson.gz#1794591049464896...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.json#1794591053076605...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-09.ndjson.gz#1794591049058070...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-08.docker.log#1794591051144411...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-05.ndjson.gz#1794591046857367...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.json#1794591053694901...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.docker.log#1794591048855753...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-07.txgen-20261113T172343Z.log#1794591049916573...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/unlanded-bench-blaster-04.ndjson.gz#1794591049200839...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.txgen-20261113T172343Z.log#1794591072028950...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.json#1794591076074692...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.json#1794591048778515...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-06.docker.log#1794591071021908...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-05.docker.log#1794591047820070...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.txgen-20261113T172343Z.log#1794591049913585...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.json#1794591051392407...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-04.docker.log#1794591047764859...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.txgen-20261113T172344Z.log#1794591050911391...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-03.json#1794591053830473...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.json#1794591070914964...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.txgen-20261113T172343Z.log#1794591068417971...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-01.json#1794591047117040...
+Removing gs://tn-devnet-bench-r20261113-1630/r20261113-1630/index-0/blasters/bench-blaster-02.docker.log#1794591069354386...
+.....
+Removing buckets:
+  
+Removing gs://tn-devnet-bench-r20261113-1630/...
+..
+    + gcloud secrets remove-iam-policy-binding bench-txgen-master-key --project=tn-devnet --member=serviceAccount:1095385745561-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor --format=none
+Updated IAM policy for secret [bench-txgen-master-key].
+    + gcloud secrets remove-iam-policy-binding bench-txgen-children-seed --project=tn-devnet --member=serviceAccount:1095385745561-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor --format=none
+Updated IAM policy for secret [bench-txgen-children-seed].
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch worktree remove --force /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/tn-contracts
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch worktree prune
+    + git -C /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch branch -D bench/r20261113-1630
+Deleted branch bench/r20261113-1630 (was 2005b45).
+    + mv /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/genesis /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/genesis
+
+>>> node startup provenance (informational — never blocks the teardown)
+      bench-validator-06-telcoin-cert-fail-20261113T190455Z.log.gz rc=0 in=13255403 out=2186819
+      bench-validator-10-telcoin-cert-fail-20261113T190512Z.log.gz rc=0 in=14761333 out=2457461
+      bench-validator-02-telcoin-cert-fail-20261113T190439Z.log.gz rc=0 in=13795154 out=2276177
+    PREFILTER logs=61 read=3 reused=58 in_bytes=41811890 out_bytes=6920457 secs=3 failed=0
+    node startup check: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1630
+      bench-observer-11      starts=3  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:46:48.74576951Z
+      bench-validator-01     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:43:11.820082713Z
+      bench-validator-02     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:43:24.922294917Z
+      bench-validator-03     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:43:36.082495489Z
+      bench-validator-04     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:43:27.722496767Z
+      bench-validator-05     starts=3  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:44:59.880472926Z
+      bench-validator-06     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:45:13.38395823Z
+      bench-validator-07     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:45:26.255248286Z
+      bench-validator-08     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:45:24.492229884Z
+      bench-validator-09     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:47:08.566436866Z
+      bench-validator-10     starts=2  sha=2df831e3ca34c06a361a7acca10397787e7b332e first=2026-11-13T16:47:22.513132437Z
+      params: max_header_delay_ms=1000 min_header_delay_ms=350 max_batch_delay_ms=250 vote_timeout_ms=5000
+      fork schedule: subsecond-from-genesis (last line: "fork schedule: seed_signature, multi_workers, prevrandao, leader_seeded_ordering, and subsecond_timestamp active from genesis")
+      node switches: 24 start(s) checked, 13 matched the arm in force, 0 without a line (the image contract requires one)
+      expected sha: 2df831e3ca34c06a361a7acca10397787e7b332e
+    PROBLEMS:
+      - node switches show epoch_record_state_check=false at 11 start(s) (bench-observer-11 at 2026-11-13T16:46:48.74576951Z, bench-validator-01 at 2026-11-13T16:43:11.820082713Z, bench-validator-02 at 2026-11-13T16:43:24.922294917Z, bench-validator-03 at 2026-11-13T16:43:36.082495489Z, bench-validator-04 at 2026-11-13T16:43:27.722496767Z, bench-validator-05 at 2026-11-13T16:44:59.880472926Z, bench-validator-06 at 2026-11-13T16:45:13.38395823Z, bench-validator-07 at 2026-11-13T16:45:26.255248286Z, bench-validator-08 at 2026-11-13T16:45:24.492229884Z, bench-validator-09 at 2026-11-13T16:47:08.566436866Z, bench-validator-10 at 2026-11-13T16:47:22.513132437Z); arm final sets epoch_record_state_check=true
+      - node switches show mdbx_random_advice=false at 11 start(s) (bench-observer-11 at 2026-11-13T16:46:48.74576951Z, bench-validator-01 at 2026-11-13T16:43:11.820082713Z, bench-validator-02 at 2026-11-13T16:43:24.922294917Z, bench-validator-03 at 2026-11-13T16:43:36.082495489Z, bench-validator-04 at 2026-11-13T16:43:27.722496767Z, bench-validator-05 at 2026-11-13T16:44:59.880472926Z, bench-validator-06 at 2026-11-13T16:45:13.38395823Z, bench-validator-07 at 2026-11-13T16:45:26.255248286Z, bench-validator-08 at 2026-11-13T16:45:24.492229884Z, bench-validator-09 at 2026-11-13T16:47:08.566436866Z, bench-validator-10 at 2026-11-13T16:47:22.513132437Z); arm final sets mdbx_random_advice=true
+      - node switches show quorum_exec_block=false at 11 start(s) (bench-observer-11 at 2026-11-13T16:46:48.74576951Z, bench-validator-01 at 2026-11-13T16:43:11.820082713Z, bench-validator-02 at 2026-11-13T16:43:24.922294917Z, bench-validator-03 at 2026-11-13T16:43:36.082495489Z, bench-validator-04 at 2026-11-13T16:43:27.722496767Z, bench-validator-05 at 2026-11-13T16:44:59.880472926Z, bench-validator-06 at 2026-11-13T16:45:13.38395823Z, bench-validator-07 at 2026-11-13T16:45:26.255248286Z, bench-validator-08 at 2026-11-13T16:45:24.492229884Z, bench-validator-09 at 2026-11-13T16:47:08.566436866Z, bench-validator-10 at 2026-11-13T16:47:22.513132437Z); arm final sets quorum_exec_block=true
+      - node switches show vote_queue_fix=false at 11 start(s) (bench-observer-11 at 2026-11-13T16:46:48.74576951Z, bench-validator-01 at 2026-11-13T16:43:11.820082713Z, bench-validator-02 at 2026-11-13T16:43:24.922294917Z, bench-validator-03 at 2026-11-13T16:43:36.082495489Z, bench-validator-04 at 2026-11-13T16:43:27.722496767Z, bench-validator-05 at 2026-11-13T16:44:59.880472926Z, bench-validator-06 at 2026-11-13T16:45:13.38395823Z, bench-validator-07 at 2026-11-13T16:45:26.255248286Z, bench-validator-08 at 2026-11-13T16:45:24.492229884Z, bench-validator-09 at 2026-11-13T16:47:08.566436866Z, bench-validator-10 at 2026-11-13T16:47:22.513132437Z); arm final sets vote_queue_fix=true
+    manifest updated: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/prefilter/r20261113-1630/manifest.json (node_startup_check)
+⚠ node startup provenance mismatch — see manifest.node_startup_check
+
+>>> final local index: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630 (informational — never blocks the teardown)
+    analysis -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/analysis/ (informational)
+      · cert-rate.md from analysis/certification.json (no log read)
+      ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/analysis/cert-rate.md
+      ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/analysis/block-rate.md
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630/INDEX.md and CHECKSUMS.sha256: 651 file(s), 2666658359 bytes
+
+>>> final archive: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261113-1630 -> the archive bucket (informational — never blocks the teardown)
+    - skipped (BENCH_TEARDOWN_SKIP_ARCHIVE=1): tools/archive-run.sh --run r20261113-1630 archives and verifies it by hand
+
+>>> left-nothing checks
+    ✓ instances labelled benchmark=1: none
+    ✓ instances named bench-*: none
+    ✓ bench-obs (bench-obs): none
+    ✓ firewall rules ^bench- or targeting bench-node: none
+    ✓ buckets labelled benchmark=1 / named tn-devnet-bench-*: none
+    ✓ disks of run r20261113-1630 (labelled benchmark=1 / named bench-*): none
+    ✓ disks labelled bench-run=r20261113-1630 (any name): none
+    ✓ local IAP tunnels on :18545, :19090, :13000 (supervisor, ssh forward or websocket): none
+    ✓ contracts worktree: none
+    ✓ bench/r* branches: none
+    ✓ compute-SA bindings on bench secrets: none
+    · results/r20261113-1630/ kept, a working copy: 651 file(s), 2666658359 bytes; archive: none verified
+    · certification: 3 validator(s) below 90 %: bench-validator-02 78.6 % in blast 2 mixed, bench-validator-06 44.5 % in blast 2 mixed, bench-validator-10 68.2 % in blast 2 mixed; logs in manifest.cert_failures
+    devnet instances (must all be present):
+      ✓ validator-1-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-2-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-3-devnet RUNNING (pre-run RUNNING)
+      ✓ validator-4-devnet RUNNING (pre-run RUNNING)
+      ✓ observer-5-devnet RUNNING (pre-run RUNNING)
+      ✓ obs-devnet RUNNING (pre-run RUNNING)
+      ✓ txgen-devnet RUNNING (pre-run RUNNING)
+      ✓ devnet-indexer TERMINATED (pre-run TERMINATED)
+    ✓ devnet-allow-consensus identical to the run pre-snapshot
+✓ teardown left nothing behind.
+TEARDOWN_DONE run=r20261113-1630 deleted=12 left=0 at=2026-11-13T19:11:16Z
+== teardown rc=0 2026-11-13T19:11:16Z

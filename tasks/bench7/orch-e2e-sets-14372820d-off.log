@@ -1,0 +1,3 @@
+E2E-SETS start 2026-11-14T16:40:59Z worktree=/home/drtnarg/coding/telcoin/tn-b7-gate head=14372820d sets=[restarts epochs sigkill] labels=1 pid=82832
+E2E-SETS 14372820d off params=[] restarts=0([ 372.527s] 11 tests run: 11 passed, 5476 skipped) epochs=0([ 343.221s] 11 tests run: 11 passed, 57 skipped) sigkill=0([ 117.239s] 12 tests run: 12 passed, 56 skipped) 2026-11-14T17:13:35Z
+E2E-SETS done rc=0 2026-11-14T17:13:35Z

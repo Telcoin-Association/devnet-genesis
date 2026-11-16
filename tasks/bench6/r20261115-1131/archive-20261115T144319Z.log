@@ -1,0 +1,45 @@
+== archive start 2026-11-15T14:43:20Z bench6-launch:r20261115-1131:archive pid=3233242 harness=49534647f0ca
+== archive command: benchmark/tools/archive-run.sh --run r20261115-1131
+BENCH_ARM_FILE=benchmark/arms/bench7-always.arm
+BENCH_CHAOS=1
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c
+BENCH_DURATION_SECS=2400
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=1
+BENCH_LIGHT_SENDERS=8 600
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_LIGHT_WINDOWS=16 4
+BENCH_MACHINE_TYPE=c3-highcpu-8
+BENCH_NODE_ALLOW_FAUCET_ON_CHAIN=1
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_DISK_IOPS=20000
+BENCH_NODE_DISK_SIZE=100
+BENCH_NODE_DISK_THROUGHPUT=800
+BENCH_NODE_DISK_TYPE=hyperdisk-balanced
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=91a15e22376fa1277c107824e738dce689792c56
+BENCH_NODE_RESERVE_PORTS=1
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261115-1131
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench7/r20261115-1131/bench7-always.env
+LAUNCH_SEGMENT=archive
+>>> archive /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261115-1131 -> gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/
+  dry run: listing what rsync would copy (alarm 900 s) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/archive/r20261115-1131-rsync-20261115T144320Z.log
+    DRYRUN would_copy=627 excluded=0 outside=0
+  upload (alarm 28800 s, BENCH_ARCHIVE_TIMEOUT_SECS) -> /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/archive/r20261115-1131-rsync-20261115T144320Z.log
+    434 file(s) copied; the last lines of gcloud's output:
+      .Copying file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261115-1131/sampler/bench-validator-10.csv to gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/sampler/bench-validator-10.csv
+      .Copying file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261115-1131/sampler/bench-validator-10.epochs.txt to gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/sampler/bench-validator-10.epochs.txt
+      ..Copying file:///home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261115-1131/tunnel.log to gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/tunnel.log
+      ....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+      Average throughput: 7.4MiB/s
+archive verify /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261115-1131 -> gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/
+  local files 627 (2971563302 bytes), excluded here 24; objects 627; matched 627
+ARCHIVE_REMOTE {"bytes": 2971563302, "files": 627, "uri": "gs://tn-devnet-benchmark-archive/runs/r20261115-1131/results/", "verified_at": "2026-11-15T14:49:45Z"}
+ARCHIVE_VERIFY ok=1 run=r20261115-1131 files=627 bytes=2971563302 objects=627 problems=0 report=/home/drtnarg/coding/telcoin/devnet-genesis/benchmark/work/archive/r20261115-1131-verify.md
+== archive-run run=r20261115-1131 rc=0
+== archive rc=0 2026-11-15T14:49:57Z

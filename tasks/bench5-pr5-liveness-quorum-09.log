@@ -1,0 +1,31 @@
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 18s
+────────────
+ Nextest run ID 96f5bc26-6e34-4c08-ba51-223a2f0c9890 with nextest profile: default
+    Starting 9 tests across 2 binaries (424 tests and 42 binaries skipped)
+        PASS [   0.005s] (1/9) tn-primary consensus::liveness::tests::quorum_voting_power_is_unique_author_weight
+        PASS [   0.011s] (2/9) tn-primary consensus::liveness::tests::quorum_threshold_and_higher_round_boundary
+        PASS [   0.011s] (3/9) tn-primary consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals
+        PASS [   0.011s] (4/9) tn-primary consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history
+        PASS [   0.016s] (5/9) tn-primary consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle
+        PASS [   0.016s] (6/9) tn-primary consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival
+        PASS [   0.055s] (7/9) tn-primary consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again
+        PASS [   0.058s] (8/9) tn-primary certifier::certifier_tests::certificate_forms_exactly_at_quorum_threshold
+        PASS [   0.108s] (9/9) tn-primary consensus::state::consensus_tests::quorum_loss_and_recovery_through_consensus_driver
+────────────
+     Summary [   0.109s] 9 tests run: 9 passed, 424 skipped

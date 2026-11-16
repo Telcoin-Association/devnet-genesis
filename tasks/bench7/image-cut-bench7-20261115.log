@@ -1,0 +1,46 @@
+IMAGE-CUT start 2026-11-15T05:42:48Z worktree=/home/drtnarg/coding/telcoin/tn-b7-stack branch=bench/bench7-2026-11 head=91a15e22376fa1277c107824e738dce689792c56 tag=us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115 extra_env=TN_ALLOW_FAUCET_ON_CHAIN=true pid=3102750
+#11 20.52 Setting up dpkg-dev (1.21.23) ...
+#11 20.52 Setting up build-essential (12.9) ...
+#11 20.53 Processing triggers for libc-bin (2.36-9+deb12u13) ...
+#11 DONE 20.9s
+
+#12 [builder 4/5] COPY . .
+#12 DONE 0.2s
+
+#13 [builder 5/5] RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked     --mount=type=cache,target=./target,sharing=locked     rm -rf /usr/local/cargo/registry/src     && cargo build -p telcoin-network --bin telcoin-network --release --locked --features faucet     && mv ./target/release/telcoin-network /tmp/
+#13 0.191     Updating crates.io index
+#13 123.2 warning: telcoin-network-cli@0.1.0: no suitable 'git' command found!
+#13 123.2 warning: telcoin-network-cli@0.1.0: VERGEN_GIT_SHA overidden
+#13 324.3     Finished `release` profile [optimized] target(s) in 5m 24s
+#13 DONE 324.6s
+
+#14 [stage-1 4/4] COPY --from=builder /tmp/telcoin-network /usr/local/bin/telcoin
+#14 DONE 0.1s
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 2.1s done
+#15 exporting manifest sha256:56d1d50418b885d3a7a69c3747105c56c9908e6892fa833db217b2481bc79512 done
+#15 exporting config sha256:08ffc69ff8b0532370e5aea563e493ac2b83b962323c27bb94be447ae028c233 done
+#15 exporting attestation manifest sha256:9c5649406a4c51864ea0c6682f2e7ca34c1eab6e338ef63d759198df600cef0d done
+#15 exporting manifest list sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c done
+#15 naming to us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115 done
+#15 pushing layers
+#15 ...
+
+#16 [auth] telcoin-network/tn-public/adiri:pull,push token for us-docker.pkg.dev
+#16 DONE 0.0s
+
+#15 exporting to image
+#15 pushing layers 6.2s done
+#15 pushing manifest for us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115@sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c
+#15 pushing manifest for us-docker.pkg.dev/telcoin-network/tn-public/adiri:bench7-20261115@sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c 2.1s done
+#15 DONE 10.5s
+
+#17 resolving provenance for metadata file
+#17 DONE 0.0s
+IMAGE-CUT build rc=0 secs=364 2026-11-15T05:48:52Z
+IMAGE-CUT digest=sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c ref=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:15acdccafff786c2aa60ac69cddc3b09069648d5cf22ae1727c060fafa68822c
+IMAGE-CUT env: TN_ALLOW_FAUCET_ON_CHAIN=true
+IMAGE-CUT version: telcoin-network-cli Version: 0.1.0 Commit SHA: 91a15e22376fa1277c107824e738dce689792c56 Build Timestamp: 2026-11-15T05:45:20.777039605Z Build Features: faucet Build Profile: release Reth Database: tn-lmdb 
+IMAGE-CUT done rc=0 2026-11-15T05:48:54Z

@@ -21,12 +21,12 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [x] `tasks/lessons.md` (the correction), this tick list, `tasks/checkpoint-bench8-orch.md`, `tasks/bench8-agent-rules.md`
 
 ## Step 1 — in parallel
-- [ ] 1a PR bodies for the new stacking: eight files edited, gates block re-run, stale-phrase check (sonnet), eight `gh pr edit --body-file`, live sha256 = file, `tasks/bench7/gh-posted.tsv`
-- [ ] 1b defect report to telcoin-network (`bench7-far-validator-batches-not-committed`)
-- [ ] 1b defect report to tn-node-deployment (`bench7-metrics-agent-network-relabel`), after `observability/config.alloy:126-129` is confirmed unchanged on its `main`
-- [ ] 1c trial merge of the top with `main` 0554efd4f in `tn-b7-pcc` (conflicts, compile, scoped tests) → reported, into the gates block
-- [ ] 1d no-run analyses N1-N5 started (Step 5a)
-- [ ] 1e repo sweep: small records committed, the three devnet-launch lessons copied into `tasks/lessons.md`, devnet-genesis `main` pushed; inventory re-run
+- [x] 1a PR bodies for the new stacking: eight files edited, gates block re-run, stale-phrase check (sonnet), eight `gh pr edit --body-file`, live sha256 = file, `tasks/bench7/gh-posted.tsv`
+- [x] 1b defect report to telcoin-network (`bench7-far-validator-batches-not-committed`): #1870
+- [x] 1b defect report to tn-node-deployment (`bench7-metrics-agent-network-relabel`), after `observability/config.alloy:126-129` is confirmed unchanged on its `main`: they HAD moved (the draft cited the pinned copy); corrected, checked, posted as tn-node-deployment #66
+- [x] 1c trial merge of the top with `main` 0554efd4f in `tn-b7-pcc` (conflicts, compile, scoped tests) → one conflicting file (`epoch_votes.rs`), resolved locally as b23472a43 with one logic fix; check rc 0, 2,175 tests pass; in the gates block; notes `tasks/bench8/merge-main-0554efd4f-notes.md`
+- [x] 1d no-run analyses N1-N5 started (Step 5a)
+- [x] 1e repo sweep: small records committed, the three devnet-launch lessons copied into `tasks/lessons.md`, devnet-genesis `main` pushed; inventory re-run
 
 ## Step 2 — the ninth PR `refactor/remove-bench-switches` (worktree `tn-b8-uc`, from 500e21afa)
 - [ ] R1 records (walk, kept votes: switches and off-arm tests removed) · review

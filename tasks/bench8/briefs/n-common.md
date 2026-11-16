@@ -31,3 +31,12 @@ Bench 8 will change one thing per run. Your unit says, from the data that alread
 ## Hand back (your final answer; a summary, not a file dump)
 
 Status and checkpoint; the answer in three sentences; the five figures that carry it, each with its source; what it decides for bench 8; what cannot be told; files written.
+
+## Corrections from the data map (N0, 2026-11-16) that every unit must use
+
+- Windows differ between the runs: run 7a's kill is 817.1 s into the load blast (13:41:35.1Z), run 7b's is 1,121.2 s in (18:44:01.2Z). "Before the kill" is therefore 817 s in 7a and 1,121 s in 7b. Where you compare the runs, also compute 7b's FIRST 817 s (18:25:20-18:38:57Z); no earlier analysis did. Light blast 1 is 954 s in 7a and 374 s in 7b.
+- Certified share before the kill, one analysis for all four runs (the certification analysis): 99.96 % (r20261113-1351), 99.56 % (r20261113-2118), 94.00 % (7a: 19,513 of 20,758), 94.95 % (7b: 26,179 of 27,571). The per-header analysis counts 1,400 lost in 7b (94.92 %).
+- Under-held, summed over authors, before the kill: 7a 2,508 of 20,758 headers (1,364 certified, 1,144 lost; the other 18,250 headers lost 102); 7b 3,036 of 27,571 (1,907 certified, 1,129 lost; the other 24,535 lost 271).
+- Under-held as the scripts compute it: at most 5 OTHER voters held the named block when the header was proposed (`q4_underheld.py` line 26), i.e. at most 6 holders of 10 with the author.
+- The spread, re-derived by N0 (`N0/scripts/a6_tip_spread.py`): the proposer's tip minus the 6th-highest other voter's tip, in block-bearing outputs, is above 8 on 12.08 % of 7a's headers before the kill (exactly the under-held ones) and 8.78 % of 7b's, and never above 16 in either run. The lagging voters named there: 7a 05, 07, 10; 7b 09, 02, 04.
+- Bench 6's r20261113-2118 has no per-header pickle (its extracts and blockmap exist; `perheader.py` can build one into your scratch). Bench 6's extracts have no `held` / `own_parent` fields. No per-60-s series is saved: build what you need from the per-header pickles.

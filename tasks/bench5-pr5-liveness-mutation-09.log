@@ -1,0 +1,437 @@
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+Confirming mutation is rejected by quorum_timeout_deduplicates_authors_polls_and_late_arrivals
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+────────────
+ Nextest run ID dbff70e0-62cd-46dc-a65c-0bdc7e7b4b65 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals' (2098093) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:49:5:
+    tn_primary.round_quorum_shortfalls_total: expected 1, got Some(Counter(0))
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.010s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_timeout_deduplicates_authors_polls_and_late_arrivals
+error: test run failed
+Confirming mutation is rejected by quorum_voting_power_is_unique_author_weight
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 13s
+────────────
+ Nextest run ID 2315064f-e504-406b-a155-00aacda6da73 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_voting_power_is_unique_author_weight
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_voting_power_is_unique_author_weight ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_voting_power_is_unique_author_weight
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.00s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_voting_power_is_unique_author_weight' (2127578) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:147:5:
+    assertion `left == right` failed
+      left: 12
+     right: 7
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.012s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_voting_power_is_unique_author_weight
+error: test run failed
+Confirming mutation is rejected by quorum_round_state_is_bounded_and_recovery_skips_history
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+────────────
+ Nextest run ID d51edb17-cc1c-48a7-ad99-3bc9c8dfaef1 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.010s] (1/1) tn-primary consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history' (2205767) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:169:5:
+    assertion failed: observer.pending.as_ref().is_some_and(|pending|
+            pending.authors.len() == committee.size())
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.011s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.010s] (1/1) tn-primary consensus::liveness::tests::quorum_round_state_is_bounded_and_recovery_skips_history
+error: test run failed
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 36s
+Confirming mutation is rejected by quorum_threshold_and_higher_round_boundary
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 27s
+────────────
+ Nextest run ID a9016772-46fb-48d9-9d1e-01a755969da1 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.010s] (1/1) tn-primary consensus::liveness::tests::quorum_threshold_and_higher_round_boundary
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_threshold_and_higher_round_boundary ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_threshold_and_higher_round_boundary
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_threshold_and_higher_round_boundary' (2423089) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:49:5:
+    tn_primary.round_quorum_shortfalls_total: expected 0, got Some(Counter(1))
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.011s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.010s] (1/1) tn-primary consensus::liveness::tests::quorum_threshold_and_higher_round_boundary
+error: test run failed
+Confirming mutation is rejected by quorum_epoch_rollover_and_commit_signal_lifecycle
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+────────────
+ Nextest run ID 69edc908-f2fb-4a04-9eb7-520f6187ce11 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.014s] (1/1) tn-primary consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle' (2513050) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:49:5:
+    tn_primary.round_quorum_shortfalls_total: expected 1, got Some(Counter(2))
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.015s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.014s] (1/1) tn-primary consensus::liveness::tests::quorum_epoch_rollover_and_commit_signal_lifecycle
+error: test run failed
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 19s
+Confirming mutation is rejected by quorum_deadline_is_fixed_at_first_arrival
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 14s
+────────────
+ Nextest run ID bb592070-58c3-4855-aa9c-06e9d1af4ed8 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.01s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival' (2539631) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:49:5:
+    tn_primary.rounds_evaluated_total: expected 1, got Some(Counter(0))
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.010s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.009s] (1/1) tn-primary consensus::liveness::tests::quorum_deadline_is_fixed_at_first_arrival
+error: test run failed
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+Confirming mutation is rejected by quorum_recovered_uncommitted_authors_are_not_sampled_again
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 12s
+────────────
+ Nextest run ID 97f8f065-5552-4f4a-a0c1-0083e2567691 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.029s] (1/1) tn-primary consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again
+  stdout ───
+
+    running 1 test
+    test consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again ... FAILED
+
+    failures:
+
+    failures:
+        consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.03s
+
+  stderr ───
+
+    thread 'consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again' (2562220) panicked at crates/consensus/primary/src/consensus/tests/liveness_tests.rs:33:5:
+    assertion failed: observer.pending.is_none()
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [   0.030s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.029s] (1/1) tn-primary consensus::liveness::tests::quorum_recovered_uncommitted_authors_are_not_sampled_again
+error: test run failed
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 21s
+Confirming mutation is rejected by quorum_loss_and_recovery_through_consensus_driver
+   Compiling telcoin-network-cli v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/telcoin-network-cli)
+   Compiling tn-test-utils v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/test-utils)
+   Compiling e2e-tests v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/e2e-tests)
+   Compiling telcoin-network v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/telcoin-network)
+   Compiling tn-batch-builder v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-builder)
+   Compiling tn-node v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/node)
+   Compiling tn-primary v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/primary)
+   Compiling tn-worker v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/worker)
+   Compiling tn-node-record-api v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/bin/node-record-api)
+   Compiling state-sync v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/state-sync)
+   Compiling tn-kad-client v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/kad-client)
+   Compiling tn-network-libp2p v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/network-libp2p)
+   Compiling tn-batch-validator v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/batch-validator)
+   Compiling tn-executor v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/consensus/executor)
+   Compiling tn-storage v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/storage)
+   Compiling tn-engine v0.1.0 (/home/drtnarg/coding/telcoin/telcoin-network-pr5/crates/engine)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 04s
+────────────
+ Nextest run ID b1ed97c8-7adb-4eed-ad18-3ee91fba6550 with nextest profile: default
+    Starting 1 test across 2 binaries (432 tests and 42 binaries skipped)
+        FAIL [   0.082s] (1/1) tn-primary consensus::state::consensus_tests::quorum_loss_and_recovery_through_consensus_driver
+  stdout ───
+
+    running 1 test
+    test consensus::state::consensus_tests::quorum_loss_and_recovery_through_consensus_driver ... FAILED
+
+    failures:
+
+    failures:
+        consensus::state::consensus_tests::quorum_loss_and_recovery_through_consensus_driver
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 388 filtered out; finished in 0.08s
+
+  stderr ───
+    Error: "timed out waiting for condition: restored quorum commits again"
+
+────────────
+     Summary [   0.083s] 1 test run: 0 passed, 1 failed, 432 skipped
+        FAIL [   0.082s] (1/1) tn-primary consensus::state::consensus_tests::quorum_loss_and_recovery_through_consensus_driver
+error: test run failed

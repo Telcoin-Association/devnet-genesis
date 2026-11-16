@@ -1,0 +1,22 @@
+== reindex start 2026-11-13T00:20:47Z bench6-launch:r20261112-1520:reindex pid=647216 harness=ad5e4724aaa8
+== reindex command: benchmark/benchmark-teardown.sh --run r20261112-1520 --reindex
+BENCH_CHAOS=0
+BENCH_DOCKER_IMAGE=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_DOCKER_IMAGE_EXPECT_DIGEST=sha256:874537ff1cd8d496140154837e7a36524978bdbf3b0440e48972b073d9852745
+BENCH_LANDINGS_SAMPLE=100
+BENCH_LIGHT_LOAD=0
+BENCH_LIGHT_START_DELAY_SECS=150
+BENCH_NODE_BOOT_IMAGE=projects/ubuntu-os-cloud/global/images/ubuntu-2404-noble-amd64-v20261105
+BENCH_NODE_EXPECT_FORKS=subsecond-from-genesis
+BENCH_NODE_EXPECT_SHA=2df831e3ca34c06a361a7acca10397787e7b332e
+BENCH_PERSIST_SAMPLER=1
+BENCH_RUN_ID=r20261112-1520
+BENCH_TAIL_SCAN_SECS=180
+BENCH_TEARDOWN_SKIP_ARCHIVE=1
+BENCH_TXGEN_SHA=62bbd5f
+LAUNCH_ENV_FILE=tasks/bench6/r20261112-1520/bench6-run1.env
+LAUNCH_SEGMENT=reindex
+RUN_ARMS_MAX_QUEUED=1000
+>>> reindex: /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520 (local only: no gcloud call, no gate, nothing deleted)
+    ✓ /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/results/r20261112-1520/INDEX.md and CHECKSUMS.sha256: 2896 file(s), 8508973915 bytes
+== reindex rc=0 2026-11-13T00:21:26Z

@@ -6,7 +6,7 @@ One behaviour changes with every switch off: a full vote queue never evicts the 
 
 PR 5 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1865's branch (`fix/epoch-record-closing-block-check`), so the Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
 The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit' so the next PR's diff collapses.
+Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
 
 ## Problem
 
@@ -74,6 +74,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
 
 ## Limits and what a reviewer should look at
 
