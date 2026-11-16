@@ -1718,3 +1718,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   refused; the sweep stopped at node 3 and had to be finished by hand.
 - Rule: after restarting a committee member, wait until it authors in the latest consensus header
   (or ~90 s) before touching the next node; never judge "back" from `tn_nodeMode` alone.
+
+## 2026-11-16 — `git add tasks` staged 277 untracked logs, pid files and a bundle, and I pushed them
+
+- **What happened.** To commit the log, the tick list and a few new briefs I ran `git add tasks`, where every earlier commit of the day had named its paths. The directory holds about 280 untracked run logs, pid files, four plan dumps and a git bundle that the plan says stay untracked. The commit (1b93620, 304 files, 237,236 lines) went to `origin/main` before I looked at its size. No secret was in them (checked: no token or key pattern; passphrase lines are "on stdin" and "redacted"), and the repository is private. The next commit (3f2b2e7) untracks them again; their blobs stay in the history, because removing them would need a forced push.
+- **Rules.**
+  - In this repo a commit is staged by path, file by file or by a glob that cannot match run output (`tasks/bench8/briefs/*.md`). Never `git add <directory>`, `git add -A` or `git add .`.
+  - Before every commit: `git diff --cached --stat | tail -1`. A count or a line total far above what I meant to commit stops the commit.
+  - Before every push: `git log --stat origin/main..HEAD | tail -3`.
