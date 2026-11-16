@@ -1,0 +1,20 @@
+OK a5be61615 41s refactor(state-sync): the record collector always walks past its own uncertified epoch
+OK b67c0acdd 1240s refactor(node): vote rounds always keep signatures and re-vote one older uncertified record
+OK d2b80ced5 60s refactor(primary): a voter always waits for execution before the vote lock
+OK adecca691 53s refactor(config): drop the vote timeout check the pre-lock bound covers
+OK 6a7c3d7c5 21s test(primary): vote tests follow the superseded check and the pre-lock wait
+OK a242a3b4a 54s refactor(primary): every header names an execution block a quorum holds
+OK de075ab78 28s test(e2e): test the quorum execution block on the plain node
+OK dd21a50ef 58s refactor(primary): the own-chain order hold is always on
+OK 726a25f1b 53s test(primary): build the proposer tests on the order hold
+OK 1d41981dd 42s test(e2e): stop checking the node switches line
+OK e8dfcce10 59s refactor(node): drop the node switches log line and gauge
+OK 57a55b221 86s refactor(config): remove the runtime switch list
+OK 0a70b58f5 47s test(e2e): old-binary voters vote for a header that names an older block
+OK e1a562cbb 29s Revert "test(e2e): old-binary voters vote for a header that names an older block"
+OK 3749f1b6e 28s test(e2e): name the scaffold's examples after parameters, drop hold and walk wording
+OK 84fe92bfb 23s test(e2e): HeaderWindow reads run 0 only and is private to its module
+OK 53f288ea1 57s docs(node,state-sync): rewrap the epoch-record docs and say what the tests cover
+OK c57e20723 28s test(node): a start-up re-arm of a certified latest record casts no own vote
+OK cdbf1d16f 35s docs(primary): describe the re-queue order reasons and the drain as they are
+OK 54aa60932 21s test(primary): reword test docs and names left from the removed switches
