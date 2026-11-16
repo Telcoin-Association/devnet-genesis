@@ -97,6 +97,26 @@ DEPLOY_OK = ["HOST_PROBE_SUMMARY kernel=7.0.0 image=20261105 ra_kb=128 uniform=y
 BLAST_OK = ["BENCH_BLAST_DONE index=1", "BENCH_DEPLOY_RESULT rc=0 last_step=15 first_error=- log=x"]
 
 
+SHELLS = ("bash", "sh", "dash", "zsh", "ksh")
+
+
+def driver_executing(fleet_pat, ps_args=None):
+    """True while a fleet driver executes on this host: a driver's name (launch.sh's FLEET_PAT) is the program or
+    the script a shell runs, read from the first two words of each process's arguments (`ps -eo args=`, or
+    ps_args), as tasks/bench6/e2e-lane2.sh's foreign() reads them. A grep, an editor or an agent's shell whose
+    command line only names a driver does not count; `pgrep -f` would count it (it matches the whole line)."""
+    if ps_args is None:
+        ps_args = subprocess.run(["ps", "-eo", "args="], stdout=subprocess.PIPE, universal_newlines=True,
+                                 check=True).stdout
+    for line in ps_args.splitlines():
+        words = [os.path.basename(w) for w in line.split()[:2]]
+        if words and re.fullmatch(fleet_pat, words[0]):
+            return True
+        if len(words) == 2 and words[0].lstrip("-") in SHELLS and re.fullmatch(fleet_pat, words[1]):
+            return True
+    return False
+
+
 class Sandbox(object):
     """A harness-tree stand-in (a git repo), the fakes on PATH, and the fake state directory."""
 
@@ -248,8 +268,8 @@ class TestChainDryAndPreconditions(SandboxCase):
         # its --dry-run output is what the chain reads the run id from. Its pgrep sees the whole host.
         with open(REAL_LAUNCH) as f:
             fleet_pat = re.search(r"^readonly FLEET_PAT='([^']+)'", f.read(), re.M).group(1)
-        if subprocess.run(["pgrep", "-f", "--", fleet_pat], stdout=subprocess.DEVNULL).returncode == 0:
-            self.skipTest("a fleet driver runs on this host: the real launcher's dry run refuses")
+        if driver_executing(fleet_pat):
+            self.skipTest("a fleet driver executes on this host: the real launcher's dry run refuses")
         ldir = os.path.join(self.sb.root, "benchmark", "launch")
         os.makedirs(ldir)
         shutil.copy(REAL_LAUNCH, os.path.join(ldir, "launch.sh"))
@@ -843,6 +863,25 @@ class TestExport(SandboxCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(prom.ranges(), [])
         self.assertNotIn("EXPORT_DONE", out)
+
+
+class TestDriverExecuting(unittest.TestCase):
+    """The plan tests skip only while a driver executes, not while a command line merely names one."""
+
+    def test_only_an_executing_driver_counts(self):
+        with open(REAL_LAUNCH) as f:
+            pat = re.search(r"^readonly FLEET_PAT='([^']+)'", f.read(), re.M).group(1)
+        for args in ("/bin/bash /srv/dg/benchmark/benchmark-blast.sh --run-id r1",
+                     "bash benchmark/run-arms.sh plan.txt", "/srv/dg/benchmark/params-apply.sh --dry-run",
+                     "-bash benchmark/benchmark-deploy.sh"):
+            with self.subTest(args=args):
+                self.assertTrue(driver_executing(pat, "sshd: x\n" + args + "\n"))
+        for args in ("bash -c grep -n x benchmark/benchmark-blast.sh", "grep -n x benchmark/benchmark-blast.sh",
+                     "vim benchmark/run-arms.sh", "shellcheck -S warning benchmark/params-apply.sh",
+                     "python3 -m unittest test_launch", "bash benchmark/benchmark-blast.sh.orig",
+                     "/bin/bash -c sed -n 1,9p benchmark/benchmark-teardown.sh"):
+            with self.subTest(args=args):
+                self.assertFalse(driver_executing(pat, args + "\n"))
 
 
 if __name__ == "__main__":

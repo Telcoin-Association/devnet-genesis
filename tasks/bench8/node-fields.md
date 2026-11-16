@@ -81,7 +81,16 @@ Sample (the 8th of 10): `certificate accepted epoch=0 round=1 origin=<id> round_
 What the proposer does with a late certificate (read at this tip): the parents of the round r+1 header are taken with `std::mem::take(&mut self.last_parents)` (`proposer.rs:1430`) and `self.round` moves up (`:1365`); a round r parent set that arrives after that falls into `process_parents`'s `Ordering::Less` arm (`:932-941`, "ignoring older parents") and is dropped, so no header of that node ever names the late certificate.
 Fix in 453123d5e: a vote that fails the aggregator's signature check is listed under its voter in `vote_errors` with kind `invalid_vote` (it stays in `vote_arrivals` too: the lists only grow).
 
+## The engine's per-output lines (target `engine`, DEBUG) — one new key at the END of each (B8-6: 94ebb2e50, d7d9920eb)
+
+| line | fields before | new key | meaning |
+|---|---|---|---|
+| `output executed` | consensus_number, leader_round, blocks, batches, execute_ms, persist_ms, announce_ms, txs, recover_wait_ms, evm_ms, root_ms, finish_ms, other_ms, max_block_root_ms, max_block_evm_ms | `cpu_ms` (u64, optional) | CPU time of the executing thread over exactly the span of `execute_ms`, from `/proc/thread-self/schedstat` read at both ends (each reading can lag one scheduler tick: 4 ms at HZ=250); not counted: the parallel signer recovery and other pool threads; the key is absent where the file is missing; always 0 on a kernel without scheduler statistics |
+| `persisted output` | first, last, blocks, txs, receipts, accounts, storage_slots, open_ms, save_blocks_ms, markers_ms, commit_ms | `store_bytes` (u64, optional) | pages of the newest committed state × page size, read right after the commit from the node's own tn-lmdb handle (an in-memory read; the high-water mark, free pages included); absent on an MDBX build |
+| `output execution task finished` | consensus_number, queue_wait_ms, task_ms, forward_wait_ms | `outputs_behind` (usize) | outputs still in the engine's queue when this output's task ends (not those still in the channel the engine has not polled) |
+
+Not added, and why: a separate `commit_wait_ms`: `open_ms` on `persisted output` already is the wait for the store's single writer slot (the time inside `database_provider_rw()`); `txs` / `blocks` on the task line: join on `consensus_number`.
+
 ## Still to come
 
-- B8-6: the engine's output lines: `store_bytes`, `outputs_behind`, `cpu_ms`, `commit_wait_ms` (and `txs`, `blocks` where missing).
 - B8-7: `order hold released`, `subdag parent skipped`.

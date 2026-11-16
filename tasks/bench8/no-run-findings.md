@@ -128,6 +128,10 @@ N2 reads the second as travel to and from 02 and 06 acting besides execution [in
 | run C (control repeat) first when F lands between | which validators lag (N1), 7b's twice-7a not-under-held loss (N2) and the far uncommitted share 22.88 / 2.60 % (N5) all rest on one run per form; the always-on pre-kill share has one value (94.00 %) | C keeps its branch; it is also the only planned run that would give a second pre-kill figure of the unchanged always-on configuration, the run-to-run spread no yardstick has now |
 | run 1's light blasts settle the far step through `parents` | no committed near r+1 header named all of round r after 10,524 uncommitted far certificates; the step stays [inferred] until `parents` or a certificate-arrival line names them; a second, skip-rule path exists (N5) | no change; also read the skip path from b8-7's `subdag parent skipped` line (section 6) |
 
+Added by the orchestrator on 2026-11-16, after the summary (source: the harness check of the reduced run's setting, `tasks/checkpoint-bench8-HB8-3a.md` item 1, from `tasks/bench7-report-r20261115-1131.md:206-217`): the plan's setting for run R, 300 senders × window 3, predicts about 4,070 tx/s (4,170-4,400 with the method's bias), below the plan's own void line of 4,500; 300 × 4 predicts about 5,180 (5,300-5,600), and `benchmark/launch/bench8-reduced.env` now carries 300 × 4.
+In flight is senders × window × ten generators, and the rate follows in flight ÷ mean seen latency: blast 0 (8 × 16) 698 / 680 tx/s, light blast 1 (600 × 4) 9,399 / 9,576 tx/s, the load blast (600 × 16) 9,289 / 9,337 tx/s in runs 7a / 7b; so the chain's ceiling is about 9,300-9,600 tx/s, and the load blast delivered no more than light blast 1 did with a quarter of the transactions in flight [measured; one run per setting; the prediction is a two-point interpolation of latency, not a mechanism].
+So "about 9,400 tx/s" in row 5 is the setting 600 × 4, the one light blast 1 already ran.
+
 ## 6. Fields the units asked for, against the bench 8 build
 
 | field asked for | by | covered by | NOT covered |

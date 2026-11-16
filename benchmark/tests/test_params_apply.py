@@ -2293,5 +2293,35 @@ class Bench8ArmTests(ParamsApplyCase):
                          (1, "quorum_exec_block_floor_outputs=8 (expected 16)", ""))
 
 
+    def test_deploy_step_9_reads_a_bench8_line_in_the_node_s_order_back(self):
+        # The bench 8 node logs its count LAST, after digest_order_hold; switches.tsv lists it third. Step 9 reads
+        # by key: the line in the node's order reads back with the count at 16, and with 8 it does not.
+        order = ("quorum_exec_block", "quorum_exec_block_starved_rounds", "epoch_record_recertify",
+                 "epoch_record_collect_past_uncertified", "epoch_record_conflict_halt", "vote_queue_fix",
+                 "digest_order_hold", "quorum_exec_block_floor_outputs")
+        keys = [r["key"] for r in switch_rows(LIVE_TSV)]
+        self.assertEqual(sorted(keys), sorted(order))
+        self.assertNotEqual(keys, list(order))
+        text = (BENCH / "bench-lib.sh").read_text()
+        fns = "".join(re.search(r"(?ms)^%s\(\) \{\n.*?^\}\n" % n, text).group(0) for n in (
+            "_bench_switch_rows", "_bench_switch_norm", "bench_switch_line_values", "bench_switch_readback"))
+        script = 'BENCH_SWITCHES_TSV="$3"\n' + fns + 'bench_switch_readback "$1" "$2"\n'
+        state = {}
+        for l in self.run_tool("--arm-file", str(ARMS / "bench8-floor16.arm"), "--print-state", **LIVE).stdout.splitlines():
+            if l.startswith("ARM_SWITCH "):
+                state[l.split()[1]] = l.split()[3]
+        self.assertEqual(sorted(state), sorted(order))
+
+        def readback(values):
+            line = ('ts=2026-11-16T00:00:00Z level=info target=node::switches message="node switches" '
+                    + " ".join("%s=%s" % (k, values[k]) for k in order))
+            p = subprocess.run(["bash", "-c", script, "readback", json.dumps(state), line, str(LIVE_TSV)],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
+            return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+        self.assertEqual(readback(state), (0, "", ""))
+        self.assertEqual(readback(dict(state, quorum_exec_block_floor_outputs="8")),
+                         (1, "quorum_exec_block_floor_outputs=8 (expected 16)", ""))
+
 if __name__ == "__main__":
     unittest.main()

@@ -487,14 +487,22 @@ Against `bench7-always.env`, each file names its own arm in `BENCH_ARM_FILE`, ho
 | `bench8-control.env` | C | `benchmark/arms/bench8-control.arm` | nothing: bench7-always's switches, with `quorum_exec_block_floor_outputs 8` written out |
 | `bench8-floor16.env` | F | `benchmark/arms/bench8-floor16.arm` | `quorum_exec_block_floor_outputs 16` |
 | `bench8-nohold.env` | H | `benchmark/arms/bench8-nohold.arm` | `digest_order_hold false` |
-| `bench8-reduced.env` | R | `benchmark/arms/bench8-control.arm` | the load blast at `BENCH_SENDERS=300` and `BENCH_WINDOW=3` per generator |
+| `bench8-reduced.env` | R | `benchmark/arms/bench8-control.arm` | the load blast at `BENCH_SENDERS=300` and `BENCH_WINDOW=4` per generator |
 
 The read window is the load blast before the kill.
 The kill falls at a random time in the load blast's mixed phase, no earlier than `BENCH_CHAOS_MIN_LOAD_SECS` and less than 1,200 s after it: with 817, between 817 s and 2,016 s in.
 So every run has at least 817 s before the kill, the length of the stretch `r20261115-1131` had (its kill came 817.1 s into the mixed phase; `r20261115-1653`'s came 1,121.2 s in).
 Every figure names its window and the window's length: the first 817 s, the same in every run and in `r20261115-1131`, or the whole stretch before the kill, which differs from run to run.
 
+With the kill as late as 2,016 s, the validator's restart (300 s after the kill) is still inside the workload: the driver checks that before any blaster exists and refuses otherwise (`benchmark-blast.sh:1986-1994`).
+The observer's restart, 300 s after the validator's, is not checked against the workload's end: in the latest case it runs about 36 s after the workload ends (2,580 s, the mixed phase plus the cooldown), on its planned time.
+That is not a failure, and bench 8 does not read the observer step.
+A run that needs every step inside the workload sets `BENCH_DURATION_SECS=2520`; no bench 8 file does.
+
 Run R is void when its load blast's rate falls outside 4,500-6,500 tx/s; the harness has no pacing option, so the senders and the window are the only levers, and they aim at about 5,300 tx/s.
+The setting follows a prediction from bench 7's three blasts (`tasks/bench7-report-r20261115-1131.md:206-217`): the number in flight is senders × window × ten generators, and the rate is about that number divided by the mean seen latency (1,280 in flight gave 698 / 680 tx/s, 24,000 gave 9,399 / 9,576, and 96,000 gave 9,289 / 9,337, the chain's ceiling).
+With the seen latency interpolated in the rate between the first two blasts, 300 × 3 (9,000 in flight) predicts about 4,070 tx/s (4,170-4,400 with the method's bias), below the void line, and 300 × 4 (12,000 in flight) about 5,180 (5,300-5,600): the file sets `BENCH_WINDOW=4` and keeps `BENCH_SENDERS=300`.
+One run per setting and a two-point interpolation, not a mechanism: the void band is the check.
 Per run, the calls and the idle checks are bench 7's (above), with the arm's values in the switch series.
 
 ## Monitor

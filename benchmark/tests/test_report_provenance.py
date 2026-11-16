@@ -827,6 +827,25 @@ class Bench7SwitchListTests(RunDirCase):
         self.assertEqual((r["switches"]["checked"], r["switches"]["matched"], r["switches"]["pre_arm"]), (4, 4, 2))
         self.assertNotIn("extra", r["switches"])
 
+    def test_a_bench8_line_in_the_node_s_order_is_read_by_key(self):
+        # The bench 8 node logs the count LAST, after digest_order_hold (switches.tsv has it third): read by key,
+        # a line in that order matches an arm with the count at 16, and the same line with 8 does not.
+        order = B7_LINE_ORDER + ["quorum_exec_block_floor_outputs"]
+        self.assertEqual(sorted(order), sorted(B8_KEYS))
+        self.assertNotEqual(order, B8_KEYS)
+        floor16 = dict(B8_ALWAYS, quorum_exec_block_floor_outputs="16")
+        staging = {k: B8_OFF[k] for k in order}
+        scan, m = self.prestart_run(staging, {k: floor16[k] for k in order}, floor16)
+        r = P.check(scan, m)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertEqual(r["switch_list"], "switches.tsv")
+        self.assertEqual((r["switches"]["checked"], r["switches"]["matched"], r["switches"]["pre_arm"]), (4, 4, 2))
+        self.assertNotIn("extra", r["switches"])
+        scan, m = self.prestart_run(staging, {k: B8_ALWAYS[k] for k in order}, floor16)
+        r = P.check(scan, m)
+        self.assertFalse(r["ok"])
+        self.assertTrue(any("quorum_exec_block_floor_outputs" in p for p in r["problems"]), r["problems"])
+
     def test_a_bench7_line_without_a_listed_key_fails(self):
         line = {k: v for k, v in b7_line(B7_ALWAYS).items() if k != "digest_order_hold"}
         scan, m = self.prestart_run(b7_line(B7_OFF), line, B7_ALWAYS)

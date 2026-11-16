@@ -1508,7 +1508,7 @@ class Bench8EnvTests(LaunchBase):
             with self.subTest(form=form):
                 want = dict(base, BENCH_ARM_FILE="benchmark/arms/%s.arm" % arm, BENCH_CHAOS_MIN_LOAD_SECS="817")
                 if form == "reduced":
-                    want.update(BENCH_SENDERS="300", BENCH_WINDOW="3")
+                    want.update(BENCH_SENDERS="300", BENCH_WINDOW="4")
                 self.assertEqual(self.keys(LAUNCH / ("bench8-%s.env" % form)), want)
                 self.assertTrue((BENCH / "arms" / (arm + ".arm")).is_file())
         self.assertRegex((BENCH / "config.sh").read_text(), r"\$\{BENCH_CHAOS_MIN_LOAD_SECS:-600\}")

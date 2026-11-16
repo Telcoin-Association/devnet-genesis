@@ -212,6 +212,31 @@ class TestChainIdleFallback(base.SandboxCase):
         self.assertEqual(rc, 0, out)
         self.assertRegex(out, r"(?m)^CHAIN idle-checks ok .* quorum_exec_block_floor_outputs=16 ")
 
+    def test_the_node_s_order_with_the_count_last_is_read_by_name(self):
+        # The bench 8 node lists quorum_exec_block_floor_outputs LAST, after digest_order_hold (switches.tsv has it
+        # third): its Prometheus series and its own endpoint in that order, the count at 16, pass by name.
+        order = ("quorum_exec_block", "quorum_exec_block_starved_rounds", "epoch_record_recertify",
+                 "epoch_record_collect_past_uncertified", "epoch_record_conflict_halt", "vote_queue_fix",
+                 "digest_order_hold", "quorum_exec_block_floor_outputs")
+        # The bench 8 node's eight, all on (the fixture's own values for on and for the starved rounds), count 16.
+        starved, floor = "quorum_exec_block_starved_rounds", "quorum_exec_block_floor_outputs"
+        sw = dict({k: base.SWITCHES["quorum_exec_block"] for k in order}, **{starved: base.SWITCHES[starved], floor: "16"})
+        g = dict({k: base.GAUGES["quorum_exec_block"] for k in order}, **{starved: base.GAUGES[starved], floor: 16})
+        m = base.manifest(engine="tn-lmdb")
+        m["param_arms"][0]["switches"] = sw
+        p = prom_without(self.NODE)
+        t = p["tn_node_switch"][0]
+        p["tn_node_switch"] = [dict(t, metric=dict(t["metric"], node=n, name=k), value=[t["value"][0], str(g[k])])
+                               for n in sorted({r["metric"]["node"] for r in p["tn_node_switch"]}) for k in order]
+        text = ('tn_node_mode{mode="cvv_active"} 1\n'
+                + "".join('tn_node_switch{name="%s"} %s\n' % (k, g[k]) for k in order))
+        self.arm(p, ssh={self.NODE: text}, m=m)
+        rc, out = self.chain()
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"(?m)^CHAIN idle-check endpoint-fallback need=%s answered=%s failed=- " % (self.NODE, self.NODE))
+        self.assertRegex(out, r"(?m)^CHAIN idle-checks ok round=1 .* up_fallback=%s "
+                              r"quorum_exec_block_floor_outputs=16 " % self.NODE)
+
     def test_a_manifest_without_the_floor_stops(self):
         m = base.manifest(engine="tn-lmdb")
         del m["param_arms"][0]["switches"]["quorum_exec_block_floor_outputs"]
@@ -425,8 +450,8 @@ class TestChainPlanBench8(base.SandboxCase):
             env = os.path.join(base.REPO, "benchmark", "launch", "bench7-always.env")
         with open(base.REAL_LAUNCH) as f:
             fleet_pat = re.search(r"^readonly FLEET_PAT='([^']+)'", f.read(), re.M).group(1)
-        if subprocess.run(["pgrep", "-f", "--", fleet_pat], stdout=subprocess.DEVNULL).returncode == 0:
-            self.skipTest("a fleet driver runs on this host: the real launcher's dry run refuses")
+        if base.driver_executing(fleet_pat):
+            self.skipTest("a fleet driver executes on this host: the real launcher's dry run refuses")
         for d in ("launch", "arms"):
             src = os.path.join(base.REPO, "benchmark", d)
             dst = os.path.join(self.sb.root, "benchmark", d)
@@ -434,27 +459,30 @@ class TestChainPlanBench8(base.SandboxCase):
             for f in os.listdir(src):
                 if os.path.isfile(os.path.join(src, f)) and (d == "arms" or f in ("launch.sh", os.path.basename(env))):
                     shutil.copy(os.path.join(src, f), dst)
+        self.sb.env_file = os.path.join(self.sb.root, "benchmark", "launch", os.path.basename(env))
+        # The launch file's <...> placeholders are filled at the gate: fill them here by the placeholder's name,
+        # keeping what stands before it (`...adiri@sha256:<image-digest>`); the run id is the sandbox's. The fill
+        # comes before the sandbox's commit: the launcher refuses a dirty harness tree.
+        def fill(m):
+            key, pre, name = m.group(1), m.group(2), m.group(3)
+            val = RUN if name == "run-id" else ("a" * 64 if "digest" in name else
+                                                ("a" * 40 if ("sha" in name or "commit" in name) else "x"))
+            return "%s=%s%s" % (key, pre, val)
+        with open(self.sb.env_file) as f:
+            text = re.sub(r"(?m)^([A-Z0-9_]+)=([^<\n]*)<([^>\n]*)>", fill, f.read())
+        self.assertNotRegex(text, r"(?m)^[A-Z0-9_]+=[^\n]*<[^>\n]*>")
+        with open(self.sb.env_file, "w") as f:
+            f.write(text)
         git = ["git", "-C", self.sb.root, "-c", "user.name=hb8", "-c", "user.email=hb8@example.invalid"]
         subprocess.run(git + ["add", "benchmark"], check=True)
         subprocess.run(git + ["commit", "-q", "-m", "sandbox"], check=True)
-        self.sb.env_file = os.path.join(self.sb.root, "benchmark", "launch", os.path.basename(env))
-        # The launch file's <...> placeholders are filled at the gate: fill them here (the run id is the sandbox's).
-        def fill(m):
-            key = m.group(1)
-            val = RUN if key == "BENCH_RUN_ID" else ("sha256:" + "a" * 64 if "DIGEST" in key else
-                                                     ("a" * 40 if ("COMMIT" in key or "SHA" in key) else "x"))
-            return "%s=%s" % (key, val)
-        with open(self.sb.env_file) as f:
-            text = re.sub(r"(?m)^([A-Z0-9_]+)=<[^>\n]*>", fill, f.read())
-        with open(self.sb.env_file, "w") as f:
-            f.write(text)
         rc, out = self.chain(live=False, CHAIN_LAUNCH=os.path.join(self.sb.root, "benchmark", "launch", "launch.sh"),
                              CHAIN_DRIVER_PAT=fleet_pat)
         print("\nPLAN-ENV %s rc=%d\n%s" % (os.path.basename(env), rc, "\n".join(l for l in out.splitlines() if l.startswith("CHAIN ")))[:3000])
         self.assertEqual(rc, 0, out)
         self.assertRegex(out, r"(?m)^CHAIN credentials ok at=preconditions token=ok ")
         self.assertRegex(out, r"(?m)^CHAIN plan step=2b sampler: ")
-        self.assertRegex(out, r"(?m)^CHAIN plan step=3 also: .* read back from every node: quorum_exec_block_floor_outputs$")
+        self.assertRegex(out, r"(?m)^CHAIN plan step=3 also: .* read back from every node: quorum_exec_block_floor_outputs \S+$")
         self.assertIn("CHAIN dry done: nothing was started", out)
 
 
