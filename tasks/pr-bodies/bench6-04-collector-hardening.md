@@ -1,13 +1,12 @@
 ## Summary
 
 The epoch record collector can get past an epoch the network left uncertified, and vote rounds can certify it later (#1850).
-This PR adds both behind two switches, default off: `epoch_record_collect_past_uncertified` (the walk) and `epoch_record_recertify` (re-certification); {{pr-09}}, the last PR of the stack, removes both switches and makes both the node's behaviour, so once the stack is collapsed into #1862 there is no switch.
+This PR adds both behind two switches, default off: `epoch_record_collect_past_uncertified` (the walk) and `epoch_record_recertify` (re-certification); {{pr-09}}, the last PR of the stack, removes both switches and makes both the node's behaviour, so once {{pr-09}} is merged into #1862's branch there is no switch.
 No switch: the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error (#1852), an evidence line and a counter in front of main's stop on a conflicting certified record.
 In this PR's diff one behaviour changes with every switch off: a full vote queue never evicts the rounds of the newest record or the one before it.
 
-PR 5 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1865's branch (`fix/epoch-record-closing-block-check`), so the Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 5 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1865's branch (`fix/epoch-record-closing-block-check`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (27 commits); the stack's base is main at 33b727fce.
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
 
 ## Problem
 
@@ -48,7 +47,7 @@ Hook and e2e: `8b3109ddb`, `64a6de4b5`: `TN_TEST_WITHHOLD_EPOCH_VOTE=<epoch>`, `
 ## The switches, and where they go
 
 This PR adds the walk behind `epoch_record_collect_past_uncertified` and re-certification behind `epoch_record_recertify`, both default off.
-{{pr-09}}, the last PR of the stack, removes both switches and makes both changes the node's behaviour; once the stack is collapsed into #1862 there is no switch.
+{{pr-09}}, the last PR of the stack, removes both switches and makes both changes the node's behaviour; once {{pr-09}} is merged into #1862's branch there is no switch.
 A `parameters.yaml` that still names either key loads, and the key is ignored.
 
 In this PR's diff, with every switch off:
@@ -87,6 +86,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 

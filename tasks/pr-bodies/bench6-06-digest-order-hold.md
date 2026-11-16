@@ -5,11 +5,10 @@ With it on, a validator's next own header leaves queued every digest of a worker
 Header validity, the messages and what peers vote for do not change; the header trigger still counts held digests, so at light load a held backlog can build a header earlier (see Limits).
 Every node, switch on or off, counts digests re-queued out of order, what the orphan re-pool does with each transaction and dropped cancel reports, and logs its own parent on `header proposed`.
 
-{{pr-09}}, the last PR of the stack, removes the switch and makes the hold the node's behaviour; once the stack is collapsed into #1862 there is no switch.
+{{pr-09}}, the last PR of the stack, removes the switch and makes the hold the node's behaviour; once {{pr-09}} is merged into #1862's branch there is no switch.
 
-PR 8 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1868's branch (`fix/1804-quorum-exec-block`), so the Files tab shows this change alone (17 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit', like the rest of the stack.
+PR 8 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1868's branch (`fix/1804-quorum-exec-block`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (17 commits).
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
 
 ## Problem
 
@@ -50,7 +49,7 @@ In this PR's diff, with the switch off, the proposer never consults the hold (`o
 New with it off, in this diff: per-worker digest numbers judged at each re-queue, the five counters above, `out_of_order` on `digests resent`, `own_parent` on `header proposed` with `held`, `held_lanes` and `blockers` at 0, the `proposer stopped` line, and `digest_order_hold=false` on the `node switches` line.
 Only with it on do `tn_primary_headers_held_total` and `tn_primary_digests_held` move, does an out-of-order re-queue log a warning, and is a committed header that returns after its own commit notice left untracked (`proposer.rs:1511`).
 
-{{pr-09}}, the last PR of the stack, removes the switch and the drain without the hold, so once the stack is collapsed into #1862 there is no switch and no off state.
+{{pr-09}}, the last PR of the stack, removes the switch and the drain without the hold, so once {{pr-09}} is merged into #1862's branch there is no switch and no off state.
 A reviewer should read the hold as unconditional: after {{pr-09}} every proposer applies the rule above at every drain, and the limits say what that changes against main.
 
 In this PR's diff a mixed fleet is one chain: the switch changes only which queued digests a node puts into its own header, which no other validator checks.
@@ -110,6 +109,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
 - The order hold's model test's long hunt, `TN_ORDER_HOLD_HUNT_CASES=100000 cargo nextest run --locked -p tn-primary --run-ignored only -E 'test(=order_hold::model::long_hunt_order_hold)'`: 100,000 cases (seed 1223617546), no schedule breaks the rule.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 

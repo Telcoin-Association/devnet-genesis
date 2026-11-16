@@ -4,11 +4,10 @@ Adds a fix for the voter's side of #1804 behind the runtime switch `vote_queue_f
 With it on, a voter waits for execution (up to 1 s) before the per-author vote lock instead of under it, so one author's queued requests stop waiting a second each in turn.
 The voter also refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty), and the node needs `vote_timeout` below 9 s.
 Every node, switch on or off, counts vote requests by outcome.
-{{pr-09}}, the last PR of the stack, removes the switch and makes the change the node's behaviour: once the stack is collapsed into #1862 there is no switch, every voter waits before the lock, and a node starts only with `vote_timeout` below 9 s.
+{{pr-09}}, the last PR of the stack, removes the switch and makes the change the node's behaviour: once {{pr-09}} is merged into #1862's branch there is no switch, every voter waits before the lock, and a node starts only with `vote_timeout` below 9 s.
 
-PR 3 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1863's branch (`test/bench6-e2e-scaffold`), so the Files tab shows this change alone (10 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 3 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1863's branch (`test/bench6-e2e-scaffold`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (10 commits).
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
 
 ## Problem
 
@@ -45,7 +44,7 @@ In this PR's diff, with the switch off, every vote decision is main's.
 New with it off: an empty per-author map, three reads of the switch per request and one at epoch start, `tn_primary_vote_outcomes_total{outcome}` (ten series), `prelock_wait_ms=0` on the debug `vote path timing` line, an unused `prelock_wait` label on `tn_primary_vote_stage_seconds` and `tn_primary_vote_timeouts_total`, and `vote_queue_fix=false` on the `node switches` line.
 
 {{pr-09}}, the last PR of the stack, removes the switch and with it the switch-off path, the wait for execution under the author lock.
-After it, every voter waits for the execution block a header names before the author lock, at most 1 s, and refuses a request that a newer request of the same author has superseded; once the stack is collapsed into #1862 there is no switch.
+After it, every voter waits for the execution block a header names before the author lock, at most 1 s, and refuses a request that a newer request of the same author has superseded; once {{pr-09}} is merged into #1862's branch there is no switch.
 {{pr-09}} also deletes this PR's switch-off tests, among them the first commit's test that pins main's wait in turn.
 So review the change as unconditional: what speaks for it is no longer the off state but the on arm, that is the unit tests under Testing, the stack-wide gates below run with the six switches on, `make test-upgrade` with main at 33b727fce as the previous binary among them, and the bench 6 and bench 7 runs that ran this switch on.
 The rolling-upgrade test ran beside main, not beside `v0.17.0-adiri`.
@@ -78,6 +77,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 

@@ -7,9 +7,8 @@ A test that passes no override, with the variable unset, starts its nodes as on 
 The stack added the scaffold to test its switches on part of a fleet; {{pr-09}}, the last PR of the stack, removes the switches and keeps the scaffold.
 After it, the stack's later e2e tests pass test hook variables and cadence parameters (header and batch delays) through `NodeOverrides` and `FleetOverrides`; no test sets `TN_E2E_PARAMETERS`, but a lane can still run a whole test set with a parameter set from outside.
 
-PR 2 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1862's branch (`feat/bench6-switches-obs`), so the Files tab shows this change alone (8 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 2 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1862's branch (`feat/bench6-switches-obs`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (8 commits).
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
 
 ## Problem
 
@@ -83,6 +82,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 

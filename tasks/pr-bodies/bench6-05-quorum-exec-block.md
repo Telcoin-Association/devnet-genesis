@@ -6,14 +6,13 @@ With the count left at `0` every header uses the rule: this always-on form is th
 A count K above zero selects the adaptive form, kept for comparison: the own tip, and the rule only for the next K headers built after an own header was cancelled uncertified, K doubling up to 128 while cancels go on and returning to the configured value after 64 certified tip headers in a row.
 Every node, switch on or off, logs four new fields on `header proposed`.
 
-{{pr-09}}, the last PR of the stack, removes both switches and makes the always-on form the node's behaviour; once the stack is collapsed into #1862 there is no switch.
+{{pr-09}}, the last PR of the stack, removes both switches and makes the always-on form the node's behaviour; once {{pr-09}} is merged into #1862's branch there is no switch.
 {{pr-09}} also deletes the adaptive form: its window, its reset streak, its two constants (the 128-header cap and the 64-header streak) and their tests.
 The adaptive form is deleted because the review of the stack chose always-on as the only form that ships, and because of bench 7: it ran one run of each form at 20,000 IOPS, and in that pair the adaptive form did not do better (in the table below three rows are not told apart, and on the two rows outside the always-on run's spread the adaptive run is behind); bench 7 made no run at 50,000 IOPS, where bench 6 had the adaptive form ahead on certification.
 The adaptive form also carries code the always-on form does not need: a window, a streak and two constants.
 
-PR 7 of 9 in the stack #1862 to {{pr-09}}; #1862 targets `main`, this PR targets #1867's branch (`fix/epoch-loop-output-drop`), so the Files tab shows this change alone (18 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 7 of 9 in the stack #1862 to {{pr-09}}; it was merged into #1867's branch (`fix/epoch-loop-output-drop`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (18 commits).
+#1862 now holds the stack's eight changes and targets `main`; {{pr-09}} targets #1862's branch and removes the switches; once it is merged, `main` is merged into that branch and `make attest` runs on the result.
 
 ## Problem
 
@@ -72,7 +71,7 @@ In this PR's diff, with the switch off, every header names the block from the ca
 New with it off, in this diff: two reads of the switches when each epoch's proposer is built, with a warning only for a count above zero (`proposer.rs:305-318`); per header, policy bookkeeping that returns at once; the fields `exec_block`, `exec_tip`, `exec_basis` and `exec_policy` (`off`) on `header proposed` (`proposer.rs:478-481`); and the two switches on the `node switches` line.
 `parameters.yaml` is unchanged at the defaults.
 
-{{pr-09}}, the last PR of the stack, removes both switches and the adaptive form, so once the stack is collapsed into #1862 there is no switch and no off state.
+{{pr-09}}, the last PR of the stack, removes both switches and the adaptive form, so once {{pr-09}} is merged into #1862's branch there is no switch and no off state.
 A reviewer should read the rule as unconditional: after {{pr-09}} every header of every node names the block `choose_exec_block` picks under the quorum rule with the floor of 8.
 
 In this PR's diff a mixed fleet is one chain: the switch changes only a header's `latest_execution_block` (and so its digest), votes, certificates and batches are unchanged, and the voter never reads the switch.
@@ -107,6 +106,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 

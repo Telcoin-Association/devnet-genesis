@@ -2,12 +2,34 @@
 
 Adds three measurements the benchmark reads, and the list the later PRs of this stack put their runtime switches into, with a `node switches` log line and a `tn_node_switch` gauge that show them.
 {{pr-09}}, the last PR of the stack, removes the switch list, the line and the gauge again, together with the six switches the later PRs add, and makes each change behind those switches the node's behaviour.
-So once the stack is collapsed into #1862, `main` receives the three measurements and the stack's fixes, and none of the switch machinery.
+So once {{pr-09}} is merged into this PR's branch, `main` receives from this PR the three measurements and the stack's fixes, and none of the switch machinery.
 In this PR's diff a switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
-This PR alone defines no switch and changes nothing a node sends, accepts, decides or stores; the collapsed #1862 carries the later PRs' behaviour changes to `main`.
+This PR's own twelve commits define no switch and change nothing a node sends, accepts, decides or stores; since the collapse this PR also carries the later PRs' behaviour changes to `main`.
 
-PR 1 of 9 in the stack #1862 to {{pr-09}}; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
+PR 1 of 9 in the stack #1862 to {{pr-09}}; this PR targets `main` (its base is main at 33b727fce).
+#1863 to #1869 were merged into its branch on 2026-11-16, so its Files tab now shows all eight changes; each merged PR's page shows its own change alone, and the sections from Problem on describe this PR's own twelve commits.
+{{pr-09}} targets this PR's branch and removes the switches; once it is merged, `main` is merged into this branch and `make attest` runs on the result.
+
+## What this PR holds since the collapse
+
+Its own change is described from Problem on.
+The seven merged PRs, each described in full in its own text:
+- #1863 (`test/bench6-e2e-scaffold`): an e2e test can give chosen nodes their own `parameters.yaml` entries and environment (`NodeOverrides`, `FleetOverrides`), and a test lane can set fleet-wide entries through `TN_E2E_PARAMETERS`.
+  Test code only; the node log helpers of `restarts.rs` move to `common.rs`.
+- #1864 (`fix/1804-vote-queue`): a voter waits for the execution block a header names, up to 1 s, before the per-author vote lock instead of under it, and refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty).
+  A node needs `vote_timeout` below 9 s to start, and every node counts vote requests by outcome.
+- #1865 (`fix/epoch-record-closing-block-check`): before a node saves, votes on or publishes an epoch record, it checks that the record's `final_state` is the block where the epoch-closing calls ran.
+  A failing block stops the node.
+- #1866 (`fix/epoch-record-collector-hardening`): the record collector walks past an epoch this node holds only as its own uncertified record, and vote rounds keep verified signatures across rounds and re-vote one older uncertified record of the node's own.
+  Also the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error, and a vote queue that never evicts the rounds of the newest record or the one before it.
+- #1867 (`fix/epoch-loop-output-drop`): the epoch loop reserves room in the engine channel before it takes a consensus output, so an exit that pre-empts the forward no longer drops the output.
+  The leftover drain skips an output already forwarded and stops the node on a gap, before the engine executes past it.
+- #1868 (`fix/1804-quorum-exec-block`): a header names the highest execution block that holders of 2f+1 voting weight, among the proposer's own tip and its same-epoch parents, have reached, capped at the own tip and never older than 8 entries back in the recent-blocks ring.
+  `header proposed` logs `exec_block`, `exec_tip` and `exec_basis`, and the epoch-close e2e tests check every record against its closing block on chain.
+- #1869 (`fix/1807-digest-order-hold`): a validator's next own header leaves queued every digest of a worker named in an older own header that the new header's parents do not prove to be on its own chain, until that older header commits, is canceled or re-queued, or the epoch ends.
+  Header validity, the messages and what peers vote for do not change; every node counts digests re-queued out of order.
+- {{pr-09}} (`refactor/remove-bench-switches`, open, targets this branch): removes the six runtime switches the stack added (`vote_queue_fix`, `epoch_record_collect_past_uncertified`, `epoch_record_recertify`, `quorum_exec_block`, `quorum_exec_block_starved_rounds`, `digest_order_hold`), the switch list, the `node switches` log line and the `tn_node_switch` gauge.
+  Each change that sat behind a switch becomes the node's behaviour; of the two forms of #1868's rule only always-on is kept, and `Parameters` has main's fields and defaults again.
 
 ## Problem
 
@@ -102,6 +124,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
 - Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- The stack's top is now {{pr-09}}, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
