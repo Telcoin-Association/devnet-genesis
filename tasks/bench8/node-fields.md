@@ -9,20 +9,20 @@ An authority is always rendered as its full base58 `AuthorityIdentifier` (about 
 - `quorum_exec_block_floor_outputs`: `u64`, flat `Parameters` field, default 8, left out of a written `parameters.yaml` at 8.
 - Listed LAST in `runtime_switches!`: the `node switches` line ends with `quorum_exec_block_floor_outputs=<n>`; the gauge `tn_node_switch{name="quorum_exec_block_floor_outputs"}` carries the count.
 - Read once in `Proposer::new`; the proposer names, under the rule, the quorum value floored at the ring entry that many block-bearing outputs back from its own tip (or the oldest entry of a shorter ring).
-- Start-up refusal (`Parameters::validate_operational_floors`): outside `1..=gc_depth`: `quorum_exec_block_floor_outputs {v} must be at least 1 and at most the {gc_depth} entries of the recent-blocks ring (gc_depth)`. The ring is built with `gc_depth` entries (`crates/node/src/manager/node.rs:800`).
+- Refused when each epoch's consensus config is built (`Parameters::validate_operational_floors`, reached from `configure_consensus`, `start_epoch.rs:452` → `ConsensusConfig::new_for_epoch`), so a bad value stops the node at its first epoch start: outside `1..=gc_depth`: `quorum_exec_block_floor_outputs {v} must be at least 1 and at most the {gc_depth} entries of the recent-blocks ring (gc_depth)`. The ring is built with `gc_depth` entries (`crates/node/src/manager/node.rs:800`). A floor equal to `gc_depth` names the oldest entry of a full ring, `gc_depth`-1 back.
 - Proposer-side only: no voter code reads it. A restored voter gets no new refusal from an honest proposer.
-- At 8 the header payloads equal 91a15e223's (golden table of 20 rows on 4 rings; at 16 exactly 8 rows differ).
+- At 8 the named execution block equals 91a15e223's on all 20 golden rows (4 rings), and every other header byte is built by unchanged code; at 16 exactly 8 rows differ.
 
 ## `header proposed` (target `consensus::metrics`, INFO) — appended after `blockers`, in this order (B8-1b: 1f87d7860)
 
 | field | type | meaning |
 |---|---|---|
-| `exec_quorum` | u64, block number | the highest number the own tip and the counted parents, holding at least a quorum of power, reached; BEFORE the cap at the own tip, the floor and the opening-block bound, so it can be above `exec_tip`; 0 when the rule did not run (`exec_policy=off`, the tip policy outside a window, an empty ring) or the usable power is short of a quorum |
-| `exec_floor` | u64, block number | the ring entry `quorum_exec_block_floor_outputs` back from the tip (the oldest entry of a shorter ring); on every header under the rule; 0 when the rule did not run |
+| `exec_quorum` | u64, block number | the highest number the own tip and the counted parents, holding at least a quorum of power, reached; after the parent filters (another epoch, round 0, below the epoch's opening block, the own certificate, a repeated author) and BEFORE the cap at the own tip, the floor and the final opening-block bound, so it can be above `exec_tip`; 0 when the rule did not run (`exec_policy=off`, the tip policy outside a window, an empty ring) or the usable power is short of a quorum |
+| `exec_floor` | u64, block number | the ring entry `quorum_exec_block_floor_outputs` back from the tip (the oldest entry of a shorter ring); on every header under the rule; 0 when the rule did not run; it may lie below the epoch's opening block (and below `exec_block`) during an epoch's first `quorum_exec_block_floor_outputs` block-bearing outputs, and is then never named |
 | `parents` | list | the authors of the parent certificates the header names; one per parent (= `num_parents`) |
 | `pending_unheld` | usize, digests | `pending_before` minus `held` (digests the order hold did not keep back); equals `pending_before` with the hold off |
 
-Sample tail: `… held=1 held_lanes=1 blockers=1 exec_quorum=0 exec_floor=0 parents=[7TcAuZ…3fZL,C7mwJb…9k2t,HPRfph…fFP9] pending_unheld=1`
+Sample tail (authorities abbreviated here; the node logs the full base58, about 44 characters): `… held=1 held_lanes=1 blockers=1 exec_quorum=0 exec_floor=0 parents=[7TcAuZ…3fZL,C7mwJb…9k2t,HPRfph…fFP9] pending_unheld=1`
 
 ## `vote path timing` (target `primary::network`, DEBUG) — appended after `total_ms`, in this order (B8-2: fbea152d4; B8-2b: 42f9bdb32, 5a81a11f5)
 
@@ -115,3 +115,6 @@ Rate: at most one line per two rounds per node (about 1.25 a second at bench loa
 ## Reviewed
 
 The side chain (`b8/side`, 91a15e223..d7d9920eb) was reviewed on 2026-11-16 by a reader that did not write it (`tasks/bench8/review/b8-side-chain.md`): approve with follow-ups, no Critical or High, one Medium (the meaning of `exec_deficit_open`, corrected above) and nine Lows (test strength; an empty ring logs tip 0). With every parameter at its default no decision, send, stored value or error differs from 91a15e223. The line that grows most is `vote path timing`: about 150 bytes more per line, about 3.3 kB per second per node at DEBUG.
+
+The main chain's first three commits (the parameter and the `header proposed` fields: 77d7909c1, 19074c301, 1f87d7860) were reviewed on 2026-11-16 (`tasks/bench8/review/b8-main-chain-1.md`): approve with follow-ups, no Critical, High or Medium, seven Lows. At floor 8 a header comes out exactly as on 91a15e223; the moved floor read cannot change the choice; the final raise to the opening block cannot be reached at any floor; no code outside the proposer reads the floor.
+What a run at floor 16 exercises: only headers under the rule whose quorum value lies 9 to 16 ring entries below the proposer's tip (they name the quorum value, `exec_basis=quorum`, where they named the entry 8 back), and headers whose quorum value is deeper than 16 (they name the entry 16 back). It does not exercise: round 1 of an epoch (the header names the own tip), any voter-side change (there is none), a short ring (only on a node that restarts during the run). About 510 bytes more per `header proposed` line (about 1.3 kB per second per node).
