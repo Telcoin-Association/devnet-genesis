@@ -72,7 +72,19 @@ What the removal loses: the "switch off equals main" tests and the mixed-switch 
 - Two reworked tests feed the proposer a cancel report for a header that the next header cites, an input the certifier never sends; they are kept because the lane numbers, the prepend order and the out-of-order counter are bookkeeping driven by the reports alone, and one of them is the only test that makes the `canceled` cause non-zero. Their docs say so.
 - After R4 the switch list is empty: the `node switches` line reads `node switches` with no fields until R5 removes it.
 
-## R5 — to be added as it reports
+## R5 — the switch machinery (1d41981dd e2e, e8dfcce10 node, 57a55b221 config; review running)
+
+- Gone from #1862: the `runtime_switches!` macro and its list, `Parameters::switches()`, `Parameters::log_switches()`, `SwitchValue`, `Parameters::switch_at_default` (no field used it); the node's start-up line and the gauge. 38 lines added, 748 deleted.
+- Removed log output, verbatim: the INFO line with target `node::switches` and message `node switches`, which carried one `<yaml key>=<value>` field per switch (`true` / `false`, a count, or a duration). Removed metric: the gauge `tn_node_switch` with the label `name` (the switch's YAML key; value 0 / 1, a count, or milliseconds).
+- Kept from #1862: the epoch-entry gauge, the digest-receipt fix, the histogram buckets and the other observability of that PR.
+- Deleted tests: config `switches_list_every_switch_field`, `switch_values_render_as_their_yaml`, `switch_value_display_and_gauge`, `switch_value_kind_follows_the_field_type`, `absent_switch_keys_load_the_defaults`, `switch_at_default_is_not_written`, `chain_presets_leave_every_switch_at_its_default`, `node_switches_line_renders_yaml_tokens`; node `test_node_switch_gauge_per_switch`. Kept: `unknown_keys_are_ignored` (a file that names a removed key still loads), `reserializing_keeps_the_existing_keys`.
+- e2e: `STACK_SWITCHES_ON`, `STACK_SWITCHES_OFF`, `expected_switches`, `assert_switches` and their helpers are gone from `fleet.rs`; no e2e test was deleted. The tests no longer wait for a node's start-up line; each call site is followed by a wait that tolerates a node that is not up yet (an RPC poll or a log wait with a timeout). A node that never starts now fails at that later wait.
+- #1863's e2e scaffold (`NodeOverrides`, `FleetOverrides`, `TN_E2E_PARAMETERS`) stays and is still used: five tests pass non-empty overrides through it (test hook variables: execution delay, own-certificate delay, withheld epoch votes, exit before the epoch record; and the header cadence parameters). No test sets `TN_E2E_PARAMETERS`; the harness reads it, so a whole test set can still be run with a parameter set from outside.
+- After the whole removal, none of the six names is left in `crates/` or `docs/` (the e2e module file `digest_order_hold.rs` keeps its name).
+
+## The branch
+
+`refactor/remove-bench-switches`: 500e21afa + 12 commits (a5be61615, b67c0acdd, d2b80ced5, adecca691, 6a7c3d7c5, a242a3b4a, de075ab78, dd21a50ef, 726a25f1b, 1d41981dd, e8dfcce10, 57a55b221), to be followed by the review follow-ups and, if it works, one e2e test in `upgrade.rs`.
 
 ## Gates on the top — to be added
 
