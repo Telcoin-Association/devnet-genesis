@@ -29,7 +29,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [x] 1e repo sweep: small records committed, the three devnet-launch lessons copied into `tasks/lessons.md`, devnet-genesis `main` pushed; inventory re-run
 
 ## Step 2 — the ninth PR `refactor/remove-bench-switches` (worktree `tn-b8-uc`, from 500e21afa)
-- [ ] R1 records (walk, kept votes: switches and off-arm tests removed) · review
+- [x] R1 records (walk, kept votes: switches and off-arm tests removed): a5be61615, b67c0acdd · review of the first approved (two Lows); review of the second running
 - [ ] R2 `vote_queue_fix` (off branch, wrappers, 7 `_off` twins; `vote_timeout` < 9 s always enforced) · review
 - [ ] R3 always-on only (`quorum_exec_block`, `quorum_exec_block_starved_rounds`, window and streak state, adaptive tests, off/adaptive e2e arms, mixed-switch fleet) · review
 - [ ] R4 the hold (`Option` around `OwnChainOrder`, off drain branch, golden off test, no-hold control) · review
