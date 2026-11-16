@@ -39,11 +39,11 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [x] (2026-11-16: #1873, on `feat/bench6-switches-obs` because the owner had collapsed the stack; tip 54aa60932, 20 commits) PR text (opus, `human-writing`, limits section) · figure-check · branch pushed · ninth PR opened on `fix/1807-digest-order-hold`
 
 ## Step 3 — PR bodies, second pass
-- [ ] #1862, #1864, #1866, #1868, #1869: switch statements rewritten; #1868 says the adaptive form is deleted and why
-- [ ] closing keywords moved to #1862 (`Fixes` only where every point of the issue is met, else `Refs`)
-- [ ] every body has "Limits and what a reviewer should look at"
-- [ ] proposed squash title and message for #1862
-- [ ] stale-phrase check, figure-check of every changed sentence, posted, live sha256 = file
+- [x] #1862, #1864, #1866, #1868, #1869: switch statements rewritten; #1868 says the adaptive form is deleted and why
+- [x] closing keywords moved to #1862 (`Fixes` only where every point of the issue is met, else `Refs`)
+- [x] every body has "Limits and what a reviewer should look at"
+- [x] proposed squash title and message for #1862
+- [x] (2026-11-16T20:01Z, after the collapse; `tasks/pr-bodies/bench6-squash-1862.md` is the proposed squash text) stale-phrase check, figure-check of every changed sentence, posted, live sha256 = file
 
 ## Step 4 — collapse, `main`, attest
 - [ ] pre-flight on the trial merge of the new top with `main`: CI lanes, ignored `tn-lmdb` tests, ignored e2e suite, `make test-e2e-reth-migration`, `make test-e2e-resync`; conflict resolutions kept as notes
