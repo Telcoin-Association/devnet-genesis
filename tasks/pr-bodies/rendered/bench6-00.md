@@ -1,16 +1,43 @@
 ## Summary
 
-Adds the list the later PRs of this stack put their runtime switches into, a `node switches` log line and `tn_node_switch` gauge that show them, and three measurements the benchmark reads.
-A switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
-No switch is defined here, and nothing a node sends, accepts, decides or stores changes.
+Adds three measurements the benchmark reads, and the list the later PRs of this stack put their runtime switches into, with a `node switches` log line and a `tn_node_switch` gauge that show them.
+#1873, the last PR of the stack, removes the switch list, the line and the gauge again, together with the six switches the later PRs add, and makes each change behind those switches the node's behaviour.
+So once #1873 is merged into this PR's branch, `main` receives from this PR the three measurements and the stack's fixes, and none of the switch machinery.
+In this PR's diff a switch is a top-level `parameters.yaml` key whose default is main's behaviour; at its default it is not written, so written files stay as on main.
+This PR's own twelve commits define no switch and change nothing a node sends, accepts, decides or stores; since the collapse this PR also carries the later PRs' behaviour changes to `main`.
 
-PR 1 of 8 in the stack #1862 to #1869; this PR targets `main` (its base is main at 33b727fce), and each later PR targets the branch of the one before it, so every Files tab shows one change alone (12 commits here).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
+PR 1 of 9 in the stack #1862 to #1873; this PR targets `main` (its base is main at 33b727fce).
+#1863 to #1869 were merged into its branch on 2026-11-16, so its Files tab now shows all eight changes; each merged PR's page shows its own change alone, and the sections from Problem on describe this PR's own twelve commits.
+#1873 targets this PR's branch, removes the switches and carries the merge of `main` at f25a74eb7; once it is merged, this PR no longer conflicts with `main`, and `make attest` runs on the result.
+
+## What this PR holds since the collapse
+
+Its own change is described from Problem on.
+The seven merged PRs, each described in full in its own text:
+- #1863 (`test/bench6-e2e-scaffold`): an e2e test can give chosen nodes their own `parameters.yaml` entries and environment (`NodeOverrides`, `FleetOverrides`), and a test lane can set fleet-wide entries through `TN_E2E_PARAMETERS`.
+  Test code only; the node log helpers of `restarts.rs` move to `common.rs`.
+- #1864 (`fix/1804-vote-queue`): a voter waits for the execution block a header names, up to 1 s, before the per-author vote lock instead of under it, and refuses at once a request older than that author's newest (`SupersededRequest`, recoverable, no penalty).
+  A node needs `vote_timeout` below 9 s to start, and every node counts vote requests by outcome.
+- #1865 (`fix/epoch-record-closing-block-check`): before a node saves, votes on or publishes an epoch record, it checks that the record's `final_state` is the block where the epoch-closing calls ran.
+  A failing block stops the node.
+- #1866 (`fix/epoch-record-collector-hardening`): the record collector walks past an epoch this node holds only as its own uncertified record, and vote rounds keep verified signatures across rounds and re-vote one older uncertified record of the node's own.
+  Also the serving peer on `retrieved cert` lines, the gauge `tn_state_sync.epoch_records_certified_through`, an info line for a false quorum error, and a vote queue that never evicts the rounds of the newest record or the one before it.
+- #1867 (`fix/epoch-loop-output-drop`): the epoch loop reserves room in the engine channel before it takes a consensus output, so an exit that pre-empts the forward no longer drops the output.
+  The leftover drain skips an output already forwarded and stops the node on a gap, before the engine executes past it.
+- #1868 (`fix/1804-quorum-exec-block`): a header names the highest execution block that holders of 2f+1 voting weight, among the proposer's own tip and its same-epoch parents, have reached, capped at the own tip and never older than 8 entries back in the recent-blocks ring.
+  `header proposed` logs `exec_block`, `exec_tip` and `exec_basis`, and the epoch-close e2e tests check every record against its closing block on chain.
+- #1869 (`fix/1807-digest-order-hold`): a validator's next own header leaves queued every digest of a worker named in an older own header that the new header's parents do not prove to be on its own chain, until that older header commits, is canceled or re-queued, or the epoch ends.
+  Header validity, the messages and what peers vote for do not change; every node counts digests re-queued out of order.
+- #1873 (`refactor/remove-bench-switches`, open, targets this branch): removes the six runtime switches the stack added (`vote_queue_fix`, `epoch_record_collect_past_uncertified`, `epoch_record_recertify`, `quorum_exec_block`, `quorum_exec_block_starved_rounds`, `digest_order_hold`), the switch list, the `node switches` log line and the `tn_node_switch` gauge.
+  Each change that sat behind a switch becomes the node's behaviour; of the two forms of #1868's rule only always-on is kept, and `Parameters` has main's fields and defaults again.
 
 ## Problem
 
 Four benchmark runs of the node (bench 6: [r20261113-1351](https://benchmark.telcoin.network/runs/r20261113-1351/), [r20261113-1630](https://benchmark.telcoin.network/runs/r20261113-1630/), [r20261113-2118](https://benchmark.telcoin.network/runs/r20261113-2118/), [r20261114-0000](https://benchmark.telcoin.network/runs/r20261114-0000/)) tested fixes behind runtime switches.
-This stack carries what carries to main: each behaviour change behind a switch whose default is main's behaviour, except the closing-block check, the epoch-loop fix and one eviction rule of the collector hardening, which have none; the vote fix and the order hold wait for the next benchmark.
+This stack carries what carries to main.
+In the PRs' own diffs each behaviour change sits behind a switch whose default is main's behaviour, except the closing-block check, the epoch-loop fix and one eviction rule of the collector hardening, which have none.
+Bench 7 ran the node logic of the author-side vote fix (#1868) and the order hold (#1869) on the stack's earlier cut on main at 45dce8947, once per form of the vote fix: always-on in [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/), adaptive in [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/); #1868 and #1869 report the results.
+#1873 then removes the six switches, so each fix is the node's behaviour, and of the two forms of #1868's fix it keeps only always-on.
 
 On main at 33b727fce, `Parameters` (`crates/config/src/node.rs:273-274`) does not deny unknown fields, so a mistyped switch key is ignored without an error and nothing shows which arm a node runs.
 A plain new field would also be written into every ceremony's `parameters.yaml` and the next regenerated mainnet preset.
@@ -24,6 +51,9 @@ Three measurements were missing on main:
   In r20261107-1504 one validator entered an epoch about one round inside it.
 
 ## Change
+
+Four of the twelve commits build the switch list, the `node switches` line and the `tn_node_switch` gauge (`8bbc4a009`, `d1cd20992`, `8093e1030`, `676692c6c`); #1873 removes what they add, with their tests, except two tests of `8bbc4a009` that pin main's parsing and stay: `reserializing_keeps_the_existing_keys` and `unknown_keys_are_ignored`.
+The other eight, the observability, stay.
 
 - `8bbc4a009` feat(config): list the runtime switches in Parameters.
   `runtime_switches!` generates `Parameters::switches()` from one list of field names; a topic adds its field, default and entry between marker lines.
@@ -53,20 +83,23 @@ Three measurements were missing on main:
 
 ## What changes for every node
 
-There is no switch, so all of this runs everywhere; none of it touches a header, vote, certificate, batch, database write or decision.
+This PR's own twelve commits define no switch, so all of this runs everywhere; none of it touches a header, vote, certificate, batch, database write or decision.
 - `Parameters` keeps main's fields, serde attributes and `Default` (only comments added): every existing `parameters.yaml` reads the same, and a written one is byte-identical.
-- At start: the bare `node switches` line; `tn_node_switch` has no series yet.
+- At start, in this PR's diff: the bare `node switches` line, and `tn_node_switch` has no series yet; after #1873 neither exists.
 - Each `RequestHandler::new`, and `behind_consensus` for a verified next-epoch certificate only, take a `parking_lot` mutex for a compare and a gauge set, never across an `.await`.
 - The proposer reads one `Instant::now()` per header and keeps a stamp map filled only from its own worker's digests, dropped with the proposer at each epoch.
   `header proposed` gains `oldest_requeue_wait_ms` between `requeued` and `pending_before`.
 - `tn_primary_digest_wait_seconds` keeps its name and measures from the first receipt.
 - The ten histograms gain `le` 0.0001, 0.00025, 0.0005, 0.001 and 0.0025; no metric name or label changes.
 
-A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this head and one on main exchange identical messages.
+A mixed fleet is one chain: `Parameters` is never sent, hashed or encoded, and the stamps never reach a header, so a node on this PR's own twelve commits and one on main exchange identical messages.
+The collapsed stack does change what a node sends and decides, and no switch turns that off after #1873: a reviewer checks the later PRs' changes as unconditional.
+For a fleet of old and new binaries the evidence is the rolling-upgrade test with main as the previous binary, which ran on the full stack with every switch off and with the six on (below), the author's rule there in its adaptive form, which #1873 deletes; #1868's limits say what that test does not cover; no test of it is added (see the limits of #1873).
 
 ## Testing
 
 Pinned by `switch_at_default_is_not_written`, `reserializing_keeps_the_existing_keys` (the mainnet and adiri presets round-trip), `node_switches_line_renders_yaml_tokens`, `test_engine_stage_histograms_render_sub_ms_buckets`, `epoch_entry_gauge_records_rounds_behind` and `test_requeued_digest_reports_its_wait_from_first_receipt`.
+#1873 deletes `switch_at_default_is_not_written` and `node_switches_line_renders_yaml_tokens` with the code they pin; the other four stay.
 
 On main at 33b727fce, at `17327280d` (the tip of `fix/1804-vote-queue`, #1864, which contains this head's twelve commits):
 - `cargo check --locked --workspace --all-targets`, warnings denied: clean.
@@ -78,7 +111,7 @@ On the stack's earlier cut on main at 45dce8947 (the same twelve commits before 
 - On its first nine commits, `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-metrics`: 1,207 passed.
 
 Not run: e2e tests (none added) and a fleet.
-Bench 6 ran its own versions of these commits on a base older than #1834; this form has not run on a fleet.
+Bench 6 ran its own versions of these commits on a base older than #1834; bench 7 ran the earlier cut at 45dce8947 (see Problem), and this head has not run on a fleet.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -90,14 +123,18 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in #1873's branch, against main at f25a74eb7.
+- The stack's top is now #1873, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
-- No switch yet: the line is bare.
-  The first switch comes with `fix/1804-vote-queue`.
+- In this PR's diff no switch is defined, so the line is bare; the first switch comes with #1864.
+  #1873 removes the list, the line and the gauge with the six switches, so the collapsed #1862 brings none of them to `main`.
 - Every new `Parameters` field fails `switches_list_every_switch_field` until it is listed; the test cannot tell a behaviour switch filed under `NON_SWITCH_KEYS`, so a reviewer of any addition there has to.
+  This holds only inside the stack: #1873 deletes the test with the list.
 - An unknown key is still ignored without a warning, as on main (now pinned by `unknown_keys_are_ignored`).
+  After #1873 this covers the six removed keys: a `parameters.yaml` that still names one loads, and the key is ignored.
+- After #1873, `Parameters` has the same fields and `Default` values as `main` at 0554efd4f, so the collapsed stack adds no parameter.
 - `tn_primary_digest_wait_seconds` changed meaning without a rename; on the ten stage histograms a `rate()` window spanning the upgrade sees the five new `le` series start at zero.
 - The epoch-entry gauge can read a few rounds high on a demoting epoch; nothing depends on it.
 
@@ -105,9 +142,19 @@ No fix is pending before merge.
 
 ## Related
 
-Refs #1806: the epoch-entry gauge measures how late a member enters an epoch.
-Refs #1819: its digest-wait histogram now counts across re-queues.
-Stacked on this: #1863 (`test/bench6-e2e-scaffold`), #1864 (`fix/1804-vote-queue`, `vote_queue_fix`), #1865 (`fix/epoch-record-closing-block-check`, no switch), #1866 (`fix/epoch-record-collector-hardening`, two switches), #1867 (`fix/epoch-loop-output-drop`, no switch), #1868 (`fix/1804-quorum-exec-block`) and #1869 (`fix/1807-digest-order-hold`).
+Only this PR of the stack merges into `main`, so this list closes the stack's issues.
+Fixes #1851: the closing-block check (#1865); its e2e verification, the markers checked on chain, is in the epoch-close tests #1868 adds.
+Fixes #1852: every point of its sketch, including its open question: the gauge reports the held certificate's signers (#1866).
+Fixes #1860: both parts of its proposed fix, and its reproducing test passes (#1867).
+Refs #1804: both sides are the node's behaviour after #1873, the voter's (#1864) and the author's in its always-on form (#1868); left open: the depth of the floor of 8, which the executors' spread outgrew at 50,000 IOPS in bench 6, and the wait for a pending parent that #1842 put under the vote lock, which #1864 does not move.
+Refs #1807: the own-chain order hold (#1869) is the node's behaviour after #1873; left open: the issue's second defect, a resend that executes beside the original because a sealed transaction is invisible to the pool and the RPC, which the hold does not touch, and why some re-queued batches never executed.
+Refs #1850: the walk past an uncertified epoch and the re-certify round (#1866) are the node's behaviour after #1873, and its conflicting-record case was fixed on main by #1849; left open: the question in its comment, whether that stop should need a super-quorum of the full committee; a node without its own record of the epoch still needs re-certification, and no fleet run of either change is reported (#1866).
+Refs #1806: the epoch-entry gauge measures how late a member enters an epoch (this PR).
+Refs #1819: its digest-wait histogram now counts across re-queues (this PR).
+Refs #1782: the bounded execution wait, which #1864 moves in front of the author's vote lock.
+Refs #1794: a held digest keeps its slot in #1794's bound until it commits (#1869).
+Merged into this branch on 2026-11-16: #1863, #1864, #1865, #1866, #1867, #1868 and #1869.
+Stacked on this: #1873 (`refactor/remove-bench-switches`), which removes the six switches of #1864, #1866, #1868 and #1869 and the switch list this PR adds.
 
 ## What bench 6 measured that is not in this stack
 

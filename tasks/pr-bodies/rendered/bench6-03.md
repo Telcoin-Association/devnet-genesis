@@ -6,9 +6,8 @@ A failing block stops the node.
 No switch: this extends main's unconditional stored-record guard (#1834, #1849), and a genuine close passes by construction, so blocks, records and votes do not change.
 New: an `epoch record published` info line and two counters.
 
-PR 4 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1864's branch (`fix/1804-vote-queue`), so the Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 4 of 9 in the stack #1862 to #1873; it was merged into #1864's branch (`fix/1804-vote-queue`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (3 commits); the stack's base is main at 33b727fce.
+#1862 now holds the stack's eight changes and targets `main`; #1873 targets #1862's branch and removes the switches; it also carries the merge of `main` at f25a74eb7, so once it is merged #1862's branch holds `main` and `make attest` runs on the result.
 
 ## Problem
 
@@ -55,7 +54,8 @@ Mixed fleet: records, votes, certificates and blocks are byte-identical to main'
 - Refusals: `closing_block_check_names_the_comparison_that_fails`, `a_closing_block_without_its_markers_stops_the_build_before_the_save`, `a_stored_record_without_the_closing_markers_stops_the_close`, `own_uncertified_record0_without_the_closing_markers_stops_the_close_before_the_rebuild` (`path=stored` with `beacon_root`, then `extra_data_seed`), `epoch_entry_stops_on_a_closing_block_without_the_records_markers`, `an_empty_ring_stops_the_build_as_no_block`, `a_rederived_record_is_refused_as_rederived`, `the_refusal_names_its_path_and_what_the_stop_prevents`.
 - At `c2f266b9c`: `cargo check --locked --all-targets -p tn-node` exit 0 (also at `128f4a5d4`); `cargo nextest run --locked --no-fail-fast -p tn-node` 236 passed, 1 skipped; `cargo +nightly-2026-03-20 fmt --all -- --check` clean.
 - `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` clean at `c2f266b9c`, also with `--features adiri`, where the 51 tests of the `close_epoch` and `metrics` modules, the entry test and the identity counter test passed.
-- Not run: no fleet has run this head (a benchmark of the stack's earlier cut on main at 45dce8947, which carries the check, is under way), and no e2e test makes the check fire.
+- Not run: no fleet has run this head, and no e2e test makes the check fire.
+  Bench 7 ran the stack's earlier cut on main at 45dce8947, which carries the check, on 2026-11-15: [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/) and [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/), ten validators at 20,000 IOPS, one run each; #1868 and #1869 report its results.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -67,7 +67,8 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in #1873's branch, against main at f25a74eb7.
+- The stack's top is now #1873, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
@@ -85,4 +86,4 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 - Refs #1851: this implements its fix sketch; not `Fixes`: its e2e verification, the markers checked on chain, is in the epoch-close tests (`epoch_close_forms.rs`) of `fix/1804-quorum-exec-block`, a later head of the stack: every published record is compared there with the block in which the registry's epoch turned.
 - #1860: main's epoch loop can drop an output under lag; found while checking this path, not caught by this check, fixed separately in `fix/epoch-loop-output-drop`.
-- Next: `fix/epoch-record-collector-hardening` builds on this head.
+- Next: #1866, #1867, #1868 and #1869 were merged on top of this change on 2026-11-16; #1873, which removes the stack's switches, targets #1862's branch.
