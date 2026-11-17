@@ -24,9 +24,15 @@
 # on a freshly reset chain there is no boundary worth waiting for. Export
 # TN_SKIP_EPOCH_WAIT=0 to keep v2's wait when re-running against a live chain.
 #
-# --enable-health needs ufw ACTIVE on the node: devnet-deploy.sh runs the host firewall
-# (Step 10, devnet-firewall.sh) before this (Step 11). The --healthcheck flag itself is
-# baked into the node command by devnet-finalize.sh (--enable-healthcheck-monitor).
+# --enable-health (TN_OBS_ENABLE_HEALTH=1) makes setup-observability.sh add a BARE
+# `--healthcheck <port>` to the node command when no --healthcheck is on it yet, open a ufw
+# rule from the monitor's address to that port (it refuses while ufw is inactive: the host
+# firewall, devnet-firewall.sh, runs first) and record ENABLE_HEALTHCHECK_MONITOR in
+# .node-meta. What it no longer does: on the current node image a bare port binds
+# 127.0.0.1, so a flag added HERE is not reachable by the monitor. devnet-finalize.sh bakes
+# the reachable one (--enable-healthcheck-monitor); with it on the command the remote script
+# adds no flag, and only the ufw rule and the meta key change. A flag it did add is reported
+# as a pending restart (below) and stops the sweep.
 #
 # NOTE: TN_OBS_ENABLE_DASHBOARD is a HUB concern (the Grafana dashboards live on
 # the obs VM, provisioned by common/create-obs-instance.sh / obs-vm). It is NOT a
@@ -37,14 +43,27 @@
 # node's result) and its human-readable progress on STDERR, which goes to the per-node
 # log under logs/<timestamp>-observability/ together with the JSON.
 #
-# Reaches nodes only via the lib's IAP helpers (the always-on wg-allow-iap-ssh
-# door). Pass an optional subset of instance names to target just those nodes;
-# with no args it sweeps the whole fleet.
+# Hosts: the node hosts only (tn_node_indices). A worker gateway (the `gateway` entry, and
+# the gateway process on a same-host node) is not scraped: tn-node-deployment's Alloy takes
+# ONE config file and no fragment directory (lib/observability.sh:29 and :861; docker mounts
+# that one file, :949), so a gateway's metrics are read on its host:
+# curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics.
+#
+# --staged (deploy step 12: flags into the launch file of a STOPPED node before its first
+# start) is not available and refuses before touching a host: when setup-observability.sh
+# --json has to add a reth log/metrics flag it restarts the node unit, and a restart STARTS
+# a stopped unit (tn-node-deployment lib/observability.sh:1404-1408; its confirm is forced
+# by TN_ASSUME_YES=true at setup-observability.sh:651, and no switch turns the restart off).
+#
+# Reaches nodes only via the lib's IAP helpers (the always-on wg-allow-iap-ssh door).
+# Targets (index, instance name or node name) narrow the sweep; with none it sweeps every
+# node host.
 #
 # Usage:
-#   ./devnet-observability.sh                       # all nodes
-#   ./devnet-observability.sh validator-1-devnet    # one (or more) by name
+#   ./devnet-observability.sh                       # all node hosts (a live fleet)
+#   ./devnet-observability.sh validator-1-devnet    # some, by index, instance or node name
 #   TN_SKIP_EPOCH_WAIT=0 ./devnet-observability.sh  # live chain: keep v2's epoch wait
+# Exit: 0 ok, 1 a node failed, 2 usage or config (and --staged, see above).
 
 set -euo pipefail
 
@@ -69,24 +88,47 @@ case "${OBS_SETTLE_SECS}:${OBS_POLL_SECS}" in
     *[!0-9:]*|:*|*:|*:0) echo "❌ OBS_SETTLE_SECS / OBS_POLL_SECS must be whole seconds (poll >= 1)" >&2; exit 1 ;;
 esac
 
-# --- optional instance subset (positional args) --------------------------------
-# Validate any names up front so a typo fails before we touch a single node.
-SELECTED=("$@")
-if [ "${#SELECTED[@]}" -gt 0 ]; then
-    for want in "${SELECTED[@]}"; do
-        found=0
-        for have in "${INSTANCE_NAMES[@]}"; do
-            [ "${want}" = "${have}" ] && { found=1; break; }
-        done
-        [ "${found}" -eq 1 ] || { echo "❌ unknown instance '${want}' (not in INSTANCE_NAMES)" >&2; exit 1; }
+# --- arguments: flags, then targets (index, instance name or node name) ----------
+# Validated up front so a typo fails before we touch a single node.
+TARGETS=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --staged)
+            echo "❌ --staged is not available: setup-observability.sh --json would START a stopped node when it" >&2
+            echo "   adds the reth log/metrics flags (tn-node-deployment lib/observability.sh:1404-1408; its" >&2
+            echo "   confirm is forced by TN_ASSUME_YES=true, setup-observability.sh:651). Nothing was touched." >&2
+            exit 2 ;;
+        -h|--help) sed -n '/^# Usage:/,/^# Exit:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*) echo "❌ unknown flag '$1'" >&2; exit 2 ;;
+        *) TARGETS+=("$1") ;;
+    esac
+    shift
+done
+tn_fleet_check || { echo "❌ the fleet arrays in config.sh are inconsistent (lines above)" >&2; exit 2; }
+
+# tn_obs_resolve <target> — prints the fleet index an index, instance name or node name names.
+tn_obs_resolve() {
+    local i
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        if [ "$1" = "${i}" ] || [ "$1" = "${INSTANCE_NAMES[$i]}" ] || [ "$1" = "${NODE_NAMES[$i]}" ]; then
+            printf '%s\n' "${i}"; return 0
+        fi
+    done
+    return 1
+}
+SELECTED=()
+if [ "${#TARGETS[@]}" -gt 0 ]; then
+    for want in "${TARGETS[@]}"; do
+        idx="$(tn_obs_resolve "${want}")" || { echo "❌ unknown target '${want}' (not an index, instance name or node name)" >&2; exit 2; }
+        SELECTED+=("${idx}")
     done
 fi
 
-# tn_obs_selected <instance> — true if this instance is in the subset (or no subset given).
+# tn_obs_selected <index> — true if this index is in the subset (or no subset given).
 tn_obs_selected() {
     [ "${#SELECTED[@]}" -eq 0 ] && return 0
-    local inst="$1" s
-    for s in "${SELECTED[@]}"; do [ "${s}" = "${inst}" ] && return 0; done
+    local s
+    for s in "${SELECTED[@]}"; do [ "${s}" = "$1" ] && return 0; done
     return 1
 }
 
@@ -189,7 +231,8 @@ echo "Push URL:   ${OBS_PUSH_URL}"
 echo "Metrics:    ${OBS_METRICS_PUSH_URL}"
 echo "Toggles:    logs=${TN_OBS_ENABLE_LOGS} metrics=${TN_OBS_ENABLE_METRICS} health=${TN_OBS_ENABLE_HEALTH} (dashboard=${TN_OBS_ENABLE_DASHBOARD}: hub-only, not applied here)"
 echo "Epoch wait: $([ "${TN_SKIP_EPOCH_WAIT}" = 1 ] && echo "skipped (TN_SKIP_EPOCH_WAIT=1)" || echo "v2 default (TN_SKIP_EPOCH_WAIT=0)")"
-[ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
+[ "${#TARGETS[@]}" -gt 0 ] && echo "Subset:     ${TARGETS[*]}"
+echo "Gateways:   not scraped (Alloy takes one config file); on the host: curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics"
 echo "Logs:       ${RUN_LOG_DIR}"
 echo "=========================================="
 
@@ -223,11 +266,17 @@ stop=0
 ok_nodes=()
 failed_nodes=()
 untouched_nodes=()
-for i in "${!INSTANCE_NAMES[@]}"; do
+for i in $(tn_indices_by_role gateway); do
+    if tn_obs_selected "${i}"; then
+        echo ""
+        echo "↪ ${INSTANCE_NAMES[$i]}: gateway host, no node: skipped (metrics on the host: curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics)"
+    fi
+done
+for i in $(tn_node_indices); do
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
 
-    tn_obs_selected "${inst}" || continue
+    tn_obs_selected "${i}" || continue
     if [ "${stop}" -eq 1 ]; then
         untouched_nodes+=("${inst}")
         continue
