@@ -21,7 +21,7 @@
 #   6. install          txgen user, /opt layout, binary, config, secrets, address book
 #   7. unit             the repo's hardened unit + the three lines it is missing
 #   8. verify           sops round trip AS the txgen user, then --dry-run
-#   9. start            enable --now, assert active + the startup log lines
+#   9. start            enable + restart, assert active + this start's log lines
 #  10. alloy            journal -> Loki and 127.0.0.1:9090 -> Prometheus, same fleet plumbing
 #
 # ---------------------------------------------------------------------------------
@@ -470,20 +470,37 @@ VERIFY
 
 step_9() {
     echo ">>> Step 9: enable + start, then assert it is really running"
-    tx_ssh "sudo systemctl enable --now ${TXGEN_UNIT}" >/dev/null
+    # enable, then RESTART: `enable --now` leaves a running unit alone, so a re-run after
+    # step 6/7 changed the binary, config or unit kept the old process (restart also starts
+    # a stopped unit). The VM's clock is read just before the restart and the check reads
+    # the journal only from there, so the old process's start-up lines cannot pass it. A
+    # timestamp, not a cursor: `journalctl --since @<epoch seconds>` (systemd.time(7))
+    # works on the VM's systemd 255 (Ubuntu 24.04), is a bare number that is easy to
+    # validate and hand to the check, and needs no parsing of `--show-cursor` output.
+    # Whole seconds only let in old-process lines from the second of the restart, and the
+    # old process logs its start-up markers once, at its own start.
+    local since
+    since="$(tx_ssh "sudo systemctl enable ${TXGEN_UNIT} >/dev/null && date +%s && sudo systemctl restart ${TXGEN_UNIT} >/dev/null" \
+        | tr -d '\r' | tail -n 1)"
+    case "${since}" in
+        ''|*[!0-9]*) echo "    ❌ could not read the VM clock before the restart (got '${since}')" >&2; return 1 ;;
+    esac
     echo "    waiting ~45s for the startup sequence..."
     sleep 45
-    # Do not trust the enable's own exit code. Assert on the unit state AND on the log
-    # lines the generator emits in order (docs/deployment.md:208).
-    tx_stdin <<'CHECK'
+    # Do not trust the restart's own exit code. Assert on the unit state AND on the log
+    # lines the generator emits in order (docs/deployment.md:208), from this start only.
+    # The journal is read once and searched in memory: `journalctl | grep -q` under
+    # pipefail reads as MISSING whenever grep quits early and journalctl dies of SIGPIPE.
+    { printf 'since=%s\n' "${since}"; cat; } <<'CHECK' | tx_stdin
 set -uo pipefail
 state="$(systemctl is-active tn-transaction-generator.service || true)"
 echo "is-active: ${state}"
+log="$(journalctl -u tn-transaction-generator.service --since "@${since}" --no-pager --output=cat)"
 echo "--- recent journal ---"
-journalctl -u tn-transaction-generator.service --no-pager -n 40 --output=cat | tail -40
+printf '%s\n' "${log}" | tail -40
 echo "--- startup markers ---"
 for m in "deployments loaded" "rpc client ready" "master wallet loaded" "child wallets derived" "wallets ready"; do
-    if journalctl -u tn-transaction-generator.service --no-pager --output=cat | grep -q "$m"; then
+    if grep -q "$m" <<<"${log}"; then
         echo "  ✓ $m"
     else
         echo "  ❌ MISSING: $m"
@@ -696,7 +713,7 @@ PLAN (nothing has been changed):
    6. install user/layout/binary/config/secrets/address book (+ sops)
    7. install the hardened unit + SOPS_AGE_KEY_FILE, TXGEN_NO_FILE_LOG, Restart=always
    8. verify the sops round trip as ${TXGEN_USER}, then --dry-run
-   9. systemctl enable --now, assert active + startup markers
+   9. systemctl enable + restart, assert active + this start's startup markers
   10. Alloy: journald -> Loki, 127.0.0.1:9090 -> Prometheus
 
 DRY RUN only — re-run with --yes to apply.
