@@ -1,10 +1,48 @@
 #!/usr/bin/env bash
 #
-# devnet-network-config.sh — OPERATOR driver: render each node's <datadir>/network-config
-# (closed connection admission, the committee launch inventory, and the trusted/bootstrap
-# peers between the hub validator and the observers), validate it, and with --yes install
-# it on the fleet. Deploy step 7: after keygen + genesis build, BEFORE finalize starts any
-# node.
+# devnet-network-config.sh — OPERATOR driver for connection admission. Deploy step 7: after
+# keygen + genesis build, BEFORE finalize starts any node. Two modes, chosen by the config's
+# TN_ADMISSION_VIA (config.sh: native; benchmark/config.sh: devnet; unset: devnet):
+#
+#   native  the devnet deploy (devnet-deploy.sh with config.sh). Renders each node's admission
+#           MAPS and with --yes installs them on its host. It never writes <datadir>/network-config:
+#           tn-node-deployment's setup-node.sh writes that file at finalize (devnet-finalize.sh
+#           passes --admission <mode> --bootstrap-peers <map> [--trusted-nodes <map>]).
+#   devnet  the benchmark harness (CONFIG_FILE=benchmark/config.sh). Renders the whole
+#           <datadir>/network-config here and with --yes installs it ("devnet mode" below).
+#
+# Targets, and the renderer's --nodes context, are the node hosts only (tn_node_indices: roles
+# validator, observer, rpc, in config order); a gateway entry runs no node and is refused as a
+# target (exit 2).
+#
+# --- native mode ---------------------------------------------------------------------------
+# What each node gets (devnet-network-config.py `maps`):
+#   role       --admission  bootstrap-peers.yaml      trusted-nodes.yaml
+#   validator  closed       the genesis committee     the rpc node(s)
+#   observer   closed       the genesis committee     the rpc node(s)
+#   rpc        open         the genesis committee     (none)
+# Local render: ${GENESIS_WORKSPACE:-REPO_ROOT}/${ADMISSION_MAPS_DIR}/<NODE_NAME>.bootstrap-peers.yaml
+# and <NODE_NAME>.trusted-nodes.yaml (both kinds are cleared there first, so what exists is this
+# render's); per node it prints the files and the admission mode the node will get.
+# Install, per node host (--yes): upload the maps to /tmp, then, as root,
+#   install -d ${ADMISSION_HOST_DIR} (root:root 0755)
+#   install -o root -g root -m 0644 <tmp> ${ADMISSION_HOST_DIR}/bootstrap-peers.yaml
+#   the same for trusted-nodes.yaml, or remove a stale one when the node gets none;
+# then read both back: sha256 equal to the local file, root:root 0644. Nothing is restarted and
+# <datadir>/network-config is left as it is: a finalized node takes new maps only when finalize
+# writes its network-config again.
+# --verify (read-only), per node host: the installed maps equal the local ones (sha256, owner,
+# mode); when <datadir>/network-config exists (the node is finalized) it is fetched and checked
+# with `devnet-network-config.py validate --native --node <NODE_NAME>`; before finalize the node
+# is reported "not finalized yet", which is not a failure.
+# Sessions: --yes one upload a map and one session a node, --verify one session a node; a
+# session that hits a transport fault (ssh rc 255 after devnet-lib's own retries) is run once
+# more at the end, read-only.
+#
+# --- devnet mode ---------------------------------------------------------------------------
+# Render each node's <datadir>/network-config (closed connection admission, the committee
+# launch inventory, and the trusted/bootstrap peers between the hub validator and the
+# observers), validate it, and with --yes install it on the fleet.
 #
 # Why before the first start: the node reads network-config once, at startup. When the
 # file is missing it writes NetworkConfig::default() there (admission Open) and runs with
@@ -55,13 +93,16 @@
 #                   re-reads it for step 6: at most 2 sessions a node (--verify: 1)
 #   NETCFG_JOBS=N   N nodes at a time (default 1, in order); each node's output is printed
 #                   whole, in fleet order; INT, TERM or HUP stops the running jobs first
+# In native mode only NETCFG_JOBS applies: NETCFG_FAST changes nothing there (native already
+# uses one session a node) and NETCFG_TRUST_OBSERVERS_EVERYWHERE=1 is refused (exit 2).
 #
 # Usage:
 #   ./devnet-network-config.sh                  # render + validate locally; touches no node
 #   ./devnet-network-config.sh --yes            # ... then install on every node
 #   ./devnet-network-config.sh --yes node5      # ... install on a subset (index, INSTANCE_NAME
-#                                               #     or NODE_NAME); all five are still rendered
+#                                               #     or NODE_NAME); every node is still rendered
 #   ./devnet-network-config.sh --verify         # read-only: re-read + validate installed files
+# Exit: 0 ok; 1 a render, a node or a check failed; 2 bad flag, knob, config value or target.
 #
 # Needs python3 with PyYAML (parsing only): sudo apt-get install python3-yaml.
 
@@ -103,18 +144,51 @@ case "${NETCFG_JOBS}" in
 esac
 if [ "${NETCFG_JOBS}" -lt 1 ]; then echo "❌ NETCFG_JOBS must be at least 1" >&2; exit 2; fi
 
-# Same selector as devnet-finalize.sh: no args → all nodes; args may be an index (0-based),
-# an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once.
+TN_ADMISSION_VIA="${TN_ADMISSION_VIA:-devnet}"
+case "${TN_ADMISSION_VIA}" in
+    native|devnet) ;;
+    *) echo "❌ TN_ADMISSION_VIA must be native or devnet (got '${TN_ADMISSION_VIA}')" >&2; exit 2 ;;
+esac
+NC_WHAT="network-config"
+if [ "${TN_ADMISSION_VIA}" = native ]; then
+    NC_WHAT="admission maps"
+    if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ]; then
+        echo "❌ NETCFG_TRUST_OBSERVERS_EVERYWHERE applies to TN_ADMISSION_VIA=devnet only" >&2
+        exit 2
+    fi
+    case "${ADMISSION_HOST_DIR:-}" in
+        /?*) ;;
+        *) echo "❌ ADMISSION_HOST_DIR must be an absolute path (got '${ADMISSION_HOST_DIR:-}')" >&2; exit 2 ;;
+    esac
+    case "${ADMISSION_HOST_DIR}" in
+        *[!A-Za-z0-9._/-]*) echo "❌ ADMISSION_HOST_DIR '${ADMISSION_HOST_DIR}' has unexpected characters" >&2; exit 2 ;;
+    esac
+    if [ -z "${ADMISSION_MAPS_DIR:-}" ]; then echo "❌ ADMISSION_MAPS_DIR is not set (see config.sh)" >&2; exit 2; fi
+    ADMISSION_HOST_DIR="${ADMISSION_HOST_DIR%/}"
+    MAPS_DIR="${GENESIS_WORKSPACE:-${REPO_ROOT}}/${ADMISSION_MAPS_DIR}"
+fi
+
+# The node hosts (tn_node_indices: validator, observer, rpc), in config order.
+NODE_IDX=()
+while IFS= read -r _idx; do [ -z "${_idx}" ] || NODE_IDX+=("${_idx}"); done <<< "$(tn_node_indices)"
+if [ "${#NODE_IDX[@]}" -eq 0 ]; then echo "❌ the config names no node host (roles validator, observer, rpc)" >&2; exit 2; fi
+
+# Same selector as devnet-finalize.sh: no args → all node hosts; args may be an index (0-based),
+# an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once; an entry that runs no
+# node (a gateway) is refused.
 tn_select_indices() {
     local out=() arg i matched
     if [ "$#" -eq 0 ]; then
-        for i in "${!INSTANCE_NAMES[@]}"; do out+=("$i"); done
-        printf '%s\n' "${out[@]}"; return 0
+        printf '%s\n' "${NODE_IDX[@]}"; return 0
     fi
     for arg in "$@"; do
         matched=""
         for i in "${!INSTANCE_NAMES[@]}"; do
             if [ "${arg}" = "${i}" ] || [ "${arg}" = "${INSTANCE_NAMES[$i]}" ] || [ "${arg}" = "${NODE_NAMES[$i]}" ]; then
+                if ! tn_is_node_index "${i}"; then
+                    echo "❌ target ${arg} is ${INSTANCE_NAMES[$i]} (role ${NODE_ROLES[$i]:-none}): it runs no node" >&2
+                    return 1
+                fi
                 case " ${out[*]+"${out[*]}"} " in *" ${i} "*) ;; *) out+=("$i") ;; esac
                 matched=1; break
             fi
@@ -144,7 +218,7 @@ fi
 # --- the fleet as the renderer sees it: name=role in config.sh order; hub = first validator ---
 NODES_SPEC=""
 HUB=""
-for i in "${!NODE_NAMES[@]}"; do
+for i in "${NODE_IDX[@]}"; do
     NODES_SPEC="${NODES_SPEC:+${NODES_SPEC},}${NODE_NAMES[$i]}=${NODE_ROLES[$i]}"
     if [ -z "${HUB}" ] && [ "${NODE_ROLES[$i]}" = "validator" ]; then HUB="${NODE_NAMES[$i]}"; fi
 done
@@ -155,17 +229,52 @@ if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ]; then
     TRUST_NOTE="; observers trusted by every validator"
 fi
 
-echo ">>> rendering + validating network-config for ${NODES_SPEC} (hub ${HUB}${TRUST_NOTE})"
-if ! python3 "${PY}" render "${CTX[@]}" --out-dir "${OUT_DIR}"; then
-    echo "❌ render/validate failed; nothing was installed." >&2
-    exit 1
-fi
+if [ "${TN_ADMISSION_VIA}" = native ]; then
+    # native: the maps each node's finalize hands to setup-node.sh (see the header).
+    echo ">>> rendering admission maps for ${NODES_SPEC} into ${MAPS_DIR}"
+    mkdir -p "${MAPS_DIR}"
+    rm -f "${MAPS_DIR}"/*.bootstrap-peers.yaml "${MAPS_DIR}"/*.trusted-nodes.yaml
+    if ! python3 "${PY}" maps "${CTX[@]}" --out-dir "${MAPS_DIR}"; then
+        echo "❌ rendering the admission maps failed; nothing was installed." >&2
+        exit 1
+    fi
+    _render_ok=1
+    for i in "${NODE_IDX[@]}"; do
+        _files=""
+        for _kind in bootstrap-peers trusted-nodes; do
+            if [ -f "${MAPS_DIR}/${NODE_NAMES[$i]}.${_kind}.yaml" ]; then _files="${_files} ${_kind}.yaml"; fi
+        done
+        printf '    %-10s %-9s --admission %-6s maps:%s\n' "${NODE_NAMES[$i]}" "${NODE_ROLES[$i]}" \
+            "$(tn_admission_mode "${i}")" "${_files:- (none)}"
+        if [ ! -f "${MAPS_DIR}/${NODE_NAMES[$i]}.bootstrap-peers.yaml" ]; then
+            echo "❌ [${NODE_NAMES[$i]}] no ${NODE_NAMES[$i]}.bootstrap-peers.yaml was rendered" >&2
+            _render_ok=0
+        fi
+        if [ "${NODE_ROLES[$i]}" = rpc ] && [ -f "${MAPS_DIR}/${NODE_NAMES[$i]}.trusted-nodes.yaml" ]; then
+            echo "❌ [${NODE_NAMES[$i]}] an rpc node gets no trusted-nodes map, but one was rendered" >&2
+            _render_ok=0
+        fi
+    done
+    if [ "${_render_ok}" != 1 ]; then echo "❌ the rendered maps are incomplete; nothing was installed." >&2; exit 1; fi
+    if [ "${MODE}" = "local" ]; then
+        echo ""
+        echo "rendered under ${MAPS_DIR}; no node was touched."
+        echo "review the files, then install with: $0 --yes"
+        exit 0
+    fi
+else
+    echo ">>> rendering + validating network-config for ${NODES_SPEC} (hub ${HUB}${TRUST_NOTE})"
+    if ! python3 "${PY}" render "${CTX[@]}" --out-dir "${OUT_DIR}"; then
+        echo "❌ render/validate failed; nothing was installed." >&2
+        exit 1
+    fi
 
-if [ "${MODE}" = "local" ]; then
-    echo ""
-    echo "rendered + validated under ${OUT_DIR}; no node was touched."
-    echo "review the files, then install with: $0 --yes"
-    exit 0
+    if [ "${MODE}" = "local" ]; then
+        echo ""
+        echo "rendered + validated under ${OUT_DIR}; no node was touched."
+        echo "review the files, then install with: $0 --yes"
+        exit 0
+    fi
 fi
 
 # --- per-node helpers ---------------------------------------------------------------------
@@ -458,7 +567,227 @@ nc_fast_check() {
 nc_node() {
     NC_RESULT=failed
     NC_READ_OUT=""
-    if [ "${NETCFG_FAST}" = 1 ]; then nc_node_fast "$1"; else nc_node_legacy "$1"; fi
+    if [ "${TN_ADMISSION_VIA}" = native ]; then
+        nm_node "$1"
+    elif [ "${NETCFG_FAST}" = 1 ]; then nc_node_fast "$1"; else nc_node_legacy "$1"; fi
+}
+
+# --- native mode: one node ------------------------------------------------------------------
+# nm_sha256 <file> — the file's sha256, hex (python3: sha256sum is not on every operator's Mac).
+nm_sha256() {
+    python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+}
+
+# nm_session_script <install 0|1> <bootstrap-tmp> <trusted-tmp> <send-network-config 0|1> <role>
+# — `# admission: install|read`, run as root (`sudo bash -s`). With install 1 it installs the
+# uploaded map(s) into ADMISSION_HOST_DIR (an empty <trusted-tmp> removes a stale
+# trusted-nodes.yaml) and removes the uploads; then it reports, between NC_BEGIN=1 and NC_END=1,
+# the directory's and each map's owner/mode and sha256, the datadir (.node-meta DATA_DIR, else
+# config.sh's) and whether <datadir>/network-config exists (its bytes in base64 when asked).
+nm_session_script() {
+    echo "# admission: $([ "$1" = 1 ] && echo install || echo read)"
+    printf 'd=%q\ndo_install=%q\nbp_tmp=%q\ntr_tmp=%q\nwant_nc=%q\ndef_dir=%q\n' \
+        "${ADMISSION_HOST_DIR}" "$1" "$2" "$3" "$4" "$(tn_data_dir_for_role "$5")"
+    cat <<'EOF'
+set -u -o pipefail
+printf '\nNC_BEGIN=1\n'
+if [ "$do_install" = 1 ]; then
+    rc=0
+    install -d -m 0755 -- "$d" || rc=$?
+    if [ "$rc" -eq 0 ]; then chown root:root -- "$d" || rc=$?; fi
+    if [ "$rc" -eq 0 ]; then chmod 0755 -- "$d" || rc=$?; fi
+    if [ "$rc" -eq 0 ]; then install -o root -g root -m 0644 -- "$bp_tmp" "$d/bootstrap-peers.yaml" || rc=$?; fi
+    if [ "$rc" -eq 0 ] && [ -n "$tr_tmp" ]; then
+        install -o root -g root -m 0644 -- "$tr_tmp" "$d/trusted-nodes.yaml" || rc=$?
+    elif [ "$rc" -eq 0 ] && { [ -e "$d/trusted-nodes.yaml" ] || [ -L "$d/trusted-nodes.yaml" ]; }; then
+        if rm -f -- "$d/trusted-nodes.yaml"; then echo NM_TR_REMOVED=1; else rc=$?; fi
+    fi
+    rm -f -- "$bp_tmp"
+    if [ -n "$tr_tmp" ]; then rm -f -- "$tr_tmp"; fi
+    echo "NM_INSTALL_RC=$rc"
+fi
+nm_state() {
+    if [ -L "$2" ]; then
+        echo "$1_STATE=other"
+    elif [ -f "$2" ]; then
+        echo "$1_STATE=present"
+        echo "$1_SHA=$(sha256sum < "$2" | cut -d' ' -f1)"
+        echo "$1_PERM=$(stat -c '%U:%G %a' -- "$2")"
+    elif [ -e "$2" ]; then
+        echo "$1_STATE=other"
+    else
+        echo "$1_STATE=absent"
+    fi
+}
+if [ -d "$d" ] && [ ! -L "$d" ]; then echo "NM_DIR_PERM=$(stat -c '%U:%G %a' -- "$d")"; else echo NM_DIR_PERM=absent; fi
+nm_state NM_BP "$d/bootstrap-peers.yaml"
+nm_state NM_TR "$d/trusted-nodes.yaml"
+dir="$(grep -m1 -E '^DATA_DIR=' /etc/telcoin/.node-meta 2>/dev/null | tr -d '\r' | cut -d= -f2-)"
+[ -n "$dir" ] || dir="$def_dir"
+dir="${dir%/}"
+echo "NM_DATA_DIR=$dir"
+case "$dir" in /*) ;; *) dir="" ;; esac
+case "$dir" in *[!A-Za-z0-9._/-]*) dir="" ;; esac
+nc="$dir/network-config"
+if [ -z "$dir" ]; then
+    echo NM_NC_STATE=unknown
+elif [ -f "$nc" ]; then
+    echo NM_NC_STATE=present
+    if [ "$want_nc" = 1 ] && b64="$(base64 < "$nc" | tr -d '\n')"; then echo "NM_NC_B64=$b64"; fi
+elif [ -e "$nc" ]; then
+    echo NM_NC_STATE=other
+else
+    echo NM_NC_STATE=absent
+fi
+echo NC_END=1
+EOF
+}
+
+# nm_check_file <session-output> <KEY> <local-map> <name> — the host's copy is a regular file,
+# root:root 0644, with the local map's sha256. rc 0 ok, 1 not (said).
+nm_check_file() {
+    local out="$1" key="$2" map="$3" name="$4" want got perm state
+    want="$(nm_sha256 "${map}")"
+    state="$(nc_field "${key}_STATE" "${out}")"
+    if [ "${state}" != present ]; then
+        echo "    ❌ ${ADMISSION_HOST_DIR}/${name} is ${state:-unknown} on the host"
+        return 1
+    fi
+    got="$(nc_field "${key}_SHA" "${out}")"
+    perm="$(nc_field "${key}_PERM" "${out}")"
+    if [ "${got}" != "${want}" ]; then
+        echo "    ❌ ${ADMISSION_HOST_DIR}/${name}: sha256 ${got:0:12}… on the host, ${want:0:12}… here"
+        return 1
+    fi
+    if [ "${perm}" != "root:root 644" ]; then
+        echo "    ❌ ${ADMISSION_HOST_DIR}/${name} is ${perm:-unknown}, not root:root 644"
+        return 1
+    fi
+    echo "    ✓ ${ADMISSION_HOST_DIR}/${name} = local ${map##*/} (sha256 ${want:0:12}…, root:root 644)"
+}
+
+# nm_check <index> <session-output> — the maps a session read back against the local ones and,
+# with --verify, the node's network-config once it exists. Sets NC_RESULT; returns 0.
+nm_check() {
+    local i="$1" out="$2" node inst map_dir tr irc dperm ok=1 st dir copy
+    node="${NODE_NAMES[$i]}"
+    inst="${INSTANCE_NAMES[$i]}"
+    tr="${MAPS_DIR}/${node}.trusted-nodes.yaml"
+    if nc_has_key NM_INSTALL_RC "${out}"; then
+        irc="$(nc_field NM_INSTALL_RC "${out}")"
+        if [ "${irc}" != 0 ]; then
+            echo "❌ [${node}] installing the maps on ${inst} failed (rc ${irc})"
+            return 0
+        fi
+        if nc_has_line NM_TR_REMOVED=1 "${out}"; then echo "    removed a stale ${ADMISSION_HOST_DIR}/trusted-nodes.yaml"; fi
+    fi
+    map_dir="${ADMISSION_HOST_DIR}"
+    dperm="$(nc_field NM_DIR_PERM "${out}")"
+    if [ "${dperm}" != "root:root 755" ]; then
+        echo "    ❌ ${map_dir} is ${dperm:-unknown}, not a root:root 0755 directory"
+        ok=0
+    fi
+    nm_check_file "${out}" NM_BP "${MAPS_DIR}/${node}.bootstrap-peers.yaml" bootstrap-peers.yaml || ok=0
+    if [ -f "${tr}" ]; then
+        nm_check_file "${out}" NM_TR "${tr}" trusted-nodes.yaml || ok=0
+    elif [ "$(nc_field NM_TR_STATE "${out}")" != absent ]; then
+        echo "    ❌ ${map_dir}/trusted-nodes.yaml is on the host, but ${node} gets no trusted-nodes map"
+        ok=0
+    else
+        echo "    ✓ no ${map_dir}/trusted-nodes.yaml (${node} gets none)"
+    fi
+    if [ "${ok}" != 1 ]; then
+        echo "❌ [${node}] the admission maps on ${inst} failed the ${MODE} check"
+        return 0
+    fi
+
+    st="$(nc_field NM_NC_STATE "${out}")"
+    dir="$(nc_field NM_DATA_DIR "${out}")"
+    if [ "${MODE}" = install ]; then
+        if [ "${st}" = present ]; then
+            echo "    note: ${dir}/network-config exists (finalized): left as it is; finalize writes it from the maps"
+        fi
+        NC_RESULT=ok
+        return 0
+    fi
+    case "${st}" in
+        absent)
+            echo "    ${dir}/network-config: not finalized yet (nothing to validate)"
+            NC_RESULT=ok ;;
+        present)
+            copy="${WORK}/${node}.network-config"
+            if ! nc_has_key NM_NC_B64 "${out}" || ! nc_field NM_NC_B64 "${out}" | nc_b64_decode > "${copy}"; then
+                echo "❌ [${node}] could not re-read ${dir}/network-config"
+            elif python3 "${PY}" validate "${CTX[@]}" --native --node "${node}" "${copy}"; then
+                echo "    ✓ ${dir}/network-config passes validate --native"
+                NC_RESULT=ok
+            else
+                echo "❌ [${node}] ${dir}/network-config failed validate --native"
+            fi ;;
+        *)
+            echo "❌ [${node}] ${dir:-<datadir>}/network-config is not a regular file (state ${st:-no answer})" ;;
+    esac
+}
+
+# nm_session <index> <install 0|1> [<bootstrap-tmp> <trusted-tmp>] — run nm_session_script on the
+# node's host; NM_OUT = the last attempt's lines (nc_last_attempt); rc the session's, or 1
+# when the answer has no NC_END=1.
+nm_session() {
+    local i="$1" want_nc=0 rc=0
+    [ "${MODE}" = verify ] && want_nc=1
+    NM_OUT="$(nm_session_script "$2" "${3:-}" "${4:-}" "${want_nc}" "$(tn_node_role "${i}")" \
+        | tn_iap_ssh_stdin "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}")" || rc=$?
+    NM_OUT="$(printf '%s\n' "${NM_OUT}" | nc_last_attempt)"
+    if [ "${rc}" -eq 0 ] && ! nc_has_line NC_END=1 "${NM_OUT}"; then rc=1; fi
+    return "${rc}"
+}
+
+# nm_node <index> — native --yes / --verify for one node host. Returns 0 (see nc_node).
+nm_node() {
+    local i="$1" inst zone node role tr bp_tmp="" tr_tmp="" install=0 rc
+    inst="${INSTANCE_NAMES[$i]}"
+    zone="${ZONES[$i]}"
+    node="${NODE_NAMES[$i]}"
+    role="$(tn_node_role "$i")"
+    tr="${MAPS_DIR}/${node}.trusted-nodes.yaml"
+    echo ""
+    echo ">>> [${node}] ${MODE} admission maps on ${inst} (${zone}) role=${role} admission=$(tn_admission_mode "$i")"
+    if [ "${MODE}" = install ]; then
+        install=1
+        bp_tmp="/tmp/tn-admission.${node}.$$.bootstrap-peers.yaml"
+        if ! tn_iap_scp "${MAPS_DIR}/${node}.bootstrap-peers.yaml" "${inst}" "${zone}" "${bp_tmp}"; then
+            echo "❌ [${node}] could not upload ${node}.bootstrap-peers.yaml to ${inst}; nothing was installed"
+            return 0
+        fi
+        if [ -f "${tr}" ]; then
+            tr_tmp="/tmp/tn-admission.${node}.$$.trusted-nodes.yaml"
+            if ! tn_iap_scp "${tr}" "${inst}" "${zone}" "${tr_tmp}"; then
+                echo "❌ [${node}] could not upload ${node}.trusted-nodes.yaml to ${inst}; nothing was installed"
+                return 0
+            fi
+        fi
+    fi
+    rc=0; nm_session "${i}" "${install}" "${bp_tmp}" "${tr_tmp}" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "    ⚠️  could not read ${inst}'s admission maps back (transport rc ${rc})"
+        nc_recheck_later "${node}" native "${ADMISSION_HOST_DIR}"
+        return 0
+    fi
+    nm_check "${i}" "${NM_OUT}"
+}
+
+# nm_recheck <index> — the end-of-run re-check: one read-only session, the same checks.
+nm_recheck() {
+    local i="$1" rc=0
+    echo ""
+    echo ">>> [${NODE_NAMES[$i]}] re-check on ${INSTANCE_NAMES[$i]} (${ZONES[$i]})"
+    nm_session "${i}" 0 || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "    ⚠️  could not read ${INSTANCE_NAMES[$i]}'s admission maps (transport rc ${rc})"
+        echo "❌ [${NODE_NAMES[$i]}] admission maps failed their re-check"
+        return 0
+    fi
+    nm_check "${i}" "${NM_OUT}"
 }
 
 # nc_recheck_later <node> owner|fast <remote-path> — queue the end-of-run check.
@@ -666,6 +995,7 @@ nc_recheck() {
     role="$(tn_node_role "$i")"
     NC_RESULT=failed
     NC_READ_OUT=""
+    if [ "${TN_ADMISSION_VIA}" = native ]; then nm_recheck "${i}"; return 0; fi
     read -r kind nc NC_USER NC_GROUP < "${WORK}/${node}.recheck"
     echo ""
     echo ">>> [${node}] re-check on ${inst} (${zone})"
@@ -705,7 +1035,9 @@ nc_recheck() {
 INDICES=()
 while IFS= read -r _idx; do INDICES+=("$_idx"); done <<< "${SELECTION}"
 RUN_NOTE=""
-if [ "${NETCFG_FAST}" = 1 ]; then RUN_NOTE=" (NETCFG_FAST: read once, write only a changed file)"; fi
+if [ "${NETCFG_FAST}" = 1 ] && [ "${TN_ADMISSION_VIA}" = devnet ]; then
+    RUN_NOTE=" (NETCFG_FAST: read once, write only a changed file)"
+fi
 if [ "${NETCFG_JOBS}" -gt 1 ]; then RUN_NOTE="${RUN_NOTE} (${NETCFG_JOBS} at a time)"; fi
 echo ""
 echo ">>> ${MODE} targets: ${#INDICES[@]} node(s) — ${INDICES[*]}${RUN_NOTE}"
@@ -827,7 +1159,7 @@ fi
 
 echo ""
 echo "========================================="
-echo "network-config ${MODE} summary"
+echo "${NC_WHAT} ${MODE} summary"
 echo "========================================="
 echo "ok (${#done_nodes[@]}):"
 for n in "${done_nodes[@]+"${done_nodes[@]}"}"; do echo "  - ${n}"; done
