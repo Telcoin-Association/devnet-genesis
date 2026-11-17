@@ -99,10 +99,12 @@ tn_fleet_check || exit 2
 
 PC_TOOL="/usr/local/libexec/telcoin/tn-p2p-allow-sync"
 PC_ALLOW_DIR="/var/lib/telcoin-p2p-allow"
-# firewall-setup.sh's rc-1 texts that mean "the snapshot is not authoritative yet" (retried).
-# "not authoritative" is its generic text; the exact texts it prints for the tool's
-# `empty-set` and `rpc-unreachable` reasons were not available to this script's author, so
-# their reason tokens are matched (not verified against firewall-setup.sh).
+# firewall-setup.sh's rc-1 texts that mean "the snapshot is not usable yet" (retried). They are
+# the texts of its fw_allow_reason_text: the generic "the admission snapshot of the node is not
+# authoritative[ (<reason>)]", the empty-set text "the snapshot lists no addresses beyond the
+# floor and static list", and "the node RPC does not answer on 127.0.0.1 (rpc-unreachable)".
+# Its other refusals (a node release without tn_admissionSnapshot, ufw not active, a missing
+# nft) do not clear by waiting and are not retried.
 PC_RETRY_RE='not authoritative|lists no addresses beyond the floor|rpc-unreachable'
 
 P2P_COMMITTEE_WAIT_SECS="${P2P_COMMITTEE_WAIT_SECS:-300}"
