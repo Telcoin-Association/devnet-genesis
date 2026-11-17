@@ -13,10 +13,13 @@
 # puts one JSON event per line on STDOUT and every human-readable line on stderr: stdout
 # is captured and judged by its {"event":"done",...} line, stderr goes to the per-run log
 # logs/<ts>-keygen/<instance>.log. Then <DATA_DIR>/node-info.yaml (the done line's
-# node_info_path) is copied down to genesis/validators/<nodeN>.yaml (validators) or
-# genesis/observers/<nodeN>.yaml (node 5). That split follows NODE_ROLES, not the done
-# line (v2 reports node_type "observer" for every node): `telcoin genesis` builds the
-# committee from every file in genesis/validators/.
+# node_info_path) is copied down to genesis/<tn_role_dir>/<nodeN>.yaml: validators/ for a
+# validator, observers/ for node 5 (observer) and the public RPC node (rpc). That split
+# follows NODE_ROLES, not the done line (v2 reports node_type "observer" for every node):
+# `telcoin genesis` builds the committee from every file in genesis/validators/.
+# Only node hosts are visited (tn_node_indices: roles validator, observer, rpc). A `gateway`
+# entry runs no node and holds no keys: it is never selected, and naming it as a target
+# is refused like an unknown target (rc 2, or 1 with --pull-only, before anything runs).
 #
 # Keygen leaves <DATA_DIR>/network-config alone. v2 writes its `hostname:` line only in
 # the finalize phase (step_write_config -> write_advertised_name), and does not record
@@ -53,6 +56,10 @@
 #                            node-info.yaml is downloaded ("already keyed ... reusing"); else
 #                            the node fails. Default 0: such a node fails.
 #   KEYGEN_RPC_ADVERTISE     domain (default): node-info.yaml advertises https/wss://<node>.<BASE_DOMAIN>/.
+#                            With TN_GATEWAY_ENABLE=1, in domain mode: a node with a worker
+#                            gateway (tn_gateway_mode same-host|standalone) advertises only
+#                            https://<tn_public_domain>/ (--rpc-http, no --rpc-ws); an rpc node
+#                            advertises nothing at keygen (the public-RPC edge sets its URL later).
 #                            internal-ip: http://<intIP>:KEYGEN_RPC_HTTP_PORT/ (8545) and
 #                            ws://<intIP>:KEYGEN_RPC_WS_PORT/ (8546), reth's own listeners.
 #   KEYGEN_REPORT=1          one line per node: KEYGEN_DONE <inst> rc=<0|1> secs=<n> reused=<0|1>
@@ -65,26 +72,32 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 
 # ----------------------------------------------------------------------------
-# Resolve the set of node indices to act on. With no args → every node. With
-# args, each may be an index, an INSTANCE_NAME, or a NODE_NAME.
+# Resolve the set of node indices to act on. With no args → every node host
+# (tn_node_indices; never a gateway entry). With args, each may be an index, an
+# INSTANCE_NAME, or a NODE_NAME. An unknown target, or an entry that runs no node (a
+# gateway), is an error: a message on stderr, rc 1, nothing printed.
 # ----------------------------------------------------------------------------
 tn_select_indices() {
     local out=() arg i matched
     if [ "$#" -eq 0 ]; then
-        for i in "${!INSTANCE_NAMES[@]}"; do out+=("$i"); done
-        printf '%s\n' "${out[@]}"; return 0
+        tn_node_indices; return 0
     fi
     for arg in "$@"; do
         matched=""
         for i in "${!INSTANCE_NAMES[@]}"; do
             if [ "${arg}" = "${i}" ] || [ "${arg}" = "${INSTANCE_NAMES[$i]}" ] || [ "${arg}" = "${NODE_NAMES[$i]}" ]; then
-                out+=("$i"); matched=1; break
+                matched="${i}"; break
             fi
         done
         if [ -z "${matched}" ]; then
             echo "❌ unknown target: ${arg} (expected an index, INSTANCE_NAME, or NODE_NAME)" >&2
             return 1
         fi
+        if ! tn_is_node_index "${matched}"; then
+            echo "❌ ${arg} (${INSTANCE_NAMES[$matched]}) is a '${NODE_ROLES[$matched]:-}' entry: it runs no node and holds no keys, so it is not a keygen target" >&2
+            return 1
+        fi
+        out+=("${matched}")
     done
     printf '%s\n' "${out[@]}"
 }
@@ -151,11 +164,11 @@ keygen_info_rpc() {
     printf '%s' "${v:--}"
 }
 
-# keygen_fetch_info <node> <inst> <zone> <role> <info_src> — copy the node's node-info.yaml
-# down to genesis/{validators,observers}/<node>.yaml: collected+= (and kn_dest) on success,
-# failed+= otherwise.
+# keygen_fetch_info <node> <inst> <zone> <role_dir> <info_src> — copy the node's node-info.yaml
+# down to genesis/<role_dir>/<node>.yaml (role_dir = tn_role_dir: validators or observers):
+# collected+= (and kn_dest) on success, failed+= otherwise.
 keygen_fetch_info() {
-    local node="$1" inst="$2" zone="$3" role="$4" info_src="$5" tmp_remote local_dest
+    local node="$1" inst="$2" zone="$3" rdir="$4" info_src="$5" tmp_remote local_dest
 
     # Pull node-info.yaml. It is not readable by the SSH user under the data dir, so
     # copy it to /tmp and chown to the SSH user before scp-ing it down.
@@ -168,11 +181,7 @@ keygen_fetch_info() {
         return 0
     fi
 
-    if [ "${role}" = "observer" ]; then
-        local_dest="${OBSERVERS_LOCAL}/${node}.yaml"
-    else
-        local_dest="${VALIDATORS_LOCAL}/${node}.yaml"
-    fi
+    local_dest="${GENESIS_LOCAL}/${rdir}/${node}.yaml"
 
     echo ">>> [${node}] downloading ${tmp_remote} -> ${local_dest}"
     if tn_iap_scp_down "${inst}" "${zone}" "${tmp_remote}" "${local_dest}"; then
@@ -189,8 +198,8 @@ keygen_fetch_info() {
 # that it is keyed already), then keygen_fetch_info. A failure is recorded in failed[] and
 # returns 0: it fails this node, not the run.
 keygen_node_steps() {
-    local i="$1" inst zone node role setup ddir addr extIP intIP rpc_http rpc_ws remote_cmd nlog
-    local keygen_rc keygen_out done_line reuse_why info_src info_path
+    local i="$1" inst zone node role rdir setup ddir addr extIP intIP rpc_http rpc_ws remote_cmd nlog
+    local keygen_rc keygen_out done_line reuse_why info_src info_path pub gw
     local -a keygen_args
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
@@ -202,6 +211,10 @@ keygen_node_steps() {
 
     echo ""
     echo ">>> [${node}] keygen on ${inst} (${zone}) role=${role}"
+    if ! rdir="$(tn_role_dir "$i")"; then
+        failed+=("${node}")
+        return 0
+    fi
 
     echo ">>> [${node}] resolving external + internal IP"
     # `|| x=""`: under `set -e` a failed lookup (an API fault, a gcloud crash) would end the
@@ -225,9 +238,25 @@ keygen_node_steps() {
     # domain (default): the PUBLIC endpoints, through Caddy on :443, not reth's loopback
     # 8545/8546. internal-ip: reth's own listeners on the node's internal IP, for a fleet
     # with no public names (the bench: a node forwarding to benchNN.bench.invalid failed).
+    # Launch 2 (TN_GATEWAY_ENABLE=1, domain mode): a node fronted by a worker gateway
+    # advertises its public domain over https only (the gateway carries no WebSocket); the rpc
+    # node advertises nothing here, its URL is set by the public-RPC edge after it starts.
+    # setup-node.sh passes --rpc-ws to the keytool only together with --rpc-http and builds
+    # no RPC argument at all when neither is given.
+    gw="$(tn_gateway_mode "$i")"
     if [ "${KEYGEN_RPC_ADVERTISE:-domain}" = internal-ip ]; then
         rpc_http="http://${intIP}:${KEYGEN_RPC_HTTP_PORT:-8545}/"
         rpc_ws="ws://${intIP}:${KEYGEN_RPC_WS_PORT:-8546}/"
+    elif [ "${TN_GATEWAY_ENABLE:-0}" = 1 ] && [ "${role}" = rpc ]; then
+        rpc_http=""
+        rpc_ws=""
+    elif [ "${TN_GATEWAY_ENABLE:-0}" = 1 ] && { [ "${gw}" = same-host ] || [ "${gw}" = standalone ]; }; then
+        if ! pub="$(tn_public_domain "$i")"; then
+            failed+=("${node}")
+            return 0
+        fi
+        rpc_http="https://${pub}/"
+        rpc_ws=""
     else
         rpc_http="https://${node}.${BASE_DOMAIN}/"
         rpc_ws="wss://${node}.${BASE_DOMAIN}/"
@@ -255,9 +284,11 @@ keygen_node_steps() {
         --service-user "${SERVICE_USER}"
         # Accepted but unused at keygen in v2 (see the header): finalize writes the name.
         --advertised-name "${node}"
-        --rpc-http "${rpc_http}"
-        --rpc-ws "${rpc_ws}"
     )
+    # The advertised RPC, each flag only when set (both are set on every path but launch 2's,
+    # in this order, so that argv is unchanged).
+    if [ -n "${rpc_http}" ]; then keygen_args+=(--rpc-http "${rpc_http}"); fi
+    if [ -n "${rpc_ws}" ]; then keygen_args+=(--rpc-ws "${rpc_ws}"); fi
 
     # The remote command holds no secret, so it is echoed as is. Every value above comes
     # from config.sh or GCP and has no shell metacharacters: the plain join is the
@@ -326,7 +357,7 @@ keygen_node_steps() {
         fi
     fi
 
-    keygen_fetch_info "${node}" "${inst}" "${zone}" "${role}" "${info_src}"
+    keygen_fetch_info "${node}" "${inst}" "${zone}" "${rdir}" "${info_src}"
 }
 
 # keygen_report <index> <t0> <failed-before> — KEYGEN_REPORT=1: the node's KEYGEN_DONE line
@@ -353,14 +384,18 @@ keygen_node() {
 
 # keygen_pull_node <index> — one node of a --pull-only run: download only; always rc 0.
 keygen_pull_node() {
-    local i="$1" t0 nfail="${#failed[@]}" role
+    local i="$1" t0 nfail="${#failed[@]}" role rdir
     t0="$(date +%s)"
     kn_reused=1 kn_dest=""
     role="$(tn_node_role "$i")"
     echo ""
     echo ">>> [${NODE_NAMES[$i]}] pull-only: node-info.yaml from ${INSTANCE_NAMES[$i]} (${ZONES[$i]}) role=${role}"
-    keygen_fetch_info "${NODE_NAMES[$i]}" "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}" "${role}" \
-        "$(tn_data_dir_for_role "${role}")/node-info.yaml"
+    if rdir="$(tn_role_dir "$i")"; then
+        keygen_fetch_info "${NODE_NAMES[$i]}" "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}" "${rdir}" \
+            "$(tn_data_dir_for_role "${role}")/node-info.yaml"
+    else
+        failed+=("${NODE_NAMES[$i]}")
+    fi
     keygen_report "$i" "${t0}" "${nfail}"
 }
 
@@ -495,6 +530,22 @@ if [ "${1:-}" = "--pull-only" ]; then
 fi
 keygen_check_knobs || exit 1
 
+# The targets are resolved first, before the passphrase is read or any node is touched: an
+# unknown target, or an entry that runs no node, ends the run here with rc 2 (as
+# devnet-finalize.sh does). --pull-only keeps the rc 1 it always gave for a bad target
+# (benchmark/tests/test_keygen.py holds it to that). The verdict is taken from $(...): read
+# through a process substitution it was lost, and one bad target emptied the selection and
+# let a keygen run exit 0 having keyed nothing.
+# macOS /bin/bash is 3.2 and lacks `mapfile`; this read-loop is the portable equivalent.
+INDICES=()
+if ! _sel="$(tn_select_indices "$@")"; then
+    if [ "${PULL_ONLY}" = 1 ]; then exit 1; fi
+    exit 2
+fi
+while IFS= read -r _idx; do
+    if [ -n "${_idx}" ]; then INDICES+=("${_idx}"); fi
+done <<< "${_sel}"
+
 if [ "${PULL_ONLY}" = 1 ]; then
     # Nothing is generated, so the passphrase is not needed: drop any inherited copy.
     unset TN_BLS_PASSPHRASE
@@ -508,9 +559,6 @@ else
     export -n TN_BLS_PASSPHRASE
 fi
 
-# macOS /bin/bash is 3.2 and lacks `mapfile`; this read-loop is the portable equivalent.
-INDICES=()
-while IFS= read -r _idx; do INDICES+=("$_idx"); done < <(tn_select_indices "$@")
 if [ "${PULL_ONLY}" = 1 ]; then
     if [ "${#INDICES[@]}" -eq 0 ]; then
         echo "❌ --pull-only: no node selected" >&2
@@ -523,9 +571,8 @@ fi
 
 # Local collection dirs for the pulled node-info files. GENESIS_WORKSPACE (config.sh)
 # is REPO_ROOT for devnet; a profile such as benchmark/ points it at its own tree.
-VALIDATORS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/validators"
-OBSERVERS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis/observers"
-mkdir -p "${VALIDATORS_LOCAL}" "${OBSERVERS_LOCAL}"
+GENESIS_LOCAL="${GENESIS_WORKSPACE:-${REPO_ROOT}}/genesis"
+mkdir -p "${GENESIS_LOCAL}/validators" "${GENESIS_LOCAL}/observers"
 
 # Per-run log: each node's setup-node.sh stderr (its human-readable progress) and the
 # JSON events it sent. The passphrase never reaches it (it only rides the ssh stdin).

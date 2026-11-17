@@ -72,14 +72,22 @@ GENESIS_WS="${GENESIS_WORKSPACE:-${REPO_ROOT}}"
 # so that address must be funded at genesis: testnet_accounts.yaml keys are checksummed
 # (mixed case) while config.sh stores lower case, hence the case-insensitive grep.
 # The benchmark profile (TN_PROFILE=benchmark, benchmark/config.sh) has no post-genesis
-# staking node: its ten validators are all in the genesis committee and index 4 is one of
-# them, so the check below does not apply there (2026-11-03, bench 3).
+# staking node: its ten validators are all in the genesis committee, so the check below does
+# not apply there (2026-11-03, bench 3).
+# Node 5 is found by role, not by position: the first `observer` entry of NODE_ROLES (the
+# fleet also holds an rpc node and a gateway entry, neither of which stakes).
 if [ "${TN_PROFILE:-}" = "benchmark" ]; then
     echo "    benchmark profile: no post-genesis staking node, the node-5 funding check does not apply"
 else
-    node5_addr="${EXECUTION_ADDRESSES[4]:-}"
+    node5_idx="$(tn_indices_by_role observer)"
+    node5_idx="${node5_idx%%$'\n'*}"
+    if [ -z "${node5_idx}" ]; then
+        echo "❌ no fleet entry has role observer (node 5, the post-genesis staking node): check NODE_ROLES in config.sh" >&2
+        exit 1
+    fi
+    node5_addr="${EXECUTION_ADDRESSES[$node5_idx]:-}"
     if [ -z "${node5_addr}" ] || ! grep -qi "^\"${node5_addr}\":" "${GENESIS_WS}/testnet_accounts.yaml" 2>/dev/null; then
-        echo "❌ node 5 address '${node5_addr}' (EXECUTION_ADDRESSES[4]) is not a funded key in ${GENESIS_WS}/testnet_accounts.yaml; add it with 1,000,100 TEL before the build (runbook §3)" >&2
+        echo "❌ node 5 address '${node5_addr}' (EXECUTION_ADDRESSES[${node5_idx}], role observer) is not a funded key in ${GENESIS_WS}/testnet_accounts.yaml; add it with 1,000,100 TEL before the build (runbook §3)" >&2
         exit 1
     fi
     echo "    node 5 ${node5_addr} is funded in testnet_accounts.yaml"
@@ -92,7 +100,9 @@ VALIDATORS_DIR="${GENESIS_WS}/genesis/validators"
 # ----------------------------------------------------------------------------
 # Step 1: count expected validators (NODE_ROLES == validator) and verify there
 # is one node-info yaml per validator in genesis/validators/. Fail loud if not —
-# the committee hash depends on the full set.
+# the committee hash depends on the full set. Only role `validator` counts: the
+# observer and rpc nodes' node-info is under genesis/observers/ (devnet-keygen.sh,
+# tn_role_dir), so it stays out of the committee, and a gateway entry has none.
 # ----------------------------------------------------------------------------
 echo ">>> step 1: verifying per-validator node-info in ${VALIDATORS_DIR}"
 expected_validators=0
