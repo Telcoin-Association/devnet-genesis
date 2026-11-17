@@ -201,8 +201,12 @@ echo UI_REFRESH_OK"
 # The two status phases in one read-only round trip, one "__tn_dash <phase> <json>" line each.
 DASH_STATE_CMD="for p in gateway-status rpc-status; do l=\"\$(sudo bash '${CADDY_SCRIPT}' --json --phase \"\$p\" </dev/null 2>/dev/null | tail -n 1)\"; echo \"__tn_dash \$p \$l\"; done"
 
-# dash_caddy_state <inst> <zone> <log> — prints "gateway enabled=<b> domain=<d>; rpc
-# enabled=<b> domain=<d>"; rc 1 when a phase gave no status object.
+# _dash_json_word <line> <key> — the bare value of "key": a number, true, false or null
+_dash_json_word() { printf '%s' "$1" | sed -n "s/.*\"$2\":\([0-9a-z]*\).*/\1/p"; }
+
+# dash_caddy_state <inst> <zone> <log> — prints "gateway enabled=<b> domain=<d> port=<n>
+# probe_port=<n>; rpc enabled=<b> domain=<d> advertised_http=<url> advertised_ws=<url>" (the
+# install-caddy.sh gateway-status / rpc-status fields); rc 1 when a phase gave no status object.
 dash_caddy_state() {
     local out p line en summary=""
     out="$(tn_iap_ssh "$1" "$2" "${DASH_STATE_CMD}" </dev/null 2>>"$3")" || true
@@ -215,7 +219,12 @@ dash_caddy_state() {
         esac
         en=false
         tn_json_true "${line}" enabled && en=true
-        summary+="${p%-status} enabled=${en} domain=$(tn_json_str "${line}" domain); "
+        summary+="${p%-status} enabled=${en} domain=$(tn_json_str "${line}" domain)"
+        case "${p}" in
+            gateway-status) summary+=" port=$(_dash_json_word "${line}" port) probe_port=$(_dash_json_word "${line}" probe_port)" ;;
+            rpc-status) summary+=" advertised_http=$(tn_json_str "${line}" advertised_http) advertised_ws=$(tn_json_str "${line}" advertised_ws)" ;;
+        esac
+        summary+="; "
     done
     printf '%s\n' "${summary%; }"
 }

@@ -345,7 +345,7 @@ sync_probe() {
 epoch_line() {
     local mode
     mode="$(node5_mode 2>/dev/null)" || mode=""
-    echo "    epoch $1: node 5 $(status_name "${V_STATUS}"), tn_nodeMode now '${mode:-?}'; committee($1): $2 — $3"
+    echo "    epoch $1: node 5 status at activation $(status_name "${V_STATUS}"), tn_nodeMode now '${mode:-?}'; committee($1): $2 — $3"
     echo "      from the start of epoch $1, check on the validators: $4"
 }
 

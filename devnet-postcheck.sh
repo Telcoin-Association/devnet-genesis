@@ -35,6 +35,15 @@
 #             POSTCHECK_ROUND_GAP_SECS; an idle chain's head moves only at epoch closes, so the head
 #             is not required to advance)
 #
+# Settling: admission, rpc-admission and the chain group need a node to have its peers. Deploy
+# step 15 restarts the rpc node, node 5's only peer before it stakes, and node 5 reconnects only
+# after its trusted-dial backoff (about 45 s). So these checks are judged last: the node hosts where
+# one does not pass yet are re-read (node reads only) every POSTCHECK_RETRY_SECS until they pass or
+# POSTCHECK_SETTLE_SECS have gone by, and a line read after such a wait says so. When the chain
+# group runs, every node host is re-read together (its samples are compared across hosts).
+# The other checks are judged once, from the first round, and printed first; when one of them has
+# failed the run fails anyway, so there is no settle wait.
+#
 # Remote side: ONE ssh round trip per host (all hosts in parallel), through devnet-lib.sh's
 # tn_iap_ssh_stdin with one retry on rc 255. The probe only reads: `ss -ltn`, curl to loopback or
 # to a node's internal IP, `setup-gateway.sh --status --json`, a grep of /etc/telcoin/.node-meta. It
@@ -43,7 +52,7 @@
 #
 # Knobs: POSTCHECK_READY_WAIT_SECS (120), POSTCHECK_HEAD_LAG (5), POSTCHECK_ROUND_GAP_SECS (15),
 # POSTCHECK_CONNECT_TIMEOUT (3), POSTCHECK_HTTP_TIMEOUT (10), POSTCHECK_RETRY_SECS (5),
-# POSTCHECK_LOG_DIR (default <repo>/logs/<stamp>-postcheck).
+# POSTCHECK_SETTLE_SECS (180), POSTCHECK_LOG_DIR (default <repo>/logs/<stamp>-postcheck).
 
 set -euo pipefail
 
@@ -57,6 +66,7 @@ POSTCHECK_ROUND_GAP_SECS="${POSTCHECK_ROUND_GAP_SECS:-15}"
 POSTCHECK_CONNECT_TIMEOUT="${POSTCHECK_CONNECT_TIMEOUT:-3}"
 POSTCHECK_HTTP_TIMEOUT="${POSTCHECK_HTTP_TIMEOUT:-10}"
 POSTCHECK_RETRY_SECS="${POSTCHECK_RETRY_SECS:-5}"
+POSTCHECK_SETTLE_SECS="${POSTCHECK_SETTLE_SECS:-180}"
 
 PC_GROUPS="gateway binds public rpc admission chain"
 ONLY=""
@@ -72,6 +82,8 @@ RPC_B58=""      # the rpc nodes' BLS keys as in genesis/observers (base58), spac
 CHAIN_HEX=""
 RUN_DIR=""
 N_CHECKS=0 N_FAIL=0 N_ND=0
+PC_DRY=0 PC_DRY_FAIL=0   # PC_DRY=1: _pc_line prints nothing and only notes a FAIL (see _pc_pending)
+PC_WAITED=0              # seconds into the settle wait of its last re-read round (0: no wait)
 
 _usage() { sed -n '6,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -204,6 +216,10 @@ _pc_short() { local k="${1:-}"; if [ "${#k}" -gt 12 ]; then printf '%s…' "${k:
 
 # _pc_line <host> <check> <ok|FAIL|not-decisive> <detail> — one result line.
 _pc_line() {
+    if [ "${PC_DRY}" = 1 ]; then
+        if [ "$3" = FAIL ]; then PC_DRY_FAIL=1; fi
+        return 0
+    fi
     printf 'POSTCHECK %s %s %s %s\n' "$1" "$2" "$3" "$4" | tee -a "${RUN_DIR}/postcheck.txt"
     N_CHECKS=$((N_CHECKS + 1))
     case "$3" in
@@ -279,12 +295,13 @@ _pc_remote() {
     fi
 }
 
-# _pc_probe <i> — run host i's probe; its lines on stdout. rc 1 with the reason on stdout when ssh
+# _pc_probe <i> [<words>] — run host i's probe (with <words> in place of PROBE_ARGS[i] when given);
+# its lines on stdout. rc 1 with the reason on stdout when ssh
 # failed or the sentinel is missing. One retry when ssh returns 255.
 _pc_probe() {
-    local i="$1" script out rc=0 a
+    local i="$1" words="${2:-${PROBE_ARGS[$1]:-}}" script out rc=0 a
     script="$(declare -f _pc_remote)"$'\n'"_pc_remote"
-    for a in ${PROBE_ARGS[$i]:-}; do script="${script} $(printf '%q' "${a}")"; done
+    for a in ${words}; do script="${script} $(printf '%q' "${a}")"; done
     script="${script}"$'\n'"echo __tn_probe_done"$'\n'
     out="$(printf '%s' "${script}" | tn_iap_ssh_stdin "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}" 2>>"${RUN_DIR}/${i}.err")" || rc=$?
     if [ "${rc}" -eq 255 ]; then
@@ -594,7 +611,7 @@ _pc_public_checks() {   # <i>
 }
 
 _pc_rpc_checks() {   # <i>
-    local i="$1" host="${INSTANCE_NAMES[$1]}" res v
+    local host="${INSTANCE_NAMES[$1]}" res
     if [ "${NO_PUBLIC}" = 0 ]; then
         _pc_http rpc "https://${RPC_HOSTNAME}" eth_chainId
         res="$(_pc_res "${H_BODY}")"
@@ -607,11 +624,23 @@ _pc_rpc_checks() {   # <i>
         if [ "${H_CODE}" = 101 ]; then _pc_line "${host}" rpc-wss ok "WebSocket upgrade to wss://${RPC_HOSTNAME}: HTTP 101"
         else _pc_line "${host}" rpc-wss FAIL "WebSocket upgrade to wss://${RPC_HOSTNAME}: HTTP ${H_CODE:-none} (curl rc ${H_RC}), want 101"; fi
     fi
-    if _pc_probed "${i}"; then
-        v="$(_pc_py snap Open <<< "$(_pc_kv "${i}" tn_admissionSnapshot)")" || v=""
-        case "${v}" in ok\ *|FAIL\ *) ;; *) v="FAIL snapshot not judged: ${v}" ;; esac
-        _pc_line "${host}" rpc-admission "${v%% *}" "${v#* }"
+}
+
+# _pc_waited_note <i|chain> — " (read after a <n>s settle wait)" when that data was re-read
+# (_pc_settle marks each re-read in the host's output), nothing otherwise.
+_pc_waited_note() {
+    local s="${PC_WAITED}"
+    if [ "$1" != chain ]; then
+        s="$(sed -n 's/^# re-read at +\([0-9][0-9]*\)s$/\1/p' "${RUN_DIR}/$1.out" 2>/dev/null | tail -n 1)"
     fi
+    if [ "${s:-0}" -gt 0 ]; then printf ' (read after a %ss settle wait)' "${s}"; fi
+}
+
+_pc_rpc_admission_check() {   # <i>
+    local i="$1" v
+    v="$(_pc_py snap Open <<< "$(_pc_kv "${i}" tn_admissionSnapshot)")" || v=""
+    case "${v}" in ok\ *|FAIL\ *) ;; *) v="FAIL snapshot not judged: ${v}" ;; esac
+    _pc_line "${INSTANCE_NAMES[$i]}" rpc-admission "${v%% *}" "${v#* }$(_pc_waited_note "${i}")"
 }
 
 _pc_admission_check() {   # <i>
@@ -619,11 +648,20 @@ _pc_admission_check() {   # <i>
     # shellcheck disable=SC2086  # RPC_MATCH is a word list (names and hex keys)
     v="$(_pc_py snap Closed ${RPC_MATCH} <<< "$(_pc_kv "${i}" tn_admissionSnapshot)")" || v=""
     case "${v}" in ok\ *|FAIL\ *) ;; *) v="FAIL snapshot not judged: ${v}" ;; esac
-    _pc_line "${INSTANCE_NAMES[$i]}" admission "${v%% *}" "${v#* }"
+    _pc_line "${INSTANCE_NAMES[$i]}" admission "${v%% *}" "${v#* }$(_pc_waited_note "${i}")"
+}
+
+# _pc_settled_checks <i> — host i's checks that need its peers (rpc-admission, admission)
+_pc_settled_checks() {
+    if _pc_on rpc && [ "${NODE_ROLES[$1]}" = rpc ]; then _pc_rpc_admission_check "$1"; fi
+    if _pc_on admission; then
+        case "${NODE_ROLES[$1]}" in validator|observer) _pc_admission_check "$1" ;; esac
+    fi
 }
 
 _pc_chain_checks() {
-    local i v h c1 c2 nv=0 na=0 bad="" heads="" min="" max="" hbad="" cons="" cbad="" nc=0
+    local i v h c1 c2 nv=0 na=0 bad="" heads="" min="" max="" hbad="" cons="" cbad="" nc=0 wn
+    wn="$(_pc_waited_note chain)"
     for i in ${NODE_SUBJ}; do
         if [ "${NODE_ROLES[$i]}" = validator ]; then
             nv=$((nv + 1))
@@ -648,19 +686,19 @@ _pc_chain_checks() {
         fi
     done
     if [ "${nv}" -gt 0 ]; then
-        if [ -z "${bad}" ]; then _pc_line chain validators-active ok "${na}/${nv} genesis validators report CvvActive"
-        else _pc_line chain validators-active FAIL "${na}/${nv} CvvActive; not:${bad}"; fi
+        if [ -z "${bad}" ]; then _pc_line chain validators-active ok "${na}/${nv} genesis validators report CvvActive${wn}"
+        else _pc_line chain validators-active FAIL "${na}/${nv} CvvActive; not:${bad}${wn}"; fi
     fi
     if [ -n "${heads}${hbad}" ]; then
         if [ -z "${hbad}" ] && [ $((max - min)) -le "${POSTCHECK_HEAD_LAG}" ]; then
-            _pc_line chain heads ok "spread $((max - min)) <= ${POSTCHECK_HEAD_LAG} blocks (eth_blockNumber, sampled in parallel):${heads}"
+            _pc_line chain heads ok "spread $((max - min)) <= ${POSTCHECK_HEAD_LAG} blocks (eth_blockNumber, sampled in parallel):${heads}${wn}"
         else
-            _pc_line chain heads FAIL "spread $(( ${max:-0} - ${min:-0} )) (max ${POSTCHECK_HEAD_LAG}):${heads}${hbad:+; unread:${hbad}}"
+            _pc_line chain heads FAIL "spread $(( ${max:-0} - ${min:-0} )) (max ${POSTCHECK_HEAD_LAG}):${heads}${hbad:+; unread:${hbad}}${wn}"
         fi
     fi
     if [ "${nc}" -gt 0 ]; then
-        if [ -z "${cbad}" ]; then _pc_line chain consensus-progress ok "tn_latestConsensusHeader .number rose over ${POSTCHECK_ROUND_GAP_SECS}s on every validator:${cons}"
-        else _pc_line chain consensus-progress FAIL "no rise over ${POSTCHECK_ROUND_GAP_SECS}s on${cbad} (tn_latestConsensusHeader .number):${cons}"; fi
+        if [ -z "${cbad}" ]; then _pc_line chain consensus-progress ok "tn_latestConsensusHeader .number rose over ${POSTCHECK_ROUND_GAP_SECS}s on every validator:${cons}${wn}"
+        else _pc_line chain consensus-progress FAIL "no rise over ${POSTCHECK_ROUND_GAP_SECS}s on${cbad} (tn_latestConsensusHeader .number):${cons}${wn}"; fi
     fi
 }
 
@@ -675,11 +713,66 @@ _pc_report() {
         if _pc_on binds && _pc_probed "${h}"; then _pc_bind_checks "${h}"; fi
         if _pc_on public && tn_gateway_host_index "${h}" >/dev/null; then _pc_public_checks "${h}"; fi
         if _pc_on rpc && [ "${NODE_ROLES[$h]}" = rpc ]; then _pc_rpc_checks "${h}"; fi
-        if _pc_on admission && _pc_probed "${h}"; then
-            case "${NODE_ROLES[$h]}" in validator|observer) _pc_admission_check "${h}" ;; esac
-        fi
+    done
+}
+
+# _pc_report_settled — the checks that need peers, after _pc_settle (see "Settling" above)
+_pc_report_settled() {
+    local h
+    for h in ${NODE_SUBJ}; do
+        if _pc_probed "${h}"; then _pc_settled_checks "${h}"; fi
     done
     if _pc_on chain; then _pc_chain_checks; fi
+}
+
+# _pc_pending — the node hosts to re-read: the probed ones whose rpc-admission / admission does
+# not pass yet; all probed ones when anything is pending and the chain group runs (its samples are
+# compared across hosts). Judged quietly (PC_DRY); call it in $( ).
+_pc_pending() {
+    local h out="" all=""
+    PC_DRY=1
+    for h in ${NODE_SUBJ}; do
+        _pc_probed "${h}" || continue
+        all="${all} ${h}"
+        PC_DRY_FAIL=0
+        _pc_settled_checks "${h}"
+        if [ "${PC_DRY_FAIL}" = 1 ]; then out="${out} ${h}"; fi
+    done
+    PC_DRY_FAIL=0
+    if _pc_on chain; then _pc_chain_checks; fi
+    if [ "${PC_DRY_FAIL}" = 1 ] || { [ -n "${out}" ] && _pc_on chain; }; then out="${all}"; fi
+    printf '%s' "${out}"
+}
+
+# _pc_settle — re-read the hosts _pc_pending names (node reads only, in parallel) every
+# POSTCHECK_RETRY_SECS until it names none or POSTCHECK_SETTLE_SECS have gone by. A re-read is
+# appended to the host's output under a "# re-read at +<n>s" line (_pc_kv takes a key's last
+# value); a failed re-read leaves the output as it was. No wait when a check already failed.
+_pc_settle() {
+    local start="${SECONDS}" pending i a words pids p
+    pending="$(_pc_pending)"
+    if [ -n "${pending}" ] && [ "${N_FAIL}" -gt 0 ]; then
+        echo "devnet-postcheck: ${N_FAIL} check(s) failed already, so no settle wait: the checks that need peers are judged on the first read" >&2
+        return 0
+    fi
+    while [ -n "${pending}" ] && [ $((SECONDS - start)) -lt "${POSTCHECK_SETTLE_SECS}" ]; do
+        echo "    … not settled yet on$(for i in ${pending}; do printf ' %s' "${INSTANCE_NAMES[$i]}"; done); re-reading in ${POSTCHECK_RETRY_SECS}s ($((SECONDS - start))s of ${POSTCHECK_SETTLE_SECS}s)" >&2
+        sleep "${POSTCHECK_RETRY_SECS}"
+        pids=""
+        for i in ${pending}; do
+            words=""
+            for a in ${PROBE_ARGS[$i]:-}; do case "${a}" in node=*|gap=*|port=*|ct=*) words="${words} ${a}" ;; esac; done
+            (
+                if _pc_probe "${i}" "${words}" > "${RUN_DIR}/${i}.reread"; then
+                    { echo "# re-read at +$((SECONDS - start))s"; cat "${RUN_DIR}/${i}.reread"; } >> "${RUN_DIR}/${i}.out"
+                fi
+            ) &
+            pids="${pids} $!"
+        done
+        for p in ${pids}; do wait "${p}" || true; done
+        PC_WAITED=$((SECONDS - start))
+        pending="$(_pc_pending)"
+    done
 }
 
 main() {
@@ -700,7 +793,7 @@ main() {
     done
     tn_fleet_check || { echo "❌ devnet-postcheck: fleet arrays inconsistent (config.sh)" >&2; exit 2; }
     for v in POSTCHECK_READY_WAIT_SECS POSTCHECK_HEAD_LAG POSTCHECK_ROUND_GAP_SECS POSTCHECK_CONNECT_TIMEOUT \
-        POSTCHECK_HTTP_TIMEOUT POSTCHECK_RETRY_SECS NODE_RPC_PORT DEFAULT_HEALTHCHECK_TCP_PORT CHAIN_ID \
+        POSTCHECK_HTTP_TIMEOUT POSTCHECK_RETRY_SECS POSTCHECK_SETTLE_SECS NODE_RPC_PORT DEFAULT_HEALTHCHECK_TCP_PORT CHAIN_ID \
         GATEWAY_LISTEN_PORT GATEWAY_PROBE_PORT GATEWAY_METRICS_PORT; do
         case "${!v:-}" in ''|*[!0-9]*) echo "❌ devnet-postcheck: ${v}='${!v:-}' is not a number" >&2; exit 2 ;; esac
     done
@@ -719,13 +812,15 @@ main() {
     : > "${RUN_DIR}/postcheck.txt"
     _pc_plan
     if _pc_on admission || _pc_on public; then _pc_rpc_keys; fi
-    echo "devnet-postcheck: probing${PROBE_HOSTS:+ }$(for i in ${PROBE_HOSTS}; do printf '%s ' "${INSTANCE_NAMES[$i]}"; done)(in parallel; gateway readiness wait up to ${POSTCHECK_READY_WAIT_SECS}s)" >&2
+    echo "devnet-postcheck: probing${PROBE_HOSTS:+ }$(for i in ${PROBE_HOSTS}; do printf '%s ' "${INSTANCE_NAMES[$i]}"; done)(in parallel; gateway readiness wait up to ${POSTCHECK_READY_WAIT_SECS}s, settle wait up to ${POSTCHECK_SETTLE_SECS}s)" >&2
     for i in ${PROBE_HOSTS}; do
         ( rc=0; _pc_probe "${i}" > "${RUN_DIR}/${i}.out" || rc=$?; echo "${rc}" > "${RUN_DIR}/${i}.rc" ) &
         pids="${pids} $!"
     done
     for p in ${pids}; do wait "${p}" || true; done
     _pc_report
+    _pc_settle
+    _pc_report_settled
     echo "devnet-postcheck: ${N_CHECKS} checks, ${N_FAIL} failed, ${N_ND} not decisive; probe outputs in ${RUN_DIR}" >&2
     [ "${N_FAIL}" -eq 0 ] || exit 1
     exit 0

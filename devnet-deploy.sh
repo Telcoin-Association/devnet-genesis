@@ -377,6 +377,7 @@ step_14() {
 step_15() { echo ">>> Step 15: rpc-6 public edge"; "${REPO_DIR}/devnet-gateway.sh" --rpc-edge --yes; }
 
 step_16() {
+    # Step 15 restarted rpc-6, node 5's only peer, so the checks that need peers re-read for up to POSTCHECK_SETTLE_SECS (180).
     echo ">>> Step 16: post-checks"
     local rc=0
     "${REPO_DIR}/devnet-postcheck.sh" || rc=$?

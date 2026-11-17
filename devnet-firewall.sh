@@ -20,9 +20,11 @@
 #              80/443 are opened only where Caddy already serves a public edge, and at step 11 no
 #              Caddy is installed yet. On the gateway host there is also no node and no gateway yet
 #              (no .node-meta, no gateway.meta): firewall-setup.sh then knows no network and opens
-#              SSH from anywhere and nothing else. So `--enable` must run again for every Caddy host
-#              (and the gateway host) once its gateway or Caddy edge is installed (steps 13, 15),
-#              unless that installer opens 80/443 itself.
+#              SSH from anywhere and nothing else. Nothing has to be re-run for 80/443:
+#              tn-node-deployment's install-caddy.sh opens them in ufw itself when it enables a
+#              site (its caddy_open_ports: the gateway block at step 13, the public RPC site at
+#              step 15, the dashboard at step 17), and a later `--enable` or `--reset` keeps them
+#              because the Caddyfile then holds a managed block.
 #   (default)  consensus ports on node hosts only, ufw already enabled: firewall-setup.sh --json
 #              --port 49590/udp on and 49594/udp on (it cannot touch sshd), then --json --status
 #              must show both ports.
@@ -124,7 +126,7 @@ if [ "${ENABLE_HOST_FW}" -eq 1 ]; then
             exit 2
         fi
         if [ "${role}" = "gateway" ]; then
-            echo "    note: re-run '--enable ${inst}' after its gateway is installed (step 13) to open 80/443"
+            echo "    note: 80/443 stay closed here until the gateway is installed (step 13): install-caddy.sh opens them itself"
         fi
     done
     echo ""
