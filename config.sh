@@ -223,7 +223,7 @@ export TN_NODE_SCRIPTS_DIR="/opt/telcoin-node-scripts"
 # branch (tn-node-deployment #68, scripts 2.2.0, not merged or released yet). It moves with
 # that branch: after a new push there, pin the new head here before the next deploy.
 # Launch 1 ran d9446f72; benchmark/config.sh keeps that commit.
-export TN_NODE_SCRIPTS_REF="6361c9c9e083dd3060a8fedd86869f60ad278512"
+export TN_NODE_SCRIPTS_REF="79fb24e78356a93a9b48f3b472a4fc10e41bb1ee"
 # devnet-startup.sh is self-contained (it is GCP metadata, not sourced against this file)
 # and keeps its own copy of this URL; change both together.
 export TN_NODE_DEPLOY_REPO="https://github.com/Telcoin-Association/tn-node-deployment.git"
