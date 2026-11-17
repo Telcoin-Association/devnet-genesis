@@ -11,10 +11,16 @@
 #      Once per run, before the first node: the release-signature gate (see below).
 #   1. readiness gate (one ssh): setup-node.sh is in TN_NODE_SCRIPTS_DIR, keygen ran
 #      (.node-meta records PASSPHRASE_METHOD), no telcoin unit is installed yet (v2
-#      refuses to finalize over one), and <DATA_DIR>/network-config from deploy step 7
-#      configures Closed admission (the file's bytes come back and are checked here; see
-#      _nc_verdict). The node reads that file once, at its first start; when it is missing
-#      the node writes the default (admission Open). The same ssh records where the logs
+#      refuses to finalize over one), and the node's admission input is in place:
+#      TN_ADMISSION_VIA=devnet (the bench): <DATA_DIR>/network-config from
+#      devnet-network-config.sh configures Closed admission (the file's bytes come back and
+#      are checked here; see _nc_verdict). The node reads that file once, at its first
+#      start; when it is missing the node writes the default (admission Open).
+#      TN_ADMISSION_VIA=native (the devnet): the maps devnet-network-config.sh --yes
+#      installed, ADMISSION_HOST_DIR/bootstrap-peers.yaml and, for a validator or observer,
+#      ADMISSION_HOST_DIR/trusted-nodes.yaml, have the sha256 of the local
+#      ADMISSION_MAPS_DIR/<NODE_NAME>.bootstrap-peers.yaml / .trusted-nodes.yaml (an rpc node
+#      has no trusted map). The same ssh records where the logs
 #      end (size + checksum of each log file A4 reads, and the journal cursor), so A4 reads
 #      only what this finalize produced.
 #   2. stage committee.yaml + genesis.yaml + parameters.yaml (PARAMETERS_FILE): scp to
@@ -23,7 +29,17 @@
 #      the data dir AS the service user, which only needs to read them.
 #   3. setup-node.sh --json --phase=finalize ... It counts only with ssh rc 0 AND a done
 #      event carrying "ok":true (stdout is JSON events only; the human log is stderr).
-#   4. wait_healthy (devnet-lib.sh): unit active AND the healthcheck port answers.
+#      --public-rpc-url https://<tn_public_domain>, and --public-ws-url wss://<the same>
+#      only for a node without a worker gateway (tn_gateway_mode none: every node on the
+#      bench, the rpc node on the devnet; the gateway carries no WebSocket).
+#      TN_ADMISSION_VIA=native adds --admission <tn_admission_mode> --bootstrap-peers
+#      <host bootstrap map> and, for a validator or observer, --trusted-nodes <host trusted
+#      map>: setup-node.sh installs copies under /etc/telcoin, records them in .node-meta
+#      and renders <DATA_DIR>/network-config from them before the first start.
+#   4. wait_healthy (devnet-lib.sh): unit active AND the healthcheck port answers (GET / on
+#      127.0.0.1:43174, the node's liveness route: 200 once the listener is bound). It
+#      needs no peer, committee or block, so a lone genesis validator, node 5 before the
+#      rpc node runs, and the rpc node before any validator runs all pass it.
 # Phase B, per node that passed phase A. Each assertion prints one ✓/✗ line with what it
 # observed; any ✗ fails the node and the run.
 #   A1 telcoin stays active for FINALIZE_STABLE_SECS (60), polled every
@@ -35,9 +51,14 @@
 #   A3 <DATA_DIR>/network-config still configures Closed admission (the gate's check, on
 #      the file as it is now). Finalize adds (or rewrites) only its `hostname: "<name>"`
 #      line, from --advertised-name; that line is shown, not required.
+#      TN_ADMISSION_VIA=native: the file setup-node.sh rendered holds one admission block
+#      with the node's mode (Closed; Open for rpc) and one committee_peers, and
+#      devnet-network-config.py validate --native --node <node> passes on it.
 #   A4 the logs this finalize produced hold none of `bad yaml data`, `committee_peers:`,
 #      `trusted_nodes[`, `bootstrap_peers[` (config errors: the node exits at start and
-#      systemd restarts it) and no `panicked`, and are not empty. Files: the unit's
+#      systemd restarts it) and no `panicked`, and are not empty. TN_ADMISSION_VIA=native
+#      also counts `committee_peers: missing validator` on its own line of the summary
+#      (the node's refusal of a bootstrap-peers map without every committee member). Files: the unit's
 #      StandardOutput/StandardError append: files (/var/log/telcoin/telcoin.log +
 #      telcoin-error.log) and NODE_LOG_DIR/telcoin.log when .node-meta records one, each
 #      read past the size the gate recorded; the whole file when it was absent or empty
@@ -51,6 +72,10 @@
 #      record the pull policy, so the launch line is the evidence); and no
 #      TN_BLS_PASSPHRASE in /proc/<pid>/environ of the container's process (docker
 #      inspect .State.Pid) or of any `telcoin node` process on the host.
+#   A6 (TN_ADMISSION_VIA=native only) .node-meta ADMISSION_MODE = tn_admission_mode,
+#      BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, and TRUSTED_NODES_FILE=
+#      /etc/telcoin/trusted-nodes.yaml for a validator or observer, empty or absent for an
+#      rpc node (setup-node.sh prepare_node_extra_flags records the installed copies).
 #
 # Read-only probes (the readiness gate, A1, A3, A4, A5, every .node-meta read) and the
 # --stage-only stop, which is safe to run twice, retry ONCE, FINALIZE_RO_RETRY_SECS (5)
@@ -115,16 +140,18 @@
 # there, so this script never resolves, sends or logs a passphrase.
 #
 # Usage:
-#   ./devnet-finalize.sh                    # all nodes
+#   ./devnet-finalize.sh                    # every node host (tn_node_indices)
 #   ./devnet-finalize.sh node1 node3        # subset by NODE_NAME
-#   ./devnet-finalize.sh observer-5-devnet  # subset by INSTANCE_NAME
-#   ./devnet-finalize.sh 0 4                # subset by index (0-based)
+#   ./devnet-finalize.sh rpc-6-devnet       # subset by INSTANCE_NAME
+#   ./devnet-finalize.sh 0 5                # subset by index (0-based)
 #   ./devnet-finalize.sh --stage-only       # finalize every node, leave each stopped + enabled
 #   ./devnet-finalize.sh --start-all        # then: one coordinated start, then A1-A5
 #   ./devnet-finalize.sh --defer-start      # both, in one run
 #   ./devnet-finalize.sh --verify node4     # A1-A5 only (e.g. after a transient ssh drop)
+# Targets are node hosts only (roles validator, observer, rpc): no target means every one of
+# them, and a gateway entry named as a target is refused (exit 2), like an unknown target.
 # An unknown target stops the run before any node is touched; so do an unknown --option and
-# a second mode flag (usage on stderr).
+# a second mode flag (usage on stderr). A1-A5 below means A1-A6 with TN_ADMISSION_VIA=native.
 # Knobs (env, whole seconds): FINALIZE_STABLE_SECS (60), FINALIZE_STABLE_POLL_SECS (10),
 # FINALIZE_RO_RETRY_SECS (5), FINALIZE_START_LEAD_SECS (60), FINALIZE_START_LAUNCH_GAP_SECS
 # (1), FINALIZE_START_TIMEOUT_SECS (120), FINALIZE_START_SPREAD_WARN_SECS (10).
@@ -142,7 +169,8 @@
 # validate each network-config with devnet-network-config.py's --trust-observers-everywhere
 # context; 0 = the hub-only context above.
 # Exit: 0 every targeted node finalized and passed A1-A5; 1 a node failed, or a local
-# check did (a failed release-signature verification included); 2 bad target; 3 release
+# check did (a failed release-signature verification included); 2 bad target (unknown, or
+# a gateway entry), or a TN_ADMISSION_VIA other than devnet or native; 3 release
 # signature pending (RELEASE_SIG_PENDING), no node touched.
 # With a mode: 0 means --stage-only every target STAGED, PRESTAGED or RUNNING (RUNNING is
 # reported, not failed); --start-all / --defer-start every target started or already
@@ -195,20 +223,36 @@ case "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" in
     0|1) ;;
     *) echo "❌ NETCFG_TRUST_OBSERVERS_EVERYWHERE must be 0 or 1 (got '${NETCFG_TRUST_OBSERVERS_EVERYWHERE}')" >&2; exit 2 ;;
 esac
+# TN_ADMISSION_VIA (config.sh; unset = devnet): devnet = the node reads the network-config
+# devnet-network-config.sh rendered and installed (the bench); native = setup-node.sh renders
+# it from the admission maps this run passes (--admission, --bootstrap-peers, --trusted-nodes).
+ADMISSION_VIA="${TN_ADMISSION_VIA:-devnet}"
+case "${ADMISSION_VIA}" in
+    devnet|native) ;;
+    *) echo "❌ TN_ADMISSION_VIA must be devnet or native (got '${ADMISSION_VIA}')" >&2; exit 2 ;;
+esac
+_native() { [ "${ADMISSION_VIA}" = "native" ]; }
+if _native && { [ -z "${ADMISSION_HOST_DIR:-}" ] || [ -z "${ADMISSION_MAPS_DIR:-}" ]; }; then
+    echo "❌ TN_ADMISSION_VIA=native needs ADMISSION_HOST_DIR and ADMISSION_MAPS_DIR (config.sh)" >&2; exit 2
+fi
 
-# Same selector as devnet-network-config.sh: no args → all nodes; args may be an index
-# (0-based), an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once. An
-# unknown target is an error (rc 1), never a silent empty run.
+# Same selector as devnet-network-config.sh: no args → every node host (tn_node_indices:
+# roles validator, observer, rpc; never a gateway entry); args may be an index (0-based),
+# an INSTANCE_NAME, or a NODE_NAME. A node named twice is visited once. An unknown target,
+# or one that runs no node (a gateway entry), is an error (rc 1), never a silent empty run.
 tn_select_indices() {
     local out=() arg i matched
     if [ "$#" -eq 0 ]; then
-        for i in "${!INSTANCE_NAMES[@]}"; do out+=("$i"); done
-        printf '%s\n' "${out[@]}"; return 0
+        tn_node_indices; return 0
     fi
     for arg in "$@"; do
         matched=""
         for i in "${!INSTANCE_NAMES[@]}"; do
             if [ "${arg}" = "${i}" ] || [ "${arg}" = "${INSTANCE_NAMES[$i]}" ] || [ "${arg}" = "${NODE_NAMES[$i]}" ]; then
+                if ! tn_is_node_index "${i}"; then
+                    echo "❌ ${arg} is a '${NODE_ROLES[$i]:-}' entry, not a node host: finalize visits only validator, observer and rpc hosts" >&2
+                    return 1
+                fi
                 case " ${out[*]+"${out[*]}"} " in *" ${i} "*) ;; *) out+=("$i") ;; esac
                 matched=1; break
             fi
@@ -229,8 +273,10 @@ usage: ./devnet-finalize.sh [--stage-only | --start-all | --defer-start | --veri
   --start-all    start every staged node at one moment (START_AT, COORDINATED_START), then A1-A5
   --defer-start  --stage-only, then --start-all on the same targets, in one run
   --verify       A1-A5 only, on nodes with an installed unit
-  target         an index (0-based), an INSTANCE_NAME or a NODE_NAME; none = every node
-At most one mode flag, anywhere among the targets. Knobs: see the header of this script.
+  target         an index (0-based), an INSTANCE_NAME or a NODE_NAME of a node host
+                 (validator, observer, rpc); none = every node host; a gateway entry is refused
+At most one mode flag, anywhere among the targets. With TN_ADMISSION_VIA=native, A1-A5 is A1-A6.
+Knobs: see the header of this script.
 EOF
 }
 
@@ -354,15 +400,36 @@ if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import yaml' >/dev/null
     echo "❌ python3 with PyYAML is needed to validate each node's network-config (sudo apt-get install python3-yaml)" >&2
     exit 1
 fi
+# --nodes: <NODE_NAME>=<role> for every node host (tn_node_indices), in array order; a
+# gateway entry never appears (on the bench every entry is a validator or an observer).
 NODES_SPEC=""
 HUB=""
-for _n in "${!NODE_NAMES[@]}"; do
+for _n in $(tn_node_indices); do
     NODES_SPEC="${NODES_SPEC:+${NODES_SPEC},}${NODE_NAMES[$_n]}=${NODE_ROLES[$_n]}"
     if [ -z "${HUB}" ] && [ "${NODE_ROLES[$_n]}" = "validator" ]; then HUB="${NODE_NAMES[$_n]}"; fi
 done
 unset _n
 NC_CTX=(--committee "${COMMITTEE_LOCAL}" --genesis-dir "${GENESIS_LOCAL_DIR}" --nodes "${NODES_SPEC}" --hub "${HUB}")
-if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ]; then NC_CTX+=(--trust-observers-everywhere); fi
+# The trust-observers knob shapes the devnet-rendered file only; native trust comes from roles.
+if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ] && ! _native; then NC_CTX+=(--trust-observers-everywhere); fi
+
+# Native admission (TN_ADMISSION_VIA=native): the local maps devnet-network-config.sh rendered,
+# and setup-node.sh's config dir, where it installs its copies of them (CONFIG_DIR default).
+ADMISSION_LOCAL_DIR="${GENESIS_WORKSPACE:-${REPO_ROOT}}/${ADMISSION_MAPS_DIR:-}"
+TN_CONFIG_DIR="/etc/telcoin"
+# _has_trusted_map <i> — rc 0 when node i gets a trusted-nodes map (validator, observer).
+_has_trusted_map() {
+    case "${NODE_ROLES[$1]:-}" in validator|observer) return 0 ;; esac
+    return 1
+}
+# _sha256 <file> — the file's sha256, lower-case hex (python3 is required above anyway).
+_sha256() {
+    python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+}
+# _mode_word <i> — the node's admission mode as network-config spells it (Closed, Open).
+_mode_word() {
+    case "$(tn_admission_mode "$1")" in open) echo Open ;; grace) echo Grace ;; *) echo Closed ;; esac
+}
 
 # v2's LOG_DIR default (lib/common.sh:55): the unit appends to <dir>/<service>.log and
 # <dir>/<service>-error.log (setup-node.sh:1083-1084). The gate records where those end.
@@ -412,8 +479,16 @@ echo "nc=$nc"
 EOF
     # A mode's skip rules (PRESTAGED / RUNNING) read the unit's state from this probe.
     if [ -n "${FINALIZE_MODE}" ]; then _rs_unit_lines; fi
-    _rs_nc_lines
+    if _native; then _rs_map_lines; else _rs_nc_lines; fi
     _rs_done
+}
+
+# Native admission ($5 = ADMISSION_HOST_DIR): the sha256 of each installed map, or missing.
+_rs_map_lines() {
+    cat <<'EOF'
+if [ -f "$5/bootstrap-peers.yaml" ]; then echo "bp_sha=$(sha256sum < "$5/bootstrap-peers.yaml" | cut -c 1-64)"; else echo bp_sha=missing; fi
+if [ -f "$5/trusted-nodes.yaml" ]; then echo "tn_sha=$(sha256sum < "$5/trusted-nodes.yaml" | cut -c 1-64)"; else echo tn_sha=missing; fi
+EOF
 }
 
 # network-config: $1 the file.
@@ -474,7 +549,14 @@ echo "journal=$(wc -l < "$j" | tr -d " ")"
 echo "journal_from=$jfrom"
 echo "journal_rc=$jrc"
 echo "lines=$(cat "$s" "$j" | wc -l | tr -d " ")"
-for p in "bad yaml data" "committee_peers:" "trusted_nodes[" "bootstrap_peers[" "panicked"; do
+EOF
+    # Native admission: the node's own refusal of an incomplete committee map gets its own count.
+    if _native; then
+        echo 'for p in "bad yaml data" "committee_peers:" "committee_peers: missing validator" "trusted_nodes[" "bootstrap_peers[" "panicked"; do'
+    else
+        echo 'for p in "bad yaml data" "committee_peers:" "trusted_nodes[" "bootstrap_peers[" "panicked"; do'
+    fi
+    cat <<'EOF'
     n=$(cat "$s" "$j" | grep -cF -- "$p")
     first=$(cat "$s" "$j" | grep -F -m 1 -- "$p" | tr -d "\r" | cut -c 1-160)
     echo "hit=$n|$p|$first"
@@ -668,8 +750,11 @@ _num() {
     case "${1:-}" in ""|*[!0123456789]*) printf '0' ;; *) printf '%s' "$1" ;; esac
 }
 
-# _nc_verdict <node> <nc_present> <nc_b64> — does this network-config (the node's exact
-# bytes) configure Closed admission for <node>? Prints one observation; rc 0 yes, 1 no.
+# _nc_verdict <node> <nc_present> <nc_b64> [<Mode> native] — does this network-config (the
+# node's exact bytes) configure Closed admission (or <Mode>: Closed, Open) for <node>? Prints
+# one observation; rc 0 yes, 1 no. With `native` (TN_ADMISSION_VIA=native, A3), (b) is
+# devnet-network-config.py validate --native, which compares the file setup-node.sh rendered
+# with the admission maps by content.
 #   (a) what the NODE's parser (serde_yaml 0.8) sees: no UTF-8 BOM (serde_yaml makes it
 #       part of the first key), exactly one column-0 `admission:` whose block (up to the
 #       next column-0 key) holds `mode: Closed`, and one column-0 `committee_peers:`.
@@ -680,7 +765,7 @@ _num() {
 #   `<<` merge keys where serde_yaml does neither, so (a) reads the raw lines instead and
 #   holds even where (b)'s own guards for those cases would not.
 _nc_verdict() {
-    local node="$1" present="$2" b64="$3" f bad="" shape err host
+    local node="$1" present="$2" b64="$3" want="${4:-Closed}" native="${5:-}" f bad="" shape err host
     f="${WORK}/${node}/network-config"
     if [ "${present}" != "1" ]; then echo "missing"; return 1; fi
     mkdir -p "${WORK}/${node}"
@@ -690,23 +775,23 @@ _nc_verdict() {
     if [ "$(head -c 3 "${f}" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
         bad="${bad} starts with a UTF-8 BOM;"
     fi
-    shape="$(awk '
+    shape="$(awk -v want="${want}" '
         /^admission:[ \t]*$/ { adm++; inblock = 1; next }
         /^[^ \t#]/ { inblock = 0 }
-        inblock && /^[ \t]+mode:[ \t]*Closed[ \t]*$/ { closed++ }
+        inblock && $0 ~ ("^[ \t]+mode:[ \t]*" want "[ \t]*$") { closed++ }
         /^committee_peers:[ \t]*$/ { peers++ }
-        END { printf "admission:x%d mode-Closed-in-it:x%d committee_peers:x%d", adm, closed, peers }' "${f}")"
+        END { printf "admission:x%d mode-%s-in-it:x%d committee_peers:x%d", adm, want, closed, peers }' "${f}")"
     case "${shape}" in
-        "admission:x1 mode-Closed-in-it:x1 committee_peers:x1") ;;
+        "admission:x1 mode-${want}-in-it:x1 committee_peers:x1") ;;
         *) bad="${bad} ${shape} (want x1 each);" ;;
     esac
-    if ! err="$(python3 "${NC_PY}" validate "${NC_CTX[@]}" --node "${node}" "${f}" 2>&1 >/dev/null)"; then
+    if ! err="$(python3 "${NC_PY}" validate ${native:+"--native"} "${NC_CTX[@]}" --node "${node}" "${f}" 2>&1 >/dev/null)"; then
         err="${err//"${f}"/network-config}"
         bad="${bad} validator: $(printf '%s\n' "${err}" | grep -c '^FAIL') error(s), first: $(printf '%s\n' "${err}" | grep -m 1 '^FAIL' | cut -c 6-220);"
     fi
     host="$(grep -m 1 '^hostname:' "${f}" || true)"
-    if [ -n "${bad}" ]; then echo "NOT Closed:${bad} ${host:-no hostname line}"; return 1; fi
-    echo "Closed admission, committee_peers, validator ok for ${node}; ${host:-no hostname line}"
+    if [ -n "${bad}" ]; then echo "NOT ${want}:${bad} ${host:-no hostname line}"; return 1; fi
+    echo "${want} admission, committee_peers, validator${native:+ --native} ok for ${node}; ${host:-no hostname line}"
 }
 
 # _report <node> <rc> <label> <observed> — one assertion line.
@@ -763,18 +848,43 @@ assert_meta() {
     _report "${node}" 0 "A2 node-meta" "NETWORK=${net}, DOCKER_IMAGE_DIGEST=${dig}"
 }
 
-# A3 <inst> <zone> <node> <data-dir>
+# A3 <inst> <zone> <node> <data-dir> [<Mode>] — with <Mode> (TN_ADMISSION_VIA=native), the
+# file must hold that admission mode and pass validate --native.
 assert_network_config() {
     local inst="$1" zone="$2" node="$3" nc="$4/network-config" out obs
     if ! out="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_nc)" "${nc}")"; then
         _report "${node}" 1 "A3 network-config" "${out}"; return 1
     fi
-    if obs="$(_nc_verdict "${node}" "$(_kv "${out}" nc_present)" "$(_kv "${out}" nc_b64)")"; then
+    if obs="$(_nc_verdict "${node}" "$(_kv "${out}" nc_present)" "$(_kv "${out}" nc_b64)" ${5:+"$5" native})"; then
         _report "${node}" 0 "A3 network-config" "${nc}: ${obs}"
         return 0
     fi
     _report "${node}" 1 "A3 network-config" "${nc}: ${obs}"
     return 1
+}
+
+# A6 <inst> <zone> <node> <index> (TN_ADMISSION_VIA=native only): what setup-node.sh's
+# prepare_node_extra_flags recorded for the admission flags this run passed. A key that is
+# absent reads as empty (setup-node.sh writes TRUSTED_NODES_FILE= when no map was passed).
+assert_admission_meta() {
+    local inst="$1" zone="$2" node="$3" i="$4" k v rc want obs="" bad=""
+    for k in ADMISSION_MODE BOOTSTRAP_PEERS_FILE TRUSTED_NODES_FILE; do
+        case "${k}" in
+            ADMISSION_MODE) want="$(tn_admission_mode "${i}")" || want="?" ;;
+            BOOTSTRAP_PEERS_FILE) want="${TN_CONFIG_DIR}/bootstrap-peers.yaml" ;;
+            *) want=""; if _has_trusted_map "${i}"; then want="${TN_CONFIG_DIR}/trusted-nodes.yaml"; fi ;;
+        esac
+        rc=0
+        v="$(_ro tn_node_meta_get "${inst}" "${zone}" "${k}")" || rc=$?
+        if [ "${rc}" -eq 1 ]; then v=""; elif [ "${rc}" -ne 0 ]; then v="<unread rc ${rc}>"; fi
+        obs="${obs:+${obs}, }${k}=${v}"
+        if [ "${v}" != "${want}" ]; then bad="${bad} ${k} want '${want}';"; fi
+    done
+    if [ -n "${bad}" ]; then
+        _report "${node}" 1 "A6 admission meta" "${obs};${bad}"
+        return 1
+    fi
+    _report "${node}" 0 "A6 admission meta" "${obs}"
 }
 
 # A4 <inst> <zone> <node> <svc> <node-log-dir> <gate logmarks> <gate journal cursor>
@@ -1127,6 +1237,32 @@ PHASE_A=()
 case "${FINALIZE_MODE}" in start-all|verify) ;; *) PHASE_A=("${INDICES[@]}") ;; esac
 
 # --- phase A: gate, stage, finalize, health ------------------------------------------
+# _maps_verdict <index> <gate output> — TN_ADMISSION_VIA=native: are the admission maps
+# installed on the host (bp_sha / tn_sha from _rs_map_lines) the local ones, by sha256? The
+# trusted map counts only for a node that gets one (validator, observer). Prints one
+# observation; rc 0 yes, 1 no.
+_maps_verdict() {
+    local i="$1" gate="$2" node="${NODE_NAMES[$1]}" k key loc host got want bad="" ok=""
+    for k in bootstrap-peers trusted-nodes; do
+        key=bp_sha
+        if [ "${k}" = trusted-nodes ]; then
+            _has_trusted_map "${i}" || continue
+            key=tn_sha
+        fi
+        loc="${ADMISSION_LOCAL_DIR}/${node}.${k}.yaml"
+        host="${ADMISSION_HOST_DIR}/${k}.yaml"
+        got="$(_kv "${gate}" "${key}")"
+        if [ ! -f "${loc}" ]; then bad="${bad} local ${loc} missing;"; continue; fi
+        want="$(_sha256 "${loc}")" || want=""
+        if [ -z "${want}" ]; then bad="${bad} could not hash ${loc};"
+        elif [ -z "${got}" ] || [ "${got}" = "missing" ]; then bad="${bad} ${host} missing on the host;"
+        elif [ "${got}" != "${want}" ]; then bad="${bad} ${host} sha256 ${got:0:12}… differs from ${loc} (${want:0:12}…);"
+        else ok="${ok} ${k} ${want:0:12}…"; fi
+    done
+    if [ -n "${bad}" ]; then echo "admission maps not as rendered:${bad}"; return 1; fi
+    echo "installed = local by sha256:${ok}"
+}
+
 # _phase_a_node <index> — phase A on one node (the serial loop's body). Its outcome is one
 # entry in failed, PRESTAGED_IDX, RUNNING_IDX, STAGED_IDX or finalized, and the node's
 # LOG_MARKS / JOURNAL_CURSORS once its gate passed. _run_nodes runs it for every target.
@@ -1155,9 +1291,15 @@ _phase_a_node() {
         echo "❌ [${node}] EXECUTION_ADDRESSES[${i}]='${addr}' is not 0x + 40 hex (config.sh)"
         failed+=("${node}: bad execution address"); return 0
     fi
+    if ! pubdom="$(tn_public_domain "${i}")" || [ -z "${pubdom}" ]; then
+        echo "❌ [${node}] no public domain for index ${i} (config.sh)"
+        failed+=("${node}: public domain"); return 0
+    fi
 
     # --- Step 1: readiness gate ----------------------------------------------------
-    if ! gate="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_ready)" "${setup}" "${service}" "${ddir}" "${TN_LOG_DIR}")"; then
+    ready_args=("${setup}" "${service}" "${ddir}" "${TN_LOG_DIR}")
+    if _native; then ready_args+=("${ADMISSION_HOST_DIR}"); fi
+    if ! gate="$(_ro _tn_probe "${inst}" "${zone}" "$(_rs_ready)" "${ready_args[@]}")"; then
         echo "❌ [${node}] readiness gate: ${gate}"
         failed+=("${node}: readiness gate (no answer)"); return 0
     fi
@@ -1182,14 +1324,22 @@ _phase_a_node() {
     if [ "$(_kv "${gate}" setup)" != "1" ]; then gate_bad="${gate_bad} ${setup} missing (fetch the node scripts);"; fi
     if [ "$(_kv "${gate}" keygen)" != "1" ]; then gate_bad="${gate_bad} no keygen record in /etc/telcoin/.node-meta (run ./devnet-keygen.sh);"; fi
     if [ "$(_kv "${gate}" installed)" != "0" ]; then gate_bad="${gate_bad} a ${service} unit is already installed (v2 refuses finalize over it: edit-config.sh, or remove-node.sh first);"; fi
-    if ! nc_obs="$(_nc_verdict "${node}" "$(_kv "${gate}" nc_present)" "$(_kv "${gate}" nc_b64)")"; then
-        gate_bad="${gate_bad} $(_kv "${gate}" nc) ${nc_obs} (run ./devnet-network-config.sh --yes ${node});"
+    if _native; then
+        if ! nc_obs="$(_maps_verdict "${i}" "${gate}")"; then
+            gate_bad="${gate_bad} ${nc_obs} (run ./devnet-network-config.sh --yes ${node});"
+        fi
+        ready_what="admission maps"
+    else
+        if ! nc_obs="$(_nc_verdict "${node}" "$(_kv "${gate}" nc_present)" "$(_kv "${gate}" nc_b64)")"; then
+            gate_bad="${gate_bad} $(_kv "${gate}" nc) ${nc_obs} (run ./devnet-network-config.sh --yes ${node});"
+        fi
+        ready_what="$(_kv "${gate}" nc)"
     fi
     if [ -n "${gate_bad}" ]; then
         echo "❌ [${node}] not ready to finalize:${gate_bad}"
         failed+=("${node}: readiness gate"); return 0
     fi
-    echo ">>> [${node}] ready: setup-node.sh present, keygen recorded, no unit yet, $(_kv "${gate}" nc): ${nc_obs}"
+    echo ">>> [${node}] ready: setup-node.sh present, keygen recorded, no unit yet, ${ready_what}: ${nc_obs}"
     # Where the logs end before this finalize: A4 reads only what comes after.
     LOG_MARKS[i]="$(printf '%s\n' "${gate}" | sed -n 's/^logmark=//p' | tr '\n' ' ')"
     JOURNAL_CURSORS[i]="$(_kv "${gate}" jcursor)"
@@ -1256,9 +1406,17 @@ _phase_a_node() {
         # The node's own public, operator-facing endpoints, served by its Caddy edge
         # (https -> reth RPC :8545, wss -> reth WS :8546). Recorded in .node-meta
         # (PUBLIC_RPC_URL / PUBLIC_WS_URL) for the UI and tooling; never sent to the
-        # network. No --rpc-domain: devnet's Caddy is config-caddy.sh (common/dns.sh).
-        --public-rpc-url "https://${node}.${BASE_DOMAIN}"
-        --public-ws-url "wss://${node}.${BASE_DOMAIN}"
+        # network. No --rpc-domain: the devnet's Caddy is configured by its own drivers.
+        # The domain is tn_public_domain (<NODE_NAME>.<BASE_DOMAIN>; RPC_HOSTNAME for rpc).
+        --public-rpc-url "https://${pubdom}"
+    )
+    # A node behind a worker gateway gets no ws URL (the gateway carries no WebSocket, and
+    # setup-node.sh records PUBLIC_WS_URL empty); with TN_GATEWAY_ENABLE not 1 every node
+    # is mode none, so the bench passes it for every node, as before.
+    if [ "$(tn_gateway_mode "${i}")" = "none" ]; then
+        finalize_args+=(--public-ws-url "wss://${pubdom}")
+    fi
+    finalize_args+=(
         --listener-primary "/ip4/${intIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
         --listener-worker "/ip4/${intIP}/udp/${DEFAULT_WORKER_UDP_PORT}/quic-v1"
         --external-primary "/ip4/${extIP}/udp/${DEFAULT_PRIMARY_UDP_PORT}/quic-v1"
@@ -1269,6 +1427,16 @@ _phase_a_node() {
         # else on devnet (is_testnet_like); the host-firewall rule is devnet-firewall.sh's.
         --enable-healthcheck-monitor
     )
+    # Native admission: setup-node.sh checks each map (regular, mode o+g readable, at most
+    # 64 KiB; the bootstrap map also by the release's own parser), installs root 0644 copies
+    # under /etc/telcoin, records them in .node-meta (A6) and renders network-config (A3).
+    if _native; then
+        finalize_args+=(--admission "$(tn_admission_mode "${i}")"
+            --bootstrap-peers "${ADMISSION_HOST_DIR}/bootstrap-peers.yaml")
+        if _has_trusted_map "${i}"; then
+            finalize_args+=(--trusted-nodes "${ADMISSION_HOST_DIR}/trusted-nodes.yaml")
+        fi
+    fi
     finalize_cmd="sudo bash '${setup}'"
     for a in "${finalize_args[@]}"; do finalize_cmd="${finalize_cmd} '${a}'"; done
     echo ">>> [${node}] running: ${finalize_cmd}"
@@ -1345,10 +1513,15 @@ _phase_b_node() {
     assert_service "${inst}" "${zone}" "${node}" "${service}" || misses=$((misses + 1))
     assert_meta "${inst}" "${zone}" "${node}" || misses=$((misses + 1))
     data_dir="${META_DATA_DIR:-$(tn_data_dir_for_role "$(tn_node_role "$i")")}"
-    assert_network_config "${inst}" "${zone}" "${node}" "${data_dir}" || misses=$((misses + 1))
+    nc_mode=""
+    if _native; then nc_mode="$(_mode_word "${i}")"; fi
+    assert_network_config "${inst}" "${zone}" "${node}" "${data_dir}" ${nc_mode:+"${nc_mode}"} || misses=$((misses + 1))
     assert_logs "${inst}" "${zone}" "${node}" "${service}" "${META_NODE_LOG_DIR}" \
         "${LOG_MARKS[$i]:-}" "${JOURNAL_CURSORS[$i]:-}" || misses=$((misses + 1))
     assert_runtime "${inst}" "${zone}" "${node}" "${service}" || misses=$((misses + 1))
+    if _native; then
+        assert_admission_meta "${inst}" "${zone}" "${node}" "${i}" || misses=$((misses + 1))
+    fi
     if [ "${misses}" -eq 0 ]; then
         verified+=("${node} (${service})")
     else
