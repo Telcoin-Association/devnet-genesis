@@ -75,6 +75,14 @@ if [ "${FRESH}" = 1 ]; then
 else
     rsync -a "${excl[@]}" --exclude=/genesis/ --exclude=/releases/ "${WT}/" "${STATE}/repo/"
 fi
+# Steps 18 and 19 (app contracts, txgen) are not rehearsed: in the snapshot their drivers become a stub that
+# records the call in calls.log (tool "stub") and exits 0. L2_SHIM_STUB_DRIVERS="" rehearses them for real.
+for _d in ${L2_SHIM_STUB_DRIVERS-devnet-contracts.sh devnet-txgen.sh}; do
+    # shellcheck disable=SC2016  # the stub expands these on the operator side, at run time
+    printf '#!/usr/bin/env bash\n# l2-shim stub of %s\nexec "${L2_SHIM_PY}" "${L2_SHIM_DIR}/fakes.py" stub-driver %s "$@"\n' \
+        "${_d}" "${_d}" > "${STATE}/repo/${_d}"
+    chmod 755 "${STATE}/repo/${_d}"
+done
 # A driver committed without its exec bit stops devnet-deploy.sh with exit 126. That is a FINDING, never
 # repaired silently: L2_SHIM_CHMOD_DRIVERS=1 sets +x on the snapshot copy only (to rehearse past it) and the
 # report keeps one FLAGCHECK-free "MODE" finding per file, so the run is NOT CLEAN either way.

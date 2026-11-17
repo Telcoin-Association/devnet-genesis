@@ -375,9 +375,15 @@ def boot_host(name, rec):
     if "startup-script" in rec["metadata"] and ref:
         sd = os.path.join(root, NODE_SCRIPTS.lstrip("/"))
         os.makedirs(sd, exist_ok=True)
+        nft = os.path.join(root, "usr/sbin/nft")  # nftables is on the image; executing it is a finding
+        os.makedirs(os.path.dirname(nft), exist_ok=True)
+        with open(nft, "w") as f:
+            f.write('#!/usr/bin/env bash\nexec "${L2_SHIM_PY}" "${L2_SHIM_DIR}/fakes.py" tnd nft "$@"\n')
+        os.chmod(nft, 0o755)
         flags = jload(sp("flags.json"), {"scripts": {}})
         for script in flags["scripts"]:
             p = os.path.join(sd, script)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w") as f:
                 f.write('#!/usr/bin/env bash\n# l2-shim fake of tn-node-deployment %s at %s\n'
                         'exec "${L2_SHIM_PY}" "${L2_SHIM_DIR}/fakes.py" tnd %s "$@"\n' % (script, ref, script))
@@ -706,7 +712,7 @@ def gc_scp(pos, fl, cmdline):
 
 
 # ----------------------------------------------------------------------------- remote sandbox
-REWRITE = re.compile(r"(?<![\w.~/:-])/(etc|var|opt|tmp|home|root|run|srv|mnt|usr/local|lib/systemd|usr/lib/systemd|proc(?!/self\b))(?=[/'\"\s;|&)]|$)")
+REWRITE = re.compile(r"(?<![\w.~/:-])/(etc|var|opt|tmp|home|root|run|srv|mnt|usr/local|usr/sbin|lib/systemd|usr/lib/systemd|proc(?!/self\b))(?=[/'\"\s;|&)]|$)")
 OUTSIDE = re.compile(r"(?<![\w.~/:-])/(usr|bin|sbin|lib|lib64|boot|dev|proc|sys|snap|media)\b(/[\w.+-]+)*")
 ALLOWED_OUTSIDE = re.compile(r"^/(dev/(null|stdin|stdout|stderr|fd/\d+|urandom)|usr/bin/env|bin/(ba)?sh|usr/bin/(ba)?sh|proc/self/\S*|usr/share/\S*)$")
 SAFE_REAL = ("bash sh cat grep sed awk test [ cp mv rm mkdir rmdir chmod ln ls head tail sha256sum md5sum "
@@ -862,6 +868,10 @@ def r_systemctl(argv):
                         units[u]["active"] = False
         elif verb in ("daemon-reload", "reset-failed"):
             pass
+        elif verb == "list-unit-files":
+            for u in targets:
+                if os.path.exists(os.path.join(root, "etc/systemd/system", u + ".service")):
+                    print("%s.service %s enabled" % (u, "enabled" if units.get(u, {}).get("enabled") else "disabled"))
         else:
             strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "systemctl %s not emulated" % verb)
         jsave(units_path(), units)
@@ -1037,9 +1047,7 @@ def r_ss(argv):
     units = jload(units_path(), {})
     socks = ["0.0.0.0:22"]
     if units.get("telcoin", {}).get("active"):
-        socks += ["127.0.0.1:8545", "127.0.0.1:8546"]
-        if node_health(inst, root, "/")[0] == 200:
-            socks.append("0.0.0.0:43174")
+        socks += node_binds(root)
     socks += LISTEN_EXTRA(inst, root, units)
     if "H" not in argv[0]:
         print("State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process")
@@ -1242,11 +1250,15 @@ def r_curl(argv):
     if len(urls) != 1:
         strict_fail("UNRECOGNISED", inst, cmd, "remote curl with %d URLs not emulated" % len(urls))
     headers = vals.get("-H", []) + vals.get("--header", [])
+    CURL_CTX["data"] = (vals.get("--data") or vals.get("-d") or vals.get("--data-raw") or [""])[-1]
     code, body = curl_answer(inst, root, urls[0], headers)
     if code is None:
         strict_fail("UNSAFE", inst, cmd, "remote curl to %s (no emulator; a VM would reach the network)" % urls[0])
     fail = "f" in flags or "--fail" in flags
     wout = (vals.get("-w") or vals.get("--write-out") or [""])[-1]
+    if code == -28:  # a dropped packet: the client gives up at --max-time / --connect-timeout
+        sys.stdout.write(wout.replace("%{http_code}", "000").replace("\\n", "\n"))
+        sys.exit(28)
     if code == 0:
         if "S" in flags or not ("s" in flags or "--silent" in flags):
             sys.stderr.write("curl: (7) Failed to connect to %s: Connection refused\n" % urls[0])
@@ -1770,7 +1782,7 @@ def tnd_observability(argv):
     k = [i for i, l in enumerate(lines) if l.startswith("exec ") and " node " in l][-1]
     add = []
     if "enable-logs" in o and "--log.file.format" not in lines[k]:
-        add.append("--log.file.format json --log.file.directory /home/nonroot/logs")
+        add.append("--log.file.format json --log.file.directory /home/nonroot/logs --log.file.max-size 100 --log.file.max-files 5")  # lib/observability.sh:146
     if "enable-metrics" in o and " --metrics " not in lines[k]:
         add.append("--metrics 127.0.0.1:9101")
     warn_hc = False
@@ -1816,7 +1828,7 @@ def tnd_observability(argv):
             node_runtime(inst, root, True)
             emit(event="step", name="restart", msg="Restarted telcoin to apply the new flags")
         else:
-            emit(event="warn", msg="Not restarting telcoin: the restart guard refused (l2-shim: this host's installer does not restart)")
+            emit(event="warn", msg="Not restarting: the committee could lose its quorum (see above). Restart later, or set TN_ALLOW_QUORUM_RISK=1 for a coordinated restart.")  # lib/observability.sh:1148
     emit(event="done", ok=True, msg="observability enabled")
 
 
@@ -1926,7 +1938,7 @@ def tnd_gateway(argv):
         applied.append("gateway:enabled")
     if front == "caddy":
         cf = os.path.join(root, "etc/caddy/Caddyfile")
-        block = "# >>> tn-gateway >>>\n%s {\n  reverse_proxy 127.0.0.1:8655\n}\n# <<< tn-gateway <<<\n" % o["domain"]
+        block = "# >>> tn-gateway >>>\n# tn-gateway block v1\n%s {\n  reverse_proxy 127.0.0.1:8655\n}\n# <<< tn-gateway <<<\n" % o["domain"]
         cur = open(cf).read() if os.path.exists(cf) else "# Managed by the Telcoin Node Manager\n"
         if block not in cur:
             os.makedirs(os.path.dirname(cf), exist_ok=True)
@@ -2146,7 +2158,7 @@ def gen_flags(argv):
     tnd_dir = argv[0]
     pat = re.compile(r"^\s*(-{1,2}[A-Za-z0-9][-A-Za-z0-9]*(?:=\*)?(?:\s*\|\s*-{1,2}[A-Za-z0-9][-A-Za-z0-9]*(?:=\*)?)*)\s*(?:\)|\|\s*\\$)")
     out = {}
-    for name in sorted(os.listdir(tnd_dir)):
+    for name in sorted(os.listdir(tnd_dir)) + ["ui/install-ui.sh"]:
         p = os.path.join(tnd_dir, name)
         if not (name.endswith(".sh") and os.path.isfile(p)):
             continue
@@ -2333,6 +2345,8 @@ def main():
             return r_systemctl(argv)
         if tool == "tnd":
             return tnd(argv)
+        if tool == "pas":
+            return r_pas(argv)
         if tool == "stat":
             return r_stat(argv)
         if tool == "curl":
@@ -2347,10 +2361,468 @@ def main():
             return r_ss(argv)
         return r_simple(tool, argv)
     table = {"dig": local_dig, "cast": local_cast, "docker": local_docker, "init": init, "gen-flags": gen_flags, "pty-run": pty_run,
-             "report": report, "sentinel": sentinel}
+             "report": report, "sentinel": sentinel,
+             "curl": local_curl, "stub-driver": stub_driver}
     if tool in table:
         return table[tool](argv)
     return local_strict(tool, argv)
+
+
+# ----------------------------------------------------------------------------- SH3: deploy steps 15..20
+# Step 15 install-caddy.sh rpc-enable/rpc-status; 16 the post-check's node, gateway and https answers; 17
+# ui/install-ui.sh and install-caddy.sh enable/gateway-status; 18/19 a stub at the driver boundary (run.sh);
+# 20 firewall-setup.sh --p2p-committee and tn-p2p-allow-sync. Answer shapes: install-caddy.sh 2587/2971/3143
+# and its json_done lines, tnd-firewall.md 5-6, PAS docs/contract.md 516-543; the chain advances with time.
+CURL_VALUE_OPTS |= {"--data", "-d", "--data-raw", "--proto"}
+CURL_BOOL_OPTS |= {"--retry-connrefused", "--http1.1"}
+CURL_CTX = {}
+FENCES = {"gateway": ("# >>> tn-gateway >>>", "# <<< tn-gateway <<<"), "rpc": ("# >>> tn-rpc >>>", "# <<< tn-rpc <<<"),
+          "dashboard": ("# >>> tn-dashboard >>>", "# <<< tn-dashboard <<<")}
+PAS_DIR = "var/lib/telcoin-p2p-allow"
+PAS_BIN = "usr/local/libexec/telcoin/tn-p2p-allow-sync"
+
+
+def vm_by_ip(ip):
+    for name, rec in cloud()["instances"].items():
+        if ip in (rec.get("int_ip"), rec.get("ext_ip")):
+            return name
+    return None
+
+
+def vm_root(name):
+    return sp("hosts", name, "root")
+
+
+def vm_units(name):
+    return jload(sp("hosts", name, "units.json"), {})
+
+
+def node_binds(root):
+    """The node's sockets from its launch line (contract: a bare --healthcheck <port> binds 127.0.0.1)."""
+    p = os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")
+    ls = [l for l in open(p).read().split("\n") if l.startswith("exec ") and " node " in l] if os.path.exists(p) else []
+    line, out = (ls[-1] if ls else ""), []
+
+    def val(flag, default):
+        m = re.search(r"\s%s[ =](\S+)" % re.escape(flag), line)
+        return m.group(1) if m else default
+    if re.search(r"\s--http(\s|$)", line):
+        out.append("%s:8545" % val("--http.addr", "127.0.0.1"))
+    if re.search(r"\s--ws(\s|$)", line):
+        out.append("%s:8546" % val("--ws.addr", "127.0.0.1"))
+    hc = val("--healthcheck", None)
+    if hc:
+        out.append(hc if ":" in hc else "127.0.0.1:" + hc)
+    return out
+
+
+_listen_extra_sh2 = LISTEN_EXTRA
+
+
+def LISTEN_EXTRA(inst, root, units):  # noqa: F811 (extends the step-13 version)
+    out = _listen_extra_sh2(inst, root, units)
+    if units.get("telcoin-ui", {}).get("active"):
+        out.append("127.0.0.1:8080")
+    return out
+
+
+def chain_now():
+    """(execution head, consensus header number): both rise with wall time from the first read."""
+    with Locked():
+        c = jload(sp("chain.json"), {})
+        if "t0" not in c:
+            c["t0"] = time.time()
+            jsave(sp("chain.json"), c)
+    dt = max(0.0, time.time() - c["t0"])
+    return 1 + int(dt), 1 + int(2 * dt)
+
+
+def chain_id():
+    for f in ("config.sh", "devnet-lib.sh"):
+        p = sp("repo", f)
+        if os.path.exists(p):
+            m = re.search(r'CHAIN_ID\}?[:=-]+"?(\d{3,})', open(p).read())
+            if m:
+                return int(m.group(1))
+    return 2017
+
+
+def node_b58(root):
+    for base in ("home", "opt", "var/lib", "etc/telcoin"):
+        for d, _, fs in os.walk(os.path.join(root, base)):
+            if "node-info.yaml" in fs:
+                for l in open(os.path.join(d, "node-info.yaml")):
+                    m = re.match(r"^\s*bls_public_key:\s*['\"]?([1-9A-HJ-NP-Za-km-z]+)", l)
+                    if m:
+                        return m.group(1)
+    return None
+
+
+def b58hex(s):
+    a, n = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz", 0
+    for ch in s:
+        n = n * 58 + a.index(ch)
+    body = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    return (b"\0" * (len(s) - len(s.lstrip("1"))) + body).hex()
+
+
+def rpc_vm():
+    return next((n for n in sorted(cloud()["instances"]) if n.startswith("rpc-")), None)
+
+
+def node_mode(name):
+    return "CvvActive" if name.startswith("validator-") else "Observer"
+
+
+def node_rpc_answer(name, data):
+    try:
+        req = json.loads(data or "")
+    except ValueError:
+        return 400, json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
+    meth, head_cons = req.get("method"), chain_now()
+    res = KeyError
+    if meth == "eth_chainId":
+        res = "0x%x" % chain_id()
+    elif meth == "eth_blockNumber":
+        res = "0x%x" % head_cons[0]
+    elif meth == "tn_latestConsensusHeader":
+        res = {"number": head_cons[1], "epoch": 0, "round": 2 * head_cons[1]}
+    elif meth == "tn_nodeMode":
+        res = node_mode(name)
+    elif meth == "tn_info":
+        res = {"bls_public_key": node_b58(vm_root(name)), "node_mode": node_mode(name)}
+    elif meth == "tn_admissionSnapshot":
+        rv, entries = rpc_vm(), []
+        for other in sorted(cloud()["instances"]):
+            k = node_b58(vm_root(other)) if other != name else None
+            if k:
+                slots = ["trusted"] if other == rv else (["committee"] if other.startswith("validator-") else ["pool"])
+                entries.append({"bls_pubkey": "0x" + b58hex(k), "slots": slots, "admitted": True})
+        res = {"version": 1, "epoch": 0, "swarms": [{"network": "primary", "available": True, "tracked_epoch": 0,
+               "admission": {"effective": "Open" if name == rv else "Closed", "fallback": None, "epoch": 0,
+                             "connected_current": len(entries)}, "entries": entries}]}
+    body = {"jsonrpc": "2.0", "id": req.get("id"), "result": res} if res is not KeyError else \
+        {"jsonrpc": "2.0", "id": req.get("id"), "error": {"code": -32601, "message": "the method %s does not exist" % meth}}
+    return 200, json.dumps(body, separators=(",", ":"))
+
+
+_curl_answer_sh2 = curl_answer
+
+
+def curl_answer(inst, root, url, headers):  # noqa: F811 (adds the node's RPC, gateway metrics, the UI)
+    m = re.match(r"^http://(127\.0\.0\.1|localhost|\d+\.\d+\.\d+\.\d+):(8545|8546|9655|8080)(/[^?#]*)?$", url)
+    if not m:
+        return _curl_answer_sh2(inst, root, url, headers)
+    ip, port = m.group(1), int(m.group(2))
+    local = ip in ("127.0.0.1", "localhost")
+    target = inst if local else vm_by_ip(ip)
+    if target is None:
+        return -28, ""
+    troot, units = vm_root(target), vm_units(target)
+    socks = (node_binds(troot) if units.get("telcoin", {}).get("active") else []) + LISTEN_EXTRA(target, troot, units)
+    addrs = [s.rsplit(":", 1)[0] for s in socks if s.endswith(":%d" % port)]
+    if not [a for a in addrs if a == "0.0.0.0" or a == ("127.0.0.1" if local else ip)]:
+        return 0, ""  # nothing bound there: refused
+    if not local and target != inst and ufw_state(target).get("active"):
+        src = cloud()["instances"][inst]["int_ip"]
+        if port != 8545 or src not in [x for x in meta_get(troot).get("GATEWAY_ALLOW_FROM", "").split(",") if x]:
+            return -28, ""  # ufw drops it: the client times out
+    if port == 8545:
+        return node_rpc_answer(target, CURL_CTX.get("data"))
+    if port == 9655:
+        up = upstream_up(gw_meta(troot).get("UPSTREAM_HOST"))
+        return 200, "# TYPE tn_worker_gateway_upstream_ready gauge\ntn_worker_gateway_upstream_ready %d\n" % (1 if up else 0)
+    if port == 8080:
+        return 200, "<html><title>Telcoin Node Manager</title></html>"
+    return 400, "WebSocket only"
+
+
+# --- install-caddy.sh
+def caddy_blocks(root):
+    p = os.path.join(root, "etc/caddy/Caddyfile")
+    cur, out = (open(p).read() if os.path.exists(p) else ""), {}
+    for k, (b, e) in FENCES.items():
+        m = re.search(re.escape(b) + r"\n(.*?)" + re.escape(e), cur, re.S)
+        if m:
+            d = re.search(r"^([A-Za-z0-9][^\s{]*)\s*\{\s*$", m.group(1), re.M)
+            pm = re.search(r"reverse_proxy 127\.0\.0\.1:(\d+)", m.group(1))
+            out[k] = {"domain": d.group(1) if d else "", "port": int(pm.group(1)) if pm else None}
+    return cur, out
+
+
+def caddy_put(root, kind, body):
+    cur, _ = caddy_blocks(root)
+    b, e = FENCES[kind]
+    cur = re.sub(re.escape(b) + r".*?" + re.escape(e) + r"\n?", "", cur, flags=re.S) or "# Managed by the Telcoin Node Manager\n"
+    p = os.path.join(root, "etc/caddy/Caddyfile")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as f:
+        f.write(cur + "%s\n%s%s\n" % (b, body, e))
+    with Locked():
+        units = jload(units_path(), {})
+        units.setdefault("caddy", {"active": False, "enabled": False}).update(active=True, enabled=True)
+        jsave(units_path(), units)
+
+
+def cdone(ok, msg, **kw):
+    emit(event="done", ok=ok, **dict(kw, msg=msg))
+    sys.exit(0 if ok else 1)
+
+
+def tnd_caddy(argv):
+    inst, root = host()
+    cmd, o = os.environ.get("L2_SHIM_CMD", ""), opts_of(argv)
+    phase, units = o.get("phase"), jload(units_path(), {})
+    _, blocks = caddy_blocks(root)
+    caddy_on = units.get("caddy", {}).get("active", False)
+    advp = os.path.join(root, "etc/telcoin/.shim-rpc-advertised")
+    adv = (open(advp).read().strip() if os.path.exists(advp) else "|").split("|")
+    node_up = units.get("telcoin", {}).get("active", False)
+    ws_listen = node_up and any(s.endswith(":8546") for s in node_binds(root))
+    if phase == "rpc-status":
+        r = blocks.get("rpc", {})
+        print(json.dumps({"installed": "caddy" in units, "running": caddy_on, "enabled": "rpc" in blocks,
+                          "domain": r.get("domain", ""), "advertised_http": adv[0], "advertised_ws": adv[1],
+                          "ws_listening": ws_listen, "block_stale": False}, separators=(",", ":")))
+        sys.exit(0)
+    if phase == "gateway-status":
+        g = blocks.get("gateway", {})
+        print(json.dumps({"installed": "caddy" in units, "running": caddy_on, "enabled": "gateway" in blocks,
+                          "domain": g.get("domain", ""), "port": g.get("port"), "probe_port": 8656 if g else None,
+                          "block_stale": False}, separators=(",", ":")))
+        sys.exit(0)
+    if phase == "status":
+        dsh = blocks.get("dashboard", {})
+        print(json.dumps({"installed": "caddy" in units, "running": caddy_on, "enabled": "dashboard" in blocks,
+                          "domain": dsh.get("domain", ""), "username": o.get("username", "")}, separators=(",", ":")))
+        sys.exit(0)
+    if phase == "rpc-enable":
+        d = o.get("rpc-domain")
+        if not isinstance(d, str) or not node_installed(root):
+            cdone(False, "rpc-enable needs --rpc-domain and an installed node")
+        if "gateway" in blocks:
+            cdone(False, "this host serves the worker gateway; the tn-rpc and tn-gateway sites are never served from one host")
+        if blocks.get("dashboard", {}).get("domain") == d:
+            cdone(False, "%s already serves the Node Manager dashboard -- the dashboard and the public RPC endpoint need DIFFERENT hostnames." % d)
+        for s in ("Checking ports 80 and 443 are free", "Installing Caddy (if needed)",
+                  "Configuring the public RPC endpoint for %s" % d, "Opening the firewall (80, 443) and reloading Caddy",
+                  "Advertising the endpoint in node-info.yaml"):
+            emit(event="step", msg=s)
+        caddy_put(root, "rpc", "%s {\n  reverse_proxy 127.0.0.1:8545\n}\n" % d)
+        want = "https://%s/|%s" % (d, ("wss://%s/" % d) if ws_listen else "")
+        if "|".join(adv) != want:
+            with open(advp, "w") as f:
+                f.write(want + "\n")
+            if not node_up:
+                finding("SUSPECT", inst, cmd, "install-caddy.sh rpc-enable restarts a STOPPED node (starts it alone)", fatal=False)
+            with Locked():
+                units = jload(units_path(), {})
+                units["telcoin"]["active"] = True
+                jsave(units_path(), units)
+            node_runtime(inst, root, True)
+            remote_detail("node-restart", ["telcoin", "by install-caddy.sh rpc-enable"])
+        cdone(True, "public RPC endpoint enabled -- certificate issues on first request", domain=d)
+    if phase == "enable":
+        d, user = o.get("domain"), o.get("username")
+        pw = sys.stdin.readline().rstrip("\n") if o.get("password-stdin") is True else ""
+        if not isinstance(d, str) or not isinstance(user, str) or len(pw) < 16:
+            cdone(False, "enable needs --domain, --username and a password of at least 16 characters on stdin")
+        if d in (blocks.get("gateway", {}).get("domain"), blocks.get("rpc", {}).get("domain")):
+            cdone(False, "%s already serves another site -- each Caddy site needs its own hostname. Nothing was changed." % d)
+        caddy_put(root, "dashboard", "%s {\n  basic_auth {\n    %s $2a$14$l2shim.fake.bcrypt.hash\n  }\n"
+                  "  header X-TN-Dashboard-Public 1\n  reverse_proxy 127.0.0.1:8080\n}\n" % (d, user))
+        cdone(True, "external dashboard access enabled -- certificate will be issued on first request", domain=d)
+    strict_fail("UNRECOGNISED", inst, cmd, "install-caddy.sh --phase %s not emulated" % phase)
+
+
+# --- ui/install-ui.sh (contract: --update keeps enable-on-boot; a first install starts and enables the unit)
+def tnd_install_ui(argv):
+    inst, root = host()
+    uf = os.path.join(root, "etc/systemd/system/telcoin-ui.service")
+    first = not os.path.exists(uf)
+    if "--update" in argv and first:
+        print("telcoin-ui is not installed; run install-ui.sh without --update")
+        sys.exit(1)
+    os.makedirs(os.path.dirname(uf), exist_ok=True)
+    with open(uf, "w") as f:
+        f.write("[Service]\nExecStart=/opt/telcoin-ui/venv/bin/gunicorn -b 127.0.0.1:8080 app:app\n"
+                "[Install]\nWantedBy=multi-user.target\n")
+    with Locked():
+        units = jload(units_path(), {})
+        u = units.setdefault("telcoin-ui", {"active": False, "enabled": False})
+        u["active"] = True
+        u["enabled"] = u["enabled"] or first
+        jsave(units_path(), units)
+    print("telcoin-ui %s: listening on 127.0.0.1:8080" % ("installed" if first else "updated"))
+    sys.exit(0)
+
+
+# --- firewall-setup.sh --p2p-committee (tnd-firewall.md 5) and tn-p2p-allow-sync (6)
+def pas_kv(inst, root):
+    peers = [n for n in cloud()["instances"] if n != inst and node_b58(vm_root(n))]
+    return {"STATUS_VERSION": 1, "TOOL_VERSION": "v0.1.1", "RESULT": "applied", "EPOCH": 0, "EPOCH_DURATION": 86400,
+            "ALLOWED_V4": len(peers), "ALLOWED_V6": 0, "KEYS": len(peers), "LOADED": "true", "STALE": "false",
+            "COUNTER_ACCEPT_PACKETS": 1000 + chain_now()[1], "COUNTER_DROP_PACKETS": 0}
+
+
+def tnd_firewall_sh3(argv):
+    if "--p2p-committee" not in argv:
+        return tnd_firewall(argv)
+    inst, root = host()
+    cmd, verb = os.environ.get("L2_SHIM_CMD", ""), opts_of(argv).get("p2p-committee")
+    if "--json" in argv or verb not in ("on", "off", "sync", "status"):
+        strict_fail("UNRECOGNISED", inst, cmd, "firewall-setup.sh --p2p-committee %s not emulated" % verb)
+    on = meta_get(root).get("P2P_COMMITTEE") == "on"
+    sd = os.path.join(root, PAS_DIR)
+    if verb == "status":
+        if not on:
+            print("[INFO] P2P committee allowlist: off (sudo bash %s/firewall-setup.sh --p2p-committee on turns it on)" % NODE_SCRIPTS)
+        else:
+            kv = pas_kv(inst, root)
+            print("[OK] P2P committee allowlist: on; table inet tn_p2p_allow holds %s IPv4 and 0 IPv6 sources" % kv["ALLOWED_V4"])
+            print("[INFO] P2P committee allowlist counters: accepted %s packets, dropped 0" % kv["COUNTER_ACCEPT_PACKETS"])
+        sys.exit(0)
+    if verb == "off":
+        meta_set(root, {"P2P_COMMITTEE": "off"})
+        print("[OK] P2P committee allowlist: off")
+        sys.exit(0)
+    if not node_installed(root):
+        print("[ERROR] No node is installed here. Nothing was changed.")
+        sys.exit(1)
+    if not ufw_state(inst).get("active"):
+        print("[ERROR] ufw is not active; turn the firewall on first (sudo bash %s/firewall-setup.sh --enable). Nothing was changed." % NODE_SCRIPTS)
+        sys.exit(1)
+    if not jload(units_path(), {}).get("telcoin", {}).get("active"):
+        print("[ERROR] the node's admission snapshot is not authoritative (reason=rpc-unreachable). Nothing was changed.")
+        sys.exit(1)
+    if verb == "sync" and not on:
+        print("P2P committee mode is off; turn it on with: sudo bash %s/firewall-setup.sh --p2p-committee on" % NODE_SCRIPTS)
+        sys.exit(1)
+    os.makedirs(sd, exist_ok=True)
+    b = os.path.join(root, PAS_BIN)
+    os.makedirs(os.path.dirname(b), exist_ok=True)
+    with open(b, "w") as f:
+        f.write('#!/usr/bin/env bash\n# l2-shim fake of tn-p2p-allow-sync v0.1.1\nexec "${L2_SHIM_PY}" "${L2_SHIM_DIR}/fakes.py" pas "$@"\n')
+    os.chmod(b, 0o755)
+    with open(os.path.join(sd, "config"), "w") as f:
+        f.write("# tn-p2p-allow-sync config, written by firewall-setup.sh\nCONFIG_VERSION=1\nRPC_PORT=8545\nP2P_PORTS=49590,49595\nP2P_ALLOW_FROM=\n")
+    kv = pas_kv(inst, root)
+    with open(os.path.join(sd, "status"), "w") as f:
+        f.write("".join("%s=%s\n" % x for x in kv.items()))
+    with Locked():
+        units = jload(units_path(), {})
+        for u in ("telcoin-p2p-allow", "telcoin-p2p-allow-sync.timer"):
+            units[u] = {"active": True, "enabled": True}
+        jsave(units_path(), units)
+    meta_set(root, {"P2P_COMMITTEE": "on"})
+    print("result=applied reason= epoch=0 v4=%s v6=0 static=1 floor=1 keys=%s dns_skipped=0 unparsed=0" % (kv["ALLOWED_V4"], kv["KEYS"]))
+    print("[OK] P2P committee allowlist: on")
+    sys.exit(0)
+
+
+def r_pas(argv):
+    remote_detail("tn-p2p-allow-sync", argv)
+    inst, root = host()
+    verb = [a for a in argv if not a.startswith("-")][:1]
+    if not os.path.exists(os.path.join(root, PAS_DIR, "config")):
+        print("result=error reason=no-config")
+        sys.exit(2)
+    up = jload(units_path(), {}).get("telcoin", {}).get("active", False)
+    if verb == ["check"]:
+        print("result=ok missing_total=0 mismatch_total=0" if up else "result=stale reason=rpc-unreachable missing_total=0 mismatch_total=0")
+        sys.exit(0 if up else 3)
+    if verb == ["status"]:
+        print("".join("%s=%s\n" % x for x in pas_kv(inst, root).items()), end="")
+        sys.exit(0)
+    strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "tn-p2p-allow-sync %s not emulated" % " ".join(argv))
+
+
+_r_simple_sh2 = r_simple
+
+
+def r_simple(tool, argv):  # noqa: F811 (adds plain `ufw status`, which the committee probe reads)
+    if tool == "ufw" and argv in (["status"], ["status", "verbose"]):
+        remote_detail("ufw", argv)
+        st = ufw_state(host()[0])
+        print("Status: %s" % ("active" if st.get("active") else "inactive"))
+        if st.get("active"):
+            print("\nTo                         Action      From\n--                         ------      ----")
+            for r in st.get("rules", []):
+                print(r if isinstance(r, str) else " ".join(str(x) for x in (r.values() if isinstance(r, dict) else r)))
+        sys.exit(0)
+    return _r_simple_sh2(tool, argv)
+
+
+TND["install-caddy.sh"] = tnd_caddy
+TND["ui/install-ui.sh"] = tnd_install_ui
+TND["firewall-setup.sh"] = tnd_firewall_sh3
+
+
+# --- operator side: curl over https (post-check, dashboards) and the step-18/19 stub
+def local_curl(argv):
+    cmd = "curl " + " ".join(shlex.quote(a) for a in argv)
+    log_call("curl", None, cmd)
+    vals, urls, i = {}, [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in CURL_VALUE_OPTS:
+            vals.setdefault(a, []).append(argv[i + 1])
+            i += 1
+        elif a.startswith("-") and not (a in CURL_BOOL_OPTS or re.match(r"^-[sSfLk]+$", a)):
+            strict_fail("UNRECOGNISED", None, cmd, "operator-side curl option %s not emulated" % a)
+        elif not a.startswith("-"):
+            urls.append(a)
+        i += 1
+    m = re.match(r"^https://([a-z0-9.-]+)(/[^?#]*)?$", urls[0]) if len(urls) == 1 else None
+    if not m:
+        strict_fail("UNRECOGNISED", None, cmd, "operator-side curl to %s not emulated" % urls)
+    dom, path = m.group(1), m.group(2) or "/"
+    headers = vals.get("-H", []) + vals.get("--header", [])
+    data = (vals.get("--data") or vals.get("-d") or [""])[-1]
+    wout = (vals.get("-w") or vals.get("--write-out") or [""])[-1]
+    owner = kind = None
+    for name in sorted(cloud()["instances"]):
+        for k, b in caddy_blocks(vm_root(name))[1].items():
+            if b["domain"] == dom:
+                owner, kind = name, k
+    rc, code, body = 0, 0, ""
+    if owner is None:
+        rc = 6
+    elif not vm_units(owner).get("caddy", {}).get("active"):
+        rc = 7
+    elif kind == "dashboard":
+        code, body = 401, "Unauthorized"
+    else:
+        ws = any(h.lower().replace(" ", "") == "upgrade:websocket" for h in headers)
+        up_ip = gw_meta(vm_root(owner)).get("UPSTREAM_HOST") if kind == "gateway" else "127.0.0.1"
+        node = owner if up_ip in (None, "127.0.0.1") else vm_by_ip(up_ip)
+        up = bool(node) and vm_units(node).get("telcoin", {}).get("active", False)
+        meth = (json.loads(data).get("method") if data.startswith("{") else None)
+        if ws:
+            code = 101 if (kind == "rpc" and up) else (405 if kind == "gateway" else 502)
+        elif not up:
+            code, body = 502, "Bad Gateway"
+        elif data:
+            who = rpc_vm() if (kind == "gateway" and meth in ("tn_nodeMode", "tn_info")) else node
+            code, body = node_rpc_answer(who, data)
+        elif kind == "gateway" and path in ("/health", "/ready/any"):
+            code, body = 200, "ok"
+        else:
+            code, body = 405, "Method Not Allowed"
+    dest = (vals.get("-o") or vals.get("--output") or [None])[-1]
+    if dest and dest != "/dev/null":
+        with open(dest, "w") as f:
+            f.write(body)
+    elif not dest:
+        sys.stdout.write(body)
+    sys.stdout.write(wout.replace("%{http_code}", "%03d" % code).replace("%{ssl_verify_result}", "0"))
+    sys.exit(rc)
+
+
+def stub_driver(argv):
+    log_call("stub", None, "%s (l2-shim: NOT rehearsed, stubbed at the driver boundary)" % " ".join(argv))
+    print("l2-shim: %s is NOT rehearsed: the call is recorded in calls.log and answers exit 0" % argv[0])
+    sys.exit(0)
 
 
 if __name__ == "__main__":
