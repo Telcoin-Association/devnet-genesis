@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# l2-shim sentinel: second on PATH, after bin/. A network tool that has no fake lands here,
+# is logged to $L2_SHIM_STATE/sentinel.log and refused (the run is then not clean).
+exec "${L2_SHIM_PY:?}" "${L2_SHIM_DIR:?}/fakes.py" sentinel "$(basename "$0")" "$@"

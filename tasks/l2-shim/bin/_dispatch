@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# l2-shim: every fake in bin/ and remote-bin/ is a symlink to this file; the link's name is the tool.
+exec "${L2_SHIM_PY:?l2-shim: L2_SHIM_PY is not set}" "${L2_SHIM_DIR:?l2-shim: L2_SHIM_DIR is not set}/fakes.py" "$(basename "$0")" "$@"
