@@ -3162,6 +3162,9 @@ class Bench6KnobTests(BashCase):
         # Deliberate: the family bench 5 resolved at create time is now pinned, and the allowlist gains the switches.
         want["IMAGE"] = BOOT_IMAGE
         want["BENCH_NODE_PARAM_KEYS"] = TIMING_KEYS + " " + " ".join(SWITCH_KEYS)
+        # Deliberate (2026-11-17): the contracts checkout beside this repository is ../tn-contracts.
+        self.assertTrue(bench5["BENCH_CONTRACTS_SRC_DIR"].endswith("/tn-contracts-devnet-relaunch"))
+        want["BENCH_CONTRACTS_SRC_DIR"] = bench5["BENCH_CONTRACTS_SRC_DIR"][:-len("-devnet-relaunch")]
         # New, each at its bench-5 behaviour.
         want.update({"BENCH_NODE_SWITCH_KEYS": " ".join(SWITCH_KEYS), "BENCH_NODE_EVICT_MDBX": "0",
                      "BENCH_NODE_READ_AHEAD_KB": "", "BENCH_PERSIST_SAMPLER": "0", "BENCH_ARM_FILE": "",
