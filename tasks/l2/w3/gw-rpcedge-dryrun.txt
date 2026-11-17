@@ -1,0 +1,14 @@
+==========================================
+devnet public RPC edge (install-caddy.sh rpc-enable)
+Project:    tn-devnet
+Domain:     rpc.devnet.telcoin.network
+Note:       restarts each rpc node once: run after devnet-finalize.sh --start-all
+==========================================
+DRY RUN (no --yes): nothing below runs; no host is touched and no gcloud call is made.
+
+>>> [rpc-6-devnet] install-caddy.sh rpc-enable (public RPC edge; restarts the node once)
+    sudo bash /opt/telcoin-node-scripts/install-caddy.sh --json --phase rpc-enable --rpc-domain rpc.devnet.telcoin.network --yes
+>>> [rpc-6-devnet] then assert rpc-status: enabled, domain rpc.devnet.telcoin.network (read-only)
+    sudo bash /opt/telcoin-node-scripts/install-caddy.sh --json --phase rpc-status
+
+dry run: 1 remote step(s); run again with --yes to apply.

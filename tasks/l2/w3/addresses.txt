@@ -1,0 +1,8 @@
+devnet-rpc-ip		IN_USE
+devnet-external-ip	us-central1	IN_USE
+observer-5-devnet-ip	europe-west2	IN_USE
+validator-3-devnet-ip	northamerica-northeast1	IN_USE
+validator-4-devnet-ip	europe-west4	IN_USE
+obs-devnet-ip	us-west2	IN_USE
+validator-1-devnet-ip	us-west2	IN_USE
+validator-2-devnet-ip	us-south1	IN_USE

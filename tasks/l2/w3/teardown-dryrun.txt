@@ -1,0 +1,47 @@
+==========================================
+devnet fleet TEARDOWN — destroys node VMs + boot disks and the legacy RPC load balancer
+Project:   tn-devnet
+Method:    gcloud compute instances delete --delete-disks=all; LB pieces by name (describe, then delete)
+Mode:      DRY RUN (no --yes) — nothing will be deleted
+==========================================
+
+DELETE plan:
+  txgen (unit stopped before any VM is deleted; the VM and the unit's enablement stay):
+    - txgen-devnet         (us-west2-a)               RUNNING: sudo systemctl stop tn-transaction-generator.service
+  node VMs + boot disks:
+    - validator-1-devnet   (us-west2-a)               role=validator + its boot disk
+    - validator-2-devnet   (us-south1-a)              role=validator + its boot disk
+    - validator-3-devnet   (northamerica-northeast1-b) role=validator + its boot disk
+    - validator-4-devnet   (europe-west4-a)           role=validator + its boot disk
+    - observer-5-devnet    (europe-west2-b)           role=observer  + its boot disk
+    - rpc-6-devnet         (us-west2-b)               ALREADY ABSENT — nothing to do
+    - gateway-4-devnet     (europe-west4-a)           ALREADY ABSENT — nothing to do
+  load balancer (legacy front of rpc.devnet.telcoin.network; delete order):
+    1. forwarding rule      devnet-rpc-fr (global)             exists -> delete
+    2. target HTTPS proxy   devnet-rpc-https-proxy (global)    exists -> delete
+    3. SSL certificate      devnet-rpc-cert (global)           exists -> delete
+    4. URL map              devnet-rpc-urlmap (global)         exists -> delete
+    5. backend service      devnet-rpc-backend (global)        exists -> delete
+    6. health check (TCP)   devnet-rpc-hc (global)             exists -> delete
+    7. instance group       devnet-rpc-ig-5 (europe-west2-b)   exists -> delete
+    7. instance group       devnet-rpc-ig-3 (northamerica-northeast1-b) exists -> delete
+    7. instance group       devnet-rpc-ig-4 (europe-west4-a)   exists -> delete
+    7. instance group       devnet-rpc-ig-1 (us-west2-a)       exists -> delete
+    7. instance group       devnet-rpc-ig-2 (us-south1-a)      exists -> delete
+    8. global address       devnet-rpc-ip (global)             exists -> delete
+    9. firewall rule        devnet-lb-allow-health-check (network) exists -> delete
+
+PRESERVE (explicitly NOT touched by this script):
+  - reserved static external IPs: validator-1-devnet-ip validator-2-devnet-ip validator-3-devnet-ip validator-4-devnet-ip observer-5-devnet-ip rpc-6-devnet-ip gateway-4-devnet-ip
+      -> they return to RESERVED and are re-attached by name on recreate, so DNS stays valid
+  - GCP secrets: obs-ingest-token, obs-grafana-admin, devnet-admin-dashboard-hash
+  - obs VM + data disk: obs-devnet, obs-devnet-data
+  - DNS records, VPC firewall rules (other than devnet-lb-allow-health-check), the WireGuard hub
+  - devnet-indexer (out of scope), the txgen-devnet VM (only its unit is stopped)
+
+AFTER teardown the node keys are GONE. That is the point: deploy step 5 (devnet-keygen.sh)
+mints brand-new BLS/network/execution keys, and step 6 seals them into a new genesis.
+OPERATOR: DNS is not touched. Once the LB is gone, re-point rpc.devnet.telcoin.network (A record)
+to rpc-6-devnet-ip (the rpc node); until then it resolves to a released address.
+
+DRY RUN only — re-run with --yes (or FORCE=true) to actually delete.

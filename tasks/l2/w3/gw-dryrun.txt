@@ -1,0 +1,34 @@
+==========================================
+devnet worker gateways (setup-gateway.sh --enable)
+Project:    tn-devnet
+Image:      us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231
+Redirect:   https://rpc.devnet.telcoin.network (every call but a submission)
+Nodes:      validator-1-devnet(same-host) validator-2-devnet(same-host) validator-3-devnet(same-host) validator-4-devnet(standalone) observer-5-devnet(same-host) 
+Readiness:  reported, not asserted (the nodes may be stopped)
+==========================================
+Internal IPs are not looked up in a dry run: <internal-ip:INSTANCE> stands for the address
+--yes reads with tn_internal_ip before the first change.
+DRY RUN (no --yes): nothing below runs; no host is touched and no gcloud call is made.
+
+>>> [validator-1-devnet] setup-gateway.sh --enable (same-host, node1.devnet.telcoin.network)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode same-host --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node1.devnet.telcoin.network --front caddy --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+>>> [validator-2-devnet] setup-gateway.sh --enable (same-host, node2.devnet.telcoin.network)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode same-host --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node2.devnet.telcoin.network --front caddy --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+>>> [validator-3-devnet] setup-gateway.sh --enable (same-host, node3.devnet.telcoin.network)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode same-host --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node3.devnet.telcoin.network --front caddy --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+>>> [validator-4-devnet] firewall-setup.sh --gateway-from <internal-ip:gateway-4-devnet> (for gateway-4-devnet)
+    sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --json --enable --gateway-from <internal-ip:gateway-4-devnet>
+
+>>> [validator-4-devnet] edit-config.sh gateway_upstream=<internal-ip:gateway-4-devnet> (a stopped node stays stopped)
+    sudo bash /opt/telcoin-node-scripts/edit-config.sh --json --set gateway_upstream=<internal-ip:gateway-4-devnet>
+
+>>> [gateway-4-devnet] setup-gateway.sh --enable (standalone, node4.devnet.telcoin.network, upstream validator-4-devnet)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode standalone --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node4.devnet.telcoin.network --front caddy --upstream <internal-ip:validator-4-devnet> --rpc-port 8545 --health-port 43174 --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+>>> [observer-5-devnet] setup-gateway.sh --enable (same-host, node5.devnet.telcoin.network)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode same-host --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node5.devnet.telcoin.network --front caddy --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+dry run: 7 remote step(s); run again with --yes to apply.

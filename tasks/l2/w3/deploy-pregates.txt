@@ -1,0 +1,15 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_225240-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    steps 1..20
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+❌ cannot read Secret Manager secret devnet-admin-dashboard-password in tn-devnet (missing, no version, empty or no access).
+   Create it once (the value reaches neither shell history nor any argv):
+     openssl rand -base64 24 | tr -d '\n' | gcloud secrets create devnet-admin-dashboard-password --data-file=- --project=tn-devnet
+   or keep the team's current password, pasted at a silent prompt:
+     read -rs PW && printf '%s' "$PW" | gcloud secrets create devnet-admin-dashboard-password --data-file=- --project=tn-devnet; unset PW
+   (the secret exists already: 'gcloud secrets versions add' with the same arguments)
+❌ devnet-dashboards.sh --preflight failed: create the UI password secret (TN_ADMIN_PASSWORD_SECRET), or set TN_ADMIN_DASHBOARD=0.

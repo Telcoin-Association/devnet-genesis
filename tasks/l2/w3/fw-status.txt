@@ -1,0 +1,4 @@
+ERROR: (gcloud.compute.instances.describe) Could not fetch resource:
+ - The resource 'projects/tn-devnet/zones/us-west2-b/instances/rpc-6-devnet' was not found
+
+❌ VM rpc-6-devnet (us-west2-b) could not be read: does it exist? Deploy step 2 creates the VMs; step 8 needs them.
