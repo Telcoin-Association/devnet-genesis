@@ -38,8 +38,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # remains in this file (this digest and EXECUTION_ADDRESSES[4] until the deploy fills
 # them; TN_NODE_SCRIPTS_REF must be a full 40-hex sha). Comments never spell the marker
 # with its underscore, so the check can grep the file as text.
-export DOCKER_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.2.0-devnet"
-export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:5257e768e657586a19e31308906bfacac0df95e5ca3da29a68f818f159d4a610"
+# export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:5257e768e657586a19e31308906bfacac0df95e5ca3da29a68f818f159d4a610"  # v0.2.0-devnet (launch 1; benchmark/config.sh keeps it)
+# Launch 2 (2026-11-17): node image v0.3.0-devnet (telcoin-network main 5533ff73a, no faucet
+# feature) plus the worker-gateway image that fronts the nodes' public RPC (see "Launch 2"
+# below). Both are pinned by digest; both were pushed on 2026-11-17 and the digest was the
+# same in the push log, in the local image store and in the registry. The *_TAG values are
+# informational.
+export DOCKER_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.3.0-devnet"
+export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1"
+export GATEWAY_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway:v0.3.0-devnet"
+export GATEWAY_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231"
 
 #
 # Release signing (devnet rehearsal of the mainnet release model)
@@ -54,7 +62,7 @@ export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:52
 # RELEASE_TAG empty disables both hooks. RELEASE_SIGNER_FPR is informational: verification
 # trusts the keyring allow-list in RELEASE_KEYS_DIR, not this value. A rerun of keygen or
 # the genesis build changes the chain configs, so it needs a new prepare and a new signature.
-export RELEASE_TAG="v0.2.0-devnet"
+export RELEASE_TAG="v0.3.0-devnet"
 export RELEASE_KEYS_DIR="${REPO_ROOT}/tn-node-deployment/lib/release-keys"
 export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
 
@@ -75,31 +83,56 @@ export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
 # 3 - Montreal
 # 4 - Netherlands
 # 5 - London
+# 6 - LA (rpc-6, us-west2-b: the public RPC node)
+# gateway-4 - Netherlands (europe-west4-a, next to node 4, whose worker gateway it runs)
 #
-# NODE_ROLES is the single source of truth every script branches on. The
-# first four are the genesis committee. Node 5 is a unified node outside the
-# genesis committee (there is no `--observer` flag): it syncs as an observer and
-# is minted + staked + activated after genesis by devnet-stake-node5.sh. With
-# nextCommitteeSize 4 and five eligible validators, the committee is reshuffled
-# every epoch.
-export INSTANCE_NAMES=("validator-1-devnet" "validator-2-devnet" "validator-3-devnet" "validator-4-devnet" "observer-5-devnet")
-export NODE_ROLES=("validator" "validator" "validator" "validator" "observer")
-export ZONES=("us-west2-a" "us-south1-a" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b")
-# Per-node hostnames → node{N}.${BASE_DOMAIN}
-export NODE_NAMES=("node1" "node2" "node3" "node4" "node5")
+# NODE_ROLES is the single source of truth every script branches on; devnet-lib.sh's
+# fleet helpers (tn_node_indices, tn_indices_by_role, tn_public_domain, ...) read it and
+# tn_fleet_check validates the arrays. The arrays below are PARALLEL: index i of each
+# describes the same VM, and indices 0-4 keep their launch-1 meaning. Four roles:
+#   validator  indices 0-3: the genesis committee (the only validators in genesis).
+#   observer   index 4, node 5: a unified node outside the genesis committee (there is no
+#              `--observer` flag). It syncs as an observer and is minted + staked +
+#              activated after genesis by devnet-stake-node5.sh. With nextCommitteeSize 4
+#              and five eligible validators, the committee is reshuffled every epoch.
+#   rpc        index 5, rpc-6: the public RPC node (RPC_HOSTNAME, admission Open). It runs
+#              a node but never stakes; its keys are made like an observer's and its
+#              node-info lives under genesis/observers/.
+#   gateway    index 6, gateway-4: runs no node and holds no keys, only the worker gateway
+#              of the node its GATEWAY_FOR entry names (node 4).
+# validator, observer and rpc entries run a node (tn_node_indices); a gateway entry does not.
+export INSTANCE_NAMES=("validator-1-devnet" "validator-2-devnet" "validator-3-devnet" "validator-4-devnet" "observer-5-devnet" "rpc-6-devnet" "gateway-4-devnet")
+export NODE_ROLES=("validator" "validator" "validator" "validator" "observer" "rpc" "gateway")
+export ZONES=("us-west2-a" "us-south1-a" "northamerica-northeast1-b" "europe-west4-a" "europe-west2-b" "us-west2-b" "europe-west4-a")
+# Per-VM names. Public domains come from devnet-lib.sh tn_public_domain: node{N}.${BASE_DOMAIN}
+# for a validator or observer, RPC_HOSTNAME for rpc-6, and a gateway entry serves the domain
+# of the node it fronts (gateway4 is a label, not a DNS name).
+export NODE_NAMES=("node1" "node2" "node3" "node4" "node5" "node6" "gateway4")
 # EXECUTION_ADDRESSES[4] (node 5) is a NEW key generated at deploy time with
 # `cast wallet new`, funded 1,000,100 TEL in testnet_accounts.yaml; its private key
 # lives only in Secret Manager (NODE5_VALIDATOR_PK_SECRET). Replace the placeholder
 # with that address. The old recorded 0xb4e5ed81... disagreed with
 # genesis/observers/node5.yaml and was never funded.
-export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8")
+# EXECUTION_ADDRESSES[5] (rpc-6) is the devnet Safe, SAFE_ADDR below (written out: this
+# array comes first). rpc-6 never stakes; the value only fills the node's fee-recipient field.
+# EXECUTION_ADDRESSES[6] (gateway-4) is the zero address: a gateway has no keys, the entry
+# only keeps the shared instance-creation metadata (EXECUTION_ADDRESS=...) well-formed.
+export EXECUTION_ADDRESSES=("0x3518b301b86ceb53b5a3dff62e55cd43ef59d024" "0x7489025dfbaad94f2366d88a62989147d9c8b5d3" "0x0033a370616805b1fd275b7ffab83fc41d665ccb" "0xefaacf04b92298a88200aa50aa6bb7bfce587b17" "0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8" "0x00000000000000000000000000000000000007a0" "0x0000000000000000000000000000000000000000")
 export NODE5_VALIDATOR_PK_SECRET="devnet-node5-validator-pk"   # Secret Manager (tn-devnet): node 5 execution-key private key
 # Reserved static external IPs — one per instance, PARALLEL to INSTANCE_NAMES. The
 # Ubuntu migration pins these so the GCP consensus /32 rules + DNS A-records survive
 # node restart/reuse (fixes the ephemeral-IP churn). Reserve them once with
 # common/reserve-static-ips.sh BEFORE common/create-instances.sh.
 export USE_STATIC_IPS=1
-export STATIC_IP_NAMES=("validator-1-devnet-ip" "validator-2-devnet-ip" "validator-3-devnet-ip" "validator-4-devnet-ip" "observer-5-devnet-ip")
+export STATIC_IP_NAMES=("validator-1-devnet-ip" "validator-2-devnet-ip" "validator-3-devnet-ip" "validator-4-devnet-ip" "observer-5-devnet-ip" "rpc-6-devnet-ip" "gateway-4-devnet-ip")
+# Worker gateway per entry, read only when TN_GATEWAY_ENABLE=1 (see "Launch 2" below):
+#   same-host   the node's own host runs its gateway behind its Caddy (node RPC on loopback)
+#   standalone  the `gateway` entry whose GATEWAY_FOR names this node runs it on its own VM
+#               (the node's RPC listens on its internal IP for that gateway only)
+#   none        no gateway; always `none` on `rpc` and `gateway` entries
+# GATEWAY_FOR is set only on a `gateway` entry: the NODE_NAMES value of the node it fronts.
+export GATEWAY_MODES=("same-host" "same-host" "same-host" "standalone" "same-host" "none" "none")
+export GATEWAY_FOR=("" "" "" "" "" "" "node4")
 export PROJECT_ID="tn-devnet"
 # All gcloud calls in scripts that source this file target PROJECT_ID,
 # regardless of the operator's `gcloud config` default. Explicit --project
@@ -135,6 +168,8 @@ export HEALTHCHECK_MONITOR_SRC="104.155.184.201/32"
 # (setup-firewall.sh Step 5) AND the host-ufw allow (devnet-firewall.sh passes this as
 # TN_LB_HC_RANGES to firewall-setup.sh --enable). Both layers must admit these or LB backends
 # stay unhealthy even with the listener up. Stable, Google-published ranges.
+# Launch 2 has no LB: this and HEALTHCHECK_MONITOR_SRC stay defined, but no launch-2
+# driver opens a rule for either.
 export GOOGLE_HC_RANGES="130.211.0.0/22,35.191.0.0/16,209.85.152.0/22,209.85.204.0/22"
 #
 # DNS / TLS
@@ -184,8 +219,10 @@ export SERVICE_USER="telcoin"
 # tn-node-deployment checkout on each node: root-owned, detached at TN_NODE_SCRIPTS_REF.
 # Not under /home any more: v2's install-ui refuses a checkout owned by the service account.
 export TN_NODE_SCRIPTS_DIR="/opt/telcoin-node-scripts"
-# Full 40-hex tn-node-deployment commit the fleet runs: PR #52 (the "PR 12" devnet-image work) head until it merges, then main.
-export TN_NODE_SCRIPTS_REF="d9446f720026fa5ce8b64fce9074e56b05b3f4eb"
+# Full 40-hex tn-node-deployment commit the fleet runs: the worker-gateway branch head
+# (launch 2) once it is pushed. Until then it holds a marker value and the deploy's marker
+# gate refuses to run. Launch 1 ran d9446f72; benchmark/config.sh keeps that commit.
+export TN_NODE_SCRIPTS_REF="PLACEHOLDER_TN_NODE_SCRIPTS_REF"
 # devnet-startup.sh is self-contained (it is GCP metadata, not sourced against this file)
 # and keeps its own copy of this URL; change both together.
 export TN_NODE_DEPLOY_REPO="https://github.com/Telcoin-Association/tn-node-deployment.git"
@@ -197,24 +234,29 @@ export TN_CHAIN_SUBDIR="devnet"                            # chain-configs/<subd
 export VALIDATOR_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
 export OBSERVER_GENESIS_DIR="/etc/telcoin/chain-configs/devnet"
 #
-# Global L7 Load Balancer (rpc.devnet.telcoin.network)
+# Legacy global L7 Load Balancer (launch 1's rpc.devnet.telcoin.network)
 #
-export LB_NAME_PREFIX="devnet-rpc"
-export LB_HOSTNAME="rpc.devnet.telcoin.network"
-export LB_HEALTH_CHECK_NAME="devnet-rpc-hc"
-export LB_BACKEND_SERVICE="devnet-rpc-backend"
-export LB_URL_MAP="devnet-rpc-urlmap"
-export LB_SSL_CERT="devnet-rpc-cert"
-export LB_HTTPS_PROXY="devnet-rpc-https-proxy"
-export LB_FORWARDING_RULE="devnet-rpc-fr"
-export LB_GLOBAL_IP_NAME="devnet-rpc-ip"
-export LB_FIREWALL_RULE="devnet-lb-allow-health-check"
+# Launch 2 has no load balancer: RPC_HOSTNAME is served by rpc-6's own Caddy. These are the
+# launch-1 LB resource names, read only by devnet-teardown.sh to delete that stack.
+# common/setup-load-balancer.sh (which reads the old LB_ names) is no longer called.
+export LEGACY_LB_NAME_PREFIX="devnet-rpc"
+export LEGACY_LB_HOSTNAME="rpc.devnet.telcoin.network"
+export LEGACY_LB_HEALTH_CHECK_NAME="devnet-rpc-hc"
+export LEGACY_LB_BACKEND_SERVICE="devnet-rpc-backend"
+export LEGACY_LB_URL_MAP="devnet-rpc-urlmap"
+export LEGACY_LB_SSL_CERT="devnet-rpc-cert"
+export LEGACY_LB_HTTPS_PROXY="devnet-rpc-https-proxy"
+export LEGACY_LB_FORWARDING_RULE="devnet-rpc-fr"
+export LEGACY_LB_GLOBAL_IP_NAME="devnet-rpc-ip"
+export LEGACY_LB_FIREWALL_RULE="devnet-lb-allow-health-check"
 #
 # Governance / mint toolkit (shared Makefile + mint*.sh in common/)
 #
-# RPC the Safe/mint tooling talks to — devnet's own load balancer. (mint-role.sh
-# previously hardcoded the TESTNET RPC; parameterizing it here fixes that bug.)
-export RPC_URL="https://rpc.devnet.telcoin.network"
+# RPC the Safe/mint tooling talks to — devnet's public RPC node, rpc-6, behind its own
+# Caddy (launch 1 used a load balancer at the same name). (mint-role.sh previously
+# hardcoded the TESTNET RPC; parameterizing it here fixes that bug.)
+export RPC_HOSTNAME="rpc.${BASE_DOMAIN}"
+export RPC_URL="https://${RPC_HOSTNAME}"
 # Canonical TN system Safe (multisig) precompile — identical on every TN network.
 export SAFE_ADDR="0x00000000000000000000000000000000000007a0"
 # Contracts admin (Secret Manager: devnet-contracts-admin-pk). devnet-genesis-build.sh
@@ -225,6 +267,38 @@ export SAFE_EXTRA_OWNER="0xAee2797478Cb5EfaF1869A2e33e369421EBf520f"
 # VERIFY: this address was inherited from testnet and may differ on devnet —
 # confirm the devnet StablecoinManager before any send.
 export STABLECOIN_MANAGER="0x981be5999e322cb3f21511d043e8c314fda5da55"
+#
+# Launch 2: worker gateways, native admission, the public RPC node
+# ----------------------------------------------------------------
+# 1 = run a worker gateway (tn-node-deployment setup-gateway.sh) for every node whose
+# GATEWAY_MODES entry is not `none`; any other value = no gateway anywhere (the gateway
+# arrays are then ignored: tn_gateway_mode answers `none`, tn_fleet_check skips them).
+export TN_GATEWAY_ENABLE=1
+# How a node gets its peers/admission config. `native`: setup-node.sh --admission,
+# --bootstrap-peers and --trusted-nodes, fed with maps devnet-network-config.sh renders
+# into ADMISSION_MAPS_DIR (local) and installs into ADMISSION_HOST_DIR on each node host.
+# `devnet`: the launch-1 path, a devnet-rendered network-config installed before the node
+# starts (the benchmark profile keeps it).
+export TN_ADMISSION_VIA="native"
+export ADMISSION_MAPS_DIR="genesis/admission-maps"
+export ADMISSION_HOST_DIR="/etc/telcoin/devnet-admission"
+# The node's JSON-RPC port (loopback behind a same-host gateway, internal IP behind a
+# standalone one).
+export NODE_RPC_PORT=8545
+# Gateway listeners on its host: client traffic (its Caddy proxies here), probes, metrics.
+export GATEWAY_LISTEN_PORT=8655
+export GATEWAY_PROBE_PORT=8656
+export GATEWAY_METRICS_PORT=9655
+# A gateway proxies every non-submission call to the public RPC node (--redirect-queries).
+export GATEWAY_REDIRECT_URL="${RPC_URL}"
+# VPC firewall target tags (setup-firewall.sh): consensus UDP on node hosts, 80/443 on
+# Caddy hosts, the node RPC + health ports on a validator fronted by a standalone gateway.
+export VPC_TAG_P2P="devnet-p2p"
+export VPC_TAG_WEB="devnet-web"
+export VPC_TAG_GW_UPSTREAM="devnet-gw-upstream"
+# devnet-p2p-committee.sh: how long it waits per host for an authoritative admission
+# snapshot before it gives up on that host.
+export P2P_COMMITTEE_WAIT_SECS=300
 #
 # PATHS
 #

@@ -258,7 +258,12 @@ tn_require_bls_passphrase() {
     return 1
 }
 
-# tn_node_role <index> -> validator|observer
+# tn_node_role <index> -> the entry's NODE_ROLES value, one of four roles:
+#   validator  genesis committee member (runs a node)
+#   observer   node 5: runs a node outside the genesis committee, staked after genesis
+#   rpc        public RPC node: runs a node, never stakes, admission Open
+#   gateway    runs no node and holds no keys, only the worker gateway of the node its
+#              GATEWAY_FOR entry names
 tn_node_role() { printf '%s' "${NODE_ROLES[$1]}"; }
 
 # tn_data_dir_for_role <role> / tn_genesis_dir_for_role <role> / tn_service_for_role <role>
@@ -272,6 +277,252 @@ tn_service_for_role() { printf %s "telcoin"; }
 # call sites stay unchanged, and ignored.
 tn_setup_script_for_role() {
     printf '%s' "${TN_NODE_SCRIPTS_DIR}/setup-node.sh"
+}
+
+# --- Fleet topology (launch 2) ---------------------------------------------------------------
+# An index is a position in config.sh's PARALLEL fleet arrays (INSTANCE_NAMES, NODE_ROLES, ZONES,
+# NODE_NAMES, EXECUTION_ADDRESSES, STATIC_IP_NAMES, GATEWAY_MODES, GATEWAY_FOR); roles: see
+# tn_node_role. These are pure lookups over the arrays (bash 3.2 safe): none of them calls gcloud
+# except tn_internal_ip / tn_external_ip. A helper that prints a value prints one line.
+
+# _tn_index_ok <i> — rc 0 when i is a plain decimal index (no sign, no leading zero) with a
+# NODE_ROLES entry, else rc 1. No output. Guards every subscript below (bash evaluates a
+# non-numeric subscript arithmetically: "x" would silently mean index 0).
+_tn_index_ok() {
+    case "${1:-}" in
+        ''|*[!0-9]*|0?*) return 1 ;;
+    esac
+    [ -n "${NODE_ROLES[$1]+set}" ]
+}
+
+# _tn_index_of_node_name <name> — prints the index of the node-running entry (validator, observer,
+# rpc) whose NODE_NAMES value is <name>; rc 1, no output, when there is none.
+_tn_index_of_node_name() {
+    local i
+    [ -n "${1:-}" ] || return 1
+    for i in "${!NODE_ROLES[@]}"; do
+        if [ "${NODE_NAMES[$i]:-}" = "$1" ] && tn_is_node_index "${i}"; then
+            printf '%s\n' "${i}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# _tn_gateway_entry_for <i> — prints the index of the first `gateway` entry whose GATEWAY_FOR
+# names node i's NODE_NAMES value; rc 1, no output, when there is none.
+_tn_gateway_entry_for() {
+    local j name="${NODE_NAMES[$1]:-}"
+    [ -n "${name}" ] || return 1
+    for j in "${!NODE_ROLES[@]}"; do
+        if [ "${NODE_ROLES[$j]}" = "gateway" ] && [ "${GATEWAY_FOR[$j]:-}" = "${name}" ]; then
+            printf '%s\n' "${j}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# _tn_fleet_len <array name> <its length> <INSTANCE_NAMES length> — tn_fleet_check's length
+# test: rc 0 when equal, else one line on stderr and rc 1.
+_tn_fleet_len() {
+    [ "$2" -eq "$3" ] && return 0
+    echo "❌ tn_fleet_check: $1 has $2 entries, INSTANCE_NAMES has $3" >&2
+    return 1
+}
+
+# tn_fleet_check — validate the fleet arrays; drivers call it first. No arguments, no stdout.
+#   rc 0  consistent
+#   rc 1  one line per problem on stderr: an array whose length differs from INSTANCE_NAMES
+#         (NODE_ROLES, ZONES, NODE_NAMES, EXECUTION_ADDRESSES; STATIC_IP_NAMES when
+#         USE_STATIC_IPS is on; GATEWAY_MODES and GATEWAY_FOR when TN_GATEWAY_ENABLE=1), a role
+#         other than validator|observer|rpc|gateway, and, only when TN_GATEWAY_ENABLE=1: a mode
+#         other than same-host|standalone|none, a mode other than `none` on an rpc or gateway
+#         entry, a `standalone` node without exactly one `gateway` entry naming it in
+#         GATEWAY_FOR, a `gateway` entry naming no node or a node whose mode is not standalone.
+tn_fleet_check() {
+    local rc=0 n i j k role mode target hits
+    n="${#INSTANCE_NAMES[@]}"
+    _tn_fleet_len NODE_ROLES "${#NODE_ROLES[@]}" "${n}" || rc=1
+    _tn_fleet_len ZONES "${#ZONES[@]}" "${n}" || rc=1
+    _tn_fleet_len NODE_NAMES "${#NODE_NAMES[@]}" "${n}" || rc=1
+    _tn_fleet_len EXECUTION_ADDRESSES "${#EXECUTION_ADDRESSES[@]}" "${n}" || rc=1
+    # Same truthiness test as common/create-instances.sh and common/reserve-static-ips.sh.
+    case "$(printf '%s' "${USE_STATIC_IPS:-0}" | tr '[:upper:]' '[:lower:]')" in
+        1|true|yes|on) _tn_fleet_len STATIC_IP_NAMES "${#STATIC_IP_NAMES[@]}" "${n}" || rc=1 ;;
+    esac
+    for i in "${!NODE_ROLES[@]}"; do
+        role="${NODE_ROLES[$i]}"
+        case "${role}" in
+            validator|observer|rpc|gateway) ;;
+            *) echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): unknown role '${role}' (validator|observer|rpc|gateway)" >&2; rc=1 ;;
+        esac
+    done
+    [ "${TN_GATEWAY_ENABLE:-0}" = "1" ] || return "${rc}"
+    _tn_fleet_len GATEWAY_MODES "${#GATEWAY_MODES[@]}" "${n}" || rc=1
+    _tn_fleet_len GATEWAY_FOR "${#GATEWAY_FOR[@]}" "${n}" || rc=1
+    for i in "${!NODE_ROLES[@]}"; do
+        role="${NODE_ROLES[$i]}"
+        mode="${GATEWAY_MODES[$i]:-none}"
+        case "${mode}" in
+            same-host|standalone|none) ;;
+            *) echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): unknown gateway mode '${mode}' (same-host|standalone|none)" >&2; rc=1; continue ;;
+        esac
+        case "${role}" in
+            rpc|gateway)
+                if [ "${mode}" != "none" ]; then
+                    echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): role ${role} needs gateway mode none, not '${mode}'" >&2; rc=1
+                fi ;;
+            validator|observer)
+                if [ "${mode}" = "standalone" ]; then
+                    hits=0
+                    for j in "${!NODE_ROLES[@]}"; do
+                        if [ "${NODE_ROLES[$j]}" = "gateway" ] && [ "${GATEWAY_FOR[$j]:-}" = "${NODE_NAMES[$i]:-}" ]; then
+                            hits=$((hits + 1))
+                        fi
+                    done
+                    if [ "${hits}" -ne 1 ]; then
+                        echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): gateway mode standalone needs exactly one gateway entry with GATEWAY_FOR=${NODE_NAMES[$i]:-?}, found ${hits}" >&2; rc=1
+                    fi
+                fi ;;
+        esac
+        if [ "${role}" = "gateway" ]; then
+            target="${GATEWAY_FOR[$i]:-}"
+            if ! k="$(_tn_index_of_node_name "${target}")"; then
+                echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): gateway entry names no node (GATEWAY_FOR='${target}')" >&2; rc=1
+            elif [ "${GATEWAY_MODES[$k]:-none}" != "standalone" ]; then
+                echo "❌ tn_fleet_check: index ${i} (${INSTANCE_NAMES[$i]:-?}): gateway entry fronts ${target}, whose gateway mode is '${GATEWAY_MODES[$k]:-none}', not standalone" >&2; rc=1
+            fi
+        fi
+    done
+    return "${rc}"
+}
+
+# tn_indices_by_role <role>[,<role>...] — prints, one per line in array order, every index whose
+# NODE_ROLES value is one of the comma-separated roles. rc 0 (also when nothing matches); rc 1
+# with a message on stderr when no role is given.
+tn_indices_by_role() {
+    local want i
+    if [ -z "${1:-}" ]; then
+        echo "❌ tn_indices_by_role: a role list is required (e.g. validator,observer)" >&2
+        return 1
+    fi
+    want=",$1,"
+    for i in "${!NODE_ROLES[@]}"; do
+        [ -n "${NODE_ROLES[$i]}" ] || continue
+        case "${want}" in
+            *",${NODE_ROLES[$i]},"*) printf '%s\n' "${i}" ;;
+        esac
+    done
+    return 0
+}
+
+# tn_node_indices — prints, one per line, the indices of the hosts that run a node (roles
+# validator, observer, rpc; never a gateway entry). rc 0.
+tn_node_indices() { tn_indices_by_role validator,observer,rpc; }
+
+# tn_is_node_index <i> — rc 0 when entry i runs a node (validator, observer, rpc), rc 1 otherwise
+# (a gateway entry, an unknown role, no such index). No output.
+tn_is_node_index() {
+    _tn_index_ok "${1:-}" || return 1
+    case "${NODE_ROLES[$1]}" in
+        validator|observer|rpc) return 0 ;;
+    esac
+    return 1
+}
+
+# tn_internal_ip <i> / tn_external_ip <i> — entry i's internal / external IP read from GCP,
+# through tn_node_int_ip / tn_node_ext_ip (read-only describe with their retry). Prints the IP;
+# rc 1 with a message on stderr for a bad index, else the lookup's rc.
+tn_internal_ip() {
+    _tn_index_ok "${1:-}" || { echo "❌ tn_internal_ip: no fleet entry at index '${1:-}'" >&2; return 1; }
+    tn_node_int_ip "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}"
+}
+tn_external_ip() {
+    _tn_index_ok "${1:-}" || { echo "❌ tn_external_ip: no fleet entry at index '${1:-}'" >&2; return 1; }
+    tn_node_ext_ip "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}"
+}
+
+# tn_gateway_mode <i> — prints entry i's worker-gateway mode: same-host, standalone or none.
+# `none` when TN_GATEWAY_ENABLE is not 1, or the entry is missing or empty. rc 0. (Any other
+# stored value is printed as is; tn_fleet_check rejects it.)
+tn_gateway_mode() {
+    if [ "${TN_GATEWAY_ENABLE:-0}" != "1" ] || ! _tn_index_ok "${1:-}"; then
+        printf 'none\n'
+        return 0
+    fi
+    printf '%s\n' "${GATEWAY_MODES[$1]:-none}"
+}
+
+# tn_gateway_host_index <i> — for node index i, prints the index of the host that runs its
+# gateway: i itself for same-host, the `gateway` entry whose GATEWAY_FOR names node i for
+# standalone. rc 1, no output, when node i has no gateway (mode none, gateways disabled, not a
+# node index, or a standalone node with no gateway entry).
+tn_gateway_host_index() {
+    tn_is_node_index "${1:-}" || return 1
+    case "$(tn_gateway_mode "$1")" in
+        same-host) printf '%s\n' "$1" ;;
+        standalone) _tn_gateway_entry_for "$1" ;;
+        *) return 1 ;;
+    esac
+}
+
+# tn_public_domain <i> — prints the public domain entry i serves: <NODE_NAME>.<BASE_DOMAIN> for a
+# validator or observer, RPC_HOSTNAME for rpc, and for a gateway entry the domain of the node its
+# GATEWAY_FOR names. rc 1 with a message on stderr when there is none (bad index, unknown role,
+# a gateway entry naming no node).
+tn_public_domain() {
+    local k
+    _tn_index_ok "${1:-}" || { echo "❌ tn_public_domain: no fleet entry at index '${1:-}'" >&2; return 1; }
+    case "${NODE_ROLES[$1]}" in
+        validator|observer) printf '%s.%s\n' "${NODE_NAMES[$1]}" "${BASE_DOMAIN}" ;;
+        rpc) printf '%s\n' "${RPC_HOSTNAME}" ;;
+        gateway)
+            if ! k="$(_tn_index_of_node_name "${GATEWAY_FOR[$1]:-}")"; then
+                echo "❌ tn_public_domain: gateway entry ${INSTANCE_NAMES[$1]:-$1} names no node (GATEWAY_FOR='${GATEWAY_FOR[$1]:-}')" >&2
+                return 1
+            fi
+            tn_public_domain "${k}" ;;
+        *) echo "❌ tn_public_domain: index $1 has unknown role '${NODE_ROLES[$1]}'" >&2; return 1 ;;
+    esac
+}
+
+# tn_admin_domain <i> — prints admin.<NODE_NAME>.<BASE_DOMAIN> for a node host that runs Caddy:
+# an rpc entry, or a validator/observer whose gateway mode is same-host. rc 1, no output,
+# otherwise (standalone-fronted or mode-none node, gateway entry, bad index).
+tn_admin_domain() {
+    tn_is_node_index "${1:-}" || return 1
+    if [ "${NODE_ROLES[$1]}" != "rpc" ] && [ "$(tn_gateway_mode "$1")" != "same-host" ]; then
+        return 1
+    fi
+    printf 'admin.%s.%s\n' "${NODE_NAMES[$1]}" "${BASE_DOMAIN}"
+}
+
+# tn_admission_mode <i> — prints the node's admission mode for setup-node.sh --admission: closed
+# for a validator or observer, open for rpc. rc 1 with a message on stderr for any other entry.
+tn_admission_mode() {
+    if tn_is_node_index "${1:-}"; then
+        case "${NODE_ROLES[$1]}" in
+            validator|observer) printf 'closed\n'; return 0 ;;
+            rpc) printf 'open\n'; return 0 ;;
+        esac
+    fi
+    echo "❌ tn_admission_mode: index '${1:-}' runs no node" >&2
+    return 1
+}
+
+# tn_role_dir <i> — prints the genesis/ subdirectory that holds the node's node-info: validators
+# for a validator, observers for an observer or rpc. rc 1 with a message on stderr for any other
+# entry.
+tn_role_dir() {
+    if tn_is_node_index "${1:-}"; then
+        case "${NODE_ROLES[$1]}" in
+            validator) printf 'validators\n'; return 0 ;;
+            observer|rpc) printf 'observers\n'; return 0 ;;
+        esac
+    fi
+    echo "❌ tn_role_dir: index '${1:-}' runs no node" >&2
+    return 1
 }
 
 # tn_node_meta_get <instance> <zone> <KEY> — print KEY's value from the node's

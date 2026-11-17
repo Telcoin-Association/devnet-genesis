@@ -60,6 +60,17 @@ unset _bench_caller
 # --- inherit the devnet constants, then override the fleet identity -------------
 # shellcheck source=../config.sh
 source "${BENCH_DIR}/../config.sh"
+# Launch 2 moved the root config to new node scripts and image, worker gateways and native
+# admission. The bench keeps the launch-1 model: its own scripts commit and node image (the
+# v0.2.0-devnet pair; BENCH_DOCKER_IMAGE below still overrides), no gateway, and the
+# devnet-rendered network-config of deploy step 7 (TN_ADMISSION_VIA=devnet).
+export TN_NODE_SCRIPTS_REF="d9446f720026fa5ce8b64fce9074e56b05b3f4eb"
+export DOCKER_IMAGE_TAG="us-docker.pkg.dev/telcoin-network/tn-public/adiri:v0.2.0-devnet"
+export DOCKER_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:5257e768e657586a19e31308906bfacac0df95e5ca3da29a68f818f159d4a610"
+export TN_ADMISSION_VIA="devnet"
+export TN_GATEWAY_ENABLE=0
+export GATEWAY_MODES=()
+export GATEWAY_FOR=()
 # The release-signing gate (devnet-release-sign.sh prepare/verify, wired into deploy step 6
 # and finalize) is a devnet rehearsal of the mainnet release model. The bench profile has no
 # signed release and this script is not in devnet-release-sign.sh's caller allowlist, so the
