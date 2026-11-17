@@ -1,0 +1,29 @@
+CHAIN start mode=live env=tasks/bench8/r20261117-1401/bench8-reduced.env pid=3332267 2026-11-17T14:01:36Z
+CHAIN precondition ok launch-dry seg=deploy12 run=r20261117-1401 2026-11-17T14:01:36Z
+CHAIN precondition ok launch-dry seg=blast15 run=r20261117-1401 2026-11-17T14:01:36Z
+CHAIN credentials ok at=preconditions token=ok login_age=165 source=credentials.db-mtime max=3600s 2026-11-17T14:01:36Z
+CHAIN preconditions ok run=r20261117-1401 2026-11-17T14:01:36Z
+CHAIN deploy12 launch 2026-11-17T14:01:36Z
+    LAUNCHED segment=deploy12 run=r20261117-1401 pid=3332471 harness=7e75b189b140 log=tasks/bench6/r20261117-1401/deploy12-20261117T140137Z.log
+      wait for: ^== deploy12 rc=  in tasks/bench6/r20261117-1401/deploy12-20261117T140137Z.log  (the last tag of the driver before it: BENCH_DEPLOY_RESULT)
+      status:   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/launch/launch.sh /home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench8/r20261117-1401/bench8-reduced.env status
+CHAIN deploy12 launched pid=3332471 log=tasks/bench6/r20261117-1401/deploy12-20261117T140137Z.log 2026-11-17T14:01:37Z
+CHAIN deploy12 rc=0 result=ok 2026-11-17T14:46:59Z
+CHAIN sampler started pid=3567832 interval=60s out=tasks/bench8/r20261117-1401/endpoint-samples log=tasks/bench8/r20261117-1401/endpoint-sampler-20261117T144659Z.log stop_file=tasks/bench8/r20261117-1401/endpoint-sampler.stop 2026-11-17T14:46:59Z
+CHAIN idle-check up ok up=11/11 missing=- round=1 2026-11-17T14:46:59Z
+CHAIN idle-check modes ok cvv_active=10 observer=1 want_cvv_active=10 want_observer=1 wrong=- round=1 2026-11-17T14:46:59Z
+CHAIN idle-check switches ok switches=8 nodes=11 problems=0 round=1 2026-11-17T14:47:00Z
+CHAIN credentials ok at=blast15 token=ok login_age=2890 source=credentials.db-mtime max=7200s 2026-11-17T14:47:01Z
+CHAIN idle-checks ok round=1 engine=tn-lmdb key=.storage_engine host_probe=uniform up_fallback=- quorum_exec_block_floor_outputs=8 2026-11-17T14:47:01Z
+CHAIN blast15 launch 2026-11-17T14:47:01Z
+    LAUNCHED segment=blast15 run=r20261117-1401 pid=3568289 harness=7122061653af log=tasks/bench6/r20261117-1401/blast15-20261117T144702Z.log
+      wait for: ^== blast15 rc=  in tasks/bench6/r20261117-1401/blast15-20261117T144702Z.log  (the last tag of the driver before it: BENCH_DEPLOY_RESULT)
+      status:   /home/drtnarg/coding/telcoin/devnet-genesis/benchmark/launch/launch.sh /home/drtnarg/coding/telcoin/devnet-genesis/tasks/bench8/r20261117-1401/bench8-reduced.env status
+CHAIN blast15 launched pid=3568289 log=tasks/bench6/r20261117-1401/blast15-20261117T144702Z.log 2026-11-17T14:47:02Z
+CHAIN watch started pid=3568380 log=tasks/bench8/r20261117-1401/fleet-health-blast15-20261117T144702Z.log 2026-11-17T14:47:02Z
+CHAIN credentials refresh-failed seg=blast15 line="ERROR: (gcloud.compute.ssh) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution.": the fleet is UP: run `gcloud auth login`, then read `launch.sh <env> status` (blast15 may still run; nothing is torn down) 2026-11-17T15:51:11Z
+CHAIN blast15 rc=1 result=missing 2026-11-17T16:24:15Z
+CHAIN watch rc=0 log=tasks/bench8/r20261117-1401/fleet-health-blast15-20261117T144702Z.log 2026-11-17T16:26:03Z
+CHAIN done rc=1 2026-11-17T16:26:03Z
+CHAIN FLEET IS UP: read and export while it is, then teardown-dry and teardown by hand 2026-11-17T16:26:03Z
+CHAIN stop reason=credentials seg=blast15 blast15 rc=1 result=missing (its log shows a failed credential refresh) 2026-11-17T16:26:03Z

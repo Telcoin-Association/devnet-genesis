@@ -1734,3 +1734,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - When a review offers "add a test or state the limit" and the plan did not list the test, state the limit. A new test, a new make target or any new file in an upstream PR beyond the plan is asked first, in one line, before a unit is spent on it.
   - Before adding coverage for a deployment case (rolling upgrade, mixed versions, downgrade), ask how the change is rolled out. For this program: testnet is upgraded once, all validators at the same time; no mixed-binary tests.
   - A reviewer's High on something I added outside the plan is a sign to step back to the plan, not to add more around it.
+
+## 2026-11-17 — a gcloud login died 1.5 h into a run and I noticed only when the chain ended
+
+- **What happened.** Run R (`r20261117-1401`) was launched two minutes after a fresh login. The login stopped working between 15:31Z and 15:36Z (the endpoint sampler's last good round; the fleet watch's first `list-failed`). The chain went on: the load blast ran on the fleet, but the planned kill of validator-05 at 15:51:36Z failed (its ssh could not authenticate), every later chaos step failed, the collection failed, and the fleet stayed up after 16:24Z until the owner logged in again. I had a waiter only on the chain's end, so I saw it 55 minutes late. The three logins of the day before had each lasted more than 3 h, and my note said "just under 5 h".
+- **Rules.**
+  - At every launch, start a second waiter beside the chain's: poll `gcloud auth print-access-token` every minute and return at the first failure. Tell the owner at once: the kill and the collection need the login.
+  - Do not rely on a login's age. Before the chaos step of a run whose login is more than an hour old, ask for a new one.
+  - When the token is dead and the fleet is up: export metrics first (the Prometheus forward still answers), then ask for the login, then collect, tear down, archive.
