@@ -219,10 +219,11 @@ export SERVICE_USER="telcoin"
 # tn-node-deployment checkout on each node: root-owned, detached at TN_NODE_SCRIPTS_REF.
 # Not under /home any more: v2's install-ui refuses a checkout owned by the service account.
 export TN_NODE_SCRIPTS_DIR="/opt/telcoin-node-scripts"
-# Full 40-hex tn-node-deployment commit the fleet runs: the worker-gateway branch head
-# (launch 2) once it is pushed. Until then it holds a marker value and the deploy's marker
-# gate refuses to run. Launch 1 ran d9446f72; benchmark/config.sh keeps that commit.
-export TN_NODE_SCRIPTS_REF="PLACEHOLDER_TN_NODE_SCRIPTS_REF"
+# Full 40-hex tn-node-deployment commit the fleet runs: the head of the worker-gateway
+# branch (tn-node-deployment #68, scripts 2.2.0, not merged or released yet). It moves with
+# that branch: after a new push there, pin the new head here before the next deploy.
+# Launch 1 ran d9446f72; benchmark/config.sh keeps that commit.
+export TN_NODE_SCRIPTS_REF="6361c9c9e083dd3060a8fedd86869f60ad278512"
 # devnet-startup.sh is self-contained (it is GCP metadata, not sourced against this file)
 # and keeps its own copy of this URL; change both together.
 export TN_NODE_DEPLOY_REPO="https://github.com/Telcoin-Association/tn-node-deployment.git"
