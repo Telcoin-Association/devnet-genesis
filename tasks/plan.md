@@ -49,7 +49,7 @@ Asked when reached: every fleet launch; publishing bench 8; the merge of `main` 
 - [ ] pre-flight on the trial merge of the new top with `main`: CI lanes, ignored `tn-lmdb` tests, ignored e2e suite, `make test-e2e-reth-migration`, `make test-e2e-resync`; conflict resolutions kept as notes
 - [x] (2026-11-16T19:27-19:33Z, by the owner) (user) the collapse: #1869 down to #1862
 - [x] (2026-11-16, on the owner's word, done as a merge of `main` f25a74eb7 INTO #1873's branch: 02b9c5f31, pushed after the fmt check and a two-crate compile check only; no pre-flight: the owner's instruction) (on the user's word) merge `origin/main` into `feat/bench6-switches-obs`, pre-flight on that commit, push
-- [ ] (user) `make attest`
+- [x] (the owner's: #1873 merged into #1862's branch 2026-11-16T20:25:40Z; #1862 merged into `main` 2026-11-17T01:19:02Z as 8c75f7582; #1851, #1852, #1860 closed by its body) (user) `make attest`
 
 ## Step 5 — bench 8
 - [x] (N0-N5, the summary and its figure-check done 2026-11-16) 5a N1 voters lacking the block per under-held header · N2 certified share against the laggards' wait · N3 held against not-held · N4 60-s course · N5 near headers after an uncommitted far certificate → `benchmark/private/bench8-prep/N1..N5/`, `tasks/bench8/no-run-findings.md`, figure-checked
