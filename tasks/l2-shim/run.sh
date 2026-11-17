@@ -75,6 +75,15 @@ if [ "${FRESH}" = 1 ]; then
 else
     rsync -a "${excl[@]}" --exclude=/genesis/ --exclude=/releases/ "${WT}/" "${STATE}/repo/"
 fi
+# A driver committed without its exec bit stops devnet-deploy.sh with exit 126. That is a FINDING, never
+# repaired silently: L2_SHIM_CHMOD_DRIVERS=1 sets +x on the snapshot copy only (to rehearse past it) and the
+# report keeps one FLAGCHECK-free "MODE" finding per file, so the run is NOT CLEAN either way.
+for f in "${STATE}"/repo/devnet-*.sh; do
+    [ -x "${f}" ] && continue
+    printf 'MODE\tstep=-\t-\t%s is not executable (git mode 100644) but devnet-deploy.sh runs it directly\t-\tfatal\n' \
+        "$(basename "${f}")" >> "${STATE}/findings.log"
+    if [ "${L2_SHIM_CHMOD_DRIVERS:-0}" = 1 ]; then chmod +x "${f}"; fi
+done
 
 # 2. The flag table, from the real argument parsers of the tn-node-deployment branch.
 "${PY}" "${SHIM_DIR}/fakes.py" gen-flags "${TND_DIR}" > "${STATE}/flags.json"

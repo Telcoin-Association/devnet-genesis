@@ -366,7 +366,7 @@ def boot_host(name, rec):
     tn-scripts-ref, /etc/telcoin/devnet-ips.env) and its serial-console marker."""
     root = sp("hosts", name, "root")
     for d in ("etc/telcoin", "etc/systemd/system", "tmp", "home/tnadmin", "var/lib", "var/log",
-              "usr/local/libexec", "opt"):
+              "usr/local/libexec", "opt", "run"):  # /run: a tmpfs on every real VM (start-at marks live there)
         os.makedirs(os.path.join(root, d), exist_ok=True)
     units = {"docker": {"active": True, "enabled": True}, "ufw": {"active": False, "enabled": True},
              "nftables": {"active": False, "enabled": False}, "ssh": {"active": True, "enabled": True}}
@@ -651,14 +651,21 @@ def gc_ssh(pos, fl, cmdline):
     inst = pos[2].split("@")[-1] if len(pos) > 2 else ""
     cmd = f1(fl, "command")
     ssh_flags = [str(x) for x in fl.get("ssh-flag", [])]
-    data = sys.stdin.buffer.read() if "-T" in ssh_flags else b""
+    # Real ssh forwards stdin with or without -T (-T only refuses a pty); a remote `bash -s` reads it to
+    # EOF. So stdin is read for -T or a shell-from-stdin command, and otherwise inherited (None).
+    reads = "-T" in ssh_flags or (isinstance(cmd, str) and shell_stdin(cmd))
+    data = sys.stdin.buffer.read() if reads else None
     shown = cmd if isinstance(cmd, str) else "<no --command>"
-    log_call("ssh", inst, shown, len(data) if "-T" in ssh_flags else None)
+    log_call("ssh", inst, shown, len(data) if reads else None)
     if not isinstance(cmd, str) or not cmd.strip():
         strict_fail("UNSAFE", inst, cmdline, "gcloud compute ssh without a command opens a login shell")
     if not f1(fl, "tunnel-through-iap"):
         finding("SUSPECT", inst, shown, "gcloud compute ssh without --tunnel-through-iap", fatal=False)
     running_instance(inst, f1(fl, "zone"), cmdline, "ssh")
+    fw = jload(sp("hosts", inst, "ufw.json"), {"active": False, "rules": []})
+    if fw["active"] and not ({"22/tcp from any", "22/tcp from %s" % IAP_RANGE} & set(fw["rules"])):
+        sys.stderr.write("ssh: connect to host %s port 22: Connection timed out (ufw, l2-shim)\n" % inst)
+        sys.exit(255)
     sys.exit(run_remote(inst, cmd, data))
 
 
@@ -699,13 +706,13 @@ def gc_scp(pos, fl, cmdline):
 
 
 # ----------------------------------------------------------------------------- remote sandbox
-REWRITE = re.compile(r"(?<![\w.~/:-])/(etc|var|opt|tmp|home|root|run|srv|mnt|usr/local|lib/systemd|usr/lib/systemd)(?=[/'\"\s;|&)]|$)")
+REWRITE = re.compile(r"(?<![\w.~/:-])/(etc|var|opt|tmp|home|root|run|srv|mnt|usr/local|lib/systemd|usr/lib/systemd|proc(?!/self\b))(?=[/'\"\s;|&)]|$)")
 OUTSIDE = re.compile(r"(?<![\w.~/:-])/(usr|bin|sbin|lib|lib64|boot|dev|proc|sys|snap|media)\b(/[\w.+-]+)*")
 ALLOWED_OUTSIDE = re.compile(r"^/(dev/(null|stdin|stdout|stderr|fd/\d+|urandom)|usr/bin/env|bin/(ba)?sh|usr/bin/(ba)?sh|proc/self/\S*|usr/share/\S*)$")
 SAFE_REAL = ("bash sh cat grep sed awk test [ cp mv rm mkdir rmdir chmod ln ls head tail sha256sum md5sum "
              "printf echo date sleep tr cut wc sort uniq find xargs base64 mktemp tee dirname basename readlink "
              "realpath true false env touch cmp diff seq od timeout nproc flock sync python3 jq awk mawk gawk "
-             "comm paste fold rev nl expr yes du df").split()
+             "comm paste fold rev nl expr yes du df cksum").split()
 
 
 def inroot(root, path, cmd, inst):
@@ -725,12 +732,16 @@ def rewrite(text, root):
     return REWRITE.sub(lambda m: root + m.group(0), text)
 
 
+def shell_stdin(cmd):
+    return re.search(r"(^|[\s;&|])(ba)?sh\s+-s(\s|$)", cmd) is not None
+
+
 def run_remote(inst, cmd, data):
     root = sp("hosts", inst, "root")
     rcmd = rewrite(cmd, root)
     # A shell reading its script from stdin (`sudo [VAR=v …] bash -s`, any prefix): the script's paths
     # are rewritten and checked like a command's. Any other stdin (a passphrase, a token) is passed as is.
-    is_shell_stdin = re.search(r"(^|[\s;&|])(ba)?sh\s+-s(\s|$)", cmd) is not None
+    is_shell_stdin = shell_stdin(cmd) and data is not None
     payload = rewrite(data.decode("utf-8", "replace"), root).encode() if is_shell_stdin else data
     for text in (rcmd, payload.decode("utf-8", "replace") if is_shell_stdin else ""):
         for m in OUTSIDE.finditer(text):
@@ -807,6 +818,8 @@ def unit_name(u):
 def r_systemctl(argv):
     remote_detail("systemctl", argv)
     inst, root = host()
+    if argv and argv[0] in ("show", "cat"):
+        return r_systemctl_read(inst, root, argv)
     args = [a for a in argv if not a.startswith("-")]
     opts = [a for a in argv if a.startswith("-")]
     verb, targets = (args[0], [unit_name(u) for u in args[1:]]) if args else ("", [])
@@ -847,12 +860,201 @@ def r_systemctl(argv):
                     units[u]["enabled"] = False
                     if "--now" in opts:
                         units[u]["active"] = False
-        elif verb == "daemon-reload":
+        elif verb in ("daemon-reload", "reset-failed"):
             pass
         else:
             strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "systemctl %s not emulated" % verb)
         jsave(units_path(), units)
+    if "telcoin" in targets and verb in ("start", "stop", "restart", "enable", "disable"):
+        node_runtime(inst, root, units.get("telcoin", {}).get("active", False))
     sys.exit(rc)
+
+
+def r_systemctl_read(inst, root, argv):
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    props, value, units_, i = [], False, [], 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "-p" or a == "--property":
+            props += argv[i + 1].split(",")
+            i += 1
+        elif a.startswith("--property=") or a.startswith("-p") and len(a) > 2:
+            props += a.split("=", 1)[1].split(",") if "=" in a else a[2:].split(",")
+        elif a == "--value":
+            value = True
+        elif a in ("--no-pager",):
+            pass
+        elif a.startswith("-"):
+            strict_fail("UNRECOGNISED", inst, cmd, "systemctl %s %s not emulated" % (argv[0], a))
+        else:
+            units_.append(unit_name(a))
+        i += 1
+    st = jload(units_path(), {})
+    for u in units_:
+        path = os.path.join(root, "etc/systemd/system", u + ".service")
+        if argv[0] == "cat":
+            if not os.path.exists(path):
+                sys.stderr.write("No files found for %s.service.\n" % u)
+                sys.exit(1)
+            with open(path) as f:
+                sys.stdout.write("# /etc/systemd/system/%s.service\n%s" % (u, f.read()))
+            continue
+        rec = st.get(u) if (u in st or os.path.exists(path)) else None
+        act = bool(rec and rec.get("active"))
+        vals = {"ActiveState": "active" if act else "inactive", "SubState": "running" if act else "dead",
+                "UnitFileState": ("enabled" if rec.get("enabled") else "disabled") if rec else "",
+                "LoadState": "loaded" if rec else "not-found", "NRestarts": "0", "Result": "success",
+                "MainPID": str(rec.get("pid", 0)) if act else "0",
+                "ActiveEnterTimestampMonotonic": str(rec.get("enter", 0)) if rec else "0"}
+        for k in props or ["ActiveState", "SubState", "UnitFileState", "NRestarts", "Result", "MainPID"]:
+            if k not in vals:
+                strict_fail("UNRECOGNISED", inst, cmd, "systemctl show property %s not emulated" % k)
+            print(vals[k] if value else "%s=%s" % (k, vals[k]))
+    sys.exit(0)
+
+
+# ----------------------------------------------------------------------------- the fake node runtime
+NODE_PID, CONTAINER_PID = 4242, 4343
+
+
+def journal_add(inst, unit, msgs):
+    with Locked():
+        j = jload(sp("hosts", inst, "journal.json"), [])
+        j += [[unit, m] for m in msgs]
+        jsave(sp("hosts", inst, "journal.json"), j)
+
+
+def node_runtime(inst, root, active):
+    """What a started (or stopped) docker-form telcoin unit leaves: the docker client as MainPID with
+    /proc/<pid>/{cmdline,environ}, the container, journal lines, a line in the log file."""
+    import shutil as _sh
+    start = os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")
+    for pid in (NODE_PID, CONTAINER_PID):
+        _sh.rmtree(os.path.join(root, "proc", str(pid)), ignore_errors=True)
+    with Locked():
+        units = jload(units_path(), {})
+        if "telcoin" in units:
+            units["telcoin"]["pid"] = NODE_PID if active else 0
+            if active:
+                units["telcoin"]["enter"] = int(time.monotonic() * 1e6)
+        jsave(units_path(), units)
+        dock = jload(sp("hosts", inst, "containers.json"), {})
+        dock.pop("telcoin", None)
+        line = ""
+        if active and os.path.exists(start):
+            with open(start) as f:
+                line = [l for l in f if l.startswith("exec ") and " node " in l][-1].strip()
+            argv = shlex.split(line)[1:]
+            image = argv[argv.index("telcoin", argv.index("--pull=never")) - 1]
+            dock["telcoin"] = {"Running": True, "ReadonlyRootfs": "--read-only" in argv, "Pid": CONTAINER_PID,
+                               "Image": image}
+            for pid, cl, env in ((NODE_PID, argv, ["PATH=/usr/bin", "PRIMARY_LISTENER_MULTIADDR=x"]),
+                                 (CONTAINER_PID, argv[argv.index(image) + 1:], ["HOME=/home/nonroot"])):
+                d = os.path.join(root, "proc", str(pid))
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, "cmdline"), "w") as f:
+                    f.write("\0".join(cl) + "\0")
+                with open(os.path.join(d, "environ"), "w") as f:
+                    f.write("\0".join(env) + "\0")
+        jsave(sp("hosts", inst, "containers.json"), dock)
+    msg = ["l2-shim: telcoin node started (fake)"] if active else ["l2-shim: telcoin node stopped (fake)"]
+    journal_add(inst, "telcoin", msg)
+    logd = os.path.join(root, "var/log/telcoin")
+    if os.path.isdir(logd):
+        with open(os.path.join(logd, "telcoin.log"), "a") as f:
+            f.write("INFO %s\n" % msg[0])
+
+
+def node_health(inst, root, path):
+    up = jload(units_path(), {}).get("telcoin", {}).get("active")
+    meta = os.path.join(root, "etc/telcoin/.node-meta")
+    hc = os.path.exists(meta) and "ENABLE_HEALTHCHECK_MONITOR=true" in open(meta).read()
+    return (200, "OK") if up and hc else (0, "")
+
+
+def r_journalctl(argv):
+    remote_detail("journalctl", argv)
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    unit, after, n, cursor = None, None, None, False
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-u", "--unit"):
+            unit = unit_name(argv[i + 1])
+            i += 1
+        elif a.startswith("--after-cursor="):
+            after = a.split("=", 1)[1]
+        elif a == "-n":
+            n = int(argv[i + 1])
+            i += 1
+        elif a == "--show-cursor":
+            cursor = True
+        elif a == "-o" and argv[i + 1] == "cat":
+            i += 1
+        elif a in ("--no-pager", "-b", "-q"):
+            pass
+        else:
+            strict_fail("UNRECOGNISED", inst, cmd, "journalctl %s not emulated" % a)
+        i += 1
+    j = jload(sp("hosts", inst, "journal.json"), [])
+    idx = [k for k in range(len(j)) if unit is None or j[k][0] == unit]
+    if after is not None:
+        m = re.match(r"^s=l2shim;i=(\d+)$", after)
+        if not m:
+            sys.stderr.write("Failed to seek to cursor: Invalid argument\n")
+            sys.exit(1)
+        idx = [k for k in idx if k >= int(m.group(1))]
+    if n is not None:
+        idx = idx[-n:] if n else []
+    for k in idx:
+        print(j[k][1])
+    if cursor:
+        print("-- cursor: s=l2shim;i=%d" % ((idx[-1] + 1) if idx else len(j)))
+    sys.exit(0)
+
+
+def r_pgrep(argv):
+    remote_detail("pgrep", argv)
+    inst, root = host()
+    if len(argv) != 2 or argv[0] != "-f":
+        strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "pgrep %s not emulated" % " ".join(argv))
+    rc = 1
+    pd = os.path.join(root, "proc")
+    for pid in sorted(os.listdir(pd)) if os.path.isdir(pd) else []:
+        with open(os.path.join(pd, pid, "cmdline")) as f:
+            if re.search(argv[1], f.read().replace("\0", " ")):
+                print(pid)
+                rc = 0
+    sys.exit(rc)
+
+
+def r_ss(argv):
+    remote_detail("ss", argv)
+    inst, root = host()
+    if not argv or not re.match(r"^-[ltnHp]+$", argv[0]) or "l" not in argv[0] or "t" not in argv[0] or len(argv) > 1:
+        strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "ss %s not emulated" % " ".join(argv))
+    units = jload(units_path(), {})
+    socks = ["0.0.0.0:22"]
+    if units.get("telcoin", {}).get("active"):
+        socks += ["127.0.0.1:8545", "127.0.0.1:8546"]
+        if node_health(inst, root, "/")[0] == 200:
+            socks.append("0.0.0.0:43174")
+    socks += LISTEN_EXTRA(inst, root, units)
+    if "H" not in argv[0]:
+        print("State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process")
+    for a in socks:
+        print("LISTEN 0      4096   %s %s" % (a, "0.0.0.0:*"))
+    sys.exit(0)
+
+
+def LISTEN_EXTRA(inst, root, units):
+    out = []
+    if units.get("telcoin-gateway", {}).get("active"):
+        out += ["127.0.0.1:8655", "127.0.0.1:8656", "127.0.0.1:9655"]
+    if units.get("caddy", {}).get("active"):
+        out += ["0.0.0.0:80", "0.0.0.0:443"]
+    return out
 
 
 def owners_path(inst):
@@ -982,6 +1184,171 @@ def r_simple(tool, argv):
         strict_fail("UNRECOGNISED", inst, os.environ.get("L2_SHIM_CMD", ""), "remote %s %s not emulated" % (tool, " ".join(argv)))
 
 
+# ----------------------------------------------------------------------------- remote curl / docker
+CURL_VALUE_OPTS = {"-H", "--header", "-w", "--write-out", "-o", "--output", "-m", "--max-time", "--connect-timeout",
+                   "-X", "--request", "--retry", "--retry-delay"}
+CURL_BOOL_OPTS = set("sSfLk") | {"--silent", "--show-error", "--fail", "--location", "--insecure", "--no-progress-meter"}
+HEALTH_URLS = {}  # port -> handler(inst, root, path) -> (http code, body); 0 = connection refused
+
+
+def curl_answer(inst, root, url, headers):
+    """(http code, body) for the URLs a VM really reaches: the metadata server's token, Secret Manager's
+    REST access (the obs bring-up) and the node's loopback health port. Anything else is refused."""
+    m = re.match(r"^http://metadata\.google\.internal/computeMetadata/v1/instance/service-accounts/default/token$", url)
+    if m:
+        if "Metadata-Flavor: Google" not in headers:
+            return 403, "Missing Metadata-Flavor:Google header."
+        return 200, json.dumps({"access_token": "l2-shim-fake-vm-token", "expires_in": 3599, "token_type": "Bearer"})
+    m = re.match(r"^https://secretmanager\.googleapis\.com/v1/projects/([^/]+)/secrets/([^/]+)/versions/latest:access$", url)
+    if m:
+        if not any(h.startswith("Authorization: Bearer ") for h in headers):
+            return 401, json.dumps({"error": {"code": 401, "message": "missing credentials"}})
+        vers = cloud()["secrets"].get(m.group(2)) if m.group(1) == PROJECT else None
+        if not vers:
+            return 404, json.dumps({"error": {"code": 404, "message": "Secret [%s] not found or has no versions." % m.group(2)}})
+        import base64
+        return 200, json.dumps({"name": "projects/%s/secrets/%s/versions/%d" % (PROJECT, m.group(2), len(vers)),
+                                "payload": {"data": base64.b64encode(vers[-1].encode()).decode()}})
+    m = re.match(r"^(?:https?://)?(127\.0\.0\.1|localhost):(\d+)(/[^?#]*)?$", url)
+    if m:
+        fn = HEALTH_URLS.get(int(m.group(2))) or ({43174: node_health, 8656: gw_probe}).get(int(m.group(2)))
+        if fn is None:
+            return 0, ""  # nothing listens there: connection refused (curl rc 7)
+        return fn(inst, root, m.group(3) or "/")
+    return None, None
+
+
+def r_curl(argv):
+    remote_detail("curl", argv)
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    vals, flags, urls, i = {}, set(), [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in CURL_VALUE_OPTS:
+            vals.setdefault(a, []).append(argv[i + 1])
+            i += 2
+            continue
+        if a.startswith("--") and "=" in a and a.split("=", 1)[0] in CURL_VALUE_OPTS:
+            k, v = a.split("=", 1)
+            vals.setdefault(k, []).append(v)
+        elif a in CURL_BOOL_OPTS or (re.match(r"^-[sSfLk]+$", a)):
+            flags.update(a[1:] if not a.startswith("--") else [a])
+        elif a.startswith("-"):
+            strict_fail("UNRECOGNISED", inst, cmd, "remote curl option %s not emulated" % a)
+        else:
+            urls.append(a)
+        i += 1
+    if len(urls) != 1:
+        strict_fail("UNRECOGNISED", inst, cmd, "remote curl with %d URLs not emulated" % len(urls))
+    headers = vals.get("-H", []) + vals.get("--header", [])
+    code, body = curl_answer(inst, root, urls[0], headers)
+    if code is None:
+        strict_fail("UNSAFE", inst, cmd, "remote curl to %s (no emulator; a VM would reach the network)" % urls[0])
+    fail = "f" in flags or "--fail" in flags
+    wout = (vals.get("-w") or vals.get("--write-out") or [""])[-1]
+    if code == 0:
+        if "S" in flags or not ("s" in flags or "--silent" in flags):
+            sys.stderr.write("curl: (7) Failed to connect to %s: Connection refused\n" % urls[0])
+        sys.stdout.write(wout.replace("%{http_code}", "000").replace("\\n", "\n"))
+        sys.exit(7)
+    out = body if not (fail and code >= 400) else ""
+    dest = (vals.get("-o") or vals.get("--output") or [None])[-1]
+    if dest and dest != "/dev/null":
+        with open(dest, "w") as f:
+            f.write(out)
+    elif not dest:
+        sys.stdout.write(out)
+    sys.stdout.write(wout.replace("%{http_code}", str(code)).replace("\\n", "\n"))
+    sys.exit(22 if fail and code >= 400 else 0)
+
+
+def docker_inspect(inst, cmd, argv):
+    if len(argv) != 3 or argv[0] != "-f":
+        strict_fail("UNRECOGNISED", inst, cmd, "docker inspect %s not emulated" % " ".join(argv))
+    c = jload(sp("hosts", inst, "containers.json"), {}).get(argv[2])
+    if c is None:
+        sys.stderr.write("Error: No such object: %s\n" % argv[2])
+        sys.exit(1)
+    out = argv[1]
+    for k, v in (("State.Running", c["Running"]), ("HostConfig.ReadonlyRootfs", c["ReadonlyRootfs"]),
+                 ("State.Pid", c["Pid"]), ("Config.Image", c["Image"])):
+        out = out.replace("{{.%s}}" % k, str(v).lower() if isinstance(v, bool) else str(v))
+    if "{{" in out:
+        strict_fail("UNRECOGNISED", inst, cmd, "docker inspect template %s not emulated" % argv[1])
+    print(out)
+    sys.exit(0)
+
+
+def compose_services(path):
+    svcs, inside = [], False
+    with open(path) as f:
+        for line in f:
+            if re.match(r"^services:\s*$", line):
+                inside = True
+            elif re.match(r"^\S", line):
+                inside = False
+            elif inside:
+                m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
+                if m:
+                    svcs.append(m.group(1))
+    return svcs
+
+
+def r_docker(argv):
+    """`docker compose` in a directory holding docker-compose.yml (the obs VM's /opt/obs): up/ps/down/
+    restart/kill/exec. Any other docker command on a VM is refused (strict)."""
+    remote_detail("docker", argv)
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    if argv[:1] == ["inspect"]:
+        return docker_inspect(inst, cmd, argv[1:])
+    if not argv or argv[0] != "compose":
+        strict_fail("UNRECOGNISED", inst, cmd, "remote docker %s not emulated" % " ".join(argv[:2]))
+    if os.environ.get("L2_SHIM_SUDO") != "1":
+        sys.stderr.write("permission denied while trying to connect to the Docker daemon socket\n")
+        sys.exit(1)
+    cwd = os.getcwd()
+    yml = os.path.join(cwd, "docker-compose.yml")
+    if not os.path.exists(yml):
+        sys.stderr.write("no configuration file provided: not found\n")
+        sys.exit(1)
+    svcs = compose_services(yml)
+    verb, rest = (argv[1] if len(argv) > 1 else ""), argv[2:]
+    with Locked():
+        st = jload(sp("hosts", inst, "compose.json"), {})
+        proj = st.setdefault(unroot(cwd), {})
+        rc = 0
+        if verb == "up":
+            if "-d" not in rest:
+                strict_fail("UNRECOGNISED", inst, cmd, "docker compose up without -d attaches")
+            for sv in svcs:
+                proj[sv] = "running"
+                print(" Container obs-%s-1  Started" % sv)
+        elif verb == "down":
+            for sv in svcs:
+                proj[sv] = "removed"
+        elif verb == "ps":
+            print("NAME\tSERVICE\tSTATUS")
+            for sv in svcs:
+                if proj.get(sv) == "running":
+                    print("obs-%s-1\t%s\tUp" % (sv, sv))
+        elif verb in ("restart", "kill", "exec"):
+            names = [a for a in rest if not a.startswith("-") and a not in ("SIGHUP", "SIGTERM")]
+            target = names[0] if names else ""
+            if target not in svcs:
+                strict_fail("UNRECOGNISED", inst, cmd, "docker compose %s of unknown service %s" % (verb, target))
+            if verb == "restart":
+                proj[target] = "running"
+            elif proj.get(target) != "running":
+                sys.stderr.write("service %s is not running\n" % target)
+                rc = 1
+        else:
+            strict_fail("UNRECOGNISED", inst, cmd, "docker compose %s not emulated" % verb)
+        jsave(sp("hosts", inst, "compose.json"), st)
+    sys.exit(rc)
+
+
 # ----------------------------------------------------------------------------- tn-node-deployment
 def flag_check(script, argv):
     table = jload(sp("flags.json"), {"scripts": {}})["scripts"]
@@ -1071,6 +1438,8 @@ def tnd_setup_node(argv):
         sys.exit(1)
     if phase == "keygen":
         return tnd_keygen(inst, root, o, cmd)
+    if phase == "finalize":
+        return tnd_finalize(inst, root, o, cmd)
     strict_fail("UNRECOGNISED", inst, cmd, "setup-node.sh --phase=%s has no emulator yet" % phase)
 
 
@@ -1126,7 +1495,507 @@ def tnd_keygen(inst, root, o, cmd):
     emit(event="done", ok=True, phase="keygen", msg="keys generated", node_info_path=unroot(ddir) + "/node-info.yaml")
 
 
-TND = {"setup-node.sh": tnd_setup_node}
+TND_DIR = os.environ.get("L2_SHIM_TND") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(SHIM_DIR))),
+                                                       "tnd-l2-gateway")
+MULTIADDR = re.compile(r"^/ip4/\d+\.\d+\.\d+\.\d+/udp/\d+/quic-v1$")
+
+
+def meta_get(root):
+    p = os.path.join(root, "etc/telcoin/.node-meta")
+    kv = {}
+    if os.path.exists(p):
+        for l in open(p):
+            if "=" in l:
+                k, v = l.rstrip("\n").split("=", 1)
+                kv[k] = v
+    return kv
+
+
+def fin_fail(msg):
+    emit(event="done", ok=False, phase="finalize", msg=msg)
+    sys.exit(1)
+
+
+def tnd_finalize(inst, root, o, cmd):
+    """setup-node.sh --json --phase=finalize (fact sheet tnd-node.md 1-4): installs the maps, renders
+    network-config with the REAL tn_network_config_render, writes node.env, the docker start script, the
+    unit, the service .node-meta keys, then starts and enables the unit (no --no-start exists)."""
+    meta = meta_get(root)
+    if not meta.get("PASSPHRASE_METHOD"):
+        fin_fail("No keygen recorded in /etc/telcoin/.node-meta: run --phase=keygen first.")
+    for k in ("listener-primary", "listener-worker", "external-primary", "external-worker"):
+        if not isinstance(o.get(k), str) or not MULTIADDR.match(o[k]):
+            fin_fail("--%s must be /ip4/<addr>/udp/<port>/quic-v1" % k)
+    for k in ("network", "address", "public-ip"):
+        if not isinstance(o.get(k), str):
+            fin_fail("missing --%s" % k)
+    if o.get("install-method", meta.get("INSTALL_METHOD")) != "docker":
+        strict_fail("UNRECOGNISED", inst, cmd, "finalize emulated for the docker install method only")
+    image = o.get("docker-image") if isinstance(o.get("docker-image"), str) else meta.get("DOCKER_IMAGE", "")
+    if not re.match(r"^[^@\s]+@sha256:[0-9a-f]{64}$", image):
+        fin_fail("devnet needs --docker-image <repo>@sha256:<digest>")
+    ddir_v = meta.get("DATA_DIR") or "/var/lib/telcoin"
+    ddir = os.path.join(root, ddir_v.lstrip("/"))
+    adm = o.get("admission")
+    if ("trusted-nodes" in o or "bootstrap-peers" in o) and not isinstance(adm, str):
+        fin_fail("--trusted-nodes needs --admission open, grace or closed")
+    emit(event="step", name="finalize_node_extra_flags")
+    installed = {}
+    for flag, dest in (("bootstrap-peers", "bootstrap-peers.yaml"), ("trusted-nodes", "trusted-nodes.yaml")):
+        if flag not in o:
+            continue
+        src = o[flag]
+        if not isinstance(src, str) or not os.path.isfile(src):
+            fin_fail("--%s: %s is not a regular file" % (flag, unroot(src) if isinstance(src, str) else ""))
+        st = os.stat(src)
+        if st.st_mode & 0o044 != 0o044 or st.st_size > 65536:
+            fin_fail("--%s: %s must be readable by all (chmod 644) and at most 65536 bytes" % (flag, unroot(src)))
+        target = os.path.join(root, "etc/telcoin", dest)
+        if os.path.realpath(src) != os.path.realpath(target):
+            shutil.copyfile(src, target)
+        os.chmod(target, 0o644)
+        set_owner(inst, "/etc/telcoin/" + dest, "root:root")
+        installed[flag] = target
+    emit(event="step", name="config")
+    if isinstance(adm, str):
+        env = dict(os.environ, TN_ROOT_PREFIX=root)
+        prog = ('set +eu; source "$1" >/dev/null 2>&1; set -eu; tn_as_service_user() { "$@"; }; '
+                'tn_network_config_render "$2" "$3" "$4" "$5"')
+        r = subprocess.run([sp("sandbox-real", "bash"), "-c", prog, "_", os.path.join(TND_DIR, "lib/common.sh"), ddir, adm,
+                            installed.get("trusted-nodes", "none"), installed.get("bootstrap-peers", "none")],
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if r.returncode:
+            fin_fail("network-config render failed: %s" % oneline(r.stderr.decode()[-300:]))
+        set_owner(inst, ddir_v + "/network-config", "telcoin:telcoin")
+    emit(event="step", name="step_write_config")
+    os.makedirs(os.path.join(root, "var/log/telcoin"), exist_ok=True)
+    set_owner(inst, "/var/log/telcoin", "root:telcoin-log")
+    with open(os.path.join(root, "etc/telcoin/node.env"), "w") as f:
+        f.write("PRIMARY_LISTENER_MULTIADDR=%s\nWORKER_LISTENER_MULTIADDR=%s\nTN_RPC_ADDR=127.0.0.1\n" % (
+            o["listener-primary"], o["listener-worker"]))
+    args = "--datadir /home/nonroot --log.stdout.format log-fmt -vvv --http --http.addr 127.0.0.1 --ws --ws.addr 127.0.0.1"
+    if "enable-healthcheck-monitor" in o:
+        args += " --healthcheck 43174"
+    if "bootstrap-peers" in installed:
+        args += ' --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"'
+    os.makedirs(os.path.join(root, "usr/local/libexec/telcoin"), exist_ok=True)
+    start = os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")
+    with open(start, "w") as f:  # the docker line of lib/common.sh (LC:3760), fields filled for this host
+        f.write('#!/bin/bash\nset -euo pipefail\nexec < "${CREDENTIALS_DIRECTORY:?not set: start the node with systemctl}'
+                '/bls-passphrase"\nexec /usr/bin/docker run -i --rm --name telcoin --user 999:999 -e HOME=/home/nonroot '
+                '-e PRIMARY_LISTENER_MULTIADDR -e WORKER_LISTENER_MULTIADDR --network=host --cap-drop ALL --security-opt '
+                'no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --pids-limit 4096 --ulimit '
+                'nofile=65536:65536 --ulimit core=0 --log-driver json-file --log-opt max-size=50m --log-opt max-file=3 '
+                '--stop-timeout 80 --pull=never -v %s:/home/nonroot %s telcoin node --bls-passphrase-source stdin %s\n'
+                % (ddir_v, image, args))
+    os.chmod(start, 0o755)
+    emit(event="step", name="step_create_service")
+    with open(os.path.join(root, "etc/systemd/system/telcoin.service"), "w") as f:
+        f.write("[Unit]\nDescription=Telcoin Network node\nAfter=network-online.target docker.service\n\n[Service]\n"
+                "User=root\nUMask=0077\nEnvironmentFile=-/etc/telcoin/node.env\nExecStartPre=-/usr/bin/docker stop telcoin\n"
+                "ExecStartPre=-/usr/bin/docker rm telcoin\nExecStart=/usr/local/libexec/telcoin/tn-start-docker\n"
+                "LoadCredential=bls-passphrase:/etc/telcoin/bls-passphrase\nRestart=on-failure\n"
+                "StandardOutput=append:/var/log/telcoin/telcoin.log\nStandardError=append:/var/log/telcoin/telcoin-error.log\n"
+                "\n[Install]\nWantedBy=multi-user.target\n")
+    kv = {"HOST_SERVICE_USER": "telcoin", "HOST_SERVICE_GROUP": "telcoin", "INSTALL_METHOD": "docker",
+          "PASSPHRASE_METHOD": meta["PASSPHRASE_METHOD"], "NETWORK": o["network"], "DATA_DIR": ddir_v, "RPC_PORT": "8545",
+          "WS_PORT": "8546", "PUBLIC_RPC_DOMAIN": "", "PUBLIC_IP": o["public-ip"],
+          "EXTERNAL_PRIMARY_ADDR": o["external-primary"], "EXTERNAL_WORKER_ADDR": o["external-worker"],
+          "VALIDATOR_ADDRESS": o["address"], "ENABLE_HEALTHCHECK_MONITOR": "true" if "enable-healthcheck-monitor" in o else "false",
+          "PUBLIC_RPC_URL": o.get("public-rpc-url", "") if isinstance(o.get("public-rpc-url"), str) else "",
+          "PUBLIC_WS_URL": o.get("public-ws-url", "") if isinstance(o.get("public-ws-url"), str) else "",
+          "LOG_TARGET": "file", "OWNERSHIP_LAYOUT": "v2", "DOCKER_IMAGE": image,
+          "DOCKER_IMAGE_DIGEST": image.split("@", 1)[1], "STATE_EXPORT": "off"}
+    if isinstance(adm, str):
+        kv["ADMISSION_MODE"] = adm.lower()
+        kv["BOOTSTRAP_PEERS_FILE"] = "/etc/telcoin/bootstrap-peers.yaml" if "bootstrap-peers" in installed else ""
+        kv["TRUSTED_NODES_FILE"] = "/etc/telcoin/trusted-nodes.yaml" if "trusted-nodes" in installed else ""
+    meta_set(root, kv)
+    with Locked():  # json mode: start, then enable, unconditionally (SN:2857-2895)
+        units = jload(units_path(), {})
+        units["telcoin"] = {"active": True, "enabled": True}
+        jsave(units_path(), units)
+    node_runtime(inst, root, True)
+    emit(event="step", name="public rpc")
+    emit(event="done", ok=True, phase="finalize", node_type="observer", msg="finalized and started")
+
+
+IAP_RANGE = "35.235.240.0/20"
+SRC_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+(/\d+)?$")
+FW_PORTS = ("49590/udp", "49594/udp", "43174/tcp")
+
+
+def gw_meta(root):
+    p = os.path.join(root, "etc/telcoin/gateway/gateway.meta")
+    kv = {}
+    if os.path.exists(p):
+        for l in open(p):
+            if "=" in l:
+                k, v = l.rstrip("\n").split("=", 1)
+                kv[k] = v
+    return kv
+
+
+def node_installed(root):
+    return os.path.exists(os.path.join(root, "etc/systemd/system/telcoin.service"))
+
+
+def ufw_state(inst):
+    return jload(sp("hosts", inst, "ufw.json"), {"active": False, "rules": []})
+
+
+def fw_rules(root, meta):
+    """The rule set of fw_apply_rules (fact sheet tnd-firewall.md 2, contract 5), as 'port/proto from src'."""
+    net = meta.get("NETWORK") or gw_meta(root).get("NETWORK", "")
+    r = []
+    ssh = [x for x in meta.get("SSH_ALLOW_FROM", "").split(",") if x]
+    r += (["22/tcp from %s" % x for x in [IAP_RANGE] + ssh] if ssh else ["22/tcp from any"])
+    if net in ("testnet", "devnet") and node_installed(root):
+        r.append("43174/tcp from kuma-src")
+    if node_installed(root):
+        p2p = [x for x in meta.get("P2P_ALLOW_FROM", "").split(",") if x]
+        for port in ("49590/udp", "49594/udp"):
+            r += (["%s from %s" % (port, x) for x in p2p] if p2p and meta.get("P2P_COMMITTEE") != "on"
+                  else ["%s from any" % port])
+        for x in [x for x in meta.get("GATEWAY_ALLOW_FROM", "").split(",") if x]:
+            r += ["%s/tcp from %s" % (meta.get("RPC_PORT") or "8545", x), "43174/tcp from %s" % x]
+    cf = os.path.join(root, "etc/caddy/Caddyfile")
+    if os.path.exists(cf):
+        t = open(cf).read()
+        if "Managed by the Telcoin Node Manager" in t.splitlines()[0] or re.search(r"^# >>> tn-(rpc|dashboard|gateway) >>>", t, re.M):
+            r += ["80/tcp from any", "443/tcp from any"]
+    return r
+
+
+def tnd_firewall(argv):
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    if os.environ.get("L2_SHIM_SUDO") != "1":
+        emit(event="done", ok=False, msg="firewall-setup.sh must run as root")
+        sys.exit(1)
+    if "--json" not in argv:
+        strict_fail("UNRECOGNISED", inst, cmd, "firewall-setup.sh without --json is interactive")
+    o = opts_of(argv)
+    for a, b in (("ssh-from", "ssh-anywhere"), ("p2p-from", "p2p-anywhere")):
+        if a in o and b in o:
+            emit(event="done", ok=False, msg="--ssh-from/--p2p-from and --ssh-anywhere/--p2p-anywhere cannot be combined.")
+            sys.exit(1)
+    action = "enable" if ("enable" in o or "reset" in o) else ("status" if "status" in o else ("port" if "port" in o else ""))
+    if any(k in o for k in ("ssh-from", "p2p-from", "gateway-from", "ssh-anywhere", "p2p-anywhere")) and action != "enable":
+        emit(event="done", ok=False, msg="source flags go with --enable or --reset")
+        sys.exit(1)
+    meta = meta_get(root)
+    with Locked():
+        st = ufw_state(inst)
+    if action == "status":
+        emit(event="done", ok=True, action="status", active=st["active"], network=meta.get("NETWORK") or None,
+             rules=st["rules"], gateway_from=[x for x in meta.get("GATEWAY_ALLOW_FROM", "").split(",") if x])
+        sys.exit(0)
+    if action == "port":
+        i = argv.index("--port")
+        spec, onoff = argv[i + 1], (argv[i + 2] if i + 2 < len(argv) else "")
+        if spec not in FW_PORTS or onoff not in ("on", "off"):
+            emit(event="done", ok=False, msg="--port takes one of %s and on|off" % " ".join(FW_PORTS))
+            sys.exit(1)
+        rule = "%s from any" % spec
+        st["rules"] = [r for r in st["rules"] if r != rule] + ([rule] if onoff == "on" else [])
+        jsave(sp("hosts", inst, "ufw.json"), st)
+        emit(event="done", ok=True, action="port", port=spec, state=onoff, msg="port %s %s" % (spec, onoff))
+        sys.exit(0)
+    if action != "enable":
+        emit(event="done", ok=False, msg="unknown or missing --json action")
+        sys.exit(1)
+    if "gateway-from" in o:
+        v = o["gateway-from"]
+        if not node_installed(root):
+            emit(event="done", ok=False, action="enable", msg="--gateway-from needs an installed node")
+            sys.exit(1)
+        if v != "none" and not all(SRC_RE.match(x) for x in str(v).split(",")):
+            emit(event="done", ok=False, action="enable", msg="--gateway-from: not an IPv4 or CIDR list: %s" % v)
+            sys.exit(1)
+    upd = {}
+    for k, key in (("ssh-from", "SSH_ALLOW_FROM"), ("p2p-from", "P2P_ALLOW_FROM"), ("gateway-from", "GATEWAY_ALLOW_FROM")):
+        if k in o:
+            upd[key] = "" if o[k] == "none" else o[k]
+    for k, key in (("ssh-anywhere", "SSH_ALLOW_FROM"), ("p2p-anywhere", "P2P_ALLOW_FROM")):
+        if k in o:
+            upd[key] = ""
+    if upd and os.path.exists(os.path.join(root, "etc/telcoin/.node-meta")):
+        meta_set(root, upd)
+        meta = meta_get(root)
+    rules = fw_rules(root, meta)
+    with Locked():
+        jsave(sp("hosts", inst, "ufw.json"), {"active": True, "rules": rules})
+        units = jload(units_path(), {})
+        units.setdefault("ufw", {"active": False, "enabled": True})["active"] = True
+        jsave(units_path(), units)
+    emit(event="step", name="apply_recommended_firewall")
+    emit(event="done", ok=True, action="enable", ssh_port="22", active=True,
+         msg="ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma)")
+
+
+def obs_restarts(inst):
+    """Which hosts' installer restarts the node: odd host numbers do, even ones refuse ("Not restarting"), so a
+    rehearsal runs both of the driver's paths (stop again / nothing to stop)."""
+    m = re.search(r"-(\d+)-", inst)
+    return bool(m and int(m.group(1)) % 2 == 1)
+
+
+def tnd_observability(argv):
+    """setup-observability.sh --json (fact sheet tnd-node.md 6): launch flags into the start script, the Alloy
+    agent (config + unit, active), .node-meta keys; the node restart only on some hosts (see obs_restarts)."""
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    o = opts_of(argv)
+    if os.environ.get("L2_SHIM_SUDO") != "1":
+        emit(event="done", ok=False, msg="setup-observability.sh must run as root")
+        sys.exit(1)
+    if "json" not in o:
+        strict_fail("UNRECOGNISED", inst, cmd, "setup-observability.sh without --json is interactive")
+    if not node_installed(root):
+        emit(event="done", ok=False, msg="No node is installed on this host.")
+        sys.exit(1)
+    alloy = "enable-logs" in o or "enable-metrics" in o
+    if alloy:
+        if "token-stdin" not in o or not sys.stdin.readline().strip():
+            emit(event="done", ok=False, msg="--enable-logs/--enable-metrics need the ingest token (--token-stdin)")
+            sys.exit(1)
+        for k in ("push-url", "metrics-push-url", "region"):
+            if not isinstance(o.get(k), str):
+                emit(event="done", ok=False, msg="missing --%s" % k)
+                sys.exit(1)
+    start = os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")
+    with open(start) as f:
+        lines = f.read().split("\n")
+    k = [i for i, l in enumerate(lines) if l.startswith("exec ") and " node " in l][-1]
+    add = []
+    if "enable-logs" in o and "--log.file.format" not in lines[k]:
+        add.append("--log.file.format json --log.file.directory /home/nonroot/logs")
+    if "enable-metrics" in o and " --metrics " not in lines[k]:
+        add.append("--metrics 127.0.0.1:9101")
+    warn_hc = False
+    if "enable-health" in o:
+        if not ufw_state(inst)["active"]:
+            emit(event="done", ok=False, msg="--enable-health needs ufw active (the health port binds on every interface)")
+            sys.exit(1)
+        if "--healthcheck" not in lines[k]:
+            add.append("--healthcheck 43174")
+            warn_hc = True
+        with Locked():
+            st = ufw_state(inst)
+            if "43174/tcp from kuma-src" not in st["rules"]:
+                st["rules"].append("43174/tcp from kuma-src")
+            jsave(sp("hosts", inst, "ufw.json"), st)
+    if add:
+        lines[k] += " " + " ".join(add)
+        with open(start, "w") as f:
+            f.write("\n".join(lines))
+        emit(event="step", name="launch flags", msg="added " + " ".join(add))
+    if warn_hc:
+        emit(event="warn", msg="Added --healthcheck 43174 to the launch file")
+    if alloy:
+        os.makedirs(os.path.join(root, "etc/telcoin/alloy"), exist_ok=True)
+        with open(os.path.join(root, "etc/telcoin/alloy/config.alloy"), "w") as f:
+            f.write("// l2-shim fake alloy config: push %s, metrics %s\n" % (o["push-url"], o["metrics-push-url"]))
+        with open(os.path.join(root, "etc/systemd/system/telcoin-alloy.service"), "w") as f:
+            f.write("[Service]\nExecStart=/usr/local/bin/alloy run /etc/telcoin/alloy/config.alloy\n")
+        with Locked():
+            units = jload(units_path(), {})
+            units["telcoin-alloy"] = {"active": True, "enabled": True}
+            jsave(units_path(), units)
+        emit(event="step", name="alloy")
+    meta_set(root, {"ENABLE_OBSERVABILITY": "true" if alloy else "false",
+                    "ENABLE_METRICS": "true" if "enable-metrics" in o else "false", "METRICS_PORT": "9101",
+                    "REGION": o.get("region", "") if isinstance(o.get("region"), str) else ""})
+    if add:
+        if obs_restarts(inst):
+            with Locked():
+                units = jload(units_path(), {})
+                units["telcoin"]["active"] = True
+                jsave(units_path(), units)
+            node_runtime(inst, root, True)
+            emit(event="step", name="restart", msg="Restarted telcoin to apply the new flags")
+        else:
+            emit(event="warn", msg="Not restarting telcoin: the restart guard refused (l2-shim: this host's installer does not restart)")
+    emit(event="done", ok=True, msg="observability enabled")
+
+
+PRIV_RE = re.compile(r"^(10\.\d+|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d+\.\d+$")
+
+
+def upstream_up(host_ip):
+    """True when the node behind a gateway answers: its telcoin unit is active (same-host: this host)."""
+    if host_ip in ("127.0.0.1", None):
+        return jload(units_path(), {}).get("telcoin", {}).get("active", False)
+    for name, rec in cloud()["instances"].items():
+        if rec.get("int_ip") == host_ip:
+            return jload(sp("hosts", name, "units.json"), {}).get("telcoin", {}).get("active", False)
+    return False
+
+
+def gw_probe(inst, root, path):
+    if not jload(units_path(), {}).get("telcoin-gateway", {}).get("active"):
+        return 0, ""
+    if path == "/health":
+        return 200, "ok"
+    up = upstream_up(gw_meta(root).get("UPSTREAM_HOST"))
+    return (200, "ready") if up else (503, "not ready: upstream node not answering")
+
+
+def gw_fields(inst, root):
+    m = gw_meta(root)
+    units = jload(units_path(), {}).get("telcoin-gateway", {})
+    inst_ = bool(m)
+    h = m.get("UPSTREAM_HOST")
+    ready = inst_ and units.get("active", False) and upstream_up(h)
+    return {"installed": inst_, "enabled": bool(units.get("enabled")), "active": bool(units.get("active")),
+            "network": m.get("NETWORK") or None, "mode": m.get("MODE") or None, "front": m.get("FRONT") or None,
+            "domain": m.get("DOMAIN") or None, "image": m.get("IMAGE") or None, "image_held": inst_,
+            "listen": "127.0.0.1:8655" if inst_ else None, "probe": "127.0.0.1:8656" if inst_ else None,
+            "metrics": "127.0.0.1:9655" if inst_ else None,
+            "upstream_rpc": ("http://%s:8545" % h) if inst_ else None,
+            "upstream_readiness": ("http://%s:43174/health/workers" % h) if inst_ else None,
+            "redirect_queries": m.get("REDIRECT") or None, "health": bool(units.get("active")), "ready": bool(ready),
+            "ready_any": bool(ready), "caddy_block": (m.get("FRONT") == "caddy") if inst_ else None, "issues": 0}
+
+
+def tnd_gateway(argv):
+    """setup-gateway.sh (contract 3): --enable writes /etc/telcoin/gateway/gateway.meta, the telcoin-gateway unit
+    (enabled, active), the Caddy block (front caddy: install-caddy.sh gateway-enable, which opens 80/443); does
+    not wait for readiness. --status reports. The done line carries every field of 3.2."""
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    o = opts_of(argv)
+    def fail(msg):
+        emit(event="done", ok=False, msg=msg + " Nothing was changed.")
+        sys.exit(1)
+    if "status" in o:
+        f = gw_fields(inst, root)
+        emit(event="done", ok=True, **dict(f, msg="status"))
+        sys.exit(0)
+    if "enable" not in o:
+        strict_fail("UNRECOGNISED", inst, cmd, "setup-gateway.sh action not emulated")
+    if os.environ.get("L2_SHIM_SUDO") != "1":
+        fail("setup-gateway.sh --enable must run as root.")
+    if "json" not in o and "yes" not in o:
+        strict_fail("UNRECOGNISED", inst, cmd, "setup-gateway.sh --enable without --json/--yes asks")
+    mode, front = o.get("mode"), o.get("front", "caddy")
+    node = node_installed(root)
+    net = o.get("network") if isinstance(o.get("network"), str) else meta_get(root).get("NETWORK")
+    if not net:
+        fail("--network is required on a host with no node.")
+    if mode == "same-host":
+        if not node:
+            fail("--mode same-host needs a node on this host.")
+        start = open(os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")).read()
+        if "--healthcheck" not in start:
+            fail("--mode same-host needs --healthcheck in the node's launch file (setup-observability.sh --enable-health).")
+        if net == "mainnet":
+            fail("on mainnet the gateway runs on its own host")
+        uh = "127.0.0.1"
+    elif mode == "standalone":
+        if node:
+            fail("--mode standalone on a host that runs a node.")
+        if not isinstance(o.get("upstream"), str) or not PRIV_RE.match(o["upstream"]):
+            fail("--mode standalone needs --upstream <private-ipv4>.")
+        uh = o["upstream"]
+    else:
+        fail("--mode must be same-host or standalone.")
+    if front == "caddy" and not isinstance(o.get("domain"), str):
+        fail("--front caddy needs --domain.")
+    if not re.match(r"^[^@\s]+@sha256:[0-9a-f]{64}$", str(o.get("image", ""))):
+        fail("--image must be <repo>@sha256:<digest>.")
+    if not re.match(r"^https?://\S+$", str(o.get("redirect-queries", ""))):
+        fail("--redirect-queries must be a URL.")
+    want = {"NETWORK": net, "MODE": mode, "FRONT": front, "DOMAIN": o.get("domain", ""), "IMAGE": o["image"],
+            "UPSTREAM_HOST": uh, "REDIRECT": o["redirect-queries"]}
+    applied = []
+    gdir = os.path.join(root, "etc/telcoin/gateway")
+    units = jload(units_path(), {})
+    if gw_meta(root) != want or not units.get("telcoin-gateway", {}).get("active"):
+        os.makedirs(gdir, exist_ok=True)
+        with open(os.path.join(gdir, "gateway.meta"), "w") as f:
+            f.write("".join("%s=%s\n" % kv for kv in want.items()))
+        with open(os.path.join(root, "etc/systemd/system/telcoin-gateway.service"), "w") as f:
+            f.write("[Service]\nExecStart=/usr/bin/docker run --rm --name telcoin-gateway --network=host --pull=never %s\n"
+                    % o["image"])
+        with Locked():
+            units = jload(units_path(), {})
+            units["telcoin-gateway"] = {"active": True, "enabled": True}
+            jsave(units_path(), units)
+        applied.append("gateway:enabled")
+    if front == "caddy":
+        cf = os.path.join(root, "etc/caddy/Caddyfile")
+        block = "# >>> tn-gateway >>>\n%s {\n  reverse_proxy 127.0.0.1:8655\n}\n# <<< tn-gateway <<<\n" % o["domain"]
+        cur = open(cf).read() if os.path.exists(cf) else "# Managed by the Telcoin Node Manager\n"
+        if block not in cur:
+            os.makedirs(os.path.dirname(cf), exist_ok=True)
+            cur = re.sub(r"# >>> tn-gateway >>>.*?# <<< tn-gateway <<<\n", "", cur, flags=re.S) + block
+            with open(cf, "w") as f:
+                f.write(cur)
+            applied.append("gateway:caddy")
+        with Locked():
+            units = jload(units_path(), {})
+            units["caddy"] = {"active": True, "enabled": True}
+            jsave(units_path(), units)
+            st = ufw_state(inst)
+            if st["active"]:
+                st["rules"] += [r for r in ("80/tcp from any", "443/tcp from any") if r not in st["rules"]]
+                jsave(sp("hosts", inst, "ufw.json"), st)
+    f = gw_fields(inst, root)
+    emit(event="done", ok=True, applied=applied, **dict(f, msg="gateway enabled" if applied else "nothing had to change"))
+
+
+def tnd_edit_config(argv):
+    """edit-config.sh --json --set gateway_upstream=<list>|off (contract 5, C3). Only this key is emulated."""
+    inst, root = host()
+    cmd = os.environ.get("L2_SHIM_CMD", "")
+    o = opts_of(argv)
+    if os.environ.get("L2_SHIM_SUDO") != "1" or "json" not in o or not isinstance(o.get("set"), str):
+        strict_fail("UNRECOGNISED", inst, cmd, "edit-config.sh emulated only as root with --json --set")
+    field, _, value = o["set"].partition("=")
+    if field != "gateway_upstream":
+        strict_fail("UNRECOGNISED", inst, cmd, "edit-config.sh --set %s not emulated" % field)
+    def done(ok, msg):
+        emit(event="done", ok=ok, rolled_back=False, field=field, value=value, msg=msg)
+        sys.exit(0 if ok else 1)
+    if not node_installed(root):
+        done(False, "No node is installed on this host; nothing was changed")
+    meta = meta_get(root)
+    start = os.path.join(root, "usr/local/libexec/telcoin/tn-start-docker")
+    body = open(start).read()
+    if value == "off":
+        prev = meta.get("GATEWAY_PREV_HEALTHCHECK", "")
+        body = body.replace("--http.addr 0.0.0.0", "--http.addr 127.0.0.1")
+        body = re.sub(r" --healthcheck 0\.0\.0\.0:\d+", "" if prev == "none" else " --healthcheck %s" % prev, body)
+        meta_set(root, {"GATEWAY_UPSTREAM": "", "GATEWAY_PREV_HEALTHCHECK": ""})
+    else:
+        ips = value.split(",")
+        rules = set(ufw_state(inst)["rules"])
+        port = meta.get("RPC_PORT") or "8545"
+        if not all(SRC_RE.match(x) and "%s/tcp from %s" % (port, x) in rules and "43174/tcp from %s" % x in rules
+                   for x in ips):
+            done(False, "the firewall does not let %s reach the RPC and health ports: run firewall-setup.sh --enable "
+                        "--gateway-from %s first; nothing was changed" % (value, value))
+        m = re.search(r" --healthcheck (\S+)", body)
+        body = body.replace("--http.addr 127.0.0.1", "--http.addr 0.0.0.0")
+        body = re.sub(r" --healthcheck \S+", " --healthcheck 0.0.0.0:43174", body) if m else \
+            body.rstrip("\n") + " --healthcheck 0.0.0.0:43174\n"
+        kv = {"GATEWAY_UPSTREAM": value}
+        if "GATEWAY_PREV_HEALTHCHECK" not in meta:
+            kv["GATEWAY_PREV_HEALTHCHECK"] = m.group(1) if m else "none"
+        meta_set(root, kv)
+    with open(start, "w") as f:
+        f.write(body)
+    units = jload(units_path(), {})
+    if not units.get("telcoin", {}).get("active"):
+        done(True, "gateway_upstream=%s applied; telcoin was not running and stays stopped" % value)
+    node_runtime(inst, root, True)
+    done(True, "gateway_upstream=%s applied and telcoin healthy" % value)
+
+
+TND = {"setup-node.sh": tnd_setup_node, "firewall-setup.sh": tnd_firewall, "setup-observability.sh": tnd_observability,
+       "setup-gateway.sh": tnd_gateway, "edit-config.sh": tnd_edit_config}
 
 
 def tnd(argv):
@@ -1466,6 +2335,16 @@ def main():
             return tnd(argv)
         if tool == "stat":
             return r_stat(argv)
+        if tool == "curl":
+            return r_curl(argv)
+        if tool == "docker":
+            return r_docker(argv)
+        if tool == "journalctl":
+            return r_journalctl(argv)
+        if tool == "pgrep":
+            return r_pgrep(argv)
+        if tool == "ss":
+            return r_ss(argv)
         return r_simple(tool, argv)
     table = {"dig": local_dig, "cast": local_cast, "docker": local_docker, "init": init, "gen-flags": gen_flags, "pty-run": pty_run,
              "report": report, "sentinel": sentinel}
