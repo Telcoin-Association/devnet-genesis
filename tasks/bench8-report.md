@@ -1,6 +1,6 @@
 # Bench 8 report: r20261116-2011 (floor 16), r20261116-2332 (control) and r20261117-1401 (reduced load)
 
-Private record for the repository owner; assembled 2026-11-17 from one file per section (`tasks/bench8/report/s<N>.md`, each with a sources note beside it). One run per configuration: no figure here carries a significance claim. Nothing of bench 8 is published.
+Private record for the repository owner; assembled 2026-11-17 from one file per section (`tasks/bench8/report/s<N>.md`, each with a sources note beside it) and figure-checked by two readers who did not write it (`tasks/bench8/report/figcheck-a.md`, `figcheck-b.md`: about 1,350 figures and statements, 5 wrong and 13 over-strong or incomplete, all corrected, none changing a conclusion). One run per configuration: no figure here carries a significance claim. Nothing of bench 8 is published.
 
 ## 1. Summary
 
@@ -15,15 +15,15 @@ It ran three fleet runs on one node build (`bench/bench8-2026-11` at b1104905f) 
 | 3 (R) | | its first 1,679 s | 5,354.7 | 99.948 | 0.02 |
 | 7a (bench 7) | 8, 600 × 16 | before the kill, 817 s | 9,289 (bench 7's count) | 93.997 | 12.08 |
 
-Executed is validator-01's count over the window (§3.6); 7a's rate is bench 7's chain count over its whole mixed phase, a different window.
+Executed is validator-01's count over the window (§3.6); 7a's rate is bench 7's chain count over the 2,375 s in which all ten generators were in their mixed phase, a different window.
 Run 3's window starts 85 s after its load began; over the generators' own phase it executed 5,356.8 tx/s.
-Run 1's first 817 s read 99.895 %, as clean as run 3: the contrast between full and reduced load is in the longer windows.
+Run 1's first 817 s read 99.895 % with 0.03 % under-held, inside the same thresholds of the plan's rule as run 3's 99.949 %: the contrast between full and reduced load is in the longer windows.
 
 The answer:
 - [measured] Headers are lost on the validators at the front of execution while four or more other voters are further behind than the floor: in run 2, 1,251 of 1,258 lost headers came from authors at most 2 outputs behind, and the certified share fell from 99.40 % with three such voters to 82.26 % with four; the step is partly definitional, but the outcome is not (headers not under-held were lost at about 0.1 %, under-held ones at 40 % with four or more behind, the laggards' own headers almost never) (§4.1).
 - [measured] Run 1's other path is the same root: on 193 of validator-02's 230 headers cut off while enough voters held the block, the quorum was the bare seven, the three lagging voters answered `superseded`, and the round ended at the author's next header; on 37 more a seventh voter also voted and the round was still lost (§4.2).
 - [measured, the cause inferred as a timing fit] The voters fall behind because the executors are saturated: at 0.959 to 0.984 busy in run 2 the tips drifted up to 53 outputs apart, while at 0.555 to 0.589 in run 3 none fell more than 2 behind and the loss went away; all ten validators executed the same transactions, and run 3's uneven ingress on validators 02 and 06 only concentrated its 31 residual losses (§4.4).
-- [measured] A floor of 16 kept the first load epoch clean (99.919 %) and not the second (95.988 %), so depth moves the threshold and does not remove the drift (§4.3).
+- [measured; that depth moves the threshold is inferred, a timing fit] A floor of 16 kept the first load epoch clean (99.919 %) and not the second (95.988 %): depth moves the threshold and does not remove the drift (§4.3).
 - [measured] In run 2 two validators late to a loaded epoch close drew internal-error vote answers, were demoted, and sat out about nine minutes each, one spare voter fewer for the fleet; this did not happen in runs 1 and 3 (§4.5).
 
 New in bench 8: the bare-quorum path and the round's end at the author's next header; the reduced-load contrast; the internal error and the demotion at a loaded close; and the far validators' step, now measured (in 96 to 98 % of pairs a far certificate reaches a near validator after its next header, which never names it; 17 to 30 % committed) and read in code (§4.6).
@@ -53,7 +53,7 @@ The fsync probe's median at deploy was 1,081 µs (run 1), 1,065 µs (run 2) and 
 The harness at deploy was 14e20773c566, 037b8c85c856 and 7e75b189b140; each was dirty only under `tasks/`, with `benchmark/` at its last commit.
 
 Run 1 used the arm `bench8-floor16`, runs 2 and 3 the arm `bench8-control`.
-Both arms set the same eight switches (`quorum_exec_block` on, `quorum_exec_block_starved_rounds` 0, `vote_queue_fix`, `digest_order_hold` and the three `epoch_record_*` switches) and differ only in the floor, 16 against 8.
+Both arms set the same eight switches (`quorum_exec_block` on, `quorum_exec_block_starved_rounds` 0, `quorum_exec_block_floor_outputs`, `vote_queue_fix`, `digest_order_hold` and the three `epoch_record_*` switches) and differ only in the floor, 16 against 8.
 In runs 1 and 2 the idle check read the floor back on every node; run 3's run facts say the idle checks passed and do not name the floor.
 
 ### 2.2 Timelines
@@ -73,7 +73,7 @@ Times are UTC; run 1 is on 2026-11-16, run 2 crosses midnight into 2026-11-17, r
 | blast 2, load: senders × window | 600 × 16 | 600 × 16 | 300 × 4 |
 | blast 2 whole, rc | 21:47:42 to 22:40:38, rc 0 | 00:47:31 to 01:40:18, rc 0 | 15:18:44 to 16:24:12, rc 1 (its collection failed) |
 | blast 2 mixed phase, manifest | 21:54:55 to 22:35:11 | 00:54:44 to 01:34:53 | 15:27:19 to 16:07:19 (the driver's schedule) |
-| blast 2 mixed phase, generators' own | the same as the manifest | the same as the manifest | 15:25:54 to 16:05:54 (generators 02 and 06: 15:26:15 to 16:06:15) |
+| blast 2 mixed phase, generators' own | the manifest's start for the earliest generator, the others up to 16 s later | the manifest's start for the earliest generator, the others up to 9 s later | 15:25:54 to 16:05:54 (generators 02 and 06: 15:26:15 to 16:06:15) |
 | kill of validator-05 | 22:26:12 | 01:22:43 | none: attempted at 15:51:36, rc 1, never reached the node |
 | validator-05 started | 22:31:12 | 01:27:43 | none: 12 attempts from 15:56:37 to 16:24:12, all rc 1 |
 | observer restarted | 22:36:12 | 01:32:43 | none: attempted at 16:01:37, rc 1 |
@@ -113,7 +113,7 @@ Run 3 has no kill, so its windows are cut at the same lengths (817 s and 1,679 s
 
 Run 3's windows are offset from its load.
 The manifest's phases for blast 2 are the driver's schedule, 85 s after the generators' own, and were never corrected because the collection failed.
-So run 3's W-mixed misses the load's first 85 s and holds 85 s with almost no load: only generators 02 and 06, which started 21 s late, sent until 16:06:15; 10,334 of their transactions landed and validator-01 executed 28,893 in those 85 s, 0.23 % of the window's.
+So run 3's W-mixed misses the load's first 85 s and holds 85 s with almost no load: only generators 02 and 06, which started 21 s late, sent until 16:06:15; the generators landed 10,334 transactions of their own and validator-01 executed 28,893 in those 85 s, 0.23 % of the window's.
 That moves the rate (5,181.6 tx/s over W-mixed against 5,356.8 over the generators' phase) and not the certification (Wgen: 99.955 % certified, 0.02 % under-held).
 
 Run 3's ingress was uneven.
@@ -158,12 +158,12 @@ Export: 393 metrics, 22,420 series, 10,159,346 points, 17 MB, window 14:20 to 16
 
 | | run 1 | run 2 | run 3 |
 |---|---|---|---|
-| archive verify (`gs://tn-devnet-benchmark-archive/runs/<run>/results/`) | 626 files, 3,074,284,753 bytes, 0 problems | 626 files, 2,992,471,535 bytes, 0 problems | 624 files, 4,191,890,137 bytes, 0 problems |
+| archive verify (the canonical archive bucket, `runs/<run>/results/`) | 626 files, 3,074,284,753 bytes, 0 problems | 626 files, 2,992,471,535 bytes, 0 problems | 624 files, 4,191,890,137 bytes, 0 problems |
 | local reindex (`benchmark/results/<run>`) | 649 files, 3,074,580,815 bytes | 649 files, 2,992,767,362 bytes | 647 files, 4,192,186,497 bytes |
 | teardown | 12 instances deleted, 0 left | 12 deleted, 0 left | every cloud resource deleted (22 instances: the ten generators were still up), then rc 128 at the last local step; a second pass deleted 0, left 0 |
 
 The local reindex counts 23 files more than the archive verify in each run; the run facts do not say which.
-Run 1's manifest has `archive` and `log coverage` empty (null) while its run facts record the archive verify; runs 2 and 3 have both fields filled.
+Run 1's run facts read the manifest's `archive` and `log coverage` as empty (null), because they were generated before its teardown finished; the manifest in the results directory has both filled, as runs 2 and 3 do, and the run facts also record the archive verify.
 Private and not in the archive: the Prometheus exports (`benchmark/private/bench8-<run>/prom-export`), the endpoint samples (`tasks/bench8/<run>/endpoint-samples/`), the analyses (`benchmark/private/bench8-<run>/`) and their scratch (`benchmark/work/bench8-scratch/`).
 Run 1's run facts say to keep the export and the samples; runs 2 and 3 keep theirs in the same places.
 Run 3's generators' own results are in the archived results directory, under `blasters/`.
@@ -178,7 +178,7 @@ This section says what a row is and nothing more; the reading is in §4.
 ### 3.0 The windows
 
 Times are UTC.
-All windows of runs 1 and 2 start at the load blast's mixed phase as the manifest gives it, which matched the generators' own phases in those runs.
+All windows of runs 1 and 2 start at the load blast's mixed phase as the manifest gives it, which is the earliest generator's own mixed start in those runs (the others began up to 16 s later in run 1 and 9 s later in run 2).
 Run 3's manifest phases are the driver's schedule, 85 s later than the generators' own mixed phase (15:25:54 to 16:05:54); its windows W-817, W-1679 and W-mixed start at the driver's 15:27:19, and Wgen is the generators' own phase.
 The counting unit for certification is a validator's own `header proposed` line.
 
@@ -536,7 +536,7 @@ Sources: the local issue draft `tasks/issue-bodies/bench8-lagging-validator-at-e
 The draft is not posted; it waits for the owner's review.
 
 [measured, run 2] Validator-10, never restarted, was behind in execution when the other validators closed epoch 3 under load.
-By A-F2's minute medians it ran 25 to 53 outputs behind the lead in e3; its own log at the demotion reads `backlog_outputs=15 exec_lag_rounds=30`, a different measure at a different moment.
+By A-F2's minute medians it ran 9 outputs behind the lead in the first minute of W-prekill and 25 to 53 from 00:55:44 to 01:02:44; its own log at the demotion reads `backlog_outputs=15 exec_lag_rounds=30`, a different measure at a different moment.
 Its lag built from 00:54 to 00:58, when its persist time per output was 377 and 414 ms against 279 and 282 ms on validator-02 (A-F3 reproduces those four figures).
 
 The internal error [measured].
@@ -546,7 +546,7 @@ The two sources disagree on when the internal-error answers stopped: the issue d
 [read from code, on the build and on main at 5533ff73a] The vote path waits on a reply from the certificate manager and turns a dropped reply into `HeaderError::PendingCertificateOneshot`; the manager answers only until its loop returns on shutdown; the certifier treats any error answer as fatal for that voter and header.
 [inferred from the times] Each voter's epoch-3 certificate manager had stopped at the close while its vote handler still took epoch-3 requests; validator-02, a voter, logged `Certifier received shutdown` at 01:03:43.156 and `Starting epoch` at 01:03:48.265.
 
-The demotion and the nine minutes [measured].
+The demotion and the nine minutes [measured]; unlike the internal error, which is new, this part is mostly evidence for the upstream issue #1806 (which predicted a catch-up that could not finish under load; this one finished).
 Validator-10 logged the boundary 23.8 s after the others; at 01:04:09.429 it logged `we are behind, go to catchup mode!` with `epoch=4 exec_epoch=3 number=None`, `round=41`, `gc_window=40`, `reason=epoch_behind`.
 [read from code] `number=None` is the certificate rule of `behind_consensus`: a node still executing the previous epoch passes only while the new epoch's round is at most `gc_depth.max(6)`, 40 here; it was demoted at round 41.
 Its `rejoin not ready … reason=round_gap` lines had the handled round 30 to 80 rounds behind the newest (48 to 66 by minute from 01:05 to 01:09); at 01:12:43.824 it rejoined through the 20-round window and was `CvvActive` at 01:12:44.092.
@@ -578,6 +578,7 @@ Their generators landed 95 to 200 tx/s against 573 to 1,223 tx/s for the near on
 The step, measured with bench 8's new log lines.
 [measured, run 1 light blast 1 and run 3 load blast] In 96 to 98 % of (near receiver, far certificate) pairs, the far round-r certificate entered the receiver's aggregator after that receiver had already logged its own round r+1 header (p50 200 to 229 ms after).
 76 to 88 % of far certificates were named by no near round r+1 header, and fewer than 1 % by 4 or more of the nine others (0.00 to 0.65 %).
+Over all six far windows of the far analysis the two shares read 94.4 to 98.0 % and 72.3 to 88.0 %, and in run 2's and run 3's light blast 1 the share named by 4 or more others is 1.03 to 3.00 % [the far analysis's figure-check].
 In every pair where the certificate arrived after the receiver's own r+1 header, that header does not name it: 0 of 8,428 and 8,731 pairs in run 1's light blast 1, 0 of 53,141 and 53,759 in run 3's load blast.
 [read from code, at b1104905f and byte-identical on main at 5533ff73a] The proposer takes its parent set when it builds round r+1 and moves to r+1; a parent set that arrives later takes the `Less` arm of `process_parents` and is dropped, and a late round-r certificate has no other route into a later header.
 [measured] Far certificates were committed at 17 to 30 % (node side, all four windows), against 99.94 to 100 % for the near control; every far certificate named by 4 or more round r+1 headers was committed.
@@ -588,7 +589,7 @@ A far validator's own certificate forms 286 to 297 ms after its own header (p50)
 [inferred, a fit to geography, not a measured mechanism] A quorum of 7 forms among the near validators without Europe, so they build round r+1 before the European certificates arrive.
 
 What it does not do.
-The step costs commits, not certificates: the far validators' own headers reach a quorum at about the rate they are proposed (run 1 light blast 1: 1,530 quorums for 1,531 headers on validator-02, 1,524 for 1,531 on 06) [measured].
+The step costs commits, not certificates: the far validators' own headers reach a quorum at about the rate they are proposed (run 1 light blast 1: 1,531 quorum lines for 1,530 headers on validator-02, a window edge, and 1,524 for 1,531 on 06) [measured].
 It is a separate problem from §4.1 to §4.4.
 Validator-02 is far and was the largest loser in runs 1 and 2, but A-E5 places its run-1 loss at the execution lead (§4.2); whether its distance makes its bare quorum later is not measured (§7).
 Before the runs this step was inferred (bench 7, the no-run analysis N5); the order and the naming are now measured, and the drop is read from code.
@@ -611,15 +612,15 @@ No analysis looked across runs 1 and 2 as a whole for crashes or restarts beyond
 The runs bear out these:
 - Most lost headers were under-held (5.51 of 7a's 6.00 lost points): in run 2, 1,220 of 1,258 (97.0 %).
 - The voters that lacked the block were the same three to five validators for minutes at a time, a set that changes over the blast: run 2's per-minute table shows it, and the set swapped at the e3→e4 boundary (§4.1).
-- Every executor was saturated under the load blast (7a: busy 980 to 1,009 ms per s): run 2 read 0.959 to 0.984, and run 3 adds the other side, that at 0.555 to 0.589 no tip falls behind (§4.4).
+- Every executor was saturated under the load blast (7a and 7b: busy 980 to 1,009 ms per s from the load blast's first minute): run 2 read 0.959 to 0.984, and run 3 adds the other side, that at 0.555 to 0.589 no tip falls behind (§4.4).
 - The header is dead before a lagging voter's wait of about 1,000 ms binds, because the author's next header decides: run 1 shows every cancelled round of validator-02 in b3 ending within 21.2 ms of its next header (§4.2); bench 8 tested no voter wait.
 - The far validators' uncommitted certificates are a commit problem apart from the certification loss: the step is now measured and read in code (§4.6).
 
 The runs change these:
 - "Floor 16 would have put every pre-kill header within a quorum's reach" was inferred from bench 7's spread never exceeding 16; in run 1's second load epoch five voters were 14 or more behind and on 12 to 18 % of validator-02's floor-named headers no quorum held even the floor block (§4.3).
-- The not-under-held remainder was small in 7a (0.49 of 6.00 points) and tied to validator-06 and runs of losses; in run 1 it was 496 of 1,208 lost headers, and it is the bare-quorum path of §4.2, which the no-run analyses did not name.
+- The not-under-held remainder was small in 7a (0.49 of 6.00 points), and 100 of 7a's 102 lost not-under-held headers in N2's count were the far validators' (02 and 06); in run 1 it was 496 of 1,208 lost headers, and in the windows taken apart in §4.2 it is the bare-quorum path, which the no-run analyses did not name.
 - Before the runs, the far validators had a second symptom, under-held headers certified less under load (N2); in bench 8 validator-02's large losses are placed at the execution lead, and the two causes are not separated (§4.6).
-- The lagging validator at an epoch close (§4.5) is new; nothing before the runs predicted it.
+- The internal vote error at an epoch close (§4.5) is new, and nothing before the runs predicted it; the demotion that followed is mostly evidence for the upstream issue #1806.
 
 Not tested by the runs: the own-chain order hold (N3; run H never ran) and a longer or shorter voter wait.
 
@@ -643,7 +644,7 @@ There is one run per floor, and the floor at 16 was read in two epochs only.
 ### 5.2 A named block with a margin above the bare quorum (§4.2)
 
 Suggestion: when the proposer chooses the execution block its header names, choose the newest block held by one more voter than the quorum needs (seven of the other nine by their last known tips, not six), floored as now.
-[inferred] On the 193 bare-quorum headers of run 1's worst five minutes this would have left a spare vote, so one late vote would no longer end the round one short.
+[inferred] On the 193 bare-quorum headers of run 1's worst five minutes this aims at a spare vote, so that one late vote need not end the round one short; whether those headers would then have been certified is not measured.
 It is not enough on its own: on 37 headers a seventh voter did answer `created` and the round was still lost (§4.2).
 Its cost is an older named block, and how much older is not known: no bench 8 analysis computed the named block's age.
 A second lever, tied to the same finding, is the round's end at the author's next header: on 223 of 230 cut-off headers the round ended with 6 votes counted.
@@ -701,7 +702,7 @@ What that cost:
 - the harness wrote no certification window for the load blast (6.5);
 - the endpoint samples stop at 15:31:19 (45 rounds), so nothing stands in for the Prometheus series validators 03 and 05 lack after that time;
 - there was no fleet-ready check after the blasts;
-- the fleet (22 instances at the dry teardown, the ten generators included) idled from about 16:10 to about 18:50, 2 h 40 min, until a new login at 18:39.
+- the fleet (22 instances at the dry teardown, the ten generators included) idled from about 16:10 until the teardown that began at 18:45:23 deleted the machines (it ended at 18:59:21), about 2 h 40 min; the new login came at 18:39.
 
 Prometheus was exported first, at 16:30:32, through the forward that was still open; then the collection (step 15) ran at 18:44 after the new login, then the teardown and the archive.
 The lesson recorded on 2026-11-17 sets three rules: a token watcher beside the chain at every launch that reports the first failure; no reliance on a login's age, and a new login before the chaos step of any run whose login is more than an hour old; and when the token is dead with the fleet up, export metrics first, then log in, collect, tear down and archive.
@@ -847,8 +848,9 @@ Each first look has its figure-check beside it (`figcheck.md`); the JSON named i
 | 4.3 | what the floor does and does not do | AF1 §3 and §6, AF2 §4 and §5 | AF1 and AF2 `figcheck.md` | `af1-numbers.json` `distance.W817`, `distance.Wprekill` (`eq16_pct`, `gt8_pct`, `gt16_pct`); `xcheck-r20261116-2011.json` `floor_eq_named_pct`; `af2-numbers.json` `distance`, `segments["r1 e4"|"r1 e5"|"r2 e3"|"r2 e4"]`, `t1.<window>.basis_pct` |
 | 4.4 | the root: executors at about 97 % busy drift apart, at about 57 % none falls behind | AF3 §1, §3, §4 and the engines paragraph; AF2 §2 | AF3 `figcheck.md` (busy share and the spread 0 / 1 / 2 outputs behind for 66,931 / 1,930 / 4 headers recomputed) | `AF3/rate-engine.json` `<run>.engines.NN.median_over_120s_buckets.busy_exec_persist`, `.max_busy_exec_persist`, `<run>.windows`; `pred-r3-W1679.json`, `pred-r3-Wmixed.json`, `pred-r2-Wprekill.json` `per_validator`, `minutes` |
 | 4.5 | the lagging validator at an epoch close | `P/bench8-r20261116-2332/AV10/validator-10.md` (not figure-checked as a whole); AF2 §6.1; the local issue draft `tasks/issue-bodies/bench8-lagging-validator-at-epoch-boundary.md` | `tasks/issue-bodies/notes/bench8-lagging-validator-at-epoch-boundary.figcheck.md` (82 figures, 75 matched, 5 wrong, 2 not traceable); AF2 `figcheck.md` error 1 | `af2-numbers.json` `t1["r2 Wprekill"].authors.10` (2,830 headers), `buckets.b6`/`b7.r2.per_author.07`; no JSON beside AV10 |
-| 4.6 | the far validators | see §4.6's sources | | |
+| 4.6 | the far validators | `P/bench8-far/far.md` Q1 to Q5 | `P/bench8-far/figcheck.md` (ranges per window corrected; the code reading checked at b1104905f and 5533ff73a) | `P/bench8-far/q2-*.json` (for example `q2-r20261117-1401-B1.json` `origins.02.named_near_dist`), `q3.json` |
 | 4.7 | what did not happen | see §4.7's sources | | |
+| 4.8 | against what was concluded before the runs | `tasks/bench8/no-run-findings.md` §1, §2, §4 and §5 | | |
 
 ### 8.2 Definitions
 
@@ -856,7 +858,8 @@ Counting unit: a validator's own `header proposed` line; every certification fig
 Certified: a proposed header that reached a quorum; certified % = (headers − lost) / headers.
 Lost: a proposed header that never reached a quorum.
 Under-held: at the proposal, the execution block the header named was held by at most 5 of the other voters.
-k ≥ 4: the share of rounds in which four or more headers were under-held.
+k (per header, §4.1): the number of other voters whose latest header tip was more than 8 outputs behind the lead when the header was proposed, leaving out voters whose latest header line was more than 5 s old; k ≥ 4 means four or more such voters.
+The first looks' "rounds with k ≥ 4" row is a different count: the share of rounds in which four or more headers were under-held.
 Distance named: the proposer's execution tip minus the block its header named, counted in block-bearing outputs.
 Basis: which rule picked the named block, the floor, the block a quorum held, or the tip (`basis_pct` in the JSON).
 At the floor: distance named equal to the floor's depth (16 in run 1, 8 elsewhere).
