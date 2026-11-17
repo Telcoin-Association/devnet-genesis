@@ -1,0 +1,10 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_231454-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    steps 1..20
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+✅ devnet-admin-dashboard-password: one line, at least 16 characters (value not shown).
+❌ step 18 needs the tn-contracts checkout: /home/drtnarg/coding/telcoin/tn-contracts-devnet-relaunch does not exist (set TN_CONTRACTS_DIR).
