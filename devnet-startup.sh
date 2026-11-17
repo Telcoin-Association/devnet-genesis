@@ -13,7 +13,9 @@
 #   tn-scripts-ref=${TN_NODE_SCRIPTS_REF}
 #
 # Responsibilities (all idempotent — startup-scripts can re-run on reboot):
-#   1. install docker-ce + git + jq from download.docker.com (noble apt repo)
+#   1. install docker-ce + git + jq from download.docker.com (noble apt repo),
+#      then nftables + ufw whether or not docker was already there (installed
+#      only: ufw stays disabled and no nft ruleset is loaded; the drivers do that)
 #   2. install the Google Cloud Ops Agent (purge any legacy Stackdriver agent first)
 #   3. fetch the tn-node-deployment (v2) scripts at the pinned ref `tn-scripts-ref`
 #      into /opt/telcoin-node-scripts, ROOT-owned. (It used to clone the default
@@ -84,6 +86,27 @@ else
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin git jq
     systemctl enable --now docker || true
     log "docker-ce installed"
+fi
+
+# nftables + ufw sit OUTSIDE the docker branch, so a VM whose image (or an earlier boot)
+# already had docker still gets them. tn-node-deployment's committee P2P allowlist runs
+# /usr/sbin/nft and the host firewall is ufw; neither is assumed to ship in the image.
+# Install only: do NOT enable ufw here (before the drivers add its SSH rule that would
+# lock the VM out) and load no nft ruleset. nftables.service is left as the package
+# leaves it. Idempotent: once both are installed a reboot skips apt entirely.
+FW_PKGS_INSTALLED=1
+for pkg in nftables ufw; do
+    # shellcheck disable=SC2016  # ${Status} is a dpkg-query format field, not a shell variable
+    [ "$(dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null)" = "install ok installed" ] \
+        || FW_PKGS_INSTALLED=0
+done
+if [ "${FW_PKGS_INSTALLED}" -eq 1 ]; then
+    log "nftables + ufw already installed"
+else
+    log "installing nftables + ufw (ufw stays disabled, no nft ruleset is loaded)"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y nftables ufw
 fi
 
 # ----------------------------------------------------------------------------
