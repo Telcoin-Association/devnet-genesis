@@ -39,6 +39,7 @@ Part 1:
 - The certifier treats any `RPCError` answer as fatal for that voter and header (`crates/consensus/primary/src/certifier.rs:249-263`); the proposer re-proposes after its max delay (`crates/consensus/primary/src/proposer.rs:1685`).
 - Inferred from the times: each voter's epoch-3 certificate manager had stopped at its close while its vote handler still took epoch-3 requests.
   Validator-02, a voter, logged `Certifier received shutdown` at 01:03:43.156 and `Starting epoch` at 01:03:48.265; the error is the dropped-reply variant, not a send error.
+- These answers come before the gap between two epochs, not in it: with no event loop the gap policy drops every inbound request and the requester retries (`crates/consensus/primary/src/network/gap_policy.rs:91-94`, `:108-115`), so an answered request reached an event loop that was still serving after its certificate manager had stopped (inferred from that code and the times).
 
 Part 2:
 
@@ -67,4 +68,7 @@ Part 2:
   This run adds the demotion itself, a catch-up that finished under load (#1806 expected one that cannot), and a repeat.
   Validator-10's 843 `Failed to track spawned task … no available capacity` lines are #1806's task-tracker overflow (`crates/types/src/task_manager.rs:218-227`).
 - #1857: the same 20-round rule, for a restart hundreds of rounds behind; here at most 80 rounds, closed under load.
+- #1792, fixed by #1793: a restarted validator whose start-up record sync ended one epoch short.
+  A validator exactly one epoch behind is demoted by the same certificate rule once the next epoch passes about forty rounds (the doc of `certified_record_closes_running_epoch`, `crates/node/src/manager/node/run_epoch.rs:1396-1408`); part 2 measures what that rule and the rejoin window cost under load.
+  Validator-10 held no certified record of epoch 3 until 01:03:57.471 while the other nine were closing: the state the review of #1793 describes, a lagging peer that answers "not held" while the others drop the request; no node was syncing at that moment, so that case did not occur in this run.
 - #1516, fixed on main by #1547: the same condition on the gossip path (a certificate handed to a certificate manager that is not running); #1547 leaves the vote path as it is.
