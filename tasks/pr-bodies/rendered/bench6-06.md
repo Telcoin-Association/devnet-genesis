@@ -1,13 +1,14 @@
 ## Summary
 
-Adds the runtime switch `digest_order_hold` (default `false`, the base's drain) for #1807.
+Adds the own-chain order hold for #1807 behind the runtime switch `digest_order_hold` (default `false`; in this PR's diff the default keeps the base's drain).
 With it on, a validator's next own header leaves queued every digest of a worker named in an older own header that the new header's parents do not prove to be on its own chain, until that older header commits, is canceled or re-queued, or the epoch ends.
 Header validity, the messages and what peers vote for do not change; the header trigger still counts held digests, so at light load a held backlog can build a header earlier (see Limits).
 Every node, switch on or off, counts digests re-queued out of order, what the orphan re-pool does with each transaction and dropped cancel reports, and logs its own parent on `header proposed`.
 
-PR 8 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1868's branch (`fix/1804-quorum-exec-block`), so the Files tab shows this change alone (17 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit', like the rest of the stack.
+#1873, the last PR of the stack, removes the switch and makes the hold the node's behaviour; once #1873 is merged into #1862's branch there is no switch.
+
+PR 8 of 9 in the stack #1862 to #1873; it was merged into #1868's branch (`fix/1804-quorum-exec-block`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (17 commits).
+#1862 now holds the stack's eight changes and targets `main`; #1873 targets #1862's branch and removes the switches; it also carries the merge of `main` at f25a74eb7, so once it is merged #1862's branch holds `main` and `make attest` runs on the result.
 
 ## Problem
 
@@ -42,13 +43,17 @@ It drains no digest of a worker named in a blocker's payload; those stay queued,
 Consensus orders an older own header before a newer one or never, so a lane can only be reordered through a re-queue, and the hold keeps the lane until a commit notice or cancel report settles the older header (`order_hold.rs:51-60`).
 The one residual is a garbage-collection cut below the leader: counted, not prevented (`:78-81`).
 
-## With the switch off
+## The switch, and where it goes
 
-The proposer never consults the hold (`order_hold.rs:46-47`): `order_hold` is `None` (`proposer.rs:409`) and the drain is the one over no held lane (`:1237-1239`), so header contents and timing are the base's.
-New with it off: per-worker digest numbers judged at each re-queue, the five counters above, `out_of_order` on `digests resent`, `own_parent` on `header proposed` with `held`, `held_lanes` and `blockers` at 0, the `proposer stopped` line, and `digest_order_hold=false` on the `node switches` line.
+In this PR's diff, with the switch off, the proposer never consults the hold (`order_hold.rs:46-47`): `order_hold` is `None` (`proposer.rs:409`) and the drain is the one over no held lane (`:1237-1239`), so header contents and timing are the base's.
+New with it off, in this diff: per-worker digest numbers judged at each re-queue, the five counters above, `out_of_order` on `digests resent`, `own_parent` on `header proposed` with `held`, `held_lanes` and `blockers` at 0, the `proposer stopped` line, and `digest_order_hold=false` on the `node switches` line.
 Only with it on do `tn_primary_headers_held_total` and `tn_primary_digests_held` move, does an out-of-order re-queue log a warning, and is a committed header that returns after its own commit notice left untracked (`proposer.rs:1511`).
 
-A mixed fleet is one chain: the switch changes only which queued digests a node puts into its own header, which no other validator checks.
+#1873, the last PR of the stack, removes the switch and the drain without the hold, so once #1873 is merged into #1862's branch there is no switch and no off state.
+A reviewer should read the hold as unconditional: after #1873 every proposer applies the rule above at every drain, and the limits say what that changes against main.
+
+In this PR's diff a mixed fleet is one chain: the switch changes only which queued digests a node puts into its own header, which no other validator checks.
+After #1873 the same holds for main beside the stack during a rolling upgrade, and `make test-upgrade` with main as the previous binary passed on the stack's top with the six switches on (see the gates below).
 
 ## Testing
 
@@ -58,6 +63,8 @@ In `crates/consensus/primary/src/tests/proposer_tests.rs`: `test_digest_order_bo
 In `crates/e2e-tests/tests/it/digest_order_hold.rs`, four validators run as processes and the hook holds one validator's own certificates, so its header at a held round is not a parent of its next one.
 `test_hold_keeps_every_transaction_adaptive`, `test_hold_keeps_every_transaction_always` and `test_hold_survives_a_kill_of_the_far_validator` assert that every accepted transaction is in exactly one block with no resend, the out-of-order counter and the `nonce_too_high` skips are 0 on every node, and the hold ran (`tn_primary_headers_held_total` > 0).
 The control, `test_without_the_hold_the_far_validator_reorders`, runs the same fleet with only `digest_order_hold` off and asserts that the hooked validator re-queued out of order and held nothing; the transactions it loses are reported, not asserted.
+#1873 deletes the proposer tests that drive the drain without the hold (`test_digest_order_bookkeeping_keeps_payloads_golden`, the two `…_counts_out_of_order` tests, `test_stale_resend_requeue_is_not_out_of_order` and `test_stale_resend_releases_its_digest_numbers`) and the control; `test_order_hold_keeps_a_canceled_headers_lane_in_order`, `test_order_hold_holds_nothing_on_an_intact_own_chain` and `test_order_hold_replays_the_model_counterexample` stay, and so do the model's tests with the hold off, which flip the model's own flag and never read the node's configuration.
+The two e2e tests named after a vote form are renamed after the hook stage they use.
 
 On main at 33b727fce, at this head's tip `500e21afa`:
 - Each of the 17 commits: `cargo check --locked --all-targets -p tn-config -p tn-types -p tn-primary -p tn-node -p state-sync -p e2e-tests`, no warnings.
@@ -100,8 +107,9 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in #1873's branch, against main at f25a74eb7.
 - The order hold's model test's long hunt, `TN_ORDER_HOLD_HUNT_CASES=100000 cargo nextest run --locked -p tn-primary --run-ignored only -E 'test(=order_hold::model::long_hunt_order_hold)'`: 100,000 cases (seed 1223617546), no schedule breaks the rule.
+- The stack's top is now #1873, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
@@ -114,11 +122,17 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The far validators' batches are a separate defect: every batch-carrying header of validator-02 and validator-06 was certified in both light blasts of both runs, 46 to 76 % were never committed, and their digests were re-queued on the commit path a median 50 to 61 rounds later (21.0 to 21.4 s in r20261115-1653).
   The hold held none of their headers in those blasts, and bench 6, which had no hold, shows the same pattern in its first light blast.
 - A held lane waits for the next own commit after a restart re-send of an already committed header, and behind an own header the certifier gives up on without a report (`order_hold.rs:105-115`); the base's digests wait as long there.
+- No test aims at the hold's two known gaps on a running node: a garbage-collection cut below the leader (counted, not prevented; the model's `gc_cut_is_the_only_overtake` covers it) and the wait after a re-send after a restart (the item above; `test_hold_survives_a_kill_of_the_far_validator` restarts the hooked validator under load and asserts that no transaction is lost, not that wait).
+- After #1873 every proposer applies the hold: the next header carries no digest of a worker named in an older own header that its parents do not prove to be on its own chain, until that older header commits, is canceled or re-queued, or the epoch ends; main drains every worker's queue first in, first out, one digest per worker in turn up to `max_header_num_of_batches`, whatever its older own headers carry.
+- #1873 deletes the e2e control, `test_without_the_hold_the_far_validator_reorders`; after it the defect is shown by the model's tests that run without the hold, not by a node.
+- With the hold on, which after #1873 is always, the re-queue reason `stale_resend` can no longer be counted: a header enters the tracked set only behind a guard that returns early for a round at or below the last committed own round, and that round only rises in the call that removes every tracked header at or below it.
+  After a restart, a re-proposed header that had already committed counts as `unknown_seq`.
+  The reason and its metric label stay, and the label stays at 0; see #1873.
 
-Nothing that should be fixed before merge is open.
+Nothing that should have been fixed before the merge is open.
 
 ## Related
 
-- Refs #1807: the switch defaults off, so this does not close it.
+- Refs #1807: once #1873 lands the hold is the node's behaviour; the closing keyword for #1807, if any, is in #1862's body, the only PR of the stack that merges into `main`.
 - Refs #1794: a held digest keeps its slot in that bound until it commits.
-- Stacked on #1868 (`fix/1804-quorum-exec-block`); the last PR of the stack.
+- Merged into #1868's branch on 2026-11-16; #1873, which removes the stack's switches, targets #1862's branch and is the last PR of the stack.

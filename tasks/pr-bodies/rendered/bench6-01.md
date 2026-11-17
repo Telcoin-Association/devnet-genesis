@@ -1,17 +1,19 @@
 ## Summary
 
-Lets an e2e test give chosen nodes their own `parameters.yaml` entries and environment (`NodeOverrides`, `FleetOverrides`), and lets a test lane set fleet-wide entries through `TN_E2E_PARAMETERS`, so a switch can be tested on part of a fleet or across an existing test set without editing the tests.
+Lets an e2e test give chosen nodes their own `parameters.yaml` entries and environment (`NodeOverrides`, `FleetOverrides`), and lets a test lane set fleet-wide entries through `TN_E2E_PARAMETERS`, so part of a fleet can run with its own parameters or test hooks, and an existing test set with a parameter set from outside, without editing the tests.
 The node log helpers of `restarts.rs` move to `common.rs`.
 Test code only: no node crate changes, and there is no switch.
 A test that passes no override, with the variable unset, starts its nodes as on main.
+The stack added the scaffold to test its switches on part of a fleet; #1873, the last PR of the stack, removes the switches and keeps the scaffold.
+After it, the stack's later e2e tests pass test hook variables and cadence parameters (header and batch delays) through `NodeOverrides` and `FleetOverrides`; no test sets `TN_E2E_PARAMETERS`, but a lane can still run a whole test set with a parameter set from outside.
 
-PR 2 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1862's branch (`feat/bench6-switches-obs`), so the Files tab shows this change alone (8 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
-Please merge with 'Create a merge commit': a squash would leave the pull requests above this one with commits their base no longer has.
+PR 2 of 9 in the stack #1862 to #1873; it was merged into #1862's branch (`feat/bench6-switches-obs`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (8 commits).
+#1862 now holds the stack's eight changes and targets `main`; #1873 targets #1862's branch and removes the switches; it also carries the merge of `main` at f25a74eb7, so once it is merged #1862's branch holds `main` and `make attest` runs on the result.
 
 ## Problem
 
-Bench 6 put each fix behind a switch whose default is main's behaviour, so its e2e tests need fleets where some nodes run a switch and others do not, and the existing restart, epoch and sigkill sets have to pass with each switch on.
+Bench 6 put each fix behind a switch whose default was main's behaviour, so its e2e tests needed fleets where some nodes ran a switch and others did not, and the existing restart, epoch and sigkill sets had to pass with each switch on.
+The stack's later e2e tests also give chosen nodes test hook variables (an execution delay, an own-certificate delay, withheld epoch votes, an exit before the epoch record), and that need stays after #1873 removes the switches.
 On main at 33b727fce every node of an e2e fleet gets the same `parameters.yaml`, copied from the shared genesis directory (`crates/e2e-tests/src/lib.rs:356`, `:388`).
 Only `start_validator_with_env` (`crates/e2e-tests/tests/it/common.rs:527`) takes extra environment, for one validator; `start_nodes` and the observer helpers take none.
 The helpers that read and wait for node log lines are private to `restarts.rs` (`crates/e2e-tests/tests/it/restarts.rs:1368-1388`, `:2074`).
@@ -79,14 +81,15 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in #1873's branch, against main at f25a74eb7.
+- The stack's top is now #1873, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
 - A mistyped key passes silently: the node ignores unknown keys.
-  A helper that waits for the key in the `node switches` line (from `feat/bench6-switches-obs`) would catch it for switch keys; it is not in this PR.
+  Later in the stack, `assert_switches` in `fleet.rs` checks a node's `node switches` line (from `feat/bench6-switches-obs`) against the switch entries the test gave it; #1873 removes that check with the line and the switches.
 - A restart through a plain helper rebuilds the node's file without its own entries.
-  The new line says so, but every existing restart test uses the plain helpers, so a test copied from one loses its switch at the restart.
+  The new line says so, but every existing restart test uses the plain helpers, so a test copied from one loses its entries and variables at the restart.
 - `TN_E2E_PARAMETERS` does not reach `test_epoch_observer_forwards_to_second_worker` (`epochs.rs`), which spawns its own nodes, nor the `db load-state` runs of `state_export_import.rs`, which use no `Parameters` field on main.
 - A lane with the variable set also merges it into the `TN_BIN_PATH_PREV` nodes of `upgrade.rs`, `reth_db_migration.rs` and `resync.rs`.
   When that binary was built at another commit, as `upgrade.rs` requires, it ignores keys it does not know, so the test runs as a mixed fleet; the crate docs say so (`87be96651`).
@@ -95,4 +98,5 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 ## Related
 
 No issue: test scaffolding for the stack.
-Stacked on this: #1864 (`fix/1804-vote-queue`), #1865 (`fix/epoch-record-closing-block-check`), #1866 (`fix/epoch-record-collector-hardening`), #1867 (`fix/epoch-loop-output-drop`), #1868 (`fix/1804-quorum-exec-block`), whose e2e test runs a mixed-switch fleet with `FleetOverrides`, and #1869 (`fix/1807-digest-order-hold`).
+Merged on top of this change on 2026-11-16: #1864, #1865, #1866, #1867, #1868, whose mixed-switch fleet test (`test_mixed_switch_fleet_is_one_chain`, built with `FleetOverrides`) #1873 deletes, and #1869.
+#1873, which removes the stack's switches and keeps this scaffold, targets #1862's branch.

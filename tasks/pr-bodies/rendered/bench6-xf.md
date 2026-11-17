@@ -4,10 +4,9 @@ The epoch loop now reserves room in the engine channel before it takes a consens
 The leftover drain's queue phase skips an output already forwarded and stops the node on a gap, before the engine executes past it.
 No switch: it fixes a loss on main.
 
-PR 6 of 8 in the stack #1862 to #1869; #1862 targets `main`, this PR targets #1866's branch (`fix/epoch-record-collector-hardening`), so the Files tab shows this change alone (8 commits).
-The stack will be collapsed into #1862 (each PR merged into the branch below it); `main` is then merged into that branch and `make attest` runs on the result.
+PR 6 of 9 in the stack #1862 to #1873; it was merged into #1866's branch (`fix/epoch-record-collector-hardening`) on 2026-11-16, when the stack was collapsed into #1862, and its Files tab shows this change alone (8 commits).
+#1862 now holds the stack's eight changes and targets `main`; #1873 targets #1862's branch and removes the switches; it also carries the merge of `main` at f25a74eb7, so once it is merged #1862's branch holds `main` and `make attest` runs on the result.
 Its node change needs nothing from the stack below: everything its first seven commits call is on main at 33b727fce, and their diff applies there with fuzz in the import block and the test-module ends (checked with `patch -F3`, not built); the eighth adds the stop to `crates/e2e-tests/tests/it/fleet.rs`, which `fix/epoch-record-collector-hardening` creates.
-Please merge with 'Create a merge commit'.
 
 ## Problem
 
@@ -63,7 +62,8 @@ The stop means a regression: report it with the log.
 - The drain: `the_leftover_drain_stops_on_a_gap_before_the_engine_gets_past_it` (nothing reaches the engine), `the_leftover_drain_skips_an_output_already_forwarded`, `the_leftover_drain_logs_and_counts_an_output_it_skips`.
 - On main at 33b727fce, on this head's tree but for comment lines in two `crates/state-sync` files (a doc-only commit of `fix/epoch-record-collector-hardening` landed after the run): `cargo check --locked --workspace --all-targets`, warnings denied, exit 0; `cargo nextest run --locked --no-fail-fast -p tn-config -p tn-types -p tn-node -p tn-primary -p tn-network-libp2p -p state-sync -p tn-engine` 2,048 passed, 10 skipped, these 11 among them.
 - On the stack's earlier cut on main at 45dce8947, with the same seven node commits: `cargo +nightly-2026-03-20 clippy --locked --all-targets -p tn-node -- -D warnings` exit 0.
-- Not run: no e2e test drives the race through the real loop, and no fleet has run this head yet.
+- Not run: no e2e test drives the race through the real loop, and no fleet has run this head.
+  Bench 7 ran the stack's earlier cut on main at 45dce8947, which carries the same seven node commits, on 2026-11-15: [r20261115-1131](https://benchmark.telcoin.network/runs/r20261115-1131/) and [r20261115-1653](https://benchmark.telcoin.network/runs/r20261115-1653/), ten validators at 20,000 IOPS, one run each; #1868 and #1869 report its results, and this text reports none of them.
 
 Stack-wide gates ran before these PRs were opened, on the top of the full stack: `fix/1807-digest-order-hold` at `500e21afa`, 103 commits on main at 33b727fce, carries the code of all eight pull requests (#1862 to #1869).
 - `cargo +nightly-2026-03-20 fmt --all -- --check`: clean.
@@ -75,7 +75,8 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 - The 13 e2e tests the full stack adds, three runs each: all passed.
 - The three `state_export_import` tests, which restore a node from an exported state: passed.
 - Against a later main, c1b1eb9fe (#1859): the top merges without conflict, and the merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-storage` (1,764 passed, 21 skipped).
-- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made after the stack is collapsed.
+- Against the main of 2026-11-16, 0554efd4f (#1861): one file conflicts, `crates/node/src/manager/epoch_votes.rs`. #1861 renamed the collector's failure channel and ends a vote round on a forked record with an error; #1866 added the kept signatures to the same functions. In a local trial merge both changes are kept, the drop of a forked record's kept signatures moves in front of #1861's early return, and one test of #1866 expects the fork as an error. The merged tree passes `cargo check --locked --workspace --all-targets` with warnings denied and `cargo nextest run --locked --no-fail-fast -p tn-primary -p tn-node -p tn-types -p tn-reth -p telcoin-network-cli` (2,175 passed, 17 skipped). The merge itself is made in #1873's branch, against main at f25a74eb7.
+- The stack's top is now #1873, which removes the switches; the gates of that head are listed in its text.
 
 ## Limits and what a reviewer should look at
 
@@ -88,7 +89,7 @@ Stack-wide gates ran before these PRs were opened, on the top of the full stack:
 
 ## Related
 
-- Fixes #1860: both parts of its proposed fix are here, and its reproducing test passes.
+- Refs #1860: both parts of its proposed fix are here, and its reproducing test passes (closed from #1862's body, the only PR of the stack that merges into main).
 - #1575, whose notes for review named this case.
 - #1618, the subscriber side of the same teardown, is not changed here.
-- Next: `fix/1804-quorum-exec-block` and `fix/1807-digest-order-hold` build on this head.
+- Next: #1868 and #1869 were merged on top of this change on 2026-11-16; #1873, which removes the stack's switches, targets #1862's branch.

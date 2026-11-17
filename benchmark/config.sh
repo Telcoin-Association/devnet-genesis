@@ -539,9 +539,12 @@ export BENCH_NODE_ALLOW_FAUCET_ON_CHAIN="${BENCH_NODE_ALLOW_FAUCET_ON_CHAIN:-1}"
 # reserve-ports, persisted under /etc/sysctl.d), and the pre-start config, in the session of the host probe, must
 # read all three back (PRECFG_OK reserved=). 0 = no reservation, no check: step 7 is bench 6's.
 export BENCH_NODE_RESERVE_PORTS="${BENCH_NODE_RESERVE_PORTS:-1}"
-# App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the SAME tn-contracts
-# checkout devnet-contracts.sh uses, on a bench/<run> branch that is never committed to.
-export BENCH_CONTRACTS_SRC_DIR="${BENCH_CONTRACTS_SRC_DIR:-$(cd "${REPO_ROOT}/.." && pwd)/tn-contracts-devnet-relaunch}"
+# App contracts (benchmark-deploy.sh step 11): a throwaway worktree of the tn-contracts checkout
+# beside this repository, on a bench/<run> branch that is never committed to. The default was
+# ../tn-contracts-devnet-relaunch until 2026-11-17, when that path went away on the bench host (the
+# teardown of r20261117-1401 stopped on it); devnet-contracts.sh and devnet-txgen.sh keep their own
+# defaults, and step 11 hands devnet-contracts.sh the worktree, so they do not read this one.
+export BENCH_CONTRACTS_SRC_DIR="${BENCH_CONTRACTS_SRC_DIR:-$(cd "${REPO_ROOT}/.." && pwd)/tn-contracts}"
 export BENCH_CONTRACTS_BASE_BRANCH="deploy/devnet-relaunch"
 export BENCH_CONTRACTS_WORKTREE="${BENCH_DIR}/work/tn-contracts"
 export BENCH_CONTRACTS_BRANCH="bench/${BENCH_RUN_ID}"

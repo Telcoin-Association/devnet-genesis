@@ -1742,3 +1742,11 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - At every launch, start a second waiter beside the chain's: poll `gcloud auth print-access-token` every minute and return at the first failure. Tell the owner at once: the kill and the collection need the login.
   - Do not rely on a login's age. Before the chaos step of a run whose login is more than an hour old, ask for a new one.
   - When the token is dead and the fleet is up: export metrics first (the Prometheus forward still answers), then ask for the login, then collect, tear down, archive.
+
+## 2026-11-17 — launch 2 start: I reported "no bench run in flight" while the bench session was live in the same tree
+
+- **What happened.** At the start of launch 2 I checked for bench processes and bench instances, found none, and told the owner "no bench run in flight". The owner answered that a benchmark was running. The bench 8 session had committed in this working tree a minute earlier, had uncommitted edits in `benchmark/config.sh`, and started a harness gate three minutes after my check; that harness calls the root drivers launch 2 was about to edit in place.
+- **Rules.**
+  - "Is another program live here" is asked of the tree, not only of the process table: `git log --since='2 hours ago'`, `git status --porcelain -- benchmark '*.sh' '*.py'`, and the last entry of that program's orchestrator log, next to `pgrep` and the instance list. The answer is reported as what was looked at ("no bench process or instance at 19:14Z"), not as "nothing is running".
+  - When two programs share a working tree, the newer one edits code in its own git worktree and branch from the first minute, keeps its tick list in its own file (`tasks/plan-l2.md`, not `tasks/plan.md`), and reaches `main` by a merge at a moment when the other program runs nothing.
+  - A shared file the other program reads at run time (`config.sh`) changes only together with proof that the other program's effective configuration is unchanged (dump of the sourced environment before and after, identical).
