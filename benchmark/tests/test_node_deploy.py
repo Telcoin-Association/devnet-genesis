@@ -160,6 +160,16 @@ def base_file(rel):
     return p.stdout if p.returncode == 0 and p.stdout else None
 
 
+def with_bench_pins(base):
+    """<base> (benchmark/config.sh at the harness base) plus the lines today's benchmark/config.sh has right after it
+    sources the root config.sh and the base has not (its own scripts ref, node image, ...): without them the base
+    inherits the root config's values, which since launch 2 are not the bench's."""
+    src = b'source "${BENCH_DIR}/../config.sh"\n'
+    head, _, tail = base.partition(src)
+    today = (BENCH / "config.sh").read_bytes().partition(src)[2]
+    return head + src + today[:today.index(tail.splitlines(True)[0])] + tail
+
+
 def flag(argv, name):
     pre = "--" + name + "="
     vals = [a[len(pre):] for a in argv if a.startswith(pre)]
@@ -206,7 +216,8 @@ class Sandbox(unittest.TestCase):
         shutil.copytree(str(REPO / "benchmark" / "obs"), str(root / "benchmark" / "obs"))
         if base:
             for rel in BASE_FILES:
-                (root / rel).write_bytes(base_file(rel))
+                (root / rel).write_bytes(with_bench_pins(base_file(rel)) if rel == "benchmark/config.sh"
+                                         else base_file(rel))
         return root
 
     def need_base(self):

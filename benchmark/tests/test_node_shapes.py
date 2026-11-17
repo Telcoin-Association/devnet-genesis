@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 import unittest
 
+import test_node_deploy as tnd
+
 TESTS = Path(__file__).resolve().parent
 BENCH = TESTS.parent
 REPO = BENCH.parent
@@ -139,7 +141,7 @@ class Sandbox(unittest.TestCase):
         self.cfg = self.tree / "benchmark" / "config.sh"
         self.base = self.tree / "benchmark" / "config-base.sh"
         if base_config() is not None:
-            self.base.write_bytes(base_config())
+            self.base.write_bytes(tnd.with_bench_pins(base_config()))
         if CREATE.is_file() and WG_CONFIG.is_file():
             (self.tree / "common" / "wgvpn").mkdir(parents=True)
             shutil.copy2(str(CREATE), str(self.tree / "common" / "create-instances.sh"))

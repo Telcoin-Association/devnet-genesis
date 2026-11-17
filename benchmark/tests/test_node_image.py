@@ -500,8 +500,11 @@ PRE_SUBSECOND_LINE = "fork schedule: seed_signature, multi_workers, prevrandao, 
 
 
 def scripts_ref():
-    """TN_NODE_SCRIPTS_REF as config.sh pins it (the checkout every node must be at)."""
-    return re.search(r'^export TN_NODE_SCRIPTS_REF="([0-9a-f]{40})"', (REPO / "config.sh").read_text(), re.M).group(1)
+    """TN_NODE_SCRIPTS_REF as the bench pins it (the checkout every node must be at): benchmark/config.sh sources
+    config.sh first, so the last export across the two files is the bench's."""
+    text = (REPO / "config.sh").read_text() + "\n" + (REPO / "benchmark" / "config.sh").read_text()
+    refs = re.findall(r'^export TN_NODE_SCRIPTS_REF="([^"]*)"', text, re.M)
+    return re.fullmatch(r"[0-9a-f]{40}", refs[-1]).group(0)
 
 
 def v2_node_line():
