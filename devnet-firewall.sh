@@ -1,89 +1,115 @@
 #!/usr/bin/env bash
 #
-# devnet-firewall.sh — manage the HOST (UFW) firewall on each node by driving its
-# tn-node-deployment firewall-setup.sh over the lib transport (IAP by default, or the
-# WireGuard overlay when TN_SSH_TRANSPORT=overlay). Companion to setup-firewall.sh
-# (which manages the GCP/VPC layer).
+# devnet-firewall.sh — the HOST firewall (ufw) of the fleet, by driving tn-node-deployment's
+# firewall-setup.sh on each VM over the lib transport (IAP by default, the WireGuard overlay when
+# TN_SSH_TRANSPORT=overlay). Companion to setup-firewall.sh (the VPC layer). Deploy step 11.
+#
+# Fleet (config.sh): seven entries. Node hosts: validator-1..4-devnet (validator),
+# observer-5-devnet (observer), rpc-6-devnet (rpc). gateway-4-devnet (role gateway) runs the
+# standalone worker gateway in front of node4 and has no node.
 #
 # Two modes:
-#   (default)  apply consensus ingress rules on an ALREADY-enabled UFW:
-#                - validator: open primary (49590/udp) + worker (49594/udp)
-#                - observer:  none (it dials OUT; health 43174/tcp is opened by
-#                             --enable-health in devnet-observability.sh, not here)
-#              Goes through firewall-setup.sh --json --port, which STRUCTURALLY cannot
-#              touch sshd. After applying, --json --status asserts the ports show open.
+#   --enable   lockout-safe ufw bring-up on EVERY fleet VM, one at a time:
+#                validator, observer host:  sudo firewall-setup.sh --json --enable
+#                rpc host:                  sudo firewall-setup.sh --json --enable --p2p-anywhere
+#                gateway host:              sudo firewall-setup.sh --json --enable
+#              firewall-setup.sh allows SSH (on a devnet node host also the overlay SSH range and
+#              the health monitor) BEFORE `ufw --force enable` and opens P2P on a node host. After
+#              each VM a fresh SSH connection must work, else exit 2 "SSH LOST" and no further VM
+#              is touched.
+#              80/443 are opened only where Caddy already serves a public edge, and at step 11 no
+#              Caddy is installed yet. On the gateway host there is also no node and no gateway yet
+#              (no .node-meta, no gateway.meta): firewall-setup.sh then knows no network and opens
+#              SSH from anywhere and nothing else. So `--enable` must run again for every Caddy host
+#              (and the gateway host) once its gateway or Caddy edge is installed (steps 13, 15),
+#              unless that installer opens 80/443 itself.
+#   (default)  consensus ports on node hosts only, ufw already enabled: firewall-setup.sh --json
+#              --port 49590/udp on and 49594/udp on (it cannot touch sshd), then --json --status
+#              must show both ports.
 #
-#   --enable   lockout-safe host-UFW bring-up (Step 10), ONE NODE AT A TIME: run
-#              firewall-setup.sh --json --enable (it allows SSH + the overlay
-#              10.100.0.0/16 + the kuma monitor BEFORE `ufw --force enable`, and opens
-#              validator P2P), then RE-VERIFY SSH still works before touching the next
-#              node — ABORT immediately if SSH is lost. Removes the old "enable UFW by
-#              hand first" precondition.
+# The load balancer is gone: TN_LB_HC_RANGES is no longer passed. HEALTHCHECK_MONITOR_SRC and
+# TN_KUMA_SRC stay in the configuration, untouched; they do not travel over ssh, and
+# firewall-setup.sh opens the health port on a devnet node host to its own default monitor source
+# (the same address). The node's health listener binds loopback now (a standalone-fronted node binds
+# it for its gateway, which has its own rule), so that rule admits nothing: dead weight, harmless.
 #
-# Reaches nodes via the lib's transport helpers (tn_iap_ssh -> IAP or overlay).
-# Optional instance-name subset; no args = whole fleet.
+# Targets: instance names (validator-2-devnet), fleet indices (1) or node names (node2, gateway4).
+# None = every fleet VM (--enable) or every node host (port mode). An unknown target exits 1; the
+# port mode skips a named host that runs no node, with a line.
 #
 # Usage:
-#   ./devnet-firewall.sh                       # consensus ports, all nodes (UFW already enabled)
-#   ./devnet-firewall.sh --enable              # lockout-safe UFW enable, all nodes, one at a time
-#   ./devnet-firewall.sh validator-2-devnet    # one (or more) by name
-#   ./devnet-firewall.sh --enable observer-5-devnet
+#   ./devnet-firewall.sh                          # consensus ports on every node host
+#   ./devnet-firewall.sh --enable                 # lockout-safe ufw enable, all seven VMs
+#   ./devnet-firewall.sh node2 5                  # port mode on node2 and index 5 (rpc-6-devnet)
+#   ./devnet-firewall.sh --enable gateway-4-devnet
+# Exit: 0 ok · 1 a host failed, or an unknown target · 2 SSH lost after enabling, usage, configuration.
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
+fw_usage() {
+    echo "usage: $0 [--enable] [target …]   (target = instance name, fleet index or node name)"
+}
 
-FW="${TN_NODE_SCRIPTS_DIR}/firewall-setup.sh"
-
-# --- args: optional --enable (lockout-safe host-UFW bring-up) + instance subset ---
 ENABLE_HOST_FW=0
-SELECTED=()
+TARGETS=()
 for a in "$@"; do
     case "$a" in
         --enable) ENABLE_HOST_FW=1 ;;
-        *)        SELECTED+=("$a") ;;
+        -h|--help) fw_usage; exit 0 ;;
+        -*) echo "❌ unknown flag '$a'" >&2; fw_usage >&2; exit 2 ;;
+        *) TARGETS+=("$a") ;;
     esac
 done
-if [ "${#SELECTED[@]}" -gt 0 ]; then
-    for want in "${SELECTED[@]}"; do
-        found=0
-        for have in "${INSTANCE_NAMES[@]}"; do
-            [ "${want}" = "${have}" ] && { found=1; break; }
-        done
-        [ "${found}" -eq 1 ] || { echo "❌ unknown instance '${want}' (not in INSTANCE_NAMES)" >&2; exit 1; }
-    done
+
+# shellcheck source=devnet-lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
+
+if ! tn_fleet_check; then
+    echo "❌ the fleet arrays are inconsistent (lines above); nothing was touched" >&2
+    exit 2
 fi
-tn_fw_selected() {
-    [ "${#SELECTED[@]}" -eq 0 ] && return 0
-    local inst="$1" s
-    for s in "${SELECTED[@]}"; do [ "${s}" = "${inst}" ] && return 0; done
-    return 1
+
+FW="${TN_NODE_SCRIPTS_DIR}/firewall-setup.sh"
+
+# --- targets -> SEL, a list of fleet indices ",i,j," (empty = no subset) ------------------------
+SEL=""
+for want in ${TARGETS[@]+"${TARGETS[@]}"}; do
+    found=""
+    for i in "${!INSTANCE_NAMES[@]}"; do
+        if [ "${want}" = "${i}" ] || [ "${want}" = "${INSTANCE_NAMES[$i]}" ] || [ "${want}" = "${NODE_NAMES[$i]:-}" ]; then
+            found="${i}"
+            break
+        fi
+    done
+    [ -n "${found}" ] || { echo "❌ unknown target '${want}' (not an instance name, fleet index or node name)" >&2; exit 1; }
+    SEL="${SEL:-,}${found},"
+done
+_fw_selected() { [ -z "${SEL}" ] && return 0; case "${SEL}" in *",$1,"*) return 0 ;; esac; return 1; }
+_fw_subset_names() {
+    local i out=""
+    for i in "${!INSTANCE_NAMES[@]}"; do _fw_selected "${i}" && out="${out} ${INSTANCE_NAMES[$i]}"; done
+    printf '%s' "${out# }"
 }
 
-# --- --enable: lockout-safe host-UFW bring-up, ONE NODE AT A TIME -----------------
-# Delegates the actual enable to firewall-setup.sh --json --enable (which allows SSH +
-# overlay + kuma BEFORE `ufw --force enable`). After each node, a NEW SSH connection must
-# succeed or we ABORT — so a lockout can never propagate past the first affected node.
+# --- --enable: lockout-safe ufw bring-up, ONE VM AT A TIME, every fleet VM ----------------------
+# A-7(e): this mode means every VM, so it loops over all indices (the gateway host included).
 if [ "${ENABLE_HOST_FW}" -eq 1 ]; then
     echo "=========================================="
-    echo "devnet HOST firewall (UFW) — lockout-safe ENABLE (one node at a time)"
+    echo "devnet HOST firewall (ufw) — lockout-safe ENABLE (one VM at a time)"
     echo "Project:    ${PROJECT_ID}"
-    echo "Method:     firewall-setup.sh --json --enable (SSH + overlay + kuma allowed BEFORE enable)"
-    echo "LB health:  $([ -n "${GOOGLE_HC_RANGES:-}" ] && echo "open ${DEFAULT_HEALTHCHECK_TCP_PORT}/tcp to Google HC ranges (${GOOGLE_HC_RANGES})" || echo "none (GOOGLE_HC_RANGES empty)")"
-    echo "Safety:     re-verify SSH after each node; ABORT on loss (no further nodes touched)"
-    [ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
+    echo "Method:     firewall-setup.sh --json --enable (SSH allowed BEFORE enable; rpc: --p2p-anywhere)"
+    echo "Safety:     re-verify SSH after each VM; ABORT on loss (no further VM touched)"
+    [ -n "${SEL}" ] && echo "Subset:     $(_fw_subset_names)"
     echo "=========================================="
-    # Open the health port to the GCP LB health-check ranges as part of the lockout-safe
-    # enable (firewall-setup.sh -> apply_lb_hc_rule). Empty -> omitted -> generic enable.
-    lb_hc_env=""
-    [ -n "${GOOGLE_HC_RANGES:-}" ] && lb_hc_env="env TN_LB_HC_RANGES='${GOOGLE_HC_RANGES}' "
     erc=0
     for i in "${!INSTANCE_NAMES[@]}"; do
-        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"
-        tn_fw_selected "${inst}" || continue
+        _fw_selected "${i}" || continue
+        inst="${INSTANCE_NAMES[$i]}"; zone="${ZONES[$i]}"; role="${NODE_ROLES[$i]}"
+        cmd="sudo ${FW} --json --enable"
+        [ "${role}" = "rpc" ] && cmd="${cmd} --p2p-anywhere"
         echo ""
-        echo ">>> ${inst} (${zone}): sudo ${lb_hc_env}${FW} --json --enable"
-        if json="$(tn_iap_ssh "${inst}" "${zone}" "sudo ${lb_hc_env}${FW} --json --enable")"; then
+        echo ">>> ${inst} (${zone}, role=${role}): ${cmd}"
+        if json="$(tn_iap_ssh "${inst}" "${zone}" "${cmd}")"; then
             echo "    result: ${json}"
         else
             echo "    ❌ enable failed on ${inst}" >&2
@@ -94,40 +120,48 @@ if [ "${ENABLE_HOST_FW}" -eq 1 ]; then
         if tn_iap_ssh "${inst}" "${zone}" true >/dev/null 2>&1; then
             echo "    ✓ SSH still reachable after enable"
         else
-            echo "    ❌❌ SSH LOST after enabling UFW on ${inst} — ABORTING (no further nodes touched)" >&2
+            echo "    ❌❌ SSH LOST after enabling UFW on ${inst} — ABORTING (no further VM touched)" >&2
             exit 2
+        fi
+        if [ "${role}" = "gateway" ]; then
+            echo "    note: re-run '--enable ${inst}' after its gateway is installed (step 13) to open 80/443"
         fi
     done
     echo ""
     if [ "${erc}" -eq 0 ]; then
-        echo "host UFW enabled (lockout-safe) on all targeted nodes."
+        echo "host ufw enabled (lockout-safe) on all targeted VMs."
     else
-        echo "host UFW enable finished WITH ERRORS — see ❌ lines above." >&2
+        echo "host ufw enable finished WITH ERRORS — see ❌ lines above." >&2
     fi
     exit "${erc}"
 fi
 
 echo "=========================================="
-echo "devnet HOST firewall (UFW) consensus rules"
+echo "devnet HOST firewall (ufw) consensus rules"
 echo "Project:    ${PROJECT_ID}"
-echo "Ports:      primary=${DEFAULT_PRIMARY_UDP_PORT}/udp worker=${DEFAULT_WORKER_UDP_PORT}/udp (validators only)"
-echo "Precond:    UFW already enabled per node (run './devnet-firewall.sh --enable' first;"
-echo "            THIS mode never enables UFW -- it only adds consensus ingress rules)"
-[ "${#SELECTED[@]}" -gt 0 ] && echo "Subset:     ${SELECTED[*]}"
+echo "Ports:      primary=${DEFAULT_PRIMARY_UDP_PORT}/udp worker=${DEFAULT_WORKER_UDP_PORT}/udp (node hosts only)"
+echo "Precond:    ufw already enabled per host (run './devnet-firewall.sh --enable' first;"
+echo "            THIS mode never enables ufw -- it only adds consensus ingress rules)"
+[ -n "${SEL}" ] && echo "Subset:     $(_fw_subset_names)"
 echo "=========================================="
 
 rc=0
 for i in "${!INSTANCE_NAMES[@]}"; do
+    _fw_selected "${i}" || continue
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
-    role="$(tn_node_role "${i}")"
-
-    tn_fw_selected "${inst}" || continue
+    role="${NODE_ROLES[$i]}"
+    if ! tn_is_node_index "${i}"; then
+        # Only reached when named: without targets, hosts without a node are passed over silently.
+        [ -n "${SEL}" ] && echo "" && echo ">>> ${inst} (role=${role}): skipped, it runs no node (no consensus ports)"
+        continue
+    fi
 
     echo ""
     echo ">>> ${inst} (${zone}, role=${role})"
 
-    # NO ROLE BRANCH. Every node -- observer included -- gets the consensus ports opened.
+    # NO ROLE BRANCH among node hosts. Every node -- observer and rpc included -- gets the
+    # consensus ports opened.
     #
     # An observer is not a permanent category: it is a full node that can be STAKED into the
     # committee at any time (devnet's node-5 is staked post-genesis by design). The moment it
@@ -138,9 +172,9 @@ for i in "${!INSTANCE_NAMES[@]}"; do
     #
     # An earlier revision of this script closed these ports on observers, reasoning that an
     # observer only dials out. That is wrong even before staking (the P2P mesh expects inbound
-    # reachability) and actively harmful after it. Opening them here is also not a wide
-    # exposure: the VPC rule devnet-allow-consensus already restricts udp:49590/49594 to the
-    # fleet's own /32s behind the `validator` network tag, which every node carries.
+    # reachability) and actively harmful after it. The VPC rule devnet-allow-consensus opens
+    # udp:49590/49594 from any source to the `devnet-p2p` tag that every node host carries
+    # (setup-firewall.sh); the host firewall is where the sources are narrowed.
     # Open primary then worker. Both go through firewall-setup.sh --json,
     # so neither can touch sshd.
     for port in "${DEFAULT_PRIMARY_UDP_PORT}/udp" "${DEFAULT_WORKER_UDP_PORT}/udp"; do
@@ -180,7 +214,7 @@ done
 echo ""
 if [ "${rc}" -eq 0 ]; then
     echo "=========================================="
-    echo "host firewall rules applied on all targeted validators."
+    echo "host firewall rules applied on all targeted node hosts."
     echo "=========================================="
 else
     echo "=========================================="
