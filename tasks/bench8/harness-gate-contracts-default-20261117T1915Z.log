@@ -1,0 +1,7 @@
+gate: unit suite, 2 module(s), BENCH_TEST_TIMEOUT_SCALE=3, log /tmp/bench-gate.j0OZde/unittest.log
+  Ran 285 tests in 491.995s
+  
+  OK (skipped=12)
+gate: mutation checker, log /tmp/bench-gate.j0OZde/mutations.log
+  54 of 54 mutations killed
+GATE unittest=0 isolated=none mutations=0 load=quiet secs=553
