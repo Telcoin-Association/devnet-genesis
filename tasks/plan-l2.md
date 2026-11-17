@@ -74,11 +74,12 @@ devnet-genesis (`dg-l2`):
 - [x] `l2/launch-2` merged into devnet-genesis `main` (fast-forward to 2689476, 2026-11-17; no bench or fleet driver running; on the merged tree: bench suite 43 of 44 modules OK with `test_node_shapes` failing the same 4 cases as on `main` before the merge, the bench's effective configuration with no changed value, the shimmed deploy 1..20 clean), pushed
 
 ## W3 (GCP, operator present)
-- [ ] P1 operator login; both images pushed, digests compared three ways, probes by digest, pinned, committed
-- [ ] teardown: dry-run list shown, then `--yes`
-- [ ] D1 steps 1-3 (static IPs of rpc-6 and gateway-4 returned)
-- [ ] P2 operator DNS (TTL 60): `rpc.devnet` → rpc-6, `node4.devnet` → gateway-4, delete `admin.node4.devnet`, add `admin.node6.devnet`
-- [ ] D2 steps 5-10 (stops `RELEASE_SIG_PENDING`) · [ ] P3 operator signs the manifest
+- [x] P1 both images pushed 19:48Z, digests compared, probes by digest, pinned, committed (login of 19:18Z; a fresh one is asked at the DNS pause)
+- [x] prerequisites: dashboards secret created by the owner; `tn-contracts` added as a submodule (owner's decision: a cron job removes worktrees); all deploy pre-gates pass
+- [x] teardown: dry-run list shown, owner said go; try 1 refused on a gcloud network timeout (nothing changed), try 2 rc=0 at 23:32Z; read back: five node VMs and the LB gone, addresses RESERVED
+- [x] D1 steps 1-3, rc=0 at 23:37Z: rpc-6 34.20.254.166, gateway-4 34.12.238.199; seven VMs READY with the pinned scripts ref; VPC dry run rc=0 with the expected plan
+- [x] P2 operator DNS: `rpc.devnet` → 34.20.254.166, `node4.devnet` → 34.12.238.199, `admin.node4.devnet` deleted, `admin.node6.devnet` added; all eleven right on the authoritative server and locally at 23:50Z
+- [x] D2 steps 5-10, rc=3 `RELEASE_SIG_PENDING` at 23:57Z as expected; keys, genesis (committee of 4), 11 admission maps, VPC rules (three `devnet-` rules), obs wiped · [ ] P3 operator signs the manifest (one-liner handed over 23:55Z)
 - [ ] D3 steps 10-19 (canary first)
 - [ ] D4 step 20 on validators 1-4, then tried on node 5 before staking
 - [ ] S1 stake node 5; allowlist entry (N+1), admission window (N+2), first seat (N+3 or later)

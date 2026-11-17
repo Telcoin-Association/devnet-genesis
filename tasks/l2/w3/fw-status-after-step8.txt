@@ -1,0 +1,23 @@
+==========================================
+devnet VPC firewall (network default) — project tn-devnet
+Mode: --status (read-only)
+==========================================
+devnet- rules (current) (name, network, direction, priority, allow, deny, sources, destinations -> target tags):
+  devnet-allow-consensus               default INGRESS 1000 allow=udp:49590,udp:49594 deny=- src=0.0.0.0/0 dst=- -> devnet-p2p
+  devnet-allow-gateway-upstream        default INGRESS 1000 allow=tcp:8545,tcp:43174 deny=- src=10.164.0.17/32 dst=- -> devnet-gw-upstream
+  devnet-allow-web                     default INGRESS 1000 allow=tcp:80,tcp:443 deny=- src=0.0.0.0/0 dst=- -> devnet-web
+
+Fleet VM tags (current):
+  validator-1-devnet   validator 10.168.0.21     devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-2-devnet   validator 10.206.0.3      devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-3-devnet   validator 10.162.0.49     devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-4-devnet   validator 10.164.0.11     devnet-gw-upstream,devnet-p2p,validator
+  observer-5-devnet    observer  10.154.0.15     devnet-p2p,devnet-web,http-server,https-server,validator
+  rpc-6-devnet         rpc       10.168.0.27     devnet-p2p,devnet-web,http-server,https-server,validator
+  gateway-4-devnet     gateway   10.164.0.17     devnet-web,http-server,https-server,validator
+
+Google's stock default-allow-* rules (information only, never changed here; VM tags (current)):
+  default-allow-icmp       INGRESS default allow=icmp from 0.0.0.0/0, target tags (none: every VM)
+    opens it on: validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet
+  default-allow-internal   INGRESS default allow=tcp:0-65535,udp:0-65535,icmp from 10.128.0.0/9, target tags (none: every VM)
+    opens it on: validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet

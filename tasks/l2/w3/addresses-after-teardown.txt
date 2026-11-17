@@ -1,0 +1,7 @@
+devnet-external-ip	us-central1	34.28.228.147	IN_USE
+observer-5-devnet-ip	europe-west2	35.242.150.70	RESERVED
+validator-3-devnet-ip	northamerica-northeast1	34.19.189.1	RESERVED
+validator-4-devnet-ip	europe-west4	34.7.93.35	RESERVED
+obs-devnet-ip	us-west2	34.20.241.60	IN_USE
+validator-1-devnet-ip	us-west2	35.236.51.63	RESERVED
+validator-2-devnet-ip	us-south1	34.174.181.214	RESERVED

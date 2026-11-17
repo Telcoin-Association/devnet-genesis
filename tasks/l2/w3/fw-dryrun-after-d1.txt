@@ -1,0 +1,83 @@
+==========================================
+devnet VPC firewall (network default) — project tn-devnet
+Mode: DRY RUN (nothing is changed; --yes applies)
+==========================================
+
+>>> A. add tags
+  validator-1-devnet: add devnet-p2p,devnet-web
+    would run: gcloud compute instances add-tags validator-1-devnet --zone us-west2-a --tags devnet-p2p\,devnet-web --project tn-devnet
+  validator-2-devnet: add devnet-p2p,devnet-web
+    would run: gcloud compute instances add-tags validator-2-devnet --zone us-south1-a --tags devnet-p2p\,devnet-web --project tn-devnet
+  validator-3-devnet: add devnet-p2p,devnet-web
+    would run: gcloud compute instances add-tags validator-3-devnet --zone northamerica-northeast1-b --tags devnet-p2p\,devnet-web --project tn-devnet
+  validator-4-devnet: add devnet-p2p,devnet-gw-upstream
+    would run: gcloud compute instances add-tags validator-4-devnet --zone europe-west4-a --tags devnet-p2p\,devnet-gw-upstream --project tn-devnet
+  observer-5-devnet: add devnet-p2p,devnet-web
+    would run: gcloud compute instances add-tags observer-5-devnet --zone europe-west2-b --tags devnet-p2p\,devnet-web --project tn-devnet
+  rpc-6-devnet: add devnet-p2p,devnet-web
+    would run: gcloud compute instances add-tags rpc-6-devnet --zone us-west2-b --tags devnet-p2p\,devnet-web --project tn-devnet
+  gateway-4-devnet: add devnet-web
+    would run: gcloud compute instances add-tags gateway-4-devnet --zone europe-west4-a --tags devnet-web --project tn-devnet
+
+>>> B. allow rules
+  devnet-allow-consensus: update in place (--source-ranges 0.0.0.0/0 --target-tags devnet-p2p)
+    would run: gcloud compute firewall-rules update devnet-allow-consensus --source-ranges 0.0.0.0/0 --target-tags devnet-p2p --description devnet\ consensus\ P2P\ from\ any\ source\;\ the\ host\ firewall\ narrows\ it\ \(setup-firewall.sh\) --project tn-devnet
+  devnet-allow-web: update in place (--target-tags devnet-web)
+    would run: gcloud compute firewall-rules update devnet-allow-web --target-tags devnet-web --description devnet\ web\ on\ Caddy\ hosts:\ ACME\ http-01\ and\ TLS\ RPC\ \(setup-firewall.sh\) --project tn-devnet
+  devnet-allow-gateway-upstream: create (INGRESS allow tcp:8545,tcp:43174 from 10.164.0.17/32 -> devnet-gw-upstream)
+    would run: gcloud compute firewall-rules create devnet-allow-gateway-upstream --network default --direction INGRESS --action ALLOW --rules tcp:8545\,tcp:43174 --source-ranges 10.164.0.17/32 --target-tags devnet-gw-upstream --priority 1000 --description devnet\ standalone\ gateway\ to\ its\ node:\ RPC\ and\ health\ port\ \(setup-firewall.sh\) --project tn-devnet
+
+>>> C. remove tags
+  validator-1-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags validator-1-devnet --zone us-west2-a --tags lb-health-check --project tn-devnet
+  validator-2-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags validator-2-devnet --zone us-south1-a --tags lb-health-check --project tn-devnet
+  validator-3-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags validator-3-devnet --zone northamerica-northeast1-b --tags lb-health-check --project tn-devnet
+  validator-4-devnet: remove lb-health-check,http-server,https-server
+    would run: gcloud compute instances remove-tags validator-4-devnet --zone europe-west4-a --tags lb-health-check\,http-server\,https-server --project tn-devnet
+  observer-5-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags observer-5-devnet --zone europe-west2-b --tags lb-health-check --project tn-devnet
+  rpc-6-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags rpc-6-devnet --zone us-west2-b --tags lb-health-check --project tn-devnet
+  gateway-4-devnet: remove lb-health-check
+    would run: gcloud compute instances remove-tags gateway-4-devnet --zone europe-west4-a --tags lb-health-check --project tn-devnet
+
+>>> D. delete obsolete rules
+  devnet-deny-consensus-egress: delete
+    would run: gcloud compute firewall-rules delete devnet-deny-consensus-egress --quiet --project tn-devnet
+  devnet-allow-consensus-egress: delete
+    would run: gcloud compute firewall-rules delete devnet-allow-consensus-egress --quiet --project tn-devnet
+  devnet-allow-health-check: delete
+    would run: gcloud compute firewall-rules delete devnet-allow-health-check --quiet --project tn-devnet
+  devnet-allow-healthcheck-from-kuma: delete
+    would run: gcloud compute firewall-rules delete devnet-allow-healthcheck-from-kuma --quiet --project tn-devnet
+  devnet-lb-allow-health-check: absent, skipped
+
+>>> listing
+devnet- rules (current; the dry run changed nothing) (name, network, direction, priority, allow, deny, sources, destinations -> target tags):
+  devnet-allow-consensus               default INGRESS 1000 allow=udp:49590,udp:49594 deny=- src=10.168.15.204/32,35.236.51.63/32,10.206.0.2/32,34.174.181.214/32,10.162.0.48/32,34.19.189.1/32,10.164.0.48/32,34.7.93.35/32,10.154.0.49/32,35.242.150.70/32 dst=- -> validator
+  devnet-allow-consensus-egress        default EGRESS 1000 allow=udp:49590,udp:49594 deny=- src=- dst=10.168.15.204/32,35.236.51.63/32,10.206.0.2/32,34.174.181.214/32,10.162.0.48/32,34.19.189.1/32,10.164.0.48/32,34.7.93.35/32,10.154.0.49/32,35.242.150.70/32 -> validator
+  devnet-allow-health-check            default INGRESS 1000 allow=tcp:43174 deny=- src=130.211.0.0/22,35.191.0.0/16,209.85.152.0/22,209.85.204.0/22 dst=- -> validator
+  devnet-allow-healthcheck-from-kuma   default INGRESS 1000 allow=tcp:43174 deny=- src=104.155.184.201/32 dst=- -> validator
+  devnet-allow-web                     default INGRESS 1000 allow=tcp:80,tcp:443 deny=- src=0.0.0.0/0 dst=- -> validator
+  devnet-deny-consensus-egress         default EGRESS 1100 allow=- deny=udp:49590,udp:49594 src=- dst=0.0.0.0/0 -> validator
+
+Fleet VM tags (after --yes):
+  validator-1-devnet   validator 10.168.0.21     devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-2-devnet   validator 10.206.0.3      devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-3-devnet   validator 10.162.0.49     devnet-p2p,devnet-web,http-server,https-server,validator
+  validator-4-devnet   validator 10.164.0.11     devnet-gw-upstream,devnet-p2p,validator
+  observer-5-devnet    observer  10.154.0.15     devnet-p2p,devnet-web,http-server,https-server,validator
+  rpc-6-devnet         rpc       10.168.0.27     devnet-p2p,devnet-web,http-server,https-server,validator
+  gateway-4-devnet     gateway   10.164.0.17     devnet-web,http-server,https-server,validator
+
+Google's stock default-allow-* rules (information only, never changed here; VM tags (after --yes)):
+  default-allow-icmp       INGRESS default allow=icmp from 0.0.0.0/0, target tags (none: every VM)
+    opens it on: validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet
+  default-allow-internal   INGRESS default allow=tcp:0-65535,udp:0-65535,icmp from 10.128.0.0/9, target tags (none: every VM)
+    opens it on: validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet
+
+==========================================
+DRY RUN: 21 change(s) planned, nothing changed. Run with --yes to apply.
+==========================================
