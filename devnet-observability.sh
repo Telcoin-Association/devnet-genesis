@@ -93,6 +93,9 @@
 # Exit: 0 ok (--staged: every targeted node host staged), 1 a node failed, 2 usage or config.
 
 set -euo pipefail
+case "$-" in
+    *x*) echo "❌ refusing to run under 'set -x' (xtrace would log the observability token)" >&2; exit 1 ;;
+esac
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 

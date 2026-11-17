@@ -53,6 +53,9 @@
 # Exit: 0 ok, 1 a host failed (or the preflight did), 2 usage or config.
 
 set -euo pipefail
+case "$-" in
+    *x*) echo "❌ refusing to run under 'set -x' (xtrace would log the dashboard password)" >&2; exit 1 ;;
+esac
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck source=/dev/null

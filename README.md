@@ -94,23 +94,27 @@ Re-render after every new keygen.
    `devnet-deploy.sh` refuses to run while any `PLACEHOLDER_` value remains.
 1. For a fresh genesis, run `./devnet-teardown.sh` (dry run), then `./devnet-teardown.sh --yes`.
    Keygen refuses a node that already has keys, so new keys need new VMs.
-1. Run `./devnet-deploy.sh --yes`. It runs 16 steps in order:
+1. Run `./devnet-deploy.sh --yes`. It runs 20 steps in order (`devnet-deploy.sh`'s header is the reference):
    1. reserve static IPs: `common/reserve-static-ips.sh`
    1. create instances: `common/create-instances.sh`
-   1. wait for first-boot bootstrap on every node (serial-console completion marker)
-   1. MANUAL: DNS A-records `node{N}.devnet.telcoin.network` to each static IP (always pauses for ENTER)
+   1. wait for first-boot bootstrap on every VM (serial-console completion marker)
+   1. MANUAL: DNS records of the new topology (node, admin and `rpc` names; always pauses for ENTER)
    1. keygen: `devnet-keygen.sh`
    1. build genesis: `devnet-genesis-build.sh`, then the release manifest: `devnet-release-sign.sh prepare` ([signing ceremony](docs/release-signing-ceremony.md))
-   1. per-node network-config: `devnet-network-config.sh --yes` (before the first node start)
-   1. finalize (stage + start): `devnet-finalize.sh`. It first runs `devnet-release-sign.sh verify` and stops with `RELEASE_SIG_PENDING` (exit 3, no node touched) until `SHA256SUMS.asc` is signed; then resume with `--from 8`
-   1. obs VM: `common/create-obs-instance.sh --wipe-data`
-   1. host firewall (UFW): `devnet-firewall.sh --enable`, then `devnet-firewall.sh`
-   1. per-node observability: `devnet-observability.sh` (needs UFW active from step 10)
+   1. admission maps: `devnet-network-config.sh --yes`
    1. GCP/VPC firewall rules: `setup-firewall.sh`
-   1. DNS/Caddy + load balancer: `common/dns.sh`, `common/setup-load-balancer.sh`
-   1. admin dashboards: `devnet-dashboards.sh`, `common/dns.sh` (opt out: `TN_ADMIN_DASHBOARD=0`)
+   1. obs VM: `common/create-obs-instance.sh --wipe-data`
+   1. finalize, stage only: `devnet-finalize.sh --stage-only` (the release-signature gate fires first: `RELEASE_SIG_PENDING`, exit 3, until `SHA256SUMS.asc` is signed)
+   1. host firewall (UFW): `devnet-firewall.sh --enable`
+   1. per-node observability, staged: `devnet-observability.sh --staged`
+   1. gateway installs: `devnet-gateway.sh --yes`
+   1. coordinated start: `devnet-finalize.sh --start-all`
+   1. public RPC edge on the rpc node: `devnet-gateway.sh --rpc-edge --yes` (no load balancer; the legacy one is deleted by the teardown)
+   1. post-checks: `devnet-postcheck.sh`
+   1. admin dashboards: `devnet-dashboards.sh` (opt out: `TN_ADMIN_DASHBOARD=0`)
    1. app-contract stack: `devnet-contracts.sh --yes` (tn-contracts infra, LPs, faucet role)
    1. transaction generator: `devnet-txgen.sh --yes` (`txgen-devnet` VM, permanent service)
+   1. committee P2P allowlist: `devnet-p2p-committee.sh --yes`
 1. Stake node 5 once it syncs: `./devnet-stake-node5.sh` (dry run), then `./devnet-stake-node5.sh --yes`.
    Node 5 can first sit in the committee of activation epoch + 2.
 

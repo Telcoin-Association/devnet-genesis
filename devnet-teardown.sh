@@ -25,6 +25,15 @@
 #      a unit that is not installed, is reported and skipped.
 #   2. VMs: deletes every INSTANCE_NAMES entry + its boot disk, in parallel (an entry that
 #      does not exist is reported ALREADY ABSENT), then checks each one is gone.
+#   "Does not exist" is only gcloud's own not-found answer for THAT resource: its describe
+#   fails with "The resource '<path>/<name>' was not found". Any other failed describe (a
+#   gcloud crash, an API error, an expired login, a wrong PROJECT_ID, whose 404 names the
+#   project and not the resource) is "state unknown": during the plan it stops the run,
+#   dry run included, with exit 1 before anything is touched, naming the resource and the
+#   error; after a delete it is reported and the run ends with exit 1. Matched by text, not
+#   by listing: the describe calls stay as they were, and if gcloud ever words its 404
+#   differently the run stops (fails closed) instead of skipping a VM. The login is checked
+#   first, in every mode.
 #   3. load balancer: deletes the legacy Global External Application LB that fronted
 #      rpc.devnet (the LEGACY_LB_* names in config.sh; made by common/setup-load-balancer.sh),
 #      in reverse creation order: forwarding rule (HTTPS, :443), target HTTPS proxy, managed SSL
@@ -159,7 +168,45 @@ _lb_gcloud() {
         gcloud compute "${LB_KINDS[$i]}" "${verb}" "${LB_NAMES[$i]}" --project="${PROJECT_ID}" "$@"
     fi
 }
-_lb_exists() { _lb_gcloud "$1" describe --format='value(name)' >/dev/null 2>&1; }
+# _td_describe <name> <gcloud args…> — one `gcloud <args…>` describe, stderr kept. rc 0 it
+# exists (TD_OUT = its stdout); rc 1 gcloud said THIS resource does not exist (its error text
+# has "…/<name>' was not found", the resource path ending in the name, or "'<name>' was not
+# found"; a wrong project's 404 names 'projects/<id>' and does not match); rc 2 any other
+# failure (TD_ERR = the last error lines).
+_td_describe() {
+    local name="$1" errf
+    shift
+    TD_OUT=""; TD_ERR=""
+    errf="$(mktemp)" || { TD_ERR="mktemp failed"; return 2; }
+    if TD_OUT="$(gcloud "$@" 2>"${errf}")"; then rm -f "${errf}"; return 0; fi
+    if grep -F -q -e "/${name}' was not found" -e "'${name}' was not found" "${errf}"; then
+        rm -f "${errf}"; return 1
+    fi
+    TD_ERR="$(grep -v '^[[:space:]]*$' "${errf}" | tail -n 3 | tr '\n' ' ')" || TD_ERR=""
+    rm -f "${errf}"
+    [ -n "${TD_ERR}" ] || TD_ERR="gcloud failed with no error text"
+    return 2
+}
+# _lb_state <i> — _td_describe on LB piece <i>: 0 present, 1 absent, 2 unknown (TD_ERR).
+_lb_state() {
+    if [ "${LB_GLOBAL[$1]}" = 1 ]; then
+        _td_describe "${LB_NAMES[$1]}" compute "${LB_KINDS[$1]}" describe "${LB_NAMES[$1]}" --global --project="${PROJECT_ID}" --format='value(name)'
+    else
+        _td_describe "${LB_NAMES[$1]}" compute "${LB_KINDS[$1]}" describe "${LB_NAMES[$1]}" --project="${PROJECT_ID}" --format='value(name)'
+    fi
+}
+# _td_txgen_status — TXGEN_STATUS = the txgen VM's status; "" when gcloud says it does not
+# exist; "?" when the describe failed otherwise (TD_ERR set).
+_td_txgen_status() {
+    local r=0
+    _td_describe "${TXGEN_INSTANCE}" compute instances describe "${TXGEN_INSTANCE}" --project="${PROJECT_ID}" \
+        --zone="${TXGEN_ZONE}" --format='value(status)' || r=$?
+    case "${r}" in
+        0) TXGEN_STATUS="${TD_OUT:-UNKNOWN}" ;;
+        1) TXGEN_STATUS="" ;;
+        *) TXGEN_STATUS="?" ;;
+    esac
+}
 _lb_label_of() {
     local i
     for i in "${!LB_KEYS[@]}"; do
@@ -187,17 +234,24 @@ _lb_list_igs() {
     done <<< "${out}"
 }
 
-# _lb_snapshot — LB_PRESENT[i] = 1 / 0 / ? (? = the instance-group listing failed).
+# _lb_snapshot — LB_PRESENT[i] = 1 / 0 / ? (? = the describe or the instance-group listing
+# failed for a reason other than not-found; LB_ERR[i] says why).
 _lb_snapshot() {
-    local i
-    LB_PRESENT=()
+    local i r
+    LB_PRESENT=(); LB_ERR=()
     for i in "${!LB_KEYS[@]}"; do
         if [ "${LB_KEYS[$i]}" = ig ]; then
-            if ! _lb_list_igs; then LB_PRESENT[i]="?"
+            if ! _lb_list_igs; then LB_PRESENT[i]="?"; LB_ERR[i]="the instance-group listing failed (above)"
             elif [ "${#IG_NAMES[@]}" -gt 0 ]; then LB_PRESENT[i]=1
             else LB_PRESENT[i]=0; fi
-        elif _lb_exists "${i}"; then LB_PRESENT[i]=1
-        else LB_PRESENT[i]=0; fi
+            continue
+        fi
+        r=0; _lb_state "${i}" || r=$?
+        case "${r}" in
+            0) LB_PRESENT[i]=1 ;;
+            1) LB_PRESENT[i]=0 ;;
+            *) LB_PRESENT[i]="?"; LB_ERR[i]="${TD_ERR}" ;;
+        esac
     done
 }
 
@@ -219,6 +273,8 @@ _lb_print() {
             fi
         elif [ "${LB_PRESENT[$i]}" = 1 ]; then
             printf '    %d. %-20s %-34s %s\n' "${n}" "${LB_LABELS[$i]}" "${LB_NAMES[$i]} (${scope})" "$1"
+        elif [ "${LB_PRESENT[$i]}" = "?" ]; then
+            printf '    %d. %-20s %-34s ❌ describe FAILED (state unknown): %s\n' "${n}" "${LB_LABELS[$i]}" "${LB_NAMES[$i]} (${scope})" "${LB_ERR[$i]:-}"
         else
             printf '    %d. %-20s %-34s %s\n' "${n}" "${LB_LABELS[$i]}" "${LB_NAMES[$i]} (${scope})" "$2"
         fi
@@ -232,7 +288,7 @@ _lb_mark_left() { LB_LEFT="${LB_LEFT}$1 "; LEFT+=("$2"); }
 
 # _lb_delete_all — describe, then delete, each piece in order. Never aborts on a failure.
 _lb_delete_all() {
-    local i j n=0 key label name blk log
+    local i j n=0 key label name blk log r
     for i in "${!LB_KEYS[@]}"; do
         n=$((n + 1)); key="${LB_KEYS[$i]}"; label="${LB_LABELS[$i]}"; name="${LB_NAMES[$i]}"; blk="${LB_BLOCKERS[$i]}"
         if [ "${key}" = ig ]; then
@@ -260,7 +316,13 @@ _lb_delete_all() {
             done
             continue
         fi
-        if ! _lb_exists "${i}"; then echo "  ${n}. ${label} ${name}: absent, skipped"; continue; fi
+        r=0; _lb_state "${i}" || r=$?
+        if [ "${r}" -eq 1 ]; then echo "  ${n}. ${label} ${name}: absent, skipped"; continue; fi
+        if [ "${r}" -ne 0 ]; then
+            echo "  ${n}. ❌ ${label} ${name}: describe FAILED (state unknown) — not deleted: ${TD_ERR}"
+            _lb_mark_left "${key}" "${label} ${name}: describe failed, state unknown"
+            continue
+        fi
         if [ -n "${blk}" ] && _lb_left_has "${blk}"; then
             echo "  ${n}. ${label} ${name}: NOT attempted — the $(_lb_label_of "${blk}") still references it, so its delete would fail too"
             _lb_mark_left "${key}" "${label} ${name}: not attempted, the $(_lb_label_of "${blk}") is still there"
@@ -289,19 +351,30 @@ else
 fi
 echo "=========================================="
 
+# --- login first, in every mode (the dry run included) -------------------------
+# A describe that fails for any reason but not-found stops the plan, so an expired login is
+# named here rather than as a wall of "state unknown". This serial call also warms gcloud's
+# token cache before the parallel deletes (parallel gcloud invocations race on one-time
+# SQLite schema migrations after an SDK update; create-instances.sh does the same).
+gcloud auth print-access-token >/dev/null || {
+    echo "❌ gcloud auth failed — run 'gcloud auth login' and retry (nothing was read or deleted)" >&2; exit 1; }
+
 # --- the plan ------------------------------------------------------------------
 # Resolve current state first so the dry run reflects reality (an already-deleted
-# instance is reported as such rather than silently "planned").
+# instance is reported as such rather than silently "planned"). plan_err collects every
+# piece whose state could not be read; any entry stops the run before anything is touched.
+plan_err=()
 echo ""
 echo "DELETE plan:"
 echo "  txgen (unit stopped before any VM is deleted; the VM and the unit's enablement stay):"
 if [ "${DO_VMS}" -eq 1 ]; then
-    txgen_status="$(gcloud compute instances describe "${TXGEN_INSTANCE}" --project="${PROJECT_ID}" \
-        --zone="${TXGEN_ZONE}" --format='value(status)' 2>/dev/null)" || txgen_status=""
-    case "${txgen_status}" in
+    _td_txgen_status
+    case "${TXGEN_STATUS}" in
+        "?")     printf '    - %-20s %-26s ❌ describe FAILED (state unknown): %s\n' "${TXGEN_INSTANCE}" "(${TXGEN_ZONE})" "${TD_ERR}"
+                 plan_err+=("${TXGEN_INSTANCE} (${TXGEN_ZONE}): ${TD_ERR}") ;;
         "")      printf '    - %-20s %-26s absent, skipped\n' "${TXGEN_INSTANCE}" "(${TXGEN_ZONE})" ;;
         RUNNING) printf '    - %-20s %-26s RUNNING: sudo systemctl stop %s\n' "${TXGEN_INSTANCE}" "(${TXGEN_ZONE})" "${TXGEN_UNIT}" ;;
-        *)       printf '    - %-20s %-26s %s (not running), skipped\n' "${TXGEN_INSTANCE}" "(${TXGEN_ZONE})" "${txgen_status}" ;;
+        *)       printf '    - %-20s %-26s %s (not running), skipped\n' "${TXGEN_INSTANCE}" "(${TXGEN_ZONE})" "${TXGEN_STATUS}" ;;
     esac
 else
     echo "    (not touched: --lb-only)"
@@ -318,14 +391,17 @@ if [ "${DO_VMS}" -eq 1 ]; then
 
         tn_teardown_selected "${inst}" || continue
 
-        if gcloud compute instances describe "${inst}" \
-            --project="${PROJECT_ID}" --zone="${zone}" --format='value(name)' >/dev/null 2>&1; then
-            printf '    - %-20s %-26s role=%-9s + its boot disk\n' "${inst}" "(${zone})" "${role}"
-            targets+=("${inst}")
-            target_zones+=("${zone}")
-        else
-            printf '    - %-20s %-26s ALREADY ABSENT — nothing to do\n' "${inst}" "(${zone})"
-        fi
+        td_r=0
+        _td_describe "${inst}" compute instances describe "${inst}" \
+            --project="${PROJECT_ID}" --zone="${zone}" --format='value(name)' || td_r=$?
+        case "${td_r}" in
+            0) printf '    - %-20s %-26s role=%-9s + its boot disk\n' "${inst}" "(${zone})" "${role}"
+               targets+=("${inst}")
+               target_zones+=("${zone}") ;;
+            1) printf '    - %-20s %-26s ALREADY ABSENT — nothing to do\n' "${inst}" "(${zone})" ;;
+            *) printf '    - %-20s %-26s ❌ describe FAILED (state unknown): %s\n' "${inst}" "(${zone})" "${TD_ERR}"
+               plan_err+=("${inst} (${zone}): ${TD_ERR}") ;;
+        esac
     done
     if [ "${#targets[@]}" -eq 0 ]; then
         echo "    (no live instances match — nothing to delete)"
@@ -341,6 +417,7 @@ if [ "${DO_LB}" -eq 1 ]; then
     _lb_print "exists -> delete" "absent, skipped"
     for i in "${!LB_KEYS[@]}"; do
         if [ "${LB_PRESENT[$i]}" != 0 ]; then lb_todo=1; fi
+        if [ "${LB_PRESENT[$i]}" = "?" ]; then plan_err+=("LB ${LB_LABELS[$i]} ${LB_NAMES[$i]}: ${LB_ERR[$i]:-}"); fi
     done
 elif [ "${KEEP_LB}" -eq 1 ]; then
     echo "    (KEPT: --keep-lb)"
@@ -366,6 +443,14 @@ if [ "${DO_LB}" -eq 1 ]; then
     echo "to ${RPC_IP_NAME} (the rpc node); until then it resolves to a released address."
 fi
 
+if [ "${#plan_err[@]}" -gt 0 ]; then
+    echo "" >&2
+    echo "❌ the state of these could not be read (gcloud failed for a reason other than \"not found\"):" >&2
+    for l in "${plan_err[@]}"; do echo "  - ${l}" >&2; done
+    echo "   Nothing was stopped or deleted. Fix the cause (gcloud crash, API error, login, PROJECT_ID) and re-run." >&2
+    exit 1
+fi
+
 if [ "${CONFIRM}" -ne 1 ]; then
     echo ""
     echo "DRY RUN only — re-run with --yes (or FORCE=true) to actually delete."
@@ -380,12 +465,7 @@ if [ "${#targets[@]}" -eq 0 ] && [ "${lb_todo}" -eq 0 ]; then
 fi
 
 # --- apply ---------------------------------------------------------------------
-# Warm gcloud's token cache serially first. Parallel gcloud invocations race on
-# one-time SQLite schema migrations after an SDK update; one serial call completes
-# the migration before the background jobs start (same guard create-instances.sh uses).
-gcloud auth print-access-token >/dev/null || {
-    echo "❌ gcloud auth failed — run 'gcloud auth login' and retry" >&2; exit 1; }
-
+# (the login was checked, and gcloud's token cache warmed serially, before the plan)
 LOGS_DIR="${REPO_ROOT}/logs/instance-teardown/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "${LOGS_DIR}"
 rc=0
@@ -394,9 +474,10 @@ rc=0
 if [ "${DO_VMS}" -eq 1 ]; then
     echo ""
     echo ">>> txgen: stop ${TXGEN_UNIT} on ${TXGEN_INSTANCE} (stays enabled; deploy step 19 restarts it)"
-    txgen_status="$(gcloud compute instances describe "${TXGEN_INSTANCE}" --project="${PROJECT_ID}" \
-        --zone="${TXGEN_ZONE}" --format='value(status)' 2>/dev/null)" || txgen_status=""
-    case "${txgen_status}" in
+    _td_txgen_status
+    case "${TXGEN_STATUS}" in
+        "?") echo "  ❌ describe FAILED (state unknown): ${TD_ERR} — not stopped; the teardown goes on"; rc=1
+             LEFT+=("txgen: ${TXGEN_UNIT} on ${TXGEN_INSTANCE} may still run (describe failed)") ;;
         "") echo "  ${TXGEN_INSTANCE} absent — skipped" ;;
         RUNNING)
             txlog="${LOGS_DIR}/txgen_stop.log"
@@ -415,7 +496,7 @@ if [ "${DO_VMS}" -eq 1 ]; then
                 rc=1
                 LEFT+=("txgen: ${TXGEN_UNIT} on ${TXGEN_INSTANCE} may still run (stop failed)")
             fi ;;
-        *) echo "  ${TXGEN_INSTANCE} is ${txgen_status} (not running) — nothing to stop, skipped" ;;
+        *) echo "  ${TXGEN_INSTANCE} is ${TXGEN_STATUS} (not running) — nothing to stop, skipped" ;;
     esac
 fi
 
@@ -481,14 +562,18 @@ if [ "${#targets[@]}" -gt 0 ]; then
     echo ">>> post-teardown verification"
     for i in "${!targets[@]}"; do
         inst="${targets[$i]}"; zone="${target_zones[$i]}"
-        if gcloud compute instances describe "${inst}" \
-            --project="${PROJECT_ID}" --zone="${zone}" --format='value(name)' >/dev/null 2>&1; then
-            echo "  ❌ ${inst} STILL EXISTS" >&2
-            rc=1
-            LEFT+=("VM ${inst} (${zone}) still exists")
-        else
-            echo "  ✓ ${inst} gone"
-        fi
+        td_r=0
+        _td_describe "${inst}" compute instances describe "${inst}" \
+            --project="${PROJECT_ID}" --zone="${zone}" --format='value(name)' || td_r=$?
+        case "${td_r}" in
+            0) echo "  ❌ ${inst} STILL EXISTS" >&2
+               rc=1
+               LEFT+=("VM ${inst} (${zone}) still exists") ;;
+            1) echo "  ✓ ${inst} gone" ;;
+            *) echo "  ❌ ${inst}: describe FAILED, cannot confirm it is gone: ${TD_ERR}" >&2
+               rc=1
+               LEFT+=("VM ${inst} (${zone}): state unknown (describe failed)") ;;
+        esac
     done
 elif [ "${DO_VMS}" -eq 1 ]; then
     echo ""

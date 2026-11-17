@@ -48,7 +48,9 @@
 # recreated) edits the launch flags and gives a running validator edit-config's guarded restart,
 # while a stopped validator stays stopped. A host that failed is simply visited again.
 #
-# --rpc-edge --yes, per `rpc` host:
+# --rpc-edge --yes, first a read-only `systemctl is-active <unit>` on every `rpc` host: unless
+# each says `active`, exit 1 with nothing sent (rpc-enable restarts the node, which would start
+# a stopped one outside the coordinated start of deploy step 14). Then, per `rpc` host:
 #   sudo bash <scripts>/install-caddy.sh --json --phase rpc-enable --rpc-domain RPC_HOSTNAME --yes
 # (the tn-rpc Caddy block plus the https/wss advertisement; it restarts the node ONCE, so it runs
 # after devnet-finalize.sh --start-all), then the read-only
@@ -376,6 +378,21 @@ if [ "${GW_RPC_EDGE}" -eq 1 ]; then
     GW_LOG_DIR="${GW_DIR}/logs/$(date +%Y%m%d_%H%M%S)-gateway"
     mkdir -p "${GW_LOG_DIR}"
     echo ">>> per-host logs: ${GW_LOG_DIR}"
+    # rpc-enable restarts the node (`systemctl restart`), which STARTS a stopped unit: on a
+    # stopped fleet it would start the rpc node alone, outside the coordinated start. Read the
+    # unit's state first (read-only) and send nothing unless it is active on every rpc host.
+    _gw_inactive=""
+    for _r in $(tn_indices_by_role rpc); do
+        _svc="$(tn_service_for_role "${NODE_ROLES[$_r]}")"
+        _st="$(_gw_ssh_ro "${_r}" "systemctl is-active ${_svc} 2>/dev/null || true" | tr -d '\r' | sed '/^$/d' | tail -n 1)" || _st=""
+        echo "    ${INSTANCE_NAMES[$_r]}: ${_svc} is ${_st:-unreadable}"
+        [ "${_st}" = active ] || _gw_inactive="${_gw_inactive} ${INSTANCE_NAMES[$_r]} (${_st:-unreadable})"
+    done
+    if [ -n "${_gw_inactive}" ]; then
+        echo "❌ the node unit is not active on:${_gw_inactive}. install-caddy.sh rpc-enable restarts the node and would start a stopped one by itself. The public RPC edge is installed after the coordinated start (deploy step 14, devnet-finalize.sh --start-all). Nothing was sent." >&2
+        exit 1
+    fi
+    unset _r _svc _st _gw_inactive
     if ! _gw_sweep; then
         echo ""
         echo "public RPC edge FAILED — see the ❌ lines above." >&2

@@ -17,7 +17,8 @@
 #   --yes        turn it on (steps 1-6 below, per host)
 #   --status     read-only: per host the state, the `check` verdict and the counters
 #   --off --yes  the documented way back: `firewall-setup.sh --p2p-committee off` per host,
-#                one at a time, with the same committee-whole assertion (--off alone: dry run)
+#                one at a time, with the same assertion; a failed host does not stop it
+#                (off only opens P2P), the run exits 1 (--off alone: dry run)
 #   --allow-rpc  let an `rpc` entry be a target (refused otherwise: its P2P is meant to stay
 #                open to any source)
 #   target       an index (0-based), an INSTANCE_NAME or a NODE_NAME. None = every index of
@@ -47,13 +48,24 @@
 #   4. `sudo tn-p2p-allow-sync check` must exit 0 (verdict `ok`: every current committee
 #      address is in the set); then `firewall-setup.sh --p2p-committee status` (allowlist
 #      and counters lines). Exit 1 or 3: the kill switch, then the missing addresses.
-#   5. the committee is whole before the next host, within P2P_COMMITTEE_SETTLE_SECS: this
-#      host's tn_nodeMode is what step 1 read; every validator's unit is active and
-#      CvvActive; all heads (read in parallel) within P2P_COMMITTEE_HEAD_LAG blocks; with
-#      P2P_COMMITTEE_REQUIRE_ADVANCE=1 this host's head is higher than in step 1 (the
-#      transaction generator runs from deploy step 19, so blocks come every few seconds).
-#      With 0 (an idle chain makes a block only at an epoch close) the whole settle time is
-#      waited and the rest is asserted at its end.
+#   5. THIS host is still in the committee before the next host is touched. After steps 3-4
+#      a baseline round reads every validator (and this host) in parallel; then, within
+#      P2P_COMMITTEE_SETTLE_SECS, one round must show all of: this host's tn_nodeMode is what
+#      step 1 read; every validator's unit is active and CvvActive; all heads within
+#      P2P_COMMITTEE_HEAD_LAG blocks; and this host's progress signal ABOVE the highest value
+#      any of them had at the baseline, i.e. this host holds something the committee made
+#      after its filter went in (a host cut off at `on` keeps a value it already had and
+#      fails, however close it is to its peers). The signal:
+#      - P2P_COMMITTEE_REQUIRE_ADVANCE=1 (default; the transaction generator runs from deploy
+#        step 19, so blocks come every few seconds): the head block number. Proven: this host
+#        executes blocks produced after the baseline.
+#      - P2P_COMMITTEE_REQUIRE_ADVANCE=0 (an idle chain makes a block only at an epoch
+#        close): tn_latestConsensusHeader .number (the call devnet-postcheck.sh's
+#        consensus-progress check makes), which rises on an idle chain. Proven: this host
+#        has consensus output committed after the baseline. NOT proven in this mode: that
+#        blocks are executed after the change (heads are only checked to be level), nor,
+#        in either mode, that EVERY committee peer reaches this host (consensus advances
+#        with a quorum; `check` in step 4 is the per-address proof).
 #   6. prints `P2P_COMMITTEE <instance> on epoch=<n> v4=<n> v6=<n> keys=<n> check=ok
 #      mode=<mode> head=<n>` (EPOCH, ALLOWED_V4, ALLOWED_V6, KEYS from the tool's status).
 #
@@ -79,8 +91,10 @@
 # rehearsal watches.
 #
 # Kill switch (one host): on the host, `sudo bash <scripts>/firewall-setup.sh --p2p-committee
-# off` (it never needs the tool or the node). In an emergency run that on the host directly:
-# `--off --yes` here stops at the first host after which the committee is not whole.
+# off` (it never needs the tool or the node). `--off --yes` here visits every target even
+# when one fails (the culprit may be a later host), and exits 1 if any did. It is printed
+# first on every failure that may leave a host filtered, and for the host in progress when
+# the run is interrupted (INT, TERM, HUP).
 #
 # Logs: logs/<stamp>-p2p-committee/<instance>.log (every remote answer), committee.log
 # (the committee-whole probes).
@@ -115,7 +129,7 @@ P2P_COMMITTEE_SETTLE_SECS="${P2P_COMMITTEE_SETTLE_SECS:-60}"
 P2P_COMMITTEE_HEAD_LAG="${P2P_COMMITTEE_HEAD_LAG:-5}"
 P2P_COMMITTEE_REQUIRE_ADVANCE="${P2P_COMMITTEE_REQUIRE_ADVANCE:-1}"
 
-pc_usage() { sed -n '15,25p' "${PC_DIR}/devnet-p2p-committee.sh" | sed 's/^# \{0,1\}//'; }
+pc_usage() { sed -n '15,26p' "${PC_DIR}/devnet-p2p-committee.sh" | sed 's/^# \{0,1\}//'; }
 
 for _k in P2P_COMMITTEE_WAIT_SECS P2P_COMMITTEE_POLL_SECS P2P_COMMITTEE_RETRY_SECS \
     P2P_COMMITTEE_RETRIES P2P_COMMITTEE_SETTLE_SECS P2P_COMMITTEE_HEAD_LAG NODE_RPC_PORT; do
@@ -199,6 +213,7 @@ rpc() { curl -s --max-time 5 -H 'Content-Type: application/json' --data "{\"json
 m="$(rpc tn_nodeMode | sed -n 's/.*"result":"\([A-Za-z]*\)".*/\1/p')"
 x="$(rpc eth_blockNumber | sed -n 's/.*"result":"\(0x[0-9a-fA-F]*\)".*/\1/p')"
 h=""; [ -n "$x" ] && h="$(printf '%d' "$x" 2>/dev/null)"
+printf '__tn_pc_cons %s\n' "$(rpc tn_latestConsensusHeader | tr -d '\r\n')"
 echo "__tn_pc_probe unit=${u:-unknown} ufw=${f:-unknown} nft=$n committee=${c:-off} mode=${m:-unknown} head=${h:-unknown}"
 EOF
 
@@ -279,13 +294,31 @@ pc_ssh_ro() {
     return "${rc}"
 }
 
-# pc_probe <idx> <log> — prints "unit= ufw= nft= committee= mode= head="; rc 1 on no answer.
+# PC_CONS_PY — tn_latestConsensusHeader's result .number (an integer, a 0x string or a decimal
+# string, as devnet-postcheck.sh's `num number` reads it) from one JSON-RPC answer on stdin;
+# prints nothing when there is none.
+IFS= read -r -d '' PC_CONS_PY <<'EOF' || true
+import json, sys
+try:
+    r = json.loads(sys.stdin.read()).get("result")
+    v = r.get("number") if isinstance(r, dict) else None
+    if isinstance(v, str):
+        v = int(v, 16) if v.lower().startswith("0x") else int(v)
+    if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+        print(v)
+except Exception:
+    pass
+EOF
+
+# pc_probe <idx> <log> — prints "unit= ufw= nft= committee= mode= head= cons="; rc 1 on no
+# answer. cons = tn_latestConsensusHeader .number ("unknown" when unreadable).
 pc_probe() {
-    local out
+    local out line cn
     out="$(pc_ssh_ro "$1" "$(pc_probe_cmd)" "$2")" || true
-    out="$(printf '%s\n' "${out}" | grep '^__tn_pc_probe ' | tail -n 1)" || true
-    [ -n "${out}" ] || return 1
-    printf '%s\n' "${out#__tn_pc_probe }"
+    line="$(printf '%s\n' "${out}" | grep '^__tn_pc_probe ' | tail -n 1)" || true
+    [ -n "${line}" ] || return 1
+    cn="$(printf '%s\n' "${out}" | sed -n 's/^__tn_pc_cons //p' | tail -n 1 | python3 -I -c "${PC_CONS_PY}" 2>/dev/null)" || cn=""
+    printf '%s cons=%s\n' "${line#__tn_pc_probe }" "${cn:-unknown}"
 }
 
 # pc_kill_switch <idx> — printed FIRST whenever a host may be left partly filtered.
@@ -325,11 +358,16 @@ pc_wait_snapshot() {
 }
 
 # pc_run_fw <idx> <on|off> <log> — one firewall-setup.sh call; sets PC_FW_RC (the script's
-# rc, or "none" when no sentinel came back) and PC_FW_TEXT (its output).
+# rc, or "none" when no sentinel came back) and PC_FW_TEXT (its output). Sets PC_FW_RESENT=1
+# (never back to 0; the caller resets it per host) when the lib logged a transport-fault
+# re-send during the call.
 pc_run_fw() {
-    local out
+    local out n0 n1
     echo "    + $(pc_fw_cmd "$2")"
+    n0="$(grep -c 'transport fault' "$3" 2>/dev/null)" || n0=0
     out="$(tn_iap_ssh "${INSTANCE_NAMES[$1]}" "${ZONES[$1]}" "$(pc_fw_cmd "$2")" </dev/null 2>>"$3")" || true
+    n1="$(grep -c 'transport fault' "$3" 2>/dev/null)" || n1=0
+    [ "${n1:-0}" -le "${n0:-0}" ] || PC_FW_RESENT=1
     out="$(printf '%s\n' "${out}" | tr -d '\r')"
     { echo "--- firewall-setup.sh --p2p-committee $2"; printf '%s\n' "${out}"; } >>"$3"
     PC_FW_RC="$(printf '%s\n' "${out}" | sed -n 's/^__tn_pc_rc=//p' | tail -n 1)"
@@ -354,12 +392,12 @@ pc_on() {
                         sleep "${P2P_COMMITTEE_RETRY_SECS}"
                         continue
                     fi
-                    echo "    ❌ ${inst}: still not authoritative after ${tries} retries (rc 1). Nothing was changed on ${inst}." >&2
+                    echo "    ❌ ${inst}: still not authoritative after ${tries} retries (rc 1). $(pc_unchanged "${i}")" >&2
                 else
-                    echo "    ❌ firewall-setup.sh refused --p2p-committee on on ${inst} (rc 1). Nothing was changed on ${inst}." >&2
+                    echo "    ❌ firewall-setup.sh refused --p2p-committee on on ${inst} (rc 1). $(pc_unchanged "${i}")" >&2
                 fi
                 return 1 ;;
-            2) pc_show_fw; echo "    ❌ ${inst}: a step after the sync failed and was undone (rc 2). Nothing was changed on ${inst}." >&2; return 1 ;;
+            2) pc_show_fw; echo "    ❌ ${inst}: a step after the sync failed and was undone (rc 2). $(pc_unchanged "${i}")" >&2; return 1 ;;
             3) pc_kill_switch "${i}"; pc_show_fw; echo "    ❌ ${inst}: partial (rc 3): the undo was incomplete." >&2; return 1 ;;
             *) pc_kill_switch "${i}"; pc_show_fw; echo "    ❌ ${inst}: no exit status from firewall-setup.sh (rc ${PC_FW_RC}; see ${log}): the outcome is unknown." >&2; return 1 ;;
         esac
@@ -409,19 +447,23 @@ pc_check() {
     return 0
 }
 
-# pc_whole <me|-> <want-mode|unknown> <pre-head|-> <need-advance 0|1> <settle-secs> — step 5
-# (and step 0 with "- unknown - 0 0"). Probes every validator (and <me>) in parallel each
-# round until every condition holds (with need-advance 0: at the end of the settle time).
-# rc 0 whole (PC_ME_MODE / PC_ME_HEAD set), rc 1 not whole within <settle-secs>.
+# pc_whole <me|-> <want-mode|unknown> <signal head|cons|none> <settle-secs> — step 5 (and
+# step 0 with "- unknown none 0": one round, no signal). Probes every validator (and <me>)
+# in parallel each round. With a signal, the first round whose values are all readable is
+# the BASELINE (taken after the change: the caller runs this after on/off and check): its
+# highest <signal> over the probed set; a later round passes only when <me>'s <signal> is
+# above it and every other condition holds. rc 0 whole (PC_ME_MODE / PC_ME_HEAD /
+# PC_ME_CONS set), rc 1 not whole within <settle-secs>.
 pc_whole() {
-    local me="$1" want="$2" pre="$3" adv="$4" settle="$5" log="${RUN_LOG_DIR}/committee.log"
-    local start="${SECONDS}" el i p u m h lo hi bad detail
+    local me="$1" want="$2" sig="$3" settle="$4" log="${RUN_LOG_DIR}/committee.log"
+    local start="${SECONDS}" el i p u m h c lo hi chi hnan cnan top sv base="" bad detail
     local set_=("${PC_VALIDATORS[@]}")
     if [ "${me}" != - ]; then
         case " ${set_[*]} " in *" ${me} "*) ;; *) set_+=("${me}") ;; esac
     fi
     while :; do
-        el=$((SECONDS - start)); bad=""; detail=""; lo=""; hi=""; PC_ME_MODE=""; PC_ME_HEAD=""
+        el=$((SECONDS - start)); bad=""; detail=""; lo=""; hi=""; chi=""; hnan=0; cnan=0
+        PC_ME_MODE=""; PC_ME_HEAD=""; PC_ME_CONS=""
         for i in "${set_[@]}"; do
             ( pc_probe "${i}" "${log}" >"${PC_TMP}/probe.${i}" || : >"${PC_TMP}/probe.${i}" ) &
         done
@@ -429,13 +471,20 @@ pc_whole() {
         for i in "${set_[@]}"; do
             p="$(cat "${PC_TMP}/probe.${i}")"
             u="$(pc_field "${p}" unit)"; m="$(pc_field "${p}" mode)"; h="$(pc_field "${p}" head)"
+            c="$(pc_field "${p}" cons)"
             detail="${detail} ${NODE_NAMES[$i]}=${m:-?}@${h:-?}"
+            [ "${sig}" != cons ] || detail="${detail}/c${c:-?}"
+            if pc_isnum "${c}"; then
+                if [ -z "${chi}" ] || [ "${c}" -gt "${chi}" ]; then chi="${c}"; fi
+            else
+                cnan=1
+            fi
             [ "${u}" = active ] || bad="${bad} ${INSTANCE_NAMES[$i]}:unit=${u:-no-answer}"
             if [ "${NODE_ROLES[$i]}" = validator ] && [ "${m}" != CvvActive ]; then
                 bad="${bad} ${INSTANCE_NAMES[$i]}:mode=${m:-?}"
             fi
             if [ "${i}" = "${me}" ]; then
-                PC_ME_MODE="${m}"; PC_ME_HEAD="${h}"
+                PC_ME_MODE="${m}"; PC_ME_HEAD="${h}"; PC_ME_CONS="${c}"
                 if [ "${want}" != unknown ] && [ "${m}" != "${want}" ] && [ "${NODE_ROLES[$i]}" != validator ]; then
                     bad="${bad} ${INSTANCE_NAMES[$i]}:mode=${m:-?}(was ${want})"
                 fi
@@ -444,20 +493,32 @@ pc_whole() {
                 if [ -z "${lo}" ] || [ "${h}" -lt "${lo}" ]; then lo="${h}"; fi
                 if [ -z "${hi}" ] || [ "${h}" -gt "${hi}" ]; then hi="${h}"; fi
             else
-                bad="${bad} ${INSTANCE_NAMES[$i]}:head=?"
+                bad="${bad} ${INSTANCE_NAMES[$i]}:head=?"; hnan=1
             fi
         done
         if [ -n "${lo}" ] && [ $((hi - lo)) -gt "${P2P_COMMITTEE_HEAD_LAG}" ]; then
             bad="${bad} heads ${lo}..${hi} differ by more than ${P2P_COMMITTEE_HEAD_LAG}"
         fi
-        if [ "${me}" != - ] && [ "${adv}" -eq 1 ]; then
-            if ! pc_isnum "${PC_ME_HEAD}" || ! pc_isnum "${pre}" || [ "${PC_ME_HEAD}" -le "${pre}" ]; then
-                bad="${bad} ${INSTANCE_NAMES[$me]}:head ${pre}->${PC_ME_HEAD:-?} not advanced"
+        if [ "${sig}" != none ]; then
+            if [ "${sig}" = head ]; then
+                top="${hi}"; sv="${PC_ME_HEAD}"; [ "${hnan}" -eq 0 ] || top=""
+            else
+                top="${chi}"; sv="${PC_ME_CONS}"; [ "${cnan}" -eq 0 ] || top=""
+            fi
+            if [ -z "${base}" ]; then
+                if [ -n "${top}" ]; then
+                    base="${top}"
+                    bad="${bad} baseline ${sig}=${base} (highest after the change); ${INSTANCE_NAMES[$me]} must pass it"
+                else
+                    bad="${bad} no baseline yet (a ${sig} is unreadable)"
+                fi
+            elif ! pc_isnum "${sv}" || [ "${sv}" -le "${base}" ]; then
+                bad="${bad} ${INSTANCE_NAMES[$me]}:${sig} ${sv:-?} not above the baseline ${base}"
             fi
         fi
         echo "round (${el}s):${detail} |${bad:- ok}" >>"${log}"
-        if [ -z "${bad}" ] && { [ "${adv}" -eq 1 ] || [ "${el}" -ge "${settle}" ]; }; then
-            echo "    committee whole (${el}s):${detail}"
+        if [ -z "${bad}" ] && { [ "${sig}" != none ] || [ "${el}" -ge "${settle}" ]; }; then
+            echo "    committee whole (${el}s):${detail}$([ "${sig}" = none ] || printf ' (%s %s > baseline %s)' "${sig}" "${sv}" "${base}")"
             return 0
         fi
         if [ "${el}" -ge "${settle}" ]; then
@@ -469,10 +530,40 @@ pc_whole() {
     done
 }
 
-# pc_step5 <idx> <want> <pre-head> <adv> — the step-5 header line + pc_whole.
+# pc_sig — step 5's progress signal: head (P2P_COMMITTEE_REQUIRE_ADVANCE=1) or cons (0).
+pc_sig() { if [ "${P2P_COMMITTEE_REQUIRE_ADVANCE}" -eq 1 ]; then echo head; else echo cons; fi; }
+
+# pc_step5 <idx> <want> — the step-5 header line + pc_whole (baseline read now, after the
+# change and the check).
 pc_step5() {
-    echo "    committee-whole check (≤ ${P2P_COMMITTEE_SETTLE_SECS}s): ${INSTANCE_NAMES[$1]} mode ${2}$([ "$4" -eq 1 ] && printf ', head > %s' "$3"); every validator active + CvvActive; heads within ${P2P_COMMITTEE_HEAD_LAG}"
-    pc_whole "$1" "$2" "$3" "$4" "${P2P_COMMITTEE_SETTLE_SECS}"
+    echo "    committee-whole check (≤ ${P2P_COMMITTEE_SETTLE_SECS}s): ${INSTANCE_NAMES[$1]} mode ${2}, its $(pc_sig) above the highest $(pc_sig) at a baseline read now; every validator active + CvvActive; heads within ${P2P_COMMITTEE_HEAD_LAG}"
+    pc_whole "$1" "$2" "$(pc_sig)" "${P2P_COMMITTEE_SETTLE_SECS}"
+}
+
+# pc_on_signal <name> <rc> — INT/TERM/HUP: the kill switch for the host being changed.
+# shellcheck disable=SC2329  # invoked from the traps set before the sweep
+pc_on_signal() {
+    trap - INT TERM HUP
+    echo "" >&2
+    if [ -n "${PC_CUR:-}" ]; then
+        pc_kill_switch "${PC_CUR}"
+        echo "❌ interrupted (${1}) while changing ${INSTANCE_NAMES[$PC_CUR]}: the command may have run and is not verified. Re-running the same command is safe (an 'on' host resyncs and is re-checked)." >&2
+    else
+        echo "❌ interrupted (${1}) between hosts: no host was being changed." >&2
+    fi
+    exit "$2"
+}
+
+# pc_unchanged <idx> — "Nothing was changed on <host>.", unless the lib re-sent the last
+# on/off after a transport fault (an earlier copy may have run): then the kill switch (to
+# stderr, so before the caller's line) and "state unknown".
+pc_unchanged() {
+    if [ "${PC_FW_RESENT:-0}" -eq 1 ]; then
+        pc_kill_switch "$1"
+        printf '%s' "The command was re-sent after a transport fault and an earlier copy may have run: the state of ${INSTANCE_NAMES[$1]} is unknown."
+    else
+        printf '%s' "Nothing was changed on ${INSTANCE_NAMES[$1]}."
+    fi
 }
 
 # pc_host_on <idx> — steps 1-6 on one host. rc 0 ok, 1 failed, 3 snapshot timeout.
@@ -507,9 +598,10 @@ pc_host_on() {
     else
         pc_wait_snapshot "${i}" "${log}" || return 3
     fi
+    PC_CUR="${i}"; PC_FW_RESENT=0
     pc_on "${i}" "${log}" || return 1
     pc_check "${i}" "${log}" || return 1
-    if ! pc_step5 "${i}" "${m}" "${h}" "${P2P_COMMITTEE_REQUIRE_ADVANCE}"; then
+    if ! pc_step5 "${i}" "${m}"; then
         echo "    ❌ stopping the sweep after ${inst}: ${inst}'s own check was ok, but if its allowlist is the cause:" >&2
         pc_kill_switch "${i}"
         return 1
@@ -522,7 +614,7 @@ pc_host_on() {
 
 # pc_host_off <idx> — the way back on one host. rc 0 ok, 1 failed.
 pc_host_off() {
-    local i="$1" inst="${INSTANCE_NAMES[$1]}" role="${NODE_ROLES[$1]}" log p m h c want adv line
+    local i="$1" inst="${INSTANCE_NAMES[$1]}" role="${NODE_ROLES[$1]}" log p m h c want line
     log="${RUN_LOG_DIR}/${inst}.log"
     echo ""
     echo ">>> ${inst} (${ZONES[$i]}, ${role}): --p2p-committee off"
@@ -530,11 +622,7 @@ pc_host_off() {
     m="$(pc_field "${p}" mode)"; h="$(pc_field "${p}" head)"; c="$(pc_field "${p}" committee)"
     echo "    before: unit=$(pc_field "${p}" unit) P2P_COMMITTEE=${c:-?} mode=${m:-?} head=${h:-?}"
     want="${m:-unknown}"
-    adv="${P2P_COMMITTEE_REQUIRE_ADVANCE}"
-    if [ "${adv}" -eq 1 ] && ! pc_isnum "${h}"; then
-        echo "    ⚠️  no head before the change on ${inst}: its head is not required to advance"
-        adv=0
-    fi
+    PC_CUR="${i}"; PC_FW_RESENT=0
     pc_run_fw "${i}" off "${log}"
     pc_show_fw
     case "${PC_FW_RC}" in
@@ -543,7 +631,10 @@ pc_host_off() {
         3) pc_kill_switch "${i}"; echo "    ❌ ${inst}: off was partial (rc 3); see journalctl -t tn-p2p-allow on the host." >&2; return 1 ;;
         *) pc_kill_switch "${i}"; echo "    ❌ ${inst}: no exit status from firewall-setup.sh (rc ${PC_FW_RC}; see ${log}): the outcome is unknown." >&2; return 1 ;;
     esac
-    pc_step5 "${i}" "${want}" "${h:--}" "${adv}" || return 1
+    if ! pc_step5 "${i}" "${want}"; then
+        echo "    ❌ off is done on ${inst} but the committee is not whole after it; the cause may be another host, so the run goes on to the next one (exit 1)." >&2
+        return 1
+    fi
     line="P2P_COMMITTEE ${inst} off mode=${PC_ME_MODE} head=${PC_ME_HEAD}"
     echo "${line}"
     PC_SUMMARY+=("${line}")
@@ -612,7 +703,7 @@ pc_dry_run() {
             echo "    3. + $(pc_fw_cmd off)"
             echo "       assert: rc 0 (1 refused, 3 partial: fail)"
         fi
-        echo "    5. within ${P2P_COMMITTEE_SETTLE_SECS}s: ${inst}'s mode as in step 1$([ "${P2P_COMMITTEE_REQUIRE_ADVANCE}" -eq 1 ] && printf ', its head above step 1'); every validator active + CvvActive; heads within ${P2P_COMMITTEE_HEAD_LAG}"
+        echo "    5. a baseline round after the change, then within ${P2P_COMMITTEE_SETTLE_SECS}s: ${inst}'s mode as in step 1, its $(pc_sig) above the highest $(pc_sig) at the baseline; every validator active + CvvActive; heads within ${P2P_COMMITTEE_HEAD_LAG}"
         if [ "${VERB}" = on ]; then
             echo "    6. P2P_COMMITTEE ${inst} on epoch=<n> v4=<n> v6=<n> keys=<n> check=ok mode=<mode> head=<n>"
         else
@@ -641,8 +732,8 @@ if [ "${STATUS}" -eq 0 ] && [ "${YES}" -eq 0 ]; then
     exit 0
 fi
 
-if [ "${STATUS}" -eq 0 ] && [ "${VERB}" = on ] && ! command -v python3 >/dev/null 2>&1; then
-    echo "❌ python3 is needed to judge the admission snapshot" >&2; exit 2
+if [ "${STATUS}" -eq 0 ] && ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ python3 is needed to judge the admission snapshot and read the consensus number" >&2; exit 2
 fi
 RUN_LOG_DIR="${PC_DIR}/logs/$(date +%Y%m%d_%H%M%S)-p2p-committee"
 PC_TMP="${RUN_LOG_DIR}/.probe"
@@ -661,17 +752,21 @@ fi
 PC_SUMMARY=()
 ok_hosts=(); failed_hosts=(); untouched=()
 rc=0
+PC_CUR=""
+trap 'pc_on_signal INT 130' INT
+trap 'pc_on_signal TERM 143' TERM
+trap 'pc_on_signal HUP 129' HUP
 if [ "${VERB}" = on ]; then
     echo ""
     echo ">>> step 0: the committee is whole before any change"
-    if ! pc_whole - unknown - 0 0; then
+    if ! pc_whole - unknown none 0; then
         echo "❌ the committee is not whole before the sweep: nothing was changed anywhere." >&2
         echo "untouched: ${_names# }"
         exit 1
     fi
 fi
 for _i in "${TARGETS[@]}"; do
-    if [ "${rc}" -ne 0 ]; then
+    if [ "${rc}" -ne 0 ] && [ "${VERB}" = on ]; then
         untouched+=("${INSTANCE_NAMES[$_i]}")
         continue
     fi
@@ -681,6 +776,7 @@ for _i in "${TARGETS[@]}"; do
     else
         pc_host_off "${_i}" || _hrc=$?
     fi
+    PC_CUR=""
     if [ "${_hrc}" -eq 0 ]; then
         ok_hosts+=("${INSTANCE_NAMES[$_i]}")
     else
