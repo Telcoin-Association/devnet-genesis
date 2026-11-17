@@ -28,10 +28,18 @@
 #   install -d ${ADMISSION_HOST_DIR} (root:root 0755)
 #   install -o root -g root -m 0644 <tmp> ${ADMISSION_HOST_DIR}/bootstrap-peers.yaml
 #   the same for trusted-nodes.yaml, or remove a stale one when the node gets none;
-# then read both back: sha256 equal to the local file, root:root 0644. Nothing is restarted and
-# <datadir>/network-config is left as it is: a finalized node takes new maps only when finalize
-# writes its network-config again.
-# --verify (read-only), per node host: the installed maps equal the local ones (sha256, owner,
+# then read both back: sha256 equal to the local file, root:root 0644. Nothing is restarted.
+# A host already finalized (<datadir>/network-config exists) does not read these maps: the node
+# runs from setup-node.sh's copies under /etc/telcoin and its network-config, and finalize
+# refuses a host whose unit is installed. So the same session brings that network-config back
+# and it is checked against the new maps with `validate --native`: equal, the host is ok and
+# says so; different, the host FAILS with what differs and the tn-node-deployment setters that
+# apply the maps on that host without rebuilding it (edit-config.sh --set bootstrap_peers=,
+# --set trusted_nodes=, --set admission=; each one that changes a value rewrites network-config
+# and restarts the node). This driver prints them and never runs them.
+# --verify (read-only), first renders the maps into a scratch dir and compares them with the local
+# ones file by file (a difference fails the run: run --yes; nothing local is rewritten), then,
+# per node host: the installed maps equal the local ones (sha256, owner,
 # mode); when <datadir>/network-config exists (the node is finalized) it is fetched and checked
 # with `devnet-network-config.py validate --native --node <NODE_NAME>`; before finalize the node
 # is reported "not finalized yet", which is not a failure.
@@ -229,12 +237,19 @@ if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ]; then
     TRUST_NOTE="; observers trusted by every validator"
 fi
 
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/tn-network-config.XXXXXX")"
+trap 'rm -rf "${WORK}"' EXIT
+
+MAPS_STALE=""
 if [ "${TN_ADMISSION_VIA}" = native ]; then
-    # native: the maps each node's finalize hands to setup-node.sh (see the header).
-    echo ">>> rendering admission maps for ${NODES_SPEC} into ${MAPS_DIR}"
-    mkdir -p "${MAPS_DIR}"
-    rm -f "${MAPS_DIR}"/*.bootstrap-peers.yaml "${MAPS_DIR}"/*.trusted-nodes.yaml
-    if ! python3 "${PY}" maps "${CTX[@]}" --out-dir "${MAPS_DIR}"; then
+    # native: the maps each node's finalize hands to setup-node.sh (see the header). --verify is
+    # read-only: it renders into ${WORK} and compares with the local maps, which it leaves as they are.
+    RENDER_DIR="${MAPS_DIR}"
+    if [ "${MODE}" = verify ]; then RENDER_DIR="${WORK}/maps-now"; fi
+    echo ">>> rendering admission maps for ${NODES_SPEC} into ${RENDER_DIR}"
+    mkdir -p "${RENDER_DIR}"
+    rm -f "${RENDER_DIR}"/*.bootstrap-peers.yaml "${RENDER_DIR}"/*.trusted-nodes.yaml
+    if ! python3 "${PY}" maps "${CTX[@]}" --out-dir "${RENDER_DIR}"; then
         echo "❌ rendering the admission maps failed; nothing was installed." >&2
         exit 1
     fi
@@ -242,20 +257,39 @@ if [ "${TN_ADMISSION_VIA}" = native ]; then
     for i in "${NODE_IDX[@]}"; do
         _files=""
         for _kind in bootstrap-peers trusted-nodes; do
-            if [ -f "${MAPS_DIR}/${NODE_NAMES[$i]}.${_kind}.yaml" ]; then _files="${_files} ${_kind}.yaml"; fi
+            if [ -f "${RENDER_DIR}/${NODE_NAMES[$i]}.${_kind}.yaml" ]; then _files="${_files} ${_kind}.yaml"; fi
         done
         printf '    %-10s %-9s --admission %-6s maps:%s\n' "${NODE_NAMES[$i]}" "${NODE_ROLES[$i]}" \
             "$(tn_admission_mode "${i}")" "${_files:- (none)}"
-        if [ ! -f "${MAPS_DIR}/${NODE_NAMES[$i]}.bootstrap-peers.yaml" ]; then
+        if [ ! -f "${RENDER_DIR}/${NODE_NAMES[$i]}.bootstrap-peers.yaml" ]; then
             echo "❌ [${NODE_NAMES[$i]}] no ${NODE_NAMES[$i]}.bootstrap-peers.yaml was rendered" >&2
             _render_ok=0
         fi
-        if [ "${NODE_ROLES[$i]}" = rpc ] && [ -f "${MAPS_DIR}/${NODE_NAMES[$i]}.trusted-nodes.yaml" ]; then
+        if [ "${NODE_ROLES[$i]}" = rpc ] && [ -f "${RENDER_DIR}/${NODE_NAMES[$i]}.trusted-nodes.yaml" ]; then
             echo "❌ [${NODE_NAMES[$i]}] an rpc node gets no trusted-nodes map, but one was rendered" >&2
             _render_ok=0
         fi
     done
     if [ "${_render_ok}" != 1 ]; then echo "❌ the rendered maps are incomplete; nothing was installed." >&2; exit 1; fi
+    if [ "${MODE}" = verify ]; then
+        # The local maps (what --yes installed and finalize's gate compares) against this render.
+        for i in "${NODE_IDX[@]}"; do
+            for _kind in bootstrap-peers trusted-nodes; do
+                _loc="${MAPS_DIR}/${NODE_NAMES[$i]}.${_kind}.yaml"
+                _new="${RENDER_DIR}/${NODE_NAMES[$i]}.${_kind}.yaml"
+                if [ ! -e "${_loc}" ] && [ ! -e "${_new}" ]; then continue; fi
+                if [ ! -f "${_loc}" ] || [ ! -f "${_new}" ] || ! cmp -s "${_loc}" "${_new}"; then
+                    MAPS_STALE="${MAPS_STALE} ${_loc##*/}"
+                fi
+            done
+        done
+        if [ -n "${MAPS_STALE}" ]; then
+            echo "❌ the local maps in ${MAPS_DIR} differ from this render (stale against ${COMMITTEE_LOCAL}):${MAPS_STALE}"
+            echo "   fix: ./devnet-network-config.sh --yes (re-renders and installs them); the hosts are still checked against the local maps"
+        else
+            echo "    ✓ the local maps in ${MAPS_DIR} = this render"
+        fi
+    fi
     if [ "${MODE}" = "local" ]; then
         echo ""
         echo "rendered under ${MAPS_DIR}; no node was touched."
@@ -278,9 +312,6 @@ else
 fi
 
 # --- per-node helpers ---------------------------------------------------------------------
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/tn-network-config.XXXXXX")"
-trap 'rm -rf "${WORK}"' EXIT
-
 # nc_meta <inst> <zone> <KEY> — .node-meta value; rc 0 value printed, 1 absent, 2 error.
 # Uses devnet-lib.sh's tn_node_meta_get when it is there, else the same read inline. Under
 # NETCFG_FAST the node's read session already brought the lines back (NC_READ_OUT).
@@ -703,10 +734,8 @@ nm_check() {
 
     st="$(nc_field NM_NC_STATE "${out}")"
     dir="$(nc_field NM_DATA_DIR "${out}")"
-    if [ "${MODE}" = install ]; then
-        if [ "${st}" = present ]; then
-            echo "    note: ${dir}/network-config exists (finalized): left as it is; finalize writes it from the maps"
-        fi
+    # --yes on a host that is not finalized: finalize hands these maps to setup-node.sh.
+    if [ "${MODE}" = install ] && [ "${st}" != present ]; then
         NC_RESULT=ok
         return 0
     fi
@@ -719,22 +748,46 @@ nm_check() {
             if ! nc_has_key NM_NC_B64 "${out}" || ! nc_field NM_NC_B64 "${out}" | nc_b64_decode > "${copy}"; then
                 echo "❌ [${node}] could not re-read ${dir}/network-config"
             elif python3 "${PY}" validate "${CTX[@]}" --native --node "${node}" "${copy}"; then
-                echo "    ✓ ${dir}/network-config passes validate --native"
+                if [ "${MODE}" = install ]; then
+                    echo "    ✓ ${node} is finalized and ${dir}/network-config already matches these maps (validate --native): nothing to apply"
+                else
+                    echo "    ✓ ${dir}/network-config passes validate --native"
+                fi
                 NC_RESULT=ok
             else
                 echo "❌ [${node}] ${dir}/network-config failed validate --native"
+                if [ "${MODE}" = install ]; then nm_apply_hint "${i}" "${dir}"; fi
             fi ;;
         *)
             echo "❌ [${node}] ${dir:-<datadir>}/network-config is not a regular file (state ${st:-no answer})" ;;
     esac
 }
 
+# nm_apply_hint <index> <datadir> — --yes on a finalized host whose network-config differs from
+# the new maps: why installing them changed nothing there, and the tn-node-deployment setters
+# that apply them on the host without rebuilding it. Printed only, never run from here.
+nm_apply_hint() {
+    local i="$1" dir="$2" node inst sd trusted
+    node="${NODE_NAMES[$i]}"
+    inst="${INSTANCE_NAMES[$i]}"
+    sd="${TN_NODE_SCRIPTS_DIR:-/opt/telcoin-node-scripts}"
+    trusted="none"
+    if [ -f "${MAPS_DIR}/${node}.trusted-nodes.yaml" ]; then trusted="${ADMISSION_HOST_DIR}/trusted-nodes.yaml"; fi
+    echo "    ${node} is finalized: it runs from setup-node.sh's copies under /etc/telcoin and ${dir}/network-config,"
+    echo "    not from the maps now in ${ADMISSION_HOST_DIR}, and devnet-finalize.sh refuses a host whose unit is installed."
+    echo "    Apply them on ${inst}, one host at a time (each --set that changes a value rewrites network-config and"
+    echo "    restarts the node, after the epoch wait for a committee member; a value already in place changes nothing):"
+    echo "      sudo bash $(printf '%q' "${sd}/edit-config.sh") --set $(printf '%q' "bootstrap_peers=${ADMISSION_HOST_DIR}/bootstrap-peers.yaml")"
+    echo "      sudo bash $(printf '%q' "${sd}/edit-config.sh") --set $(printf '%q' "trusted_nodes=${trusted}")"
+    echo "      sudo bash $(printf '%q' "${sd}/edit-config.sh") --set $(printf '%q' "admission=$(tn_admission_mode "${i}")")"
+    echo "    then: ./devnet-network-config.sh --verify ${node}"
+}
+
 # nm_session <index> <install 0|1> [<bootstrap-tmp> <trusted-tmp>] — run nm_session_script on the
 # node's host; NM_OUT = the last attempt's lines (nc_last_attempt); rc the session's, or 1
 # when the answer has no NC_END=1.
 nm_session() {
-    local i="$1" want_nc=0 rc=0
-    [ "${MODE}" = verify ] && want_nc=1
+    local i="$1" want_nc=1 rc=0
     NM_OUT="$(nm_session_script "$2" "${3:-}" "${4:-}" "${want_nc}" "$(tn_node_role "${i}")" \
         | tn_iap_ssh_stdin "${INSTANCE_NAMES[$i]}" "${ZONES[$i]}")" || rc=$?
     NM_OUT="$(printf '%s\n' "${NM_OUT}" | nc_last_attempt)"
@@ -1044,6 +1097,7 @@ echo ">>> ${MODE} targets: ${#INDICES[@]} node(s) — ${INDICES[*]}${RUN_NOTE}"
 
 done_nodes=()
 failed=()
+if [ -n "${MAPS_STALE}" ]; then failed+=("local maps in ${MAPS_DIR}: stale against this render:${MAPS_STALE} (run --yes)"); fi
 rechecks=()
 
 # nc_tally <index> — file the node under ok / failed / re-check by NC_RESULT.

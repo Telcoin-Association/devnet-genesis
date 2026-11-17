@@ -17,10 +17,15 @@
 #      are checked here; see _nc_verdict). The node reads that file once, at its first
 #      start; when it is missing the node writes the default (admission Open).
 #      TN_ADMISSION_VIA=native (the devnet): the maps devnet-network-config.sh --yes
-#      installed, ADMISSION_HOST_DIR/bootstrap-peers.yaml and, for a validator or observer,
-#      ADMISSION_HOST_DIR/trusted-nodes.yaml, have the sha256 of the local
-#      ADMISSION_MAPS_DIR/<NODE_NAME>.bootstrap-peers.yaml / .trusted-nodes.yaml (an rpc node
-#      has no trusted map). The same ssh records where the logs
+#      installed, ADMISSION_HOST_DIR/bootstrap-peers.yaml and, for a validator or observer
+#      in a fleet with an rpc node, ADMISSION_HOST_DIR/trusted-nodes.yaml, have the sha256
+#      of the local ADMISSION_MAPS_DIR/<NODE_NAME>.bootstrap-peers.yaml / .trusted-nodes.yaml
+#      (an rpc node has no trusted map; nor does any node of a fleet without an rpc node).
+#      Before the first node of the run, once: those local maps must be what
+#      devnet-network-config.py maps renders now from the genesis this run stages (rendered
+#      into a scratch dir, compared file by file; local only). Any difference stops the run,
+#      exit 1, before any host is touched: run ./devnet-network-config.sh --yes, which
+#      re-renders and installs them. The same ssh records where the logs
 #      end (size + checksum of each log file A4 reads, and the journal cursor), so A4 reads
 #      only what this finalize produced.
 #   2. stage committee.yaml + genesis.yaml + parameters.yaml (PARAMETERS_FILE): scp to
@@ -33,9 +38,15 @@
 #      only for a node without a worker gateway (tn_gateway_mode none: every node on the
 #      bench, the rpc node on the devnet; the gateway carries no WebSocket).
 #      TN_ADMISSION_VIA=native adds --admission <tn_admission_mode> --bootstrap-peers
-#      <host bootstrap map> and, for a validator or observer, --trusted-nodes <host trusted
-#      map>: setup-node.sh installs copies under /etc/telcoin, records them in .node-meta
-#      and renders <DATA_DIR>/network-config from them before the first start.
+#      <host bootstrap map> and, for a validator or observer in a fleet with an rpc node,
+#      --trusted-nodes <host trusted map>: setup-node.sh installs copies under /etc/telcoin,
+#      records them in .node-meta and renders <DATA_DIR>/network-config from them before
+#      the first start. Expected on every native finalize: setup-node.sh warns that it
+#      "Could not tell whether" the image is release 0.17.0 or later and writes the
+#      admission files anyway. An image installed by digest carries no release tag and
+#      finalize passes no --release-tag (RELEASE_TAG names the local signed release only),
+#      so the warning is normal. It goes to setup-node.sh's stderr and is not counted: a
+#      node fails here only on ssh rc != 0 or a done event without "ok":true.
 #   4. wait_healthy (devnet-lib.sh): unit active AND the healthcheck port answers (GET / on
 #      127.0.0.1:43174, the node's liveness route: 200 once the listener is bound). It
 #      needs no peer, committee or block, so a lone genesis validator, node 5 before the
@@ -74,8 +85,9 @@
 #      inspect .State.Pid) or of any `telcoin node` process on the host.
 #   A6 (TN_ADMISSION_VIA=native only) .node-meta ADMISSION_MODE = tn_admission_mode,
 #      BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, and TRUSTED_NODES_FILE=
-#      /etc/telcoin/trusted-nodes.yaml for a validator or observer, empty or absent for an
-#      rpc node (setup-node.sh prepare_node_extra_flags records the installed copies).
+#      /etc/telcoin/trusted-nodes.yaml for a node that got --trusted-nodes, empty or absent
+#      for the others (an rpc node; every node of a fleet without an rpc node);
+#      setup-node.sh prepare_node_extra_flags records the installed copies.
 #
 # Read-only probes (the readiness gate, A1, A3, A4, A5, every .node-meta read) and the
 # --stage-only stop, which is safe to run twice, retry ONCE, FINALIZE_RO_RETRY_SECS (5)
@@ -417,10 +429,16 @@ if [ "${NETCFG_TRUST_OBSERVERS_EVERYWHERE}" = 1 ] && ! _native; then NC_CTX+=(--
 # and setup-node.sh's config dir, where it installs its copies of them (CONFIG_DIR default).
 ADMISSION_LOCAL_DIR="${GENESIS_WORKSPACE:-${REPO_ROOT}}/${ADMISSION_MAPS_DIR:-}"
 TN_CONFIG_DIR="/etc/telcoin"
-# _has_trusted_map <i> — rc 0 when node i gets a trusted-nodes map (validator, observer).
+# _has_trusted_map <i> — rc 0 when node i gets a trusted-nodes map. The renderer's and the
+# installer's rule (devnet-network-config.py maps, devnet-network-config.sh --yes): a validator
+# or observer, in a fleet with at least one node of role rpc (the trusted hubs). Without an rpc
+# node no trusted map is rendered or installed, the gate expects none, --trusted-nodes is not
+# passed and A6 wants TRUSTED_NODES_FILE empty.
 _has_trusted_map() {
-    case "${NODE_ROLES[$1]:-}" in validator|observer) return 0 ;; esac
-    return 1
+    case "${NODE_ROLES[$1]:-}" in
+        validator|observer) [ -n "$(tn_indices_by_role rpc)" ] ;;
+        *) return 1 ;;
+    esac
 }
 # _sha256 <file> — the file's sha256, lower-case hex (python3 is required above anyway).
 _sha256() {
@@ -1239,7 +1257,7 @@ case "${FINALIZE_MODE}" in start-all|verify) ;; *) PHASE_A=("${INDICES[@]}") ;; 
 # --- phase A: gate, stage, finalize, health ------------------------------------------
 # _maps_verdict <index> <gate output> — TN_ADMISSION_VIA=native: are the admission maps
 # installed on the host (bp_sha / tn_sha from _rs_map_lines) the local ones, by sha256? The
-# trusted map counts only for a node that gets one (validator, observer). Prints one
+# trusted map counts only for a node that gets one (_has_trusted_map). Prints one
 # observation; rc 0 yes, 1 no.
 _maps_verdict() {
     local i="$1" gate="$2" node="${NODE_NAMES[$1]}" k key loc host got want bad="" ok=""
@@ -1261,6 +1279,39 @@ _maps_verdict() {
     done
     if [ -n "${bad}" ]; then echo "admission maps not as rendered:${bad}"; return 1; fi
     echo "installed = local by sha256:${ok}"
+}
+
+# _maps_fresh — TN_ADMISSION_VIA=native, once per run before the first node: are the local maps
+# what devnet-network-config.py maps renders now, with this run's context (NC_CTX: the committee
+# and node-info this run stages, the fleet)? The gate compares the host's maps with the local
+# ones, and both can predate a re-run of keygen or of the genesis build. Renders into
+# ${WORK}/maps-now (the local maps are never rewritten here) and compares file by file for every
+# node host. Local only. rc 0 equal; 1 a difference or no render (said on stderr).
+_maps_fresh() {
+    local now="${WORK}/maps-now" n k loc new diff="" same=0
+    if ! python3 "${NC_PY}" maps "${NC_CTX[@]}" --out-dir "${now}" > "${WORK}/maps-now.log" 2>&1; then
+        echo "❌ could not render the admission maps to compare with ${ADMISSION_LOCAL_DIR} (devnet-network-config.py maps):" >&2
+        sed 's/^/    /' "${WORK}/maps-now.log" >&2
+        echo "   no node was touched." >&2
+        return 1
+    fi
+    for n in $(tn_node_indices); do
+        for k in bootstrap-peers trusted-nodes; do
+            loc="${ADMISSION_LOCAL_DIR}/${NODE_NAMES[$n]}.${k}.yaml"
+            new="${now}/${NODE_NAMES[$n]}.${k}.yaml"
+            if [ ! -e "${loc}" ] && [ ! -e "${new}" ]; then continue; fi
+            if [ ! -f "${loc}" ]; then diff="${diff} ${loc##*/} (missing here);"
+            elif [ ! -f "${new}" ]; then diff="${diff} ${loc##*/} (no longer rendered);"
+            elif ! cmp -s "${loc}" "${new}"; then diff="${diff} ${loc##*/};"
+            else same=$((same + 1)); fi
+        done
+    done
+    if [ -n "${diff}" ]; then
+        echo "❌ admission maps in ${ADMISSION_LOCAL_DIR} are stale against ${COMMITTEE_LOCAL} and the node-info beside it: these differ from a fresh render:${diff}" >&2
+        echo "   fix: ./devnet-network-config.sh --yes (re-renders and installs the maps), then run this finalize again. No node was touched." >&2
+        return 1
+    fi
+    echo ">>> admission maps: the ${same} local file(s) in ${ADMISSION_LOCAL_DIR} = a fresh render from ${COMMITTEE_LOCAL}"
 }
 
 # _phase_a_node <index> — phase A on one node (the serial loop's body). Its outcome is one
@@ -1477,6 +1528,10 @@ _phase_a_node() {
     esac
     finalized+=("${i}")
 }
+# Native: the local maps must match what the renderer gives now (_maps_fresh), before any host.
+if _native && [ "${#PHASE_A[@]}" -gt 0 ]; then
+    _maps_fresh || exit 1
+fi
 _run_nodes a _phase_a_node ${PHASE_A[@]+"${PHASE_A[@]}"}
 
 # --- coordinated start (--start-all; --defer-start once every target is staged) ---------

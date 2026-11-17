@@ -241,6 +241,7 @@ keygen_node_steps() {
     # Launch 2 (TN_GATEWAY_ENABLE=1, domain mode): a node fronted by a worker gateway
     # advertises its public domain over https only (the gateway carries no WebSocket); the rpc
     # node advertises nothing here, its URL is set by the public-RPC edge after it starts.
+    # With gateways off the rpc node advertises https:// and wss:// on its own public name.
     # setup-node.sh passes --rpc-ws to the keytool only together with --rpc-http and builds
     # no RPC argument at all when neither is given.
     gw="$(tn_gateway_mode "$i")"
@@ -257,6 +258,16 @@ keygen_node_steps() {
         fi
         rpc_http="https://${pub}/"
         rpc_ws=""
+    elif [ "${role}" = rpc ]; then
+        # No gateway model in force (TN_GATEWAY_ENABLE not 1): the rpc node serves RPC under its
+        # own public name (tn_public_domain: RPC_HOSTNAME), http and ws, like any node without a
+        # gateway, and the URL finalize records (--public-rpc-url / --public-ws-url).
+        if ! pub="$(tn_public_domain "$i")"; then
+            failed+=("${node}")
+            return 0
+        fi
+        rpc_http="https://${pub}/"
+        rpc_ws="wss://${pub}/"
     else
         rpc_http="https://${node}.${BASE_DOMAIN}/"
         rpc_ws="wss://${node}.${BASE_DOMAIN}/"

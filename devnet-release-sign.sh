@@ -14,8 +14,12 @@
 #   IMAGE_DIGEST    DOCKER_IMAGE and a newline: one line, <repository>@sha256:<64 lower
 #                   hex>, the grammar the node scripts accept from a signed release
 #                   (tn-node-deployment lib/common.sh _tn_release_fetch).
-#   GATEWAY_IMAGE_DIGEST  only when config.sh sets GATEWAY_IMAGE (not empty): the worker
+#   GATEWAY_IMAGE_DIGEST  only when config.sh sets GATEWAY_IMAGE (not empty) AND
+#                   TN_GATEWAY_ENABLE=1 (the fleet runs worker gateways): the worker
 #                   gateway's image, GATEWAY_IMAGE and a newline, the same one-line grammar.
+#                   A fleet with gateways switched off signs no gateway digest: below,
+#                   "with GATEWAY_IMAGE" means both, and TN_GATEWAY_ENABLE not 1 reads as
+#                   GATEWAY_IMAGE unset.
 #   SHA256SUMS      sha256sum format, "<64 hex>  <name>", one line per file, in this
 #                   order: IMAGE_DIGEST, GATEWAY_IMAGE_DIGEST (only with GATEWAY_IMAGE),
 #                   genesis.yaml (GENESIS_FILE), committee.yaml (COMMITTEE_FILE),
@@ -74,6 +78,8 @@
 #                       no leading dot)
 #   GATEWAY_IMAGE       worker gateway image, <repository>@sha256:<64 hex> (optional; unset
 #                       or empty = no GATEWAY_IMAGE_DIGEST, the manifest of before)
+#   TN_GATEWAY_ENABLE   1 = the fleet runs worker gateways; anything else (or unset) = the
+#                       gateway is not part of the release, as with GATEWAY_IMAGE unset
 #   RELEASE_KEYS_DIR    allow-listed public keys (default <repo>/tn-node-deployment/lib/release-keys)
 #   RELEASE_SIGNER_FPR  key the printed one-liner signs with (default
 #                       4E36D35A4AB61B589861D01AC7173F2377CA7573); informational only
@@ -132,7 +138,10 @@ DEVNET_KEYS_DIR="${REPO_ROOT}/release-keys"   # devnet-only keys, read when pres
 # The names SHA256SUMS lists, in order. IMAGE_DIGEST first, as on mainnet; the gateway's
 # digest right after it when config.sh sets GATEWAY_IMAGE (unset or empty: the four names
 # of before, so a release signed before the gateway still verifies).
+# The gateway is part of the release only when the fleet runs gateways (TN_GATEWAY_ENABLE=1):
+# with gateways switched off GATEWAY_IMAGE reads as unset everywhere below.
 GATEWAY_IMAGE="${GATEWAY_IMAGE:-}"
+if [ "${TN_GATEWAY_ENABLE:-0}" != 1 ]; then GATEWAY_IMAGE=""; fi
 SUM_NAMES_NO_GATEWAY="IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml"
 if [ -n "${GATEWAY_IMAGE}" ]; then
     SUM_NAMES="IMAGE_DIGEST GATEWAY_IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml"
@@ -509,7 +518,7 @@ cmd_verify() {
         if [ -z "${GATEWAY_IMAGE}" ]; then
             case " ${names} " in
                 *" GATEWAY_IMAGE_DIGEST "*)
-                    echo "   the manifest lists a gateway digest but config.sh sets no GATEWAY_IMAGE: set it, or re-run prepare --force and re-sign" >&2 ;;
+                    echo "   the manifest lists a gateway digest but this configuration has no gateway in the release (GATEWAY_IMAGE unset, or TN_GATEWAY_ENABLE not 1): set them, or re-run prepare --force and re-sign" >&2 ;;
             esac
         fi
         exit 1
