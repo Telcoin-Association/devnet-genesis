@@ -63,3 +63,11 @@ Logs: L10 = benchmark/results/r20261116-2332/logs/bench-validator-10-unit-stdout
 
 - "70 ms": validator-10's round-3276 `header proposed` line at 01:03:43.239 minus the last peer's `epoch boundary detected` line at 01:03:43.169 (the peers' lines run from 01:03:43.075 to 01:03:43.169), each from that node's `logs/bench-validator-NN-unit-stdout.log.gz` of run r20261116-2332.
 - "22 s": the 23 `re-proposing last header after max delay interval expired for round 3276` lines in validator-10's log, first at 01:03:44.242, last at 01:04:06.326 (22.1 s).
+
+## After the figure-check (2026-11-17): the text now cites main at 5533ff73a
+
+Upstream main moved while the draft was written: #1862 itself merged (squash 8c75f7582, 2026-11-17T01:19:02Z), and #1871, #1547, #1875, #1876 landed. Every code location was re-read on main at 5533ff73a:
+`header_validator.rs:288-293` (send at 291, await at 293), `error.rs:332-333`, `cert_manager.rs:339-342` and `:355-356`, `certifier.rs:249-263` (the log line at 259), `proposer.rs:1685`, `network/handler.rs:362-366` (header rule), `:367-375` (certificate rule, `round > gc_depth.max(6)` at 375), `:419-463` (demotion, message at 459), `types/src/primary/mod.rs:87`, `executor/src/subscriber.rs:136`, `types/src/task_manager.rs:218-227` (error at 227), `types/src/test_hooks.rs:126`.
+#1516 (closed) and #1547 (157d3207f): read from #1547's diff: it changes the gossip arms of `network/handler.rs` (`is_cvv()` → `is_active_cvv()`; no certificate written while inactive) and adds tests; it does not touch `identify_unknown_certificates` or the vote request path.
+Validator-02's two lines (`Certifier received shutdown` 01:03:43.156, `Starting epoch` 01:03:48.265): from the figure-check's read of validator-02's unit log (its report, item W6).
+The figure-check's report: `tasks/issue-bodies/notes/bench8-lagging-validator-at-epoch-boundary.figcheck.md` (82 figures: 75 matched, 5 wrong and corrected, 2 not traceable and removed; every code location held what the text says).
