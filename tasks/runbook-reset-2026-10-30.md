@@ -92,8 +92,12 @@ Node 5 is first eligible for the committee of activationEpoch+2 (N+3 from the ac
 - Base fee: `./devnet-basefee-check.sh --last 2` after two boundaries (expect 7→8 wei at 0→1,
   then +12.5 %/epoch while txgen gas ≥ 20M/epoch; `--watch --count 1` to catch the next close).
 - Closed admission: Prometheus on obs, `tn_network_admission_mode{network=~"primary|worker"}`
-  = 2 on nodes 1-4 and `admission_fallback` = 0 once records resolve; around node 5's
-  activation boundary nodes 2-4 show fallback = 4 until node 5's record arrives via node 1.
+  = 2 on nodes 1-4 and `admission_fallback` = 0 once records resolve. (Corrected 2026-11-17:
+  this said nodes 2-4 would show fallback = 4 around node 5's activation boundary until its
+  record arrived via node 1. Launch 1 saw no fallback: it stayed 0 and resolved_current stayed 4
+  on every node through the boundary, because every validator already held node 5's records; it
+  had been an admitted, connected peer since genesis. Only `connected_current` moved. See
+  tasks/verification-l1-2026-10-31.md.)
 - Governance: `cast call 0x…07a0 "getOwners()(address[])" --rpc-url $RPC_URL` = 8, 0xAee… first;
   `getThreshold()` = 1; `cast call 0xFee0…FEe0 "getWorkerConfig(uint16)(uint8,uint64,uint184)" 0`
   = (0, 10000000, <fee>).
