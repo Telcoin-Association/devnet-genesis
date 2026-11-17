@@ -1,6 +1,7 @@
 # Bench 8 report: r20261116-2011 (floor 16), r20261116-2332 (control) and r20261117-1401 (reduced load)
 
 Private record for the repository owner; assembled 2026-11-17 from one file per section (`tasks/bench8/report/s<N>.md`, each with a sources note beside it) and figure-checked by two readers who did not write it (`tasks/bench8/report/figcheck-a.md`, `figcheck-b.md`: about 1,350 figures and statements, 5 wrong and 13 over-strong or incomplete, all corrected, none changing a conclusion). One run per configuration: no figure here carries a significance claim. Nothing of bench 8 is published.
+After this report was assembled, on the owner's go: the issue draft the report calls local was posted upstream as #1877 (2026-11-17T21:30Z); the report's sections still describe it as a draft.
 
 ## 1. Summary
 
