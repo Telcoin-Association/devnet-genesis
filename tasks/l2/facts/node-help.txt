@@ -1,0 +1,581 @@
+Start the node
+
+Usage: telcoin node [OPTIONS]
+
+Options:
+      --chain <NAMED_TN_NETWORK>
+          Join a named telcoin network (for instance test or main net).
+
+          Possible values:
+          - adiri:    The adiri testnet (alias of `test-net`)
+          - test-net: The adiri testnet
+          - mainnet:  Mainnet
+
+      --bootstrap-peers <MAP>
+          Bootstrap dial hints as a YAML or JSON map keyed by BLS public key.
+          
+          Replaces network-config bootstrap_peers for this process only. A nonempty map replaces the chain's default bootstrap servers (built into the binary for --chain, else the genesis committee file's); an explicit '{}' selects that default. Each entry contains primary and workers (a list). Committee membership still comes from chain state.
+
+      --bootstrap-peers-file <PATH>
+          Read the bootstrap dial hints map from a file instead of the command line.
+          
+          The file holds the same YAML or JSON map as --bootstrap-peers, with the same meaning. It is read and checked while arguments are parsed, so a missing or invalid file stops the node before startup.
+
+      --bls-passphrase-source <TN_PASSPHRASE_SOURCE>
+          How to get the BLS key passphrase.
+          
+          The default is to use the env variable TN_BLS_PASSPHRASE
+          Note, this variable should be securily managed if used on a validator.
+
+          Possible values:
+          - env:           Get the passphrase from then environment variable TN_BLS_PASSPHRASE
+          - stdin:         Read the passphrase from stdin.  Will read the first line of stdin or until EOF
+          - ask:           Ask the user on startup, only works if running in foreground on a TTY
+          - no-passphrase: Do not use a passphrase- save the BLS key in the clear. Only do this for testing, one offs, etc
+          - credential:    Read the passphrase from the systemd credential named by --bls-passphrase-credential (LoadCredential= or LoadCredentialEncrypted=). Removes one final \n or \r\n only
+          
+          [default: env]
+
+      --instance <INSTANCE>
+          Add a new instance of a node.
+          
+          Configures the ports of the node to avoid conflicts with the defaults. This is useful for running multiple nodes on the same machine.
+          
+          Instance numbers run from 1 to 200. The max is chosen in a way so that it's not possible to have port numbers that conflict with each other. 0 is rejected at parse time: the port arithmetic below subtracts `instance - 1`, which underflows on 0.
+          
+          Changes to the following port numbers: - `HTTP_RPC_PORT`: default - `instance` + 1 - `WS_RPC_PORT`: default + `instance` * 2 - 2 - `IPC_PATH`: default + `-instance`
+
+      --bls-passphrase-credential <NAME>
+          Name of the systemd credential holding the BLS key passphrase.
+          
+          Used with `--bls-passphrase-source credential`, which reads the file of this name in $CREDENTIALS_DIRECTORY (set by systemd for LoadCredential= and LoadCredentialEncrypted=). An empty value selects the default. The name is checked only when the credential source is selected, so other sources and subcommands ignore it.
+          
+          [env: TN_BLS_PASSPHRASE_CREDENTIAL=]
+          [default: bls-passphrase]
+
+      --enable-state-export
+          Export each epoch's final execution state to a snapshot pack under `consensus-db/state_exports/epoch-{N}/`.
+          
+          Each epoch writes a full execution-state copy. Retention is unlimited by default and can fill the data volume; use --state-export-keep N to limit the number of completed bundles.
+
+      --datadir <DATA_DIR>
+          The path to the data dir for all telcoin-network files and subdirectories.
+          
+          Defaults to the OS-specific data directory:
+          
+          - Linux: `$XDG_DATA_HOME/telcoin-network/` or `$HOME/.local/share/telcoin-network/`
+          - Windows: `{FOLDERID_RoamingAppData}/telcoin-network/`
+          - macOS: `$HOME/Library/Application Support/telcoin-network/`
+
+      --state-export-keep <N>
+          Keep the newest N completed state-export bundles (N must be at least 1).
+          
+          Only applies with --enable-state-export. Unset keeps all bundles. Each epoch exports the full execution state, so unlimited retention can fill the data volume. This limits bundle count, not bytes. Use N >= 2 to retain a previous bundle during overlapping exports.
+
+      --enable-repack-monitor
+          Watch executed batches for cross-producer transaction re-packing (issue #1259).
+          
+          Opt-in telemetry: when set, execution keeps a bounded rolling window of recently executed transaction hashes and reports (a counter and a rate-bounded warning) batches that re-pack transactions first packed by another producer's batch. A node that does not opt in builds no window and hashes nothing.
+
+      --with-unused-ports
+          Sets all ports to unused, allowing the OS to choose random unused ports when sockets are bound.
+          
+          Mutually exclusive with `--instance`.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Consensus Metrics:
+      --metrics <SOCKET>
+          Enable Prometheus consensus metrics.
+          
+          The metrics will be served at the given interface and port.
+
+RPC:
+      --http
+          Enable the HTTP-RPC server
+
+      --http.addr <HTTP_ADDR>
+          Http server address to listen on
+          
+          [default: 127.0.0.1]
+
+      --http.port <HTTP_PORT>
+          Http server port to listen on
+          
+          [default: 8545]
+
+      --http.disable-compression
+          Disable compression for HTTP responses
+
+      --http.api <HTTP_API>
+          Rpc Modules to be configured for the HTTP server
+          
+          `all`, or no flag, enables eth, net, web3, rpc, tn. An explicit list is served as written, so include `tn` to keep the `tn_*` namespace, and `none` serves nothing. Name debug and trace explicitly to enable them. A list whose first entry is `all` parses as plain `all` and the rest is ignored, so list every module by name instead.
+          
+          [possible values: eth, net, web3, rpc, tn, debug, trace]
+
+      --http.corsdomain <HTTP_CORSDOMAIN>
+          Http Corsdomain to allow request from
+
+      --ws
+          Enable the WS-RPC server
+
+      --ws.addr <WS_ADDR>
+          Ws server address to listen on
+          
+          [default: 127.0.0.1]
+
+      --ws.port <WS_PORT>
+          Ws server port to listen on
+          
+          [default: 8546]
+
+      --ws.origins <ws.origins>
+          Origins from which to accept `WebSocket` requests
+
+      --ws.api <WS_API>
+          Rpc Modules to be configured for the WS server
+          
+          `all`, or no flag, enables eth, net, web3, rpc, tn. An explicit list is served as written, so include `tn` to keep the `tn_*` namespace, and `none` serves nothing. Name debug and trace explicitly to enable them. A list whose first entry is `all` parses as plain `all` and the rest is ignored, so list every module by name instead.
+          
+          [possible values: eth, net, web3, rpc, tn, debug, trace]
+
+      --ipcdisable
+          Disable the IPC-RPC server
+
+      --ipcpath <IPCPATH>
+          Path of the IPC socket (or named pipe on Windows).
+          
+          The path is host-global, not inside the datadir: `--instance N` appends `-N`, and each worker above 0 appends `-wN`. A node refuses to start when another process is already serving the socket; a stale socket file left by a crash is replaced.
+          
+          [default: /tmp/tn.ipc]
+
+      --rpc.jwtsecret <HEX>
+          Hex encoded JWT secret to authenticate the regular RPC server(s), see `--http.api` and `--ws.api`.
+          
+          This is __not__ used for the authenticated engine-API RPC server, see `--authrpc.jwtsecret`.
+
+      --rpc.max-request-size <RPC_MAX_REQUEST_SIZE>
+          Set the maximum RPC request payload size for both HTTP and WS in megabytes
+          
+          [default: 15]
+
+      --rpc.max-response-size <RPC_MAX_RESPONSE_SIZE>
+          Set the maximum RPC response payload size for both HTTP and WS in megabytes
+          
+          [default: 160]
+          [aliases: --rpc.returndata.limit]
+
+      --rpc.max-subscriptions-per-connection <RPC_MAX_SUBSCRIPTIONS_PER_CONNECTION>
+          Set the maximum concurrent subscriptions per WS or IPC connection.
+          
+          Each `newPendingTransactions` subscription takes one of the 1,024 listener slots of its kind (transaction hashes or full transactions) on the worker's transaction pool; the node's own listeners take a few. The default, 128, is an eighth of them, so one connection cannot take them all. The slots stay first come across connections: a client with eight connections can take them, and pending-transaction filters, which belong to no connection, take the same slots bounded only by `--rpc.max-active-filters`.
+          
+          [default: 128]
+
+      --rpc.max-batch-requests <COUNT>
+          Maximum number of calls in one JSON-RPC batch request, on HTTP, WS and IPC.
+          
+          A larger batch is refused whole. Each call in a batch holds its parsed parameters until it runs, so this bounds what one request can queue (vendored TN-0055).
+          
+          [default: 100]
+
+      --rpc.max-active-filters <COUNT>
+          Maximum number of installed filters (`eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`) on each worker's RPC server, across all its clients, first come, first served.
+          
+          Filters outlive the connection that made them and are removed only when uninstalled or left unpolled for five minutes, so this bounds what polling clients can hold (vendored TN-0056). Each log filter names at most 1,000 addresses and 1,000 values per topic position (vendored TN-0155).
+          
+          [default: 1000]
+
+      --rpc.max-connections <COUNT>
+          Maximum number of RPC server connections
+          
+          [default: 500]
+
+      --rpc.max-tracing-requests <COUNT>
+          Maximum number of concurrent tracing requests.
+          
+          By default this chooses a sensible value based on the number of available cores. Tracing requests are generally CPU bound. Choosing a value that is higher than the available CPU cores can have a negative impact on the performance of the node and affect the node's ability to maintain sync.
+          
+          At least 2: `trace_filter` takes two permits at once, so with one permit it would wait forever holding the only one, and every other tracing method with it.
+          
+          [default: 14]
+
+      --rpc.max-trace-filter-blocks <COUNT>
+          Maximum number of blocks for `trace_filter` requests
+          
+          [default: 100]
+
+      --rpc.max-blocks-per-filter <COUNT>
+          Maximum number of blocks that could be scanned per filter request. (0 = entire chain)
+          
+          [default: 100000]
+
+      --rpc.max-logs-per-response <COUNT>
+          Maximum number of logs that can be returned in a single response. (0 = no limit)
+          
+          [default: 20000]
+
+      --rpc.gascap <GAS_CAP>
+          Maximum gas limit for `eth_call` and call tracing RPC methods
+          
+          [default: 50000000]
+
+      --rpc.txfeecap <TX_FEE_CAP>
+          Maximum eth transaction fee (in native-token units) that can be sent via the RPC APIs (0 = no cap). The default is 0: the cap stays off until fee data supports a value
+          
+          [default: 0]
+
+      --rpc.max-simulate-blocks <BLOCKS_COUNT>
+          Maximum number of blocks for `eth_simulateV1` call
+          
+          [default: 256]
+
+      --rpc.eth-proof-window <RPC_ETH_PROOF_WINDOW>
+          The maximum proof window for historical proof generation. This value allows for generating historical proofs up to configured number of blocks from current tip (up to `tip - window`)
+          
+          [default: 0]
+
+      --rpc.proof-permits <COUNT>
+          Maximum number of concurrent `eth_getProof`, `eth_simulateV1`, `eth_callMany` and `eth_callBundle` requests on each worker's RPC server, which share these permits. A request keeps its permit until its work ends, even after its client disconnects. An `eth_simulateV1`, `eth_callMany` or `eth_callBundle` request keeps at most 32 MiB of call output for its response, so these permits also bound that memory: 32 MiB each. At least 1: with none, every such request would wait forever
+          
+          [default: 25]
+
+      --rpc.pending-block <KIND>
+          The pending block behavior for `pending`-tag RPC queries.
+          
+          TN defaults to `none` (reth defaults to `full`): no worker ever produces the block a simulated pending env describes, so its values are placeholder approximations (see [`BuildPendingEnv`] on `TNPayload`). With `none`, pending-tag queries answer null or fall back to the latest state.
+          
+          [`BuildPendingEnv`]: reth_rpc_eth_api::helpers::pending_block::BuildPendingEnv
+          
+          [default: none]
+
+      --forward-txs <TARGET[,TARGET...]>
+          Forward eth_sendRawTransaction(Sync) to these validator RPC targets instead of the local pool.
+          
+          Ordered failover list: the next target is tried only on a transport failure (unreachable, timeout, a non-2xx status other than 413, an oversized or malformed reply), never on a JSON-RPC error reply. Accepts a URL, ip:port, a bare IPv6 address, [IPv6]:port, or host[:port]; no scheme means http://, and no port means 8545 (a URL keeps its scheme's default port). Reads and every other method are served locally. Targets are never shown to clients.
+          
+          [env: TN_FORWARD_TXS]
+
+      --sanitize-txs
+          Before forwarding, decode the transaction, recover its signer, and check the TN type allowlist and chain id; reject locally with reth's errors. Off: bytes are forwarded untouched
+
+RPC State Cache:
+      --rpc-cache.max-blocks <MAX_BLOCKS>
+          Max number of blocks in cache
+          
+          [default: 1000]
+
+      --rpc-cache.max-receipts <MAX_RECEIPTS>
+          Max number receipts in cache
+          
+          [default: 500]
+
+      --rpc-cache.max-headers <MAX_HEADERS>
+          Max number of headers in cache
+          
+          [default: 1000]
+
+      --rpc-cache.max-concurrent-db-requests <MAX_CONCURRENT_DB_REQUESTS>
+          Max number of concurrent database requests.
+          
+          TN(TN-0061): at least 1 (with none, every cache miss waits forever) and at most what a tokio semaphore holds (more panics while the RPC server is built).
+          
+          [default: 512]
+
+      --rpc-cache.max-cached-tx-hashes <MAX_CACHED_TX_HASHES>
+          Maximum number of transaction hashes to cache for transaction lookups
+          
+          [default: 30000]
+
+TxPool:
+      --txpool.pending-max-count <PENDING_MAX_COUNT>
+          Max number of transaction in the pending sub-pool
+          
+          [default: 10000]
+
+      --txpool.pending-max-size <PENDING_MAX_SIZE>
+          Max size of the pending sub-pool in megabytes
+          
+          [default: 20]
+
+      --txpool.basefee-max-count <BASEFEE_MAX_COUNT>
+          Max number of transaction in the basefee sub-pool
+          
+          [default: 10000]
+
+      --txpool.basefee-max-size <BASEFEE_MAX_SIZE>
+          Max size of the basefee sub-pool in megabytes
+          
+          [default: 20]
+
+      --txpool.queued-max-count <QUEUED_MAX_COUNT>
+          Max number of transaction in the queued sub-pool
+          
+          [default: 10000]
+
+      --txpool.queued-max-size <QUEUED_MAX_SIZE>
+          Max size of the queued sub-pool in megabytes
+          
+          [default: 20]
+
+      --txpool.blobpool-max-count <BLOBPOOL_MAX_COUNT>
+          Max number of transaction in the blobpool
+          
+          [default: 10000]
+
+      --txpool.blobpool-max-size <BLOBPOOL_MAX_SIZE>
+          Max size of the blobpool in megabytes
+          
+          [default: 20]
+
+      --txpool.blob-cache-size <BLOB_CACHE_SIZE>
+          Max number of entries for the in memory cache of the blob store
+
+      --txpool.disable-blobs-support
+          Disable EIP-4844 blob transaction support
+
+      --txpool.max-account-slots <MAX_ACCOUNT_SLOTS>
+          Max number of executable transaction slots guaranteed per account
+          
+          [default: 256]
+
+      --txpool.pricebump <PRICE_BUMP>
+          Price bump (in %) for the transaction pool underpriced check
+          
+          [default: 10]
+
+      --txpool.minimal-protocol-fee <MINIMAL_PROTOCOL_BASEFEE>
+          Minimum base fee required by the protocol
+          
+          [default: 7]
+
+      --txpool.minimum-priority-fee <MINIMUM_PRIORITY_FEE>
+          Minimum priority fee required for transaction acceptance into the pool. Transactions with priority fee below this value will be rejected
+
+      --txpool.gas-limit <ENFORCED_GAS_LIMIT>
+          The default enforced gas limit for transactions entering the pool
+          
+          [default: 30000000]
+
+      --txpool.max-tx-gas <MAX_TX_GAS_LIMIT>
+          Maximum gas limit for individual transactions. Transactions exceeding this limit will be rejected by the transaction pool
+
+      --blobpool.pricebump <BLOB_TRANSACTION_PRICE_BUMP>
+          Price bump percentage to replace an already existing blob transaction
+          
+          [default: 100]
+
+      --txpool.max-tx-input-bytes <MAX_TX_INPUT_BYTES>
+          Max size in bytes of a single transaction allowed to enter the pool
+          
+          [default: 131072]
+
+      --txpool.max-cached-entries <MAX_CACHED_ENTRIES>
+          The maximum number of blobs to keep in the in memory blob cache
+          
+          [default: 100]
+
+      --txpool.nolocals
+          Flag to disable local transaction exemptions
+
+      --txpool.locals <LOCALS>
+          Flag to allow certain addresses as local
+
+      --txpool.no-local-transactions-propagation
+          Flag to toggle local transaction propagation
+
+      --txpool.additional-validation-tasks <ADDITIONAL_VALIDATION_TASKS>
+          Number of additional transaction validation tasks to spawn
+          
+          [default: 1]
+
+      --txpool.max-pending-txns <PENDING_TX_LISTENER_BUFFER_SIZE>
+          Maximum number of pending transactions from the network to buffer
+          
+          [default: 2048]
+
+      --txpool.max-new-txns <NEW_TX_LISTENER_BUFFER_SIZE>
+          Maximum number of new transactions to buffer
+          
+          [default: 1024]
+
+      --txpool.max-new-pending-txs-notifications <MAX_NEW_PENDING_TXS_NOTIFICATIONS>
+          How many new pending transactions to buffer and send to in progress pending transaction iterators
+          
+          [default: 200]
+
+      --txpool.lifetime <DURATION>
+          Maximum amount of time non-executable transaction are queued
+          
+          [default: 10800]
+
+      --txpool.transactions-backup <PATH>
+          Path to store the local transaction backup at, to survive node restarts
+
+      --txpool.disable-transactions-backup
+          Disables transaction backup to disk on node shutdown
+
+      --txpool.max-batch-size <MAX_BATCH_SIZE>
+          Max batch size for transaction pool insertions
+          
+          [default: 1]
+
+Database:
+      --db.log-level <LOG_LEVEL>
+          Database logging level. Levels higher than "notice" require a debug build
+
+          Possible values:
+          - fatal:   Enables logging for critical conditions, i.e. assertion failures
+          - error:   Enables logging for error conditions
+          - warn:    Enables logging for warning conditions
+          - notice:  Enables logging for normal but significant condition
+          - verbose: Enables logging for verbose informational
+          - debug:   Enables logging for debug-level messages
+          - trace:   Enables logging for trace debug-level messages
+          - extra:   Enables logging for extra debug-level messages
+
+      --db.exclusive <EXCLUSIVE>
+          Open environment in exclusive/monopolistic mode. Makes it possible to open a database on an NFS volume
+          
+          [possible values: true, false]
+
+      --db.max-size <MAX_SIZE>
+          Maximum database size (e.g., 4TB, 8TB).
+          
+          This sets the "map size" of the database. If the database grows beyond this limit, the node will stop with an "environment map size limit reached" error.
+          
+          The default value is 8TB.
+
+      --db.page-size <PAGE_SIZE>
+          Database page size (e.g., 4KB, 8KB, 16KB).
+          
+          Specifies the page size used by the MDBX database.
+          
+          The page size determines the maximum database size. MDBX supports up to 2^31 pages, so with the default 4KB page size, the maximum database size is 8TB. To allow larger databases, increase this value to 8KB or higher.
+          
+          WARNING: This setting is only configurable at database creation; changing it later requires re-syncing.
+
+      --db.growth-step <GROWTH_STEP>
+          Database growth step (e.g., 4GB, 4KB)
+
+      --db.read-transaction-timeout <READ_TRANSACTION_TIMEOUT>
+          Read transaction timeout in seconds, 0 means no timeout
+
+      --db.max-readers <MAX_READERS>
+          Maximum number of readers allowed to access the database concurrently
+
+      --db.sync-mode <SYNC_MODE>
+          Controls how aggressively the database synchronizes data to disk
+
+      --db.gap-fill <PAGES|auto>
+          tn-lmdb only: gap fill, `auto`, `off` or a width in pages (at most 64; 0 is off). Unset, it is `auto` on Linux and off elsewhere ([`DEFAULT_DB_GAP_FILL`]). A durable commit first rewrites each gap of at most this many clean pages between two runs of its dirty pages with the bytes they hold, so the disk takes fewer, larger writes for more bytes written. A width suits disks that cap I/Os per second (cloud block storage), not local NVMe; `auto` chooses the width per commit from the disk's measured costs (settling at 0 where filling does not pay). Refused on MDBX, whose build defaults to off. The rewritten pages include live pages of the last durable state, so gap fill is safe at a power loss only on a drive that writes each logical block atomically when the power fails (NVMe, cloud block storage); on any other drive set `off`, since `auto` also fills while it measures the disk
+
+      --healthcheck <PORT|ADDR>
+          Healthcheck listener bind: a port or a socket address.
+          
+          A bare port (`8080`, the pre-#1689 form) binds `127.0.0.1:8080`. A socket address binds exactly that interface: `[::1]:8080`, `10.10.0.21:8080`, or `0.0.0.0:8080` to listen on every interface (write the wildcard out; it is never implied). The listener serves liveness, `/health/workers` and `/health/network`. Unset starts no listener. A bind failure stops startup; an unparsable value is rejected here.
+          
+          Each connection is handled synchronously in the accept loop with a read timeout; no connection limits or rate limiting, so keep the bind private.
+          
+          [env: HEALTHCHECK_TCP_PORT=]
+
+      --node-name <NODE_NAME>
+          Assign this name to node.  Currently used to name it's opentracing service
+
+      --tracing-url <URL>
+          URL of an opentracing service (like jaeger) to send tracing data to (for example http://192.168.1.2:4317)
+          
+          [env: TN_TRACING_URL=]
+
+      --allow-faucet-on-chain
+          Let a faucet build start on the loaded chain. Test networks only.
+          
+          A binary built with the `faucet` feature starts on the loaded chain only with this set, except on adiri (chain id 2017), which needs no flag. Mainnet (chain id 731) and the embedded mainnet genesis are refused with or without it.
+          
+          The environment variable accepts 1/0, true/false, yes/no, on/off, t/f and y/n in any case; an empty value leaves the flag off and any other value is an argument error.
+          
+          [env: TN_ALLOW_FAUCET_ON_CHAIN=]
+
+Logging:
+      --log.stdout.format <FORMAT>
+          The format to use for logs written to stdout
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.stdout.filter <FILTER>
+          The filter to use for logs written to stdout
+          
+          [default: ""]
+
+      --log.file.format <FORMAT>
+          The format to use for logs written to the log file
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.file.filter <FILTER>
+          The filter to use for logs written to the log file
+          
+          [default: debug]
+
+      --log.file.directory <PATH>
+          The path to put log files in
+          
+          [default: /home/nonroot/.cache/reth/logs]
+
+      --log.file.name <NAME>
+          The prefix name of the log files
+          
+          [default: reth.log]
+
+      --log.file.max-size <SIZE>
+          The maximum size (in MB) of one log file
+          
+          [default: 200]
+
+      --log.file.max-files <COUNT>
+          The maximum amount of log files that will be stored. If set to 0, background file logging is disabled
+          
+          [default: 5]
+
+      --log.journald
+          Write logs to journald
+
+      --log.journald.filter <FILTER>
+          The filter to use for logs written to journald
+          
+          [default: error]
+
+      --color <COLOR>
+          Sets whether or not the formatter emits ANSI terminal escape codes for colors and other text formatting
+
+          Possible values:
+          - always: Colors on
+          - auto:   Auto-detect
+          - never:  Colors off
+          
+          [default: always]
+
+Display:
+  -v, --verbosity...
+          Set the minimum log level.
+          
+          -v      Errors
+          -vv     Warnings
+          -vvv    Info
+          -vvvv   Debug
+          -vvvvv  Traces (warning: very verbose!)
+
+  -q, --quiet
+          Silence all log output

@@ -1750,3 +1750,20 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - "Is another program live here" is asked of the tree, not only of the process table: `git log --since='2 hours ago'`, `git status --porcelain -- benchmark '*.sh' '*.py'`, and the last entry of that program's orchestrator log, next to `pgrep` and the instance list. The answer is reported as what was looked at ("no bench process or instance at 19:14Z"), not as "nothing is running".
   - When two programs share a working tree, the newer one edits code in its own git worktree and branch from the first minute, keeps its tick list in its own file (`tasks/plan-l2.md`, not `tasks/plan.md`), and reaches `main` by a merge at a moment when the other program runs nothing.
   - A shared file the other program reads at run time (`config.sh`) changes only together with proof that the other program's effective configuration is unchanged (dump of the sourced environment before and after, identical).
+
+## 2026-11-17 — launch 2: three new drivers were committed without their executable bit
+
+- **What happened.** Units wrote three new drivers (`devnet-gateway.sh`, `devnet-postcheck.sh`, `devnet-p2p-committee.sh`) with the file-writing tool, which creates mode 644. I committed them as they were. `devnet-deploy.sh` executes its drivers directly, so deploy step 13 would have ended with exit 126 on the live run. Every unit had tested its own driver with `bash <file>`, which does not need the bit; the rehearsal harness, which runs the deploy the way the operator does, found it. The same miss sat in tn-node-deployment (`setup-gateway.sh` 644 beside `setup-alerts.sh` 755).
+- **Rules.**
+  - Before committing a NEW script, compare its mode with its siblings: `git ls-files -s <new> <an existing one of the same kind>`; set it with `chmod +x` and `git update-index --chmod=+x` in the same commit.
+  - A unit brief for a new script says which mode it must have and that the unit tests it the way its caller invokes it (`./script`, not `bash script`).
+  - A rehearsal that runs the top-level entry point exactly as the operator will is worth its cost: unit tests of each part did not see this.
+
+## 2026-11-17 — launch 2: "bash 3.2 green" in a Linux container was reported as macOS coverage; CI's macOS job failed one check
+
+- **What happened.** Before pushing tn-node-deployment's `worker-gateway` branch I ran the whole fixture suite under bash 5.3.9 and under bash 3.2.57 in a `bash:3.2` Linux container (79 files, 0 failed, each) and opened #68. CI's "fixture tests (macOS bash 3.2)" then failed 1 of 115 checks in a new test: the test called `scan_custom_installs`, whose `custom_container_lines` runs docker under `timeout(1)`, and macOS has no `timeout`. The repository's own test of that function (`remove_test.sh`) already stubs `timeout` for exactly this reason; the new test's unit did not look. Also in that session: I ran a smoke script twice "on two Caddy versions" by passing the image as an argument the script ignores, and a rehearsal harness without the settings its earlier clean run had used; both were caught only because I read the output lines, not the exit codes.
+- **Rules.**
+  - A bash 3.2 container tests the shell, not the platform. Before a tn-node-deployment push, run the suite once more with the GNU-only tools hidden from PATH (a shadow directory of symlinks without `timeout`; the recipe is in `tasks/ckpt-l2-orch.md`, 2026-11-17), and say "Linux container" beside every bash 3.2 figure.
+  - A unit that writes a test for an existing function first greps the existing tests for that function's name and copies their stubs.
+  - After a run "on N variants", read the line in which each run names its variant. After a re-run of an earlier clean run, diff the invocation against the recorded one before reading the result.
+  - Open the PR, then wait for CI before pinning its head anywhere or calling the branch complete.

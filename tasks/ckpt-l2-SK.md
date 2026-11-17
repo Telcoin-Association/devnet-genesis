@@ -1,0 +1,14 @@
+status: done
+unit: SK  file: /home/drtnarg/coding/telcoin/dg-l2/devnet-stake-node5.sh (only file written)
+baseline at 884b760 copy: shellcheck -x 0 findings, portability rc 0, 527 lines
+resume: continue from the first item (1-7, then checks) not listed below
+completed sections:
+- item 1: node 5 = first observer, reference = first validator (NODE5_IDX/REF_IDX, exit 2 if missing); NODE5_ADDR/INSTANCE/ZONE, node-info default via tn_role_dir; preflight messages use [${NODE5_IDX}]  [2026-11-17T20:27:03Z]
+- item 2: step-4 probes over IAP by default (host_rpc <idx> <method>: tn_iap_ssh + curl 127.0.0.1:NODE_RPC_PORT, one ssh per probe, rc 255 retried once); node5_head/node5_mode/ref_head use the URL only when --node5-rpc/--ref-rpc given; --node5-via-iap accepted (default; still wins over --node5-rpc as before); .node-meta RPC_PORT lookup replaced by config NODE_RPC_PORT  [2026-11-17T20:27:24Z]
+- item 3: header paragraph WHERE EACH READ GOES (chain reads+sends to --rpc = RPC_URL = public RPC node, submitted tx forwarded to the committee's gateways; tn_getNextCommitteeSize answered natively, failure tolerated); --rpc option text; comment at the tn_getNextCommitteeSize call  [2026-11-17T20:27:34Z]
+- item 4 (defect A): current_epoch rewritten as the one epoch helper: prints a decimal or rc 1 + message; failed/empty/non-numeric read retried (3 tries, 5 s apart); preflight EPOCH_NOW=$(current_epoch) || die  [2026-11-17T20:27:43Z]
+- item 5 (defect B): wait_for_epoch <n> (unreadable epoch keeps waiting; 10 unreadable polls in a row or EPOCH_TIMEOUT_SECS -> die; sets EPOCH_SEEN) replaces the inline while-loop; PendingActivation and Active log lines read the epoch once with '|| ep=unreadable'  [2026-11-17T20:27:55Z]
+- item 6: epoch_line helper (2 lines/epoch: epoch, node 5 status from last getValidator read, tn_nodeMode now over IAP, committee membership; reminder: allowlist entry at activationEpoch, admission window at +1, first possible seat at +2, later seats) used for activationEpoch, +1 and every watched epoch; dry-run plan text  [2026-11-17T20:28:20Z]
+- item 7: header + usage: node 5/reference by role, step 4/6 descriptions, STEP 4 note (why: https://nodeN is a gateway answered by the RPC node; IAP loopback default; URL overrides), options defaults, example for a fleet without gateways, rehearsal hook names  [2026-11-17T20:28:41Z]
+- checks: gates (bash -n 0, shellcheck -x 0 findings before/after, portability rc 0); hook tests T1-T10 passed (epoch helper number/empty/fail/recover; wait keeps waiting + dies after 10; sync gate ssh to observer-5 + validator-1, 0 https://node; rc255 retried once; --node5-rpc/--ref-rpc switch; --node5-via-iap precedence; no observer exit 2; --help)  [2026-11-17T20:30:02Z]
+- hand-back sent: all 7 items + checks done; final 622 lines, diff +149/-54; test hook kept in scratch SK/hook.sh (not in repo)  [2026-11-17T20:30:27Z]

@@ -1,0 +1,8 @@
+head 79fb24e 2026-11-17T22:18:30Z (one test file changed since 6361c9c: tools/tests/gateway_check_remove_test.sh; the smoke tests and lints of tnd-final-6361c9c still apply, no script changed)
+tracked files modified: 0
+suite bash5 exit=0 : 79 test file(s), 0 failed (bash 5.3.9(1)-release)
+suite bash3.2 (Linux container) exit=0 : 79 test file(s), 0 failed (bash 3.2.57(1)-release)
+suite bash5 with timeout(1) hidden from PATH exit=1 : 79 test file(s), 2 failed (bash 5.3.9(1)-release); failing files: == preflight_existing_test.sh: exit 1 == root_binary_test.sh: exit 1 
+gateway_check_remove_test bash5: 115 checks, 0 failures, 0 skipped | bash3.2: 111 checks, 0 failures, 1 skipped
+checksums=0 network-hits=0
+note: the two files failing with timeout hidden (preflight_existing_test.sh, root_binary_test.sh; both unchanged from main) fail because the shadow PATH directory is a user-owned directory of symlinks, which those tests of system-binary trust reject; neither uses timeout. No other test depends on timeout(1).

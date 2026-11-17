@@ -1,0 +1,326 @@
+Mostly stateless reverse proxy in front of Telcoin Network worker JSON-RPC.
+
+Usage: worker-gateway [OPTIONS]
+
+Options:
+      --listen-addr <LISTEN_ADDR>
+          Address the gateway listens on for client JSON-RPC, and for its own `/health` (liveness) and `/ready` (readiness) endpoints
+          
+          [env: WORKER_GATEWAY_LISTEN_ADDR=]
+          [default: 0.0.0.0:8545]
+
+      --probe-addr <PROBE_ADDR>
+          Address of a second listener that serves only the probe endpoints (`/health`, `/ready` and `/ready/any`), outside the client connection cap and the rate limits, so a flood that holds every client connection cannot make an orchestrator's probes time out. The probes stay on `--listen-addr` too. Unset (the default) opens no probe listener. The probe listener has no connection cap, so bind it where only the orchestrator reaches it
+          
+          [env: WORKER_GATEWAY_PROBE_ADDR=]
+
+      --config <CONFIG>
+          Path to a YAML file listing the upstream workers. Mutually exclusive with the inline `--upstream-*` flags; provide one source or the other
+          
+          [env: WORKER_GATEWAY_CONFIG=]
+
+      --upstream-rpc-url <UPSTREAM_RPC_URL>
+          Inline single upstream: the worker JSON-RPC base URL, `http` or `https` (e.g. `http://127.0.0.1:8545`)
+          
+          [env: WORKER_GATEWAY_UPSTREAM_RPC_URL]
+
+      --upstream-readiness-url <UPSTREAM_READINESS_URL>
+          Inline single upstream: the node readiness URL, `http` or `https` (e.g. `http://127.0.0.1:8551/health/workers`)
+          
+          [env: WORKER_GATEWAY_UPSTREAM_READINESS_URL]
+
+      --worker-id <WORKER_ID>
+          Inline single upstream: the worker id reported by the readiness endpoint
+          
+          [env: WORKER_GATEWAY_WORKER_ID=]
+          [default: 0]
+
+      --redirect-queries <REDIRECT_QUERIES>
+          JSON-RPC endpoint (`http` or `https`) that serves every call except transaction submissions and the few reads only the worker's pool can answer, typically a public RPC. When set, only `eth_sendRawTransaction` and `eth_sendRawTransactionSync`, alone or in a batch made only of them, reach the worker, plus a single `eth_getTransactionCount` at `pending` and a single lookup of a submission forwarded recently (see `--recent-submission-ttl`); everything else, including a batch that mixes submissions with other calls, goes here, with no readiness gate and no fallback to the worker. Must not point at the gateway itself or at a worker's RPC or readiness host and port, where `localhost` counts as both `127.0.0.1` and `[::1]`, and an unspecified host as any loopback or unspecified address; another loopback address at a worker's port is accepted with a warning
+          
+          [env: WORKER_GATEWAY_REDIRECT_QUERIES]
+
+      --redirect-queries-header <REDIRECT_QUERIES_HEADER>
+          Header sent on every request to the `--redirect-queries` endpoint and never to a worker, written as one `Name: value` line: for example a public RPC's API key, so it can meter this gateway by key rather than by the one address all redirected reads share. Every client's redirected call carries it, so use a key scoped to public reads, and quote the whole line on a command line. Names the gateway sets itself, such as `Content-Type`, `Host` or `X-Forwarded-For`, and hop-by-hop names are refused at startup. Requires `--redirect-queries`; set this or `--redirect-queries-header-file`, not both. The value is never logged. Prefer `--redirect-queries-header-file`, which keeps the secret out of the process arguments, the environment and any argument error. Default: none
+          
+          [env: WORKER_GATEWAY_REDIRECT_QUERIES_HEADER]
+
+      --redirect-queries-header-file <REDIRECT_QUERIES_HEADER_FILE>
+          Path to a file holding the `--redirect-queries-header` line, which keeps the secret out of the process arguments and environment (a mounted secret, for example). Whitespace around the line, a trailing newline included, is trimmed. Requires `--redirect-queries`; set this or `--redirect-queries-header`, not both. Default: none
+          
+          [env: WORKER_GATEWAY_REDIRECT_QUERIES_HEADER_FILE=]
+
+      --recent-submission-ttl <RECENT_SUBMISSION_TTL>
+          How long, with `--redirect-queries` set, the gateway remembers the hash of an `eth_sendRawTransaction` that a worker accepted: until then, `eth_getTransactionByHash` and `eth_getTransactionReceipt` for that hash go to the worker, whose pool holds the transaction, instead of the `--redirect-queries` endpoint, which has not seen it. At most 10,000 hashes are remembered at once. Default 60 s; `0` disables the hash routing (a nonce read at `pending` goes to the worker either way). Ignored without `--redirect-queries`
+          
+          [env: WORKER_GATEWAY_RECENT_SUBMISSION_TTL=]
+          [default: 60s]
+
+      --denied-method-prefixes <DENIED_METHOD_PREFIXES>
+          Comma-separated method-name prefixes the gateway refuses when `--redirect-queries` is unset (default `tn_,debug_,trace_,admin_`). A call whose `method` starts with one of them, matched case-sensitively from the first character, gets a JSON-RPC "method not allowed" error and never reaches the worker; a batch holding one is refused whole. Whitespace around an entry is ignored, and an empty value allows every method. With `--redirect-queries` set the list is not applied: the query upstream decides what it serves
+          
+          [env: WORKER_GATEWAY_DENIED_METHOD_PREFIXES=]
+          [default: tn_,debug_,trace_,admin_]
+
+      --readiness-poll-interval <READINESS_POLL_INTERVAL>
+          How often to poll each upstream's readiness endpoint, and to probe the `--redirect-queries` endpoint for `/ready/any`
+          
+          [env: WORKER_GATEWAY_READINESS_POLL_INTERVAL=]
+          [default: 5s]
+
+      --readiness-poll-timeout <READINESS_POLL_TIMEOUT>
+          Per-poll timeout for the readiness endpoint and the `--redirect-queries` probe (a poll that overruns it counts as failed; see `--readiness-failure-threshold`). At most `--readiness-poll-interval`
+          
+          [env: WORKER_GATEWAY_READINESS_POLL_TIMEOUT=]
+          [default: 2s]
+
+      --readiness-failure-threshold <READINESS_FAILURE_THRESHOLD>
+          Consecutive failed readiness polls that turn a ready upstream not-ready (default 3), so one slow or failed poll alone leaves readiness unchanged. Must be at least 1; `0` is rejected at startup
+          
+          [env: WORKER_GATEWAY_READINESS_FAILURE_THRESHOLD=]
+          [default: 3]
+
+      --readiness-success-threshold <READINESS_SUCCESS_THRESHOLD>
+          Consecutive successful readiness polls that turn a not-ready upstream ready, at startup too (default 2). Must be at least 1; `0` is rejected at startup
+          
+          [env: WORKER_GATEWAY_READINESS_SUCCESS_THRESHOLD=]
+          [default: 2]
+
+      --upstream-failure-threshold <UPSTREAM_FAILURE_THRESHOLD>
+          Consecutive forwards to an upstream worker that fail to connect (a connect timeout included) before that upstream is marked not-ready (default 3). A timeout after the request was sent does not count, since the method and params decide how long the worker takes. The upstream stays not-ready until the readiness poller sees `--readiness-success-threshold` successful polls in a row, and later requests go to the next ready upstream; the failing requests are answered with their error, never retried. A forward that gets any response resets the count. `0` disables this passive health check
+          
+          [env: WORKER_GATEWAY_UPSTREAM_FAILURE_THRESHOLD=]
+          [default: 3]
+
+      --upstream-connect-timeout <UPSTREAM_CONNECT_TIMEOUT>
+          Connect timeout when forwarding a request to an upstream: a worker, or the `--redirect-queries` endpoint
+          
+          [env: WORKER_GATEWAY_UPSTREAM_CONNECT_TIMEOUT=]
+          [default: 2s]
+
+      --upstream-request-timeout <UPSTREAM_REQUEST_TIMEOUT>
+          Deadline for the upstream's response head, connection setup included, and the longest the response body may go without data, when forwarding to an upstream: a worker, or the `--redirect-queries` endpoint when `--query-request-timeout` is `0`; a body that keeps arriving is never cut. The default outlasts the 30 s reth gives `eth_sendRawTransactionSync` to wait for its receipt (`--rpc.send-raw-transaction-sync-timeout`), so a slow Sync call gets the worker's own answer rather than a gateway timeout. It covers connection setup as well, so it must be longer than `--upstream-connect-timeout`
+          
+          [env: WORKER_GATEWAY_UPSTREAM_REQUEST_TIMEOUT=]
+          [default: 35s]
+
+      --query-request-timeout <QUERY_REQUEST_TIMEOUT>
+          Deadline for the `--redirect-queries` endpoint's response head, connection setup included, and the longest its response body may go without data; a body that keeps arriving is never cut. The default is 10s, or `--upstream-request-timeout` when that is shorter; `0` disables it, and the query route then uses `--upstream-request-timeout`. A stalled query upstream frees each read's slot this soon, while submissions keep the longer worker deadline. With `--redirect-queries` set, a value given here must not exceed `--upstream-request-timeout`
+          
+          [env: WORKER_GATEWAY_QUERY_REQUEST_TIMEOUT=]
+
+      --upstream-ca-cert <UPSTREAM_CA_CERT>
+          PEM file of extra CA certificates to trust for `https` upstreams, on top of the platform's native root store. Every certificate in the file is trusted; the file is read once at startup. Applies to the worker RPC and readiness URLs and to the `--redirect-queries` endpoint. Unset (the default) trusts the native root store only
+          
+          [env: WORKER_GATEWAY_UPSTREAM_CA_CERT=]
+
+      --upstream-client-cert <UPSTREAM_CLIENT_CERT>
+          PEM file holding the client certificate, followed by any intermediates, that the gateway presents to an `https` upstream asking for one (mutual TLS). Requires `--upstream-client-key`; read once at startup. Applies to the worker RPC and readiness URLs and to a `--redirect-queries` endpoint that asks for a client certificate. Unset (the default) presents none
+          
+          [env: WORKER_GATEWAY_UPSTREAM_CLIENT_CERT=]
+
+      --upstream-client-key <UPSTREAM_CLIENT_KEY>
+          PEM file holding the private key (PKCS#8, PKCS#1 or SEC1, unencrypted) for `--upstream-client-cert`. Requires `--upstream-client-cert`; read once at startup. Unset (the default) presents no client certificate
+          
+          [env: WORKER_GATEWAY_UPSTREAM_CLIENT_KEY=]
+
+      --dns-cache-ttl <DNS_CACHE_TTL>
+          How long a resolved upstream host name is cached (default `30s`). An expired answer is still served while one background lookup refreshes it, and while refreshes fail, for up to a day past its expiry. `0` disables the cache: every new upstream connection looks its host up again
+          
+          [env: WORKER_GATEWAY_DNS_CACHE_TTL=]
+          [default: 30s]
+
+      --max-concurrent-dns-lookups <MAX_CONCURRENT_DNS_LOOKUPS>
+          Most DNS lookups for upstream hosts that may run at once (default `8`). Only one lookup per host runs at a time; a lookup beyond the cap fails at once instead of waiting, so a request to a host with no cached answer is answered as an unreachable upstream (a refusal the gateway caused itself, so it does not count toward `--upstream-failure-threshold`). The forwarding client and the readiness poller each get their own cache and their own cap of this size. Must be at least `1`
+          
+          [env: WORKER_GATEWAY_MAX_CONCURRENT_DNS_LOOKUPS=]
+          [default: 8]
+
+      --header-read-timeout <HEADER_READ_TIMEOUT>
+          How long a new connection may take to send its complete request headers before it is disconnected (slow-loris guard). With `--proxy-protocol`, a connection from a trusted proxy first gets this long for its PROXY header, so its request headers may complete up to twice this long after accept
+          
+          [env: WORKER_GATEWAY_HEADER_READ_TIMEOUT=]
+          [default: 10s]
+
+      --max-connections <MAX_CONNECTIONS>
+          Maximum concurrently-open inbound connections; further connections wait in the OS accept backlog until a slot frees up
+          
+          [env: WORKER_GATEWAY_MAX_CONNECTIONS=]
+          [default: 500]
+
+      --max-connections-per-ip <MAX_CONNECTIONS_PER_IP>
+          Maximum concurrently-open inbound connections from one client (default 32; `0` disables the cap). A client is its network prefix, masked by `--rate-limit-per-ip-v4-prefix` / `--rate-limit-per-ip-v6-prefix` exactly as the per-IP rate limiter masks it, even when per-IP rate limiting is off. The address masked is the peer's, or with `--proxy-protocol` the source a trusted front's PROXY header names. A connection from an address in `--trusted-proxies` is not counted: its requests are attributed to clients by `X-Forwarded-For` one at a time, and counting it would put every client behind that front under one cap. A connection over the cap is closed at once, without a response, so one client cannot hold every `--max-connections` slot. Keep it at or below the per-IP burst (`--rate-limit-per-ip-burst`, 200 by default; the default 32 is within it): with `--rate-limit-submissions`, a first-seen client's concurrent first requests all pass the edge before its entry exists, and are recorded against it as debt afterwards
+          
+          [env: WORKER_GATEWAY_MAX_CONNECTIONS_PER_IP=]
+          [default: 32]
+
+      --max-inflight-submissions <MAX_INFLIGHT_SUBMISSIONS>
+          Maximum in-flight requests made only of transaction submissions (default 256; `0` means unlimited). A submission over the cap is answered at once with a `503` overload error instead of waiting. The class is the same with or without `--redirect-queries`
+          
+          [env: WORKER_GATEWAY_MAX_INFLIGHT_SUBMISSIONS=]
+          [default: 256]
+
+      --max-inflight-queries <MAX_INFLIGHT_QUERIES>
+          Maximum in-flight requests of every other kind, mixed batches included (default 256, or the ceiling below without `--redirect-queries`; `0` means unlimited). A request over the cap is answered at once with a `503` overload error instead of waiting, so a stalled query upstream cannot take the connection slots submissions need; keep it below `--max-connections` (the gateway warns at startup otherwise). Without `--redirect-queries` every read is forwarded to the worker, so the cap is lowered at startup to at most `--max-upstream-inflight` less a fifth of it (at least one slot is held back, but the cap stays at least 1); `0` counts as above that ceiling, and lowering a value set here logs a warning. The slots held back stay free for submissions
+          
+          [env: WORKER_GATEWAY_MAX_INFLIGHT_QUERIES=]
+
+      --max-upstream-inflight <MAX_UPSTREAM_INFLIGHT>
+          Maximum concurrent requests this gateway forwards to the worker (default 100; `0` means unlimited). A request for the worker over the cap is answered at once with a `503` overload error instead of waiting. Every gateway in front of a worker shares its `--rpc.max-connections` (500 by default), which counts in-flight HTTP requests, not TCP connections, so keep N times this cap below it, where N counts every gateway that can hold worker requests at once: the replica ceiling plus any pod a rollout adds or is draining (see the README's Sizing for N gateways). Without `--redirect-queries`, reads may hold at most this cap less a fifth of it (at least one slot), so the rest stays free for submissions (see `--max-inflight-queries`). With it, the reads kept on the worker (pending nonce reads and recent submission lookups) may hold at most a fifth of it (at least one slot), and one over that share is answered at once with the same `503`. At `1` no slot stays free for submissions, and startup warns
+          
+          [env: WORKER_GATEWAY_MAX_UPSTREAM_INFLIGHT=]
+          [default: 100]
+
+      --tcp-user-timeout <TCP_USER_TIMEOUT>
+          Transport-stall deadline for inbound connections (`TCP_USER_TIMEOUT`): a connection whose peer leaves written response data unacknowledged, or its receive window closed, for this long is forcibly closed by the kernel. This kills a fully stalled reader at the transport layer, at a cost: the option replaces the kernel's default retransmit budget (typically ~15min via `tcp_retries2`), so a peer whose path stays black-holed past the deadline is dropped where stock TCP might have recovered. Linux-family kernels only; elsewhere only `--max-connection-duration` bounds a stalled reader. `0` disables
+          
+          [env: WORKER_GATEWAY_TCP_USER_TIMEOUT=]
+          [default: 30s]
+
+      --max-connection-duration <MAX_CONNECTION_DURATION>
+          Cap on a single inbound connection's total lifetime, keep-alive sessions included. The cap fires independent of connection progress, so it also bounds a client that trickles reads slowly enough to keep the transport-stall guard from firing. At the cap the connection takes no new requests: an idle one closes at once, and an exchange still in flight gets the whole-request deadline to finish before the connection is closed, so a response still streaming then is cut off; size the cap well above the longest legitimate transfer. Must be at least the gateway's own single-request bound (`--header-read-timeout`, twice with `--proxy-protocol`, plus the whole-request deadline `--upstream-request-timeout` + `--header-read-timeout`) so the first request on a connection can never be cut off. `0` disables, and then a streamed answer that keeps arriving, or a client that keeps reading it slowly, holds its class slot without a time bound
+          
+          [env: WORKER_GATEWAY_MAX_CONNECTION_DURATION=]
+          [default: 10m]
+
+      --max-request-bytes <MAX_REQUEST_BYTES>
+          Maximum request body the gateway will accept, in bytes (default 1 MiB). Requests whose body exceeds this are rejected with a JSON-RPC "request too large" error before being forwarded, and a declared `Content-Length` over it is rejected before the body is read. The total buffered across connections is bounded by `--max-inflight-request-bytes`. Must be greater than 0 (`0` does not mean unlimited here; it would refuse every body); startup warns below 257 KiB, the largest admissible submission
+          
+          [env: WORKER_GATEWAY_MAX_REQUEST_BYTES=]
+          [default: 1048576]
+
+      --max-batch-len <MAX_BATCH_LEN>
+          Maximum number of calls in one JSON-RPC batch (default 50; `0` means unlimited). A longer batch is refused whole with a JSON-RPC "batch too long" error (`413`, `-32003`) before its screen verdict is applied or it is forwarded, on either route. The effective cap never exceeds the smallest per-IP or global burst: a batch needs one token per call at once, so a longer one could never pass. The submission budget does not lower it
+          
+          [env: WORKER_GATEWAY_MAX_BATCH_LEN=]
+          [default: 50]
+
+      --max-inflight-request-bytes <MAX_INFLIGHT_REQUEST_BYTES>
+          Budget of request-body bytes held across all in-flight requests, in bytes (default 512 MiB, at most 4294967295; `0` disables). Each request reserves its `Content-Length`, or `--max-request-bytes` when the body is chunked, before the body is read, and holds it until the request has been forwarded or rejected. A request that does not fit in what is left is answered at once with a JSON-RPC "in-flight bytes exhausted" error (`503`) instead of waiting. Must be at least `--max-request-bytes`
+          
+          [env: WORKER_GATEWAY_MAX_INFLIGHT_REQUEST_BYTES=]
+          [default: 536870912]
+
+      --http1-max-buf-size <HTTP1_MAX_BUF_SIZE>
+          Cap on each inbound connection's read buffer, in bytes (default 64 KiB, minimum 8192, which hyper enforces). The buffer grows up to this size and stays allocated while the connection is open, so a connection holding a request body costs the body plus this much. A request's head (request line and headers) must fit in it, or the request is answered `431`; it also bounds how much of a streamed response is queued per connection
+          
+          [env: WORKER_GATEWAY_HTTP1_MAX_BUF_SIZE=]
+          [default: 65536]
+
+      --rate-limit-per-ip <RATE_LIMIT_PER_IP>
+          Sustained per-client-IP request rate, in requests per second (`0` disables per-IP rate limiting); a batch counts one request per call. The client IP is the immediate TCP peer, or, when that peer is in `--trusted-proxies`, the client it forwarded the request for; behind a proxy that is not listed, every client shares the proxy's bucket (see the README)
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_PER_IP=]
+          [default: 100]
+
+      --rate-limit-per-ip-burst <RATE_LIMIT_PER_IP_BURST>
+          Burst allowance for the per-IP rate limit, in requests (`0` derives twice the sustained rate). Ignored when per-IP rate limiting is disabled
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_PER_IP_BURST=]
+          [default: 0]
+
+      --rate-limit-per-ip-v6-prefix <RATE_LIMIT_PER_IP_V6_PREFIX>
+          IPv6 network prefix, in bits, that a client address is masked to before it keys its per-IP bucket and its `--max-connections-per-ip` count (the cap uses it even when per-IP rate limiting is off). The default `/64` is the smallest subnet routed to one customer, so a client rotating addresses inside its own allocation keeps spending one bucket instead of minting a fresh one per address. Widen it (up to `/128`) only to meter individual addresses. `0` is rejected: it does not disable masking, it would put every client of the family into one bucket and one connection count; startup warns below /32 (IPv6) or /16 (IPv4)
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_PER_IP_V6_PREFIX=]
+          [default: 64]
+
+      --rate-limit-per-ip-v4-prefix <RATE_LIMIT_PER_IP_V4_PREFIX>
+          IPv4 network prefix, in bits, that a client address is masked to before it keys its per-IP bucket and its `--max-connections-per-ip` count (the cap uses it even when per-IP rate limiting is off). The default `/32` is a single address: it preserves the gateway's per-address behaviour and never groups unrelated customers that share one carrier-grade NAT. Narrow it only for a deployment whose clients genuinely map to larger IPv4 allocations. `0` is rejected: it does not disable masking, it would put every client of the family into one bucket and one connection count; startup warns below /32 (IPv6) or /16 (IPv4)
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_PER_IP_V4_PREFIX=]
+          [default: 32]
+
+      --rate-limit-global <RATE_LIMIT_GLOBAL>
+          Sustained gateway-wide request rate across all clients, in requests per second (`0` disables the global rate limit); a batch counts one request per call
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_GLOBAL=]
+          [default: 3000]
+
+      --rate-limit-global-burst <RATE_LIMIT_GLOBAL_BURST>
+          Burst allowance for the global rate limit, in requests (`0` derives twice the sustained rate). Ignored when the global rate limit is disabled
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_GLOBAL_BURST=]
+          [default: 0]
+
+      --rate-limit-submissions <RATE_LIMIT_SUBMISSIONS>
+          Sustained gateway-wide rate reserved for requests made only of transaction submissions, in requests per second, with a burst of twice the rate (default `0` disables it). When set, a submission request's first call is metered by this budget and every other request by the global rate limit; a submission batch's further calls are charged to the per-IP and global limits like any batch's, so this bounds submission requests, not submitted transactions. A read flood that empties the global bucket no longer refuses single submissions; the per-IP limit still applies to both
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_SUBMISSIONS=]
+          [default: 0]
+
+      --rate-limit-per-ip-max-entries <RATE_LIMIT_PER_IP_MAX_ENTRIES>
+          Most client prefixes the per-IP rate limiter tracks at once (default 100,000); a first-seen client beyond it, once no tracked entry is idle, shares one overflow bucket with every other untracked client (see the README's Rate limiting section). Memory (about 100 bytes an entry) and the once-a-second idle sweep, which walks the whole table under the lock every per-IP admission takes (about 1 ms per 100,000 entries), grow with this value; startup warns above 1,000,000. Ignored when the per-IP rate limit is disabled
+          
+          [env: WORKER_GATEWAY_RATE_LIMIT_PER_IP_MAX_ENTRIES=]
+          [default: 100000]
+
+      --trusted-proxies <TRUSTED_PROXIES>
+          Comma-separated IPv4/IPv6 CIDR ranges of the proxies in front of the gateway (a bare address is a single host). A request whose TCP peer is inside one is attributed to the right-most `X-Forwarded-For` address that is not itself in a listed range, and that proxy's `X-Forwarded-Proto` is passed on; every other request is attributed to its peer, whatever headers it carries. A listed proxy's own connections are not counted by `--max-connections-per-ip`. Unset (the default) trusts no proxy. List only the proxies' own addresses: a range that also covers clients lets them choose their own rate-limit key and escape the per-client connection cap. Each listed proxy must append the address it received the connection from to `X-Forwarded-For` (or replace the header with it) and set `X-Forwarded-Proto` itself; one that passes a client's headers through lets that client choose its own rate-limit key
+          
+          [env: WORKER_GATEWAY_TRUSTED_PROXIES=]
+
+      --proxy-protocol
+          Expect a PROXY protocol v2 header (the binary form, for TCP over IPv4 or IPv6) at the start of every connection from a peer in `--proxy-protocol-from` (by default the `--trusted-proxies` ranges), and take the client address from it; `X-Forwarded-For` is then believed only when that address is itself in `--trusted-proxies`. A connection from such a peer whose header is missing, malformed or not complete within `--header-read-timeout` is closed; any other peer is served as plain HTTP. Off by default; requires a non-empty `--proxy-protocol-from` or `--trusted-proxies`. Turn it on only once every listed peer sends the header on every connection: from a listed peer that does not, a client's own first bytes are read as the header
+          
+          [env: WORKER_GATEWAY_PROXY_PROTOCOL=]
+
+      --proxy-protocol-from <PROXY_PROTOCOL_FROM>
+          Comma-separated IPv4/IPv6 CIDR ranges of the peers whose connections must open with a PROXY protocol v2 header under `--proxy-protocol` (a bare address is a single host). Unset or blank, the `--trusted-proxies` ranges. `--trusted-proxies` keeps naming the peers whose `X-Forwarded-For` is believed and whose own connections `--max-connections-per-ip` does not count, so an L4 balancer can be listed here without its address vouching for any `X-Forwarded-For`, and an HTTP proxy can be trusted without sending PROXY headers. Requires `--proxy-protocol`
+          
+          [env: WORKER_GATEWAY_PROXY_PROTOCOL_FROM=]
+
+      --shutdown-delay <SHUTDOWN_DELAY>
+          How long to keep accepting and serving after SIGTERM while `/ready` and `/ready/any` answer `503` with `"draining": true`, so fronts that probe them (DNS health checks, external load balancers) stop routing here before the listener closes; the probe listener (`--probe-addr`) keeps answering through it too. The in-flight drain (`--graceful-shutdown-timeout`) starts after it. At most `60s`. `0` (the default) disables the delay: the listeners close as soon as SIGTERM arrives
+          
+          [env: WORKER_GATEWAY_SHUTDOWN_DELAY=]
+          [default: 0s]
+
+      --graceful-shutdown-timeout <GRACEFUL_SHUTDOWN_TIMEOUT>
+          How long to drain in-flight requests on SIGTERM before forcing close. Default: the request deadline, `--upstream-request-timeout` + `--header-read-timeout` (45s at the defaults), so a request whose head has arrived when the drain starts can run to its deadline. A connection still sending its head can be cut up to `--header-read-timeout` (twice that with `--proxy-protocol`) before its own deadline. An explicit value is kept as given, and one below the deadline logs a startup warning
+          
+          [env: WORKER_GATEWAY_GRACEFUL_SHUTDOWN_TIMEOUT=]
+
+      --metrics <METRICS_ADDR>
+          Address to expose Prometheus metrics on (`GET /metrics`), on a listener separate from the client JSON-RPC port. Unset (the default) disables the metrics endpoint entirely; bind it to an internal interface, not the public edge. Named `--metrics` to match the node's flag
+          
+          [env: WORKER_GATEWAY_METRICS_ADDR=]
+
+      --cors-allowed-origins <CORS_ALLOWED_ORIGINS>
+          Browser origins allowed to call the gateway cross-origin (CORS): a comma-separated list of `http` or `https` origins written as `scheme://host[:port]` with no path, or `*` alone for any origin. Unset (the default) leaves CORS off and no CORS header is ever added. When set, the gateway answers every preflight `OPTIONS` itself, never forwarding it, and allows `POST` with a `Content-Type` header
+          
+          [env: WORKER_GATEWAY_CORS_ALLOWED_ORIGINS=]
+
+      --access-log-sample <ACCESS_LOG_SAMPLE>
+          Fraction of proxied requests written to the access log (tracing target `gateway::access`), from `0` to `1`: `1` logs every request, rate-limit `429`s included, `0.01` one in a hundred, and the default `0` disables the log. A line carries the client's network prefix, the method class, the route, the status, the latency and the request size, never a URL, body, params or header value. A value outside `0..=1` is a startup error
+          
+          [env: WORKER_GATEWAY_ACCESS_LOG_SAMPLE=]
+          [default: 0]
+
+      --access-log-max-lines-per-second <ACCESS_LOG_MAX_LINES_PER_SECOND>
+          Most access-log lines written per second, applied after `--access-log-sample`: a sampled request over it writes no line and is counted in `tn_worker_gateway_access_log_suppressed_total`. The window is a fixed second, so a burst across one window edge can write about twice the ceiling within a second at most. The ceiling is shared by every client, so one client's flood, its `429`s included, can suppress every other client's lines in the same second. Defaults to `1000`; `0` means unlimited
+          
+          [env: WORKER_GATEWAY_ACCESS_LOG_MAX_LINES_PER_SECOND=]
+          [default: 1000]
+
+      --log-filter <LOG_FILTER>
+          Tracing filter directive (e.g. `info,worker_gateway=debug`)
+          
+          [env: RUST_LOG=]
+          [default: info]
+
+      --log-format <LOG_FORMAT>
+          Log line format: `text` (the default), human-readable lines, or `json`, one JSON object per line for a log collector. `text` carries colour codes only when stdout is a terminal and `NO_COLOR` is unset or empty; `json` never does. Any other value is rejected at startup
+
+          Possible values:
+          - text: Human-readable lines
+          - json: One JSON object per line, with the event's `timestamp`, `level`, `target` and `fields`
+          
+          [env: WORKER_GATEWAY_LOG_FORMAT=]
+          [default: text]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

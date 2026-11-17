@@ -1,0 +1,354 @@
+===== $ docker run --rm <node image id> telcoin keytool generate validator --help
+Generate all validator keys and write them to file
+
+Usage: telcoin keytool generate validator [OPTIONS] --address <ADDRESS>
+
+Options:
+      --workers <COUNT>
+          Number of workers to provision, with consecutive IDs starting at 0
+          
+          [default: 1]
+
+      --name <NAME>
+          Optional human-readable name for this node.
+          
+          Recorded in node-info.yaml for logging / RPC metadata only; not used for consensus or peer identity. If unset, defaults to `node-` followed by the base58 encoding of the first 8 bytes of the BLS public key.
+
+      --bls-passphrase-source <TN_PASSPHRASE_SOURCE>
+          How to get the BLS key passphrase.
+          
+          The default is to use the env variable TN_BLS_PASSPHRASE
+          Note, this variable should be securily managed if used on a validator.
+
+          Possible values:
+          - env:           Get the passphrase from then environment variable TN_BLS_PASSPHRASE
+          - stdin:         Read the passphrase from stdin.  Will read the first line of stdin or until EOF
+          - ask:           Ask the user on startup, only works if running in foreground on a TTY
+          - no-passphrase: Do not use a passphrase- save the BLS key in the clear. Only do this for testing, one offs, etc
+          - credential:    Read the passphrase from the systemd credential named by --bls-passphrase-credential (LoadCredential= or LoadCredentialEncrypted=). Removes one final \n or \r\n only
+          
+          [default: env]
+
+      --external-primary-addr <MULTIADDR>
+          The external multiaddr for the primary p2p network. Must be quic-v1 and udp. Recommended do not include p2p protocol id - the CLI will add this. For example: /ip4/[HOST]/udp/[PORT]/quic-v1
+          
+          If not set will default to /ip4/127.0.0.1/udp/[PORT]/quic-v1 with an unused port for PORT. This default is only useful for tests (including a local testnet).
+          
+          NOTE: the node's [Protocol::P2p] is automatically added to the Multiaddr and does not need to be provided.
+          
+          [env: TN_EXTERNAL_PRIMARY_ADDR=]
+
+      --bls-passphrase-credential <NAME>
+          Name of the systemd credential holding the BLS key passphrase.
+          
+          Used with `--bls-passphrase-source credential`, which reads the file of this name in $CREDENTIALS_DIRECTORY (set by systemd for LoadCredential= and LoadCredentialEncrypted=). An empty value selects the default. The name is checked only when the credential source is selected, so other sources and subcommands ignore it.
+          
+          [env: TN_BLS_PASSPHRASE_CREDENTIAL=]
+          [default: bls-passphrase]
+
+      --external-worker-addrs <MULTIADDRS>
+          List of external multiaddrs for the workers p2p networks, comma separated. Must be quic-v1 and udp. Recommended do not include p2p protocol id - the CLI will add this. For example: /ip4/[HOST1]/udp/[PORT1]/quic-v1,
+          
+          If not set each worker will default to /ip4/127.0.0.1/udp/[PORT]/quic-v1 with an unused port for PORT. This default is only useful for tests (including a local testnet). When supplied, provide exactly one distinct listen address per worker, in worker ID order.
+          
+          NOTE: the node's [Protocol::P2p] is automatically added to the Multiaddr and does not need to be provided.
+          
+          [env: TN_EXTERNAL_WORKER_ADDRS=]
+
+      --datadir <DATA_DIR>
+          The path to the data dir for all telcoin-network files and subdirectories.
+          
+          Defaults to the OS-specific data directory:
+          
+          - Linux: `$XDG_DATA_HOME/telcoin-network/` or `$HOME/.local/share/telcoin-network/`
+          - Windows: `{FOLDERID_RoamingAppData}/telcoin-network/`
+          - macOS: `$HOME/Library/Application Support/telcoin-network/`
+
+      --rpc-http <URL>
+          Optional HTTP(S) JSON-RPC endpoint for worker 0 (e.g. https://validator.example.com:8545/).
+          
+          Recorded in node-info.yaml so wallets/dapps can discover where to submit transactions - equivalent to running `keytool set-rpc --worker-id 0` after generation. Omit to advertise no endpoint. Configure other workers with `keytool set-rpc --worker-id N --http URL`.
+
+      --rpc-ws <URL>
+          Optional WebSocket JSON-RPC endpoint for worker 0 (e.g. wss://validator.example.com:8546/). Requires `--rpc-http`
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Overwrite existing keys. Warning: existing keys will be lost.:
+      --force
+          Overwrite existing keys, if present.
+          
+          Warning: Existing keys will be lost.
+
+The address that should receive block rewards. Pass `0` to use the zero address.:
+      --address <ADDRESS>
+          The address for suggested fee recipient.
+          
+          The execution layer address, derived from `secp256k1` keypair.
+          The validator uses this address when producing batches and blocks.
+          Validators can pass "0" to use the zero address.
+          Address doesn't have to start with "0x", but the CLI supports the "0x" format too.
+          
+          [env: EXECUTION_ADDRESS=]
+
+Logging:
+      --log.stdout.format <FORMAT>
+          The format to use for logs written to stdout
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.stdout.filter <FILTER>
+          The filter to use for logs written to stdout
+          
+          [default: ""]
+
+      --log.file.format <FORMAT>
+          The format to use for logs written to the log file
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.file.filter <FILTER>
+          The filter to use for logs written to the log file
+          
+          [default: debug]
+
+      --log.file.directory <PATH>
+          The path to put log files in
+          
+          [default: /home/nonroot/.cache/reth/logs]
+
+      --log.file.name <NAME>
+          The prefix name of the log files
+          
+          [default: reth.log]
+
+      --log.file.max-size <SIZE>
+          The maximum size (in MB) of one log file
+          
+          [default: 200]
+
+      --log.file.max-files <COUNT>
+          The maximum amount of log files that will be stored. If set to 0, background file logging is disabled
+          
+          [default: 5]
+
+      --log.journald
+          Write logs to journald
+
+      --log.journald.filter <FILTER>
+          The filter to use for logs written to journald
+          
+          [default: error]
+
+      --color <COLOR>
+          Sets whether or not the formatter emits ANSI terminal escape codes for colors and other text formatting
+
+          Possible values:
+          - always: Colors on
+          - auto:   Auto-detect
+          - never:  Colors off
+          
+          [default: always]
+
+Display:
+  -v, --verbosity...
+          Set the minimum log level.
+          
+          -v      Errors
+          -vv     Warnings
+          -vvv    Info
+          -vvvv   Debug
+          -vvvvv  Traces (warning: very verbose!)
+
+  -q, --quiet
+          Silence all log output
+(rc=0)
+
+===== $ docker run --rm <node image id> telcoin keytool generate observer --help
+Generate all observer (non-validator) keys and write them to file
+
+Usage: telcoin keytool generate observer [OPTIONS] --address <ADDRESS>
+
+Options:
+      --workers <COUNT>
+          Number of workers to provision, with consecutive IDs starting at 0
+          
+          [default: 1]
+
+      --name <NAME>
+          Optional human-readable name for this node.
+          
+          Recorded in node-info.yaml for logging / RPC metadata only; not used for consensus or peer identity. If unset, defaults to `node-` followed by the base58 encoding of the first 8 bytes of the BLS public key.
+
+      --bls-passphrase-source <TN_PASSPHRASE_SOURCE>
+          How to get the BLS key passphrase.
+          
+          The default is to use the env variable TN_BLS_PASSPHRASE
+          Note, this variable should be securily managed if used on a validator.
+
+          Possible values:
+          - env:           Get the passphrase from then environment variable TN_BLS_PASSPHRASE
+          - stdin:         Read the passphrase from stdin.  Will read the first line of stdin or until EOF
+          - ask:           Ask the user on startup, only works if running in foreground on a TTY
+          - no-passphrase: Do not use a passphrase- save the BLS key in the clear. Only do this for testing, one offs, etc
+          - credential:    Read the passphrase from the systemd credential named by --bls-passphrase-credential (LoadCredential= or LoadCredentialEncrypted=). Removes one final \n or \r\n only
+          
+          [default: env]
+
+      --external-primary-addr <MULTIADDR>
+          The external multiaddr for the primary p2p network. Must be quic-v1 and udp. Recommended do not include p2p protocol id - the CLI will add this. For example: /ip4/[HOST]/udp/[PORT]/quic-v1
+          
+          If not set will default to /ip4/127.0.0.1/udp/[PORT]/quic-v1 with an unused port for PORT. This default is only useful for tests (including a local testnet).
+          
+          NOTE: the node's [Protocol::P2p] is automatically added to the Multiaddr and does not need to be provided.
+          
+          [env: TN_EXTERNAL_PRIMARY_ADDR=]
+
+      --bls-passphrase-credential <NAME>
+          Name of the systemd credential holding the BLS key passphrase.
+          
+          Used with `--bls-passphrase-source credential`, which reads the file of this name in $CREDENTIALS_DIRECTORY (set by systemd for LoadCredential= and LoadCredentialEncrypted=). An empty value selects the default. The name is checked only when the credential source is selected, so other sources and subcommands ignore it.
+          
+          [env: TN_BLS_PASSPHRASE_CREDENTIAL=]
+          [default: bls-passphrase]
+
+      --external-worker-addrs <MULTIADDRS>
+          List of external multiaddrs for the workers p2p networks, comma separated. Must be quic-v1 and udp. Recommended do not include p2p protocol id - the CLI will add this. For example: /ip4/[HOST1]/udp/[PORT1]/quic-v1,
+          
+          If not set each worker will default to /ip4/127.0.0.1/udp/[PORT]/quic-v1 with an unused port for PORT. This default is only useful for tests (including a local testnet). When supplied, provide exactly one distinct listen address per worker, in worker ID order.
+          
+          NOTE: the node's [Protocol::P2p] is automatically added to the Multiaddr and does not need to be provided.
+          
+          [env: TN_EXTERNAL_WORKER_ADDRS=]
+
+      --datadir <DATA_DIR>
+          The path to the data dir for all telcoin-network files and subdirectories.
+          
+          Defaults to the OS-specific data directory:
+          
+          - Linux: `$XDG_DATA_HOME/telcoin-network/` or `$HOME/.local/share/telcoin-network/`
+          - Windows: `{FOLDERID_RoamingAppData}/telcoin-network/`
+          - macOS: `$HOME/Library/Application Support/telcoin-network/`
+
+      --rpc-http <URL>
+          Optional HTTP(S) JSON-RPC endpoint for worker 0 (e.g. https://validator.example.com:8545/).
+          
+          Recorded in node-info.yaml so wallets/dapps can discover where to submit transactions - equivalent to running `keytool set-rpc --worker-id 0` after generation. Omit to advertise no endpoint. Configure other workers with `keytool set-rpc --worker-id N --http URL`.
+
+      --rpc-ws <URL>
+          Optional WebSocket JSON-RPC endpoint for worker 0 (e.g. wss://validator.example.com:8546/). Requires `--rpc-http`
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Overwrite existing keys. Warning: existing keys will be lost.:
+      --force
+          Overwrite existing keys, if present.
+          
+          Warning: Existing keys will be lost.
+
+The address that should receive block rewards. Pass `0` to use the zero address.:
+      --address <ADDRESS>
+          The address for suggested fee recipient.
+          
+          The execution layer address, derived from `secp256k1` keypair.
+          The validator uses this address when producing batches and blocks.
+          Validators can pass "0" to use the zero address.
+          Address doesn't have to start with "0x", but the CLI supports the "0x" format too.
+          
+          [env: EXECUTION_ADDRESS=]
+
+Logging:
+      --log.stdout.format <FORMAT>
+          The format to use for logs written to stdout
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.stdout.filter <FILTER>
+          The filter to use for logs written to stdout
+          
+          [default: ""]
+
+      --log.file.format <FORMAT>
+          The format to use for logs written to the log file
+
+          Possible values:
+          - json:     Represents JSON formatting for logs. This format outputs log records as JSON objects, making it suitable for structured logging
+          - log-fmt:  Represents logfmt (key=value) formatting for logs. This format is concise and human-readable, typically used in command-line applications
+          - terminal: Represents terminal-friendly formatting for logs
+          
+          [default: terminal]
+
+      --log.file.filter <FILTER>
+          The filter to use for logs written to the log file
+          
+          [default: debug]
+
+      --log.file.directory <PATH>
+          The path to put log files in
+          
+          [default: /home/nonroot/.cache/reth/logs]
+
+      --log.file.name <NAME>
+          The prefix name of the log files
+          
+          [default: reth.log]
+
+      --log.file.max-size <SIZE>
+          The maximum size (in MB) of one log file
+          
+          [default: 200]
+
+      --log.file.max-files <COUNT>
+          The maximum amount of log files that will be stored. If set to 0, background file logging is disabled
+          
+          [default: 5]
+
+      --log.journald
+          Write logs to journald
+
+      --log.journald.filter <FILTER>
+          The filter to use for logs written to journald
+          
+          [default: error]
+
+      --color <COLOR>
+          Sets whether or not the formatter emits ANSI terminal escape codes for colors and other text formatting
+
+          Possible values:
+          - always: Colors on
+          - auto:   Auto-detect
+          - never:  Colors off
+          
+          [default: always]
+
+Display:
+  -v, --verbosity...
+          Set the minimum log level.
+          
+          -v      Errors
+          -vv     Warnings
+          -vvv    Info
+          -vvvv   Debug
+          -vvvvv  Traces (warning: very verbose!)
+
+  -q, --quiet
+          Silence all log output
+(rc=0)
+

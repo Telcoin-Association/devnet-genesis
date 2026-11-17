@@ -1,0 +1,15 @@
+head 6361c9c 2026-11-17T21:36:42Z
+tracked files modified: 0
+suite bash5 exit=0 : 79 test file(s), 0 failed (bash 5.3.9(1)-release)
+suite bash3.2 exit=0 : 79 test file(s), 0 failed (bash 3.2.57(1)-release)
+gateway smoke exit=0 : 43 checks, 0 failures, 0 skipped
+caddy smoke caddy:2.8.4 exit=0 : image: caddy:2.8.4 (v2.8.4 h1:q3pe0wpBj1OcHFZ3n/1nl4V4bxBrYoSoab7rL9BMYNk=) 47 checks, 0 failures, 0 skipped 
+caddy smoke caddy:2 (TN_SMOKE_CADDY_IMAGE=caddy:2; the first run of this line had passed the image as an argument, which the script ignores, and so repeated 2.8.4) exit=0 : image: caddy:2 (v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=) 47 checks, 0 failures, 0 skipped
+gateway_setup_test bash5: 475 checks, 0 failures, 0 skipped | bash3.2: 470 checks, 0 failures, 3 skipped
+caddy_gateway_test bash5: 233 checks, 0 failures, 0 skipped | bash3.2: 233 checks, 0 failures, 0 skipped
+gateway_validator_test bash5: 214 checks, 0 failures, 0 skipped | bash3.2: 214 checks, 0 failures, 0 skipped
+gateway_upstream_test bash5: 109 checks, 0 failures, 0 skipped | bash3.2: 109 checks, 0 failures, 0 skipped
+gateway_check_remove_test bash5: 115 checks, 0 failures, 0 skipped | bash3.2: 111 checks, 0 failures, 1 skipped
+gateway_remove_test bash5: 23 checks, 0 failures, 0 skipped | bash3.2: 23 checks, 0 failures, 0 skipped
+updater_manifest_test bash5: 275 checks, 0 failures, 0 skipped | bash3.2: 271 checks, 0 failures, 2 skipped
+lints:  network-hits=0 checksums=0
