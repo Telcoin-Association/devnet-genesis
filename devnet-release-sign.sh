@@ -14,9 +14,13 @@
 #   IMAGE_DIGEST    DOCKER_IMAGE and a newline: one line, <repository>@sha256:<64 lower
 #                   hex>, the grammar the node scripts accept from a signed release
 #                   (tn-node-deployment lib/common.sh _tn_release_fetch).
+#   GATEWAY_IMAGE_DIGEST  only when config.sh sets GATEWAY_IMAGE (not empty): the worker
+#                   gateway's image, GATEWAY_IMAGE and a newline, the same one-line grammar.
 #   SHA256SUMS      sha256sum format, "<64 hex>  <name>", one line per file, in this
-#                   order: IMAGE_DIGEST, genesis.yaml (GENESIS_FILE), committee.yaml
-#                   (COMMITTEE_FILE), parameters.yaml (PARAMETERS_FILE). This is the
+#                   order: IMAGE_DIGEST, GATEWAY_IMAGE_DIGEST (only with GATEWAY_IMAGE),
+#                   genesis.yaml (GENESIS_FILE), committee.yaml (COMMITTEE_FILE),
+#                   parameters.yaml (PARAMETERS_FILE). With GATEWAY_IMAGE unset or empty
+#                   it is the four-name manifest of before, byte for byte. This is the
 #                   mainnet shape minus the tarball: a mainnet SHA256SUMS also lists
 #                   telcoin-network-<tag>-<triple>.tar.gz and names the chain configs
 #                   chain-configs/<network>/<file>. Devnet runs the image by digest, so it
@@ -25,10 +29,12 @@
 #   SHA256SUMS.asc  the signer's ASCII-armored detached signature over SHA256SUMS.
 #
 # prepare [--force]
-#   Needs DOCKER_IMAGE in digest form and the three chain configs (devnet-deploy.sh step
+#   Needs DOCKER_IMAGE in digest form (and GATEWAY_IMAGE, when set: one still holding a
+#   PLACEHOLDER marker is refused) and the three chain configs (devnet-deploy.sh step
 #   6 runs it right after ./devnet-genesis-build.sh). When SHA256SUMS already holds
 #   exactly this content it changes nothing and keeps SHA256SUMS.asc (it only rewrites a
-#   missing or edited IMAGE_DIGEST, whose hash SHA256SUMS fixes). When the content
+#   missing or edited IMAGE_DIGEST or GATEWAY_IMAGE_DIGEST, whose hash SHA256SUMS fixes).
+#   When the content
 #   differs and SHA256SUMS.asc exists, it refuses: that signature is for other files.
 #   --force removes the stale SHA256SUMS.asc and writes the new manifest, which then
 #   needs a new signature. It prints the one-liner the signer runs on the laptop:
@@ -52,15 +58,22 @@
 #   _tn_gpg_status_verdict rule made stricter: the node lets a further signature by a key
 #   it does not hold (NO_PUBKEY, ERRSIG code 9) through with a warning and ignores gpgv's
 #   exit code; devnet has one signer, so any such signature fails here. Anything the node
-#   refuses is refused here too. Then SHA256SUMS must name exactly the four files
-#   above, in that order; `sha256sum -c` checks each against the current file (IMAGE_DIGEST
-#   in the release directory, the chain configs at their config.sh paths); and
-#   IMAGE_DIGEST must be one well-formed line equal to config.sh's DOCKER_IMAGE.
+#   refuses is refused here too. Then SHA256SUMS must name exactly the files above for the
+#   current configuration (four, or five with GATEWAY_IMAGE), in that order; `sha256sum -c`
+#   checks each against the current file (the digest files in the release directory, the
+#   chain configs at their config.sh paths); IMAGE_DIGEST must be one well-formed line
+#   equal to config.sh's DOCKER_IMAGE, and GATEWAY_IMAGE_DIGEST (with GATEWAY_IMAGE) one
+#   equal to GATEWAY_IMAGE. With GATEWAY_IMAGE set, a signed manifest that does not list
+#   GATEWAY_IMAGE_DIGEST (made before the gateway) fails with "the gateway digest is
+#   missing": it needs prepare --force and a new signature (unsigned, it is
+#   RELEASE_SIG_PENDING like any other manifest).
 #   RELEASE_SIGNER_FPR plays no part here: only the allow-list grants trust.
 #
 # Configuration (config.sh; CONFIG_FILE selects another file, as for every devnet-*.sh):
 #   RELEASE_TAG         release name, the release directory's name (required; [A-Za-z0-9._-],
 #                       no leading dot)
+#   GATEWAY_IMAGE       worker gateway image, <repository>@sha256:<64 hex> (optional; unset
+#                       or empty = no GATEWAY_IMAGE_DIGEST, the manifest of before)
 #   RELEASE_KEYS_DIR    allow-listed public keys (default <repo>/tn-node-deployment/lib/release-keys)
 #   RELEASE_SIGNER_FPR  key the printed one-liner signs with (default
 #                       4E36D35A4AB61B589861D01AC7173F2377CA7573); informational only
@@ -69,12 +82,15 @@
 #
 # Exit codes:
 #   0  prepare: manifest written, or already current. verify: signature good by an
-#      allow-listed key, every hash matches, IMAGE_DIGEST equals DOCKER_IMAGE.
-#   1  prepare: DOCKER_IMAGE not in digest form, a chain config missing, or
-#      SHA256SUMS.asc signs different content (no --force). verify: no manifest, a bad,
+#      allow-listed key, every hash matches, IMAGE_DIGEST equals DOCKER_IMAGE (and
+#      GATEWAY_IMAGE_DIGEST equals GATEWAY_IMAGE, when set).
+#   1  prepare: DOCKER_IMAGE (or a set GATEWAY_IMAGE) not in digest form or still a
+#      placeholder, a chain config missing, or SHA256SUMS.asc signs different content (no
+#      --force). verify: no manifest, a bad,
 #      expired, revoked or unlisted signature (or gpgv failing), a malformed SHA256SUMS,
-#      a hash mismatch, a missing file, no usable release key, or IMAGE_DIGEST not equal
-#      to DOCKER_IMAGE.
+#      a hash mismatch, a missing file, no usable release key, IMAGE_DIGEST not equal
+#      to DOCKER_IMAGE (GATEWAY_IMAGE_DIGEST not equal to GATEWAY_IMAGE), or GATEWAY_IMAGE
+#      set and the manifest without GATEWAY_IMAGE_DIGEST.
 #   2  usage: unknown command or option, RELEASE_TAG unset or malformed, a config path
 #      unset, or a missing tool (sha256sum; for verify also gpg and gpgv).
 #   3  verify: SHA256SUMS.asc absent (RELEASE_SIG_PENDING).
@@ -113,8 +129,16 @@ RELEASE_SIGNER_FPR="${RELEASE_SIGNER_FPR:-4E36D35A4AB61B589861D01AC7173F2377CA75
 RELEASES_DIR="${RELEASES_DIR:-${REPO_ROOT}/releases}"
 DEVNET_KEYS_DIR="${REPO_ROOT}/release-keys"   # devnet-only keys, read when present
 
-# The names SHA256SUMS lists, in order. IMAGE_DIGEST first, as on mainnet.
-SUM_NAMES="IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml"
+# The names SHA256SUMS lists, in order. IMAGE_DIGEST first, as on mainnet; the gateway's
+# digest right after it when config.sh sets GATEWAY_IMAGE (unset or empty: the four names
+# of before, so a release signed before the gateway still verifies).
+GATEWAY_IMAGE="${GATEWAY_IMAGE:-}"
+SUM_NAMES_NO_GATEWAY="IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml"
+if [ -n "${GATEWAY_IMAGE}" ]; then
+    SUM_NAMES="IMAGE_DIGEST GATEWAY_IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml"
+else
+    SUM_NAMES="${SUM_NAMES_NO_GATEWAY}"
+fi
 # The node's IMAGE_DIGEST grammar (common.sh _tn_release_fetch).
 DIGEST_RE='^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
 SUM_LINE_RE='^[0-9a-f]{64}  [A-Za-z0-9._-]+$'
@@ -146,12 +170,14 @@ REL_DIR="$(_abs "${RELEASES_DIR}")/${RELEASE_TAG}"
 SUMS="${REL_DIR}/SHA256SUMS"
 ASC="${REL_DIR}/SHA256SUMS.asc"
 IMG="${REL_DIR}/IMAGE_DIGEST"
+GW="${REL_DIR}/GATEWAY_IMAGE_DIGEST"
 KEYS_DIR="$(_abs "${RELEASE_KEYS_DIR}")"
 
 # _path_for NAME — the file a SHA256SUMS name stands for.
 _path_for() {
     case "$1" in
         IMAGE_DIGEST)    printf '%s\n' "${IMG}" ;;
+        GATEWAY_IMAGE_DIGEST) printf '%s\n' "${GW}" ;;
         genesis.yaml)    _abs "${GENESIS_FILE}" ;;
         committee.yaml)  _abs "${COMMITTEE_FILE}" ;;
         parameters.yaml) _abs "${PARAMETERS_FILE}" ;;
@@ -229,6 +255,17 @@ cmd_prepare() {
         echo "❌ DOCKER_IMAGE='${DOCKER_IMAGE:-}' is not <repository>@sha256:<64 lower-case hex> (config.sh: fill in the pushed digest)" >&2
         exit 1
     fi
+    if [ -n "${GATEWAY_IMAGE}" ]; then
+        case "${GATEWAY_IMAGE}" in
+            *PLACEHOLDER*)
+                echo "❌ GATEWAY_IMAGE='${GATEWAY_IMAGE}' still holds a placeholder (config.sh: fill in the pushed gateway digest)" >&2
+                exit 1 ;;
+        esac
+        if ! _digest_ok "${GATEWAY_IMAGE}"; then
+            echo "❌ GATEWAY_IMAGE='${GATEWAY_IMAGE}' is not <repository>@sha256:<64 lower-case hex> (config.sh: fill in the pushed gateway digest)" >&2
+            exit 1
+        fi
+    fi
     for name in genesis.yaml committee.yaml parameters.yaml; do
         path="$(_path_for "${name}")"
         if [ ! -f "${path}" ]; then
@@ -241,9 +278,13 @@ cmd_prepare() {
     # Build the manifest in private scratch, then compare it with what is on disk.
     _mktmp
     printf '%s\n' "${DOCKER_IMAGE}" > "${TMP_DIR}/IMAGE_DIGEST"
+    if [ -n "${GATEWAY_IMAGE}" ]; then printf '%s\n' "${GATEWAY_IMAGE}" > "${TMP_DIR}/GATEWAY_IMAGE_DIGEST"; fi
     : > "${TMP_DIR}/SHA256SUMS"
     for name in ${SUM_NAMES}; do
-        if [ "${name}" = IMAGE_DIGEST ]; then path="${TMP_DIR}/IMAGE_DIGEST"; else path="$(_path_for "${name}")"; fi
+        case "${name}" in
+            IMAGE_DIGEST|GATEWAY_IMAGE_DIGEST) path="${TMP_DIR}/${name}" ;;
+            *) path="$(_path_for "${name}")" ;;
+        esac
         if ! h="$(_sha256 "${path}")"; then
             echo "❌ cannot hash ${path}" >&2
             exit 1
@@ -255,6 +296,10 @@ cmd_prepare() {
         if ! cmp -s "${TMP_DIR}/IMAGE_DIGEST" "${IMG}"; then
             _install "${TMP_DIR}/IMAGE_DIGEST" "${IMG}"
             echo "  rewrote ${IMG} (missing or edited; SHA256SUMS fixes its content)"
+        fi
+        if [ -n "${GATEWAY_IMAGE}" ] && ! cmp -s "${TMP_DIR}/GATEWAY_IMAGE_DIGEST" "${GW}"; then
+            _install "${TMP_DIR}/GATEWAY_IMAGE_DIGEST" "${GW}"
+            echo "  rewrote ${GW} (missing or edited; SHA256SUMS fixes its content)"
         fi
         echo "✓ release ${RELEASE_TAG}: ${SUMS} already lists this image and these chain configs; unchanged"
         if [ -f "${ASC}" ]; then
@@ -284,8 +329,14 @@ cmd_prepare() {
 
     mkdir -p -- "${REL_DIR}"
     _install "${TMP_DIR}/IMAGE_DIGEST" "${IMG}"
-    _install "${TMP_DIR}/SHA256SUMS" "${SUMS}"
-    echo "✓ release ${RELEASE_TAG}: wrote ${IMG} and ${SUMS}"
+    if [ -n "${GATEWAY_IMAGE}" ]; then
+        _install "${TMP_DIR}/GATEWAY_IMAGE_DIGEST" "${GW}"
+        _install "${TMP_DIR}/SHA256SUMS" "${SUMS}"
+        echo "✓ release ${RELEASE_TAG}: wrote ${IMG}, ${GW} and ${SUMS}"
+    else
+        _install "${TMP_DIR}/SHA256SUMS" "${SUMS}"
+        echo "✓ release ${RELEASE_TAG}: wrote ${IMG} and ${SUMS}"
+    fi
     sed 's/^/    /' "${SUMS}"
     _print_sign_hint
     echo "next: ./devnet-release-sign.sh verify"
@@ -440,7 +491,7 @@ cmd_verify() {
     echo "✓ VALIDSIG ${fpr} (key id ${keyid:-?}): a good signature by an allow-listed primary key"
     echo "    ${VALIDSIG_LINE}"
 
-    # 2. The manifest names exactly the four files, in order.
+    # 2. The manifest names exactly SUM_NAMES (four files, five with GATEWAY_IMAGE), in order.
     while IFS= read -r line || [ -n "${line}" ]; do
         if [[ ! "${line}" =~ ${SUM_LINE_RE} ]]; then
             echo "❌ release ${RELEASE_TAG}: malformed line in ${SUMS} (want \"<64 hex>  <name>\")" >&2
@@ -449,7 +500,18 @@ cmd_verify() {
         names="${names:+${names} }${line#*  }"
     done < "${SUMS}"
     if [ "${names}" != "${SUM_NAMES}" ]; then
+        if [ -n "${GATEWAY_IMAGE}" ] && [ "${names}" = "${SUM_NAMES_NO_GATEWAY}" ]; then
+            echo "❌ release ${RELEASE_TAG}: the gateway digest is missing: config.sh sets GATEWAY_IMAGE but ${SUMS} does not list GATEWAY_IMAGE_DIGEST (made before the gateway)" >&2
+            echo "   re-run ./devnet-release-sign.sh prepare --force, then sign the new SHA256SUMS" >&2
+            exit 1
+        fi
         echo "❌ release ${RELEASE_TAG}: ${SUMS} names '${names}', want exactly '${SUM_NAMES}'" >&2
+        if [ -z "${GATEWAY_IMAGE}" ]; then
+            case " ${names} " in
+                *" GATEWAY_IMAGE_DIGEST "*)
+                    echo "   the manifest lists a gateway digest but config.sh sets no GATEWAY_IMAGE: set it, or re-run prepare --force and re-sign" >&2 ;;
+            esac
+        fi
         exit 1
     fi
 
@@ -474,6 +536,8 @@ cmd_verify() {
         case " ${failed} " in
             *" genesis.yaml "*|*" committee.yaml "*|*" parameters.yaml "*)
                 echo "❌ release ${RELEASE_TAG}: genesis changed since signing: re-run prepare --force and re-sign (mismatch: ${failed})" >&2 ;;
+            *" GATEWAY_IMAGE_DIGEST "*)
+                echo "❌ release ${RELEASE_TAG}: ${GW} does not match its SHA256SUMS line (mismatch: ${failed}); re-run ./devnet-release-sign.sh prepare" >&2 ;;
             *)
                 echo "❌ release ${RELEASE_TAG}: ${IMG} does not match its SHA256SUMS line (mismatch: ${failed:-?}); re-run ./devnet-release-sign.sh prepare" >&2 ;;
         esac
@@ -493,6 +557,21 @@ cmd_verify() {
         exit 1
     fi
     echo "✓ IMAGE_DIGEST = DOCKER_IMAGE (${DOCKER_IMAGE})"
+
+    # 5. GATEWAY_IMAGE_DIGEST likewise, and the gateway image config.sh deploys.
+    if [ -n "${GATEWAY_IMAGE}" ]; then
+        if [ "$(awk 'END { print NR }' "${GW}")" != 1 ] || ! _digest_ok "$(cat -- "${GW}")"; then
+            echo "❌ release ${RELEASE_TAG}: ${GW} is not one <repository>@sha256:<64 hex> line" >&2
+            exit 1
+        fi
+        printf '%s\n' "${GATEWAY_IMAGE}" > "${TMP_DIR}/want-gateway"
+        if ! cmp -s "${TMP_DIR}/want-gateway" "${GW}"; then
+            echo "❌ release ${RELEASE_TAG}: digest mismatch: GATEWAY_IMAGE_DIGEST names $(cat -- "${GW}"), config.sh GATEWAY_IMAGE is '${GATEWAY_IMAGE}'" >&2
+            echo "   restore GATEWAY_IMAGE, or re-run prepare --force and re-sign for the new image" >&2
+            exit 1
+        fi
+        echo "✓ GATEWAY_IMAGE_DIGEST = GATEWAY_IMAGE (${GATEWAY_IMAGE})"
+    fi
     echo "release ${RELEASE_TAG} verified"
 }
 
