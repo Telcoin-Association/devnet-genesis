@@ -125,6 +125,15 @@ class GhPostTest(unittest.TestCase):
         self.assertIn("DRY issue alpha ok: nothing posted", p.stdout)
         self.assertFalse(self.record.exists())
 
+    def test_comment_body_follows_the_post_set(self):
+        self.write_body("issue-comments/bench8-1802.md", "## Measured\n\nA clean body of another set.\n")
+        p = self.run_script("comment", "1802", POST_SET="bench8")
+        self.assert_rc(p, 0)
+        self.assert_no_gh(p)
+        self.assertIn("bench8-1802.md", p.stdout)
+        self.assertIn("    | A clean body of another set.", p.stdout)
+        self.assert_rc(self.run_script("comment", "1803", POST_SET="bench8"), 2)
+
     def test_dry_comment_runs_no_gh_and_prints_the_argv(self):
         p = self.run_script("comment", "1802")
         self.assert_rc(p, 0)

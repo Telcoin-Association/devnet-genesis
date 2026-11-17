@@ -24,7 +24,8 @@
 # Exit: 0 ok, 2 usage or missing file, 3 lint, 4 duplicate, 5 gh failed (nothing recorded),
 #   6 gh exited 0 but printed no URL, or the record could not be written (check GitHub by hand).
 # Environment: GH_REPO (the repository), POST_ROOT (the devnet-genesis checkout; default two up),
-#   POST_SET (the issue set, default bench6: bodies <set>-<slug>.md, titles TITLES-<set>.md).
+#   POST_SET (the issue set, default bench6: bodies <set>-<slug>.md, titles TITLES-<set>.md;
+#   a comment's body is tasks/issue-comments/<set>-<number>.md).
 set -uo pipefail
 
 GH_REPO="${GH_REPO:-Telcoin-Association/telcoin-network}"
@@ -563,7 +564,7 @@ post_one() {
             ;;
         comment)
             case "${key}" in ''|*[!0-9]*) usage_error "comment takes an issue number, not '${key}'" ;; esac
-            src="${COMMENT_DIR}/bench6-${key}.md"
+            src="${COMMENT_DIR}/${POST_SET}-${key}.md"
             ;;
         pr)
             case "${key}" in ''|*[!0-9a-z]*) usage_error "pr takes a stack position NN (or a lower-case key of STACK-bench6.tsv such as xf), not '${key}'" ;; esac
