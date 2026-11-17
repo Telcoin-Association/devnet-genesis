@@ -4,3 +4,7 @@
 [submodule "tn-node-deployment"]
 	path = tn-node-deployment
 	url = git@github.com:Telcoin-Association/tn-node-deployment.git
+[submodule "tn-contracts"]
+	path = tn-contracts
+	url = git@github.com:Telcoin-Association/tn-contracts.git
+	branch = deploy/devnet-relaunch

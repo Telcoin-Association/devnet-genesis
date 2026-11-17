@@ -65,15 +65,19 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${REPO_DIR}/devnet-lib.sh"
 
 # --- tunables ------------------------------------------------------------------
-# The tn-contracts checkout to deploy FROM. Defaults to the deploy/devnet-relaunch
-# worktree, which is the tree tn-transaction-generator pins its vendor/ submodule to.
+# The tn-contracts checkout to deploy FROM. Defaults to this repository's tn-contracts
+# submodule, which follows the deploy/devnet-relaunch branch: the tree
+# tn-transaction-generator pins its vendor/ submodule to. (Until 2026-11-17 it was a git
+# worktree beside this repository; a cleanup job on the operator host removes worktrees.)
+# After a fresh clone: git submodule update --init tn-contracts, then inside it
+# git checkout deploy/devnet-relaunch and git submodule update --init --recursive.
 # HEAD of tn-contracts carries different CREATE2 salts and therefore a COMPLETELY
 # different address book — the two are not interchangeable, so the branch is asserted.
 #
 # Every tunable below defaults to the devnet value. The benchmark profile
 # (benchmark/benchmark-deploy.sh step 11) overrides them to deploy the same stack onto
 # its own throwaway chain from a disposable worktree; see the chain-routing guard below.
-DEVNET_CONTRACTS_DIR_DEFAULT="$(cd "${REPO_DIR}/.." && pwd)/tn-contracts-devnet-relaunch"
+DEVNET_CONTRACTS_DIR_DEFAULT="${REPO_DIR}/tn-contracts"
 TN_CONTRACTS_DIR="${TN_CONTRACTS_DIR:-${DEVNET_CONTRACTS_DIR_DEFAULT}}"
 TN_CONTRACTS_BRANCH="${TN_CONTRACTS_BRANCH:-deploy/devnet-relaunch}"
 ADMIN_PK_SECRET="${ADMIN_PK_SECRET:-devnet-contracts-admin-pk}"
@@ -147,6 +151,10 @@ if [ "${cur_branch}" != "${TN_CONTRACTS_BRANCH}" ]; then
     echo "❌ ${TN_CONTRACTS_DIR} is on '${cur_branch}', expected '${TN_CONTRACTS_BRANCH}'." >&2
     echo "   The address book and the CREATE2 salts must come from the SAME tree — a" >&2
     echo "   different branch deploys to entirely different addresses." >&2
+    if [ "${cur_branch}" = "HEAD" ]; then
+        echo "   The checkout is detached (a submodule is, after 'git submodule update'). If its" >&2
+        echo "   commit is the branch's: git -C '${TN_CONTRACTS_DIR}' checkout ${TN_CONTRACTS_BRANCH}" >&2
+    fi
     exit 1
 fi
 echo "    ✓ ${cur_branch} @ $(git -C "${TN_CONTRACTS_DIR}" rev-parse --short HEAD)"

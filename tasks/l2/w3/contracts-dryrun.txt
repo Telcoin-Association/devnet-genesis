@@ -1,0 +1,43 @@
+==========================================
+devnet app-contract stack (Step 15)
+Contracts:  /home/drtnarg/coding/telcoin/devnet-genesis/tn-contracts (branch deploy/devnet-relaunch)
+RPC:        https://rpc.devnet.telcoin.network
+Chain id:   32285 (expected)
+Admin key:  Secret Manager devnet-contracts-admin-pk (project tn-devnet) — never printed
+Mode:       DRY RUN (no --yes) — preflight only
+==========================================
+
+>>> preflight: tooling
+    ✓ forge /home/drtnarg/.foundry/bin/forge
+    ✓ cast /home/drtnarg/.foundry/bin/cast
+    ✓ jq /usr/bin/jq
+    ✓ curl /usr/bin/curl
+
+>>> preflight: contracts checkout
+    ✓ deploy/devnet-relaunch @ 2005b45
+    ✓ forge libs present
+
+>>> preflight: chain identity
+    ✓ chain id 32285
+
+>>> resolving admin private key from Secret Manager (devnet-contracts-admin-pk)
+    ✓ key retrieved (redacted) -> deployer address 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f
+
+>>> preflight: deployer identity vs deployments/deployments-devnet.json .admin
+    ✓ .admin == deployer (0xAee2797478Cb5EfaF1869A2e33e369421EBf520f)
+
+>>> preflight: deployer balance on the new chain
+    ✓ balance 999999999999999999996985265266 wei (999999999999.999999996985265266 TEL)
+
+>>> preflight: WTEL
+    genesis WTEL present at 0x00000000000000000000000000000000000037E1 (code 3592 chars)
+    ✓ json .WTEL already points at the genesis address
+
+PLAN (nothing has been changed):
+  1. write /home/drtnarg/coding/telcoin/devnet-genesis/tn-contracts/.env   (mode 600: ADMIN_PK from Secret Manager + TN_RPC_URL=https://rpc.devnet.telcoin.network)
+  2. (no WTEL patch needed)
+  3. ./script/bash/deploy-testnet-infra.sh      (8 idempotent steps; skips whatever already has code)
+  4. verify eth_getCode != 0x for every mandatory key
+  5. seed Uniswap LPs (SeedTestnetLPs.s.sol) + verify a pool has reserves
+
+DRY RUN only — re-run with --yes to apply.

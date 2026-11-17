@@ -54,8 +54,9 @@
 #   4. DOCKER_IMAGE and GATEWAY_IMAGE are <repo>@sha256:<64 hex>
 #   5. run includes step 17 and TN_ADMIN_DASHBOARD=1: ./devnet-dashboards.sh --preflight
 #      (the UI password secret exists; needs gcloud, so only then)
-#   6. run includes step 18 / 19: the tn-contracts checkout exists (TN_CONTRACTS_DIR /
-#      TXGEN_CONTRACTS_DIR, default ../tn-contracts-devnet-relaunch)
+#   6. run includes step 18 / 19: the tn-contracts checkout holds the devnet address book,
+#      and for step 18 its forge libraries (TN_CONTRACTS_DIR / TXGEN_CONTRACTS_DIR, default
+#      this repository's tn-contracts submodule)
 #
 # Release signing (config.sh RELEASE_TAG; empty turns it off): step 6 ends with
 # devnet-release-sign.sh prepare (releases/<tag>/{IMAGE_DIGEST,SHA256SUMS}). Step 10's
@@ -96,7 +97,7 @@ DNS_CHECK_TRIES="${DEPLOY_DNS_CHECK_TRIES:-6}"
 DNS_CHECK_SLEEP="${DEPLOY_DNS_CHECK_SLEEP:-10}"
 # The default tn-contracts checkout of devnet-contracts.sh (TN_CONTRACTS_DIR) and
 # devnet-txgen.sh (TXGEN_CONTRACTS_DIR). Keep in sync with those two scripts.
-CONTRACTS_DIR_DEFAULT="$(cd "${REPO_DIR}/.." && pwd)/tn-contracts-devnet-relaunch"
+CONTRACTS_DIR_DEFAULT="${REPO_DIR}/tn-contracts"
 
 # --- args ----------------------------------------------------------------------
 CONFIRM=0
@@ -467,14 +468,20 @@ if in_range 17 && [ "${TN_ADMIN_DASHBOARD:-1}" = "1" ]; then
         || gate_fail "devnet-dashboards.sh --preflight failed: create the UI password secret (TN_ADMIN_PASSWORD_SECRET), or set TN_ADMIN_DASHBOARD=0."
 fi
 
-# 6. Steps 18 and 19 need the tn-contracts checkout.
+# 6. Steps 18 and 19 need the tn-contracts checkout. A submodule that was never initialized
+# is an empty directory (and so is each forge library inside one), so the gate looks for a
+# file each step reads, not for the directory.
 if in_range 18; then
     d="${TN_CONTRACTS_DIR:-${CONTRACTS_DIR_DEFAULT}}"
-    [ -d "${d}" ] || gate_fail "step 18 needs the tn-contracts checkout: ${d} does not exist (set TN_CONTRACTS_DIR)."
+    [ -f "${d}/deployments/deployments-devnet.json" ] \
+        || gate_fail "step 18 needs the tn-contracts checkout: ${d}/deployments/deployments-devnet.json is missing (git submodule update --init tn-contracts, or set TN_CONTRACTS_DIR)."
+    [ -f "${d}/lib/forge-std/src/Test.sol" ] \
+        || gate_fail "step 18 needs the forge libraries of ${d}: git -C '${d}' submodule update --init --recursive"
 fi
 if in_range 19; then
     d="${TXGEN_CONTRACTS_DIR:-${CONTRACTS_DIR_DEFAULT}}"
-    [ -d "${d}" ] || gate_fail "step 19 needs the tn-contracts checkout: ${d} does not exist (set TXGEN_CONTRACTS_DIR)."
+    [ -f "${d}/deployments/deployments-devnet.json" ] \
+        || gate_fail "step 19 needs the tn-contracts checkout: ${d}/deployments/deployments-devnet.json is missing (git submodule update --init tn-contracts, or set TXGEN_CONTRACTS_DIR)."
 fi
 
 if [ "${CONFIRM}" -ne 1 ]; then
