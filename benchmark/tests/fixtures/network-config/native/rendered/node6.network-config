@@ -1,0 +1,47 @@
+admission:
+  mode: Open
+committee_peers:
+  22offyo4qoWtCCb9VYDBY5Adi8zpo9HM5xoCqQXPEJfbMZXcjpVSgeve1Wd32inHjFfrzZM5wuzUxC9TJtigRfuVxwmyvrFHfLPaCXNAqawkuSKQGweKxbhf3iCYSeEZ1C8n:
+    primary:
+      network_address: /ip4/192.0.2.12/udp/49590/quic-v1/p2p/12D3KooWPbgmPNYECzpBfvYbVVoFmyy6kTLF1jcKZg6yNnozzoma
+      network_key: 4XTTMEvNREX1JpMwqhb11cXh5vacmE8Kh8xDZHtWjR2RXxaYg
+      rpc: ~
+    workers:
+      - network_address: /ip4/192.0.2.12/udp/49594/quic-v1/p2p/12D3KooWJXqVGP4kyVBNDD2w3xqNheW1kdWKeWPZ8R5AnN1Hkpd8
+        network_key: 4XTTM9rX97XXqarK2EsVMAzjCrF9gEJVmmiznrdUvpbcpibQE
+        rpc:
+          http: "https://node2.example.invalid/"
+          ws: "wss://node2.example.invalid/"
+  Cba2ftWFqVbXq1ZeJRaSNeYH2xcdWmS53kyxGSD6nYfkgApsykTT2zPG3m5ztoie1jecriL9yQCJUjNg2F5TuvnkucSLcGqCWJBEV8E52iGa9CULSUxbZmHTxtDRChxtrrS:
+    primary:
+      network_address: /ip4/192.0.2.14/udp/49590/quic-v1/p2p/12D3KooWRibBcrAdbsdhDMSMXapXT5HkEM1mJjS1duYMHXQFsaUD
+      network_key: 4XTTMH3GqTzdiDEmMF1tmeciMbfwQi21DRx3FN7x7Km1nqMFK
+      rpc: ~
+    workers:
+      - network_address: /ip4/192.0.2.14/udp/49594/quic-v1/p2p/12D3KooWJ1BNfGvnS6z7mTSHsc17ay9wKGkbKGDeCqxztUFgmbBW
+        network_key: 4XTTM9Ks2WRPs3U7mo7thzdtwjZobnwk3SUpsw4NkvhsDjMxc
+        rpc:
+          http: "https://node4.example.invalid/"
+          ws: "wss://node4.example.invalid/"
+  aVuU6ijKpRW6Qc8vzpWdebvhKCmfWf5HaJS9fGDh9tA43JW8dnXK5SVEih5BgwjX4oNkCtAgSkReYkbfauAJiB4eshbszRoTFx1txRaMV2y7PZ1Q7QqMd1Lr5v9ogu15rBt:
+    primary:
+      network_address: /ip4/192.0.2.11/udp/49590/quic-v1/p2p/12D3KooWJVnhrvv7HC7fQfUENQLm8HDXZYmikT4YRgz3AJCgvSPn
+      network_key: 4XTTM9pUMi5PBtZFKSKveVSEbGssC3DmAsffn9uPoCXpDtDAt
+      rpc: ~
+    workers:
+      - network_address: /ip4/192.0.2.11/udp/49594/quic-v1/p2p/12D3KooWQZ5DgM1GT6vsFrhkTpX3frr7DvLbApUpNZyArAdj6rcu
+        network_key: 4XTTMFsksXVUM4U4XHXAAarQspTVmhbL3J3646nNvtQFG4dQ1
+        rpc:
+          http: "https://node1.example.invalid/"
+          ws: "wss://node1.example.invalid/"
+  ub6hKPgVt8XweM8i6VJFnyHtDAtcFUG72HjvpvgpeeRtenCDYaPJUaR3EkfyEBteFovxDBGwk3mrgHHAizjcBd4exVeEN7jmFouLYnD5V6SsbaTLYRCDksytKZtC5EXxXXi:
+    primary:
+      network_address: /ip4/192.0.2.13/udp/49590/quic-v1/p2p/12D3KooWPMpVRykwfky8RRTizfWro5fJgCxxtUxGNH4xiFEtu3vZ
+      network_key: 4XTTMEgW9H8E2H86nT5v97hQgwgJy9sxR1hZW6VUikUrRrphf
+      rpc: ~
+    workers:
+      - network_address: /ip4/192.0.2.13/udp/49594/quic-v1/p2p/12D3KooWKuCHvWTEHdMLRfkzVDp7wKHjL4PCLicTssDufNXT9UQu
+        network_key: 4XTTMBDswmevJtzUzTLDQcFhx5uwPojNeTwDhc5dfhc8z7FC1
+        rpc:
+          http: "https://node3.example.invalid/"
+          ws: "wss://node3.example.invalid/"

@@ -1,0 +1,10 @@
+2UNy2tQaK5LrogR7D8uJfmcQSVv42kATNninZbKRxCp6iwznLycMMdWAyMzMhJr1Ad1HmrG8ydDS679H9KnPb1BTdofuzNPgYRgc6mj6JNaEvBADys3jWJDFqxoKQg8Gv1cE:
+  primary:
+    network_address: /ip4/192.0.2.16/udp/49590/quic-v1/p2p/12D3KooWP5xCUqxESFzTMAmh3yBDRRkeBD4LvRd8NEt4kH5A6xUi
+    network_key: 4XTTMEQdrKzRK3d87NqE7B153a2QJet3o3eEN6THpnWgh4jFp
+    rpc: ~
+  workers:
+    0:
+      network_address: /ip4/192.0.2.16/udp/49594/quic-v1/p2p/12D3KooWMopDSxfGueRY3Cjvo1MD73kQA1xhzY6d2ZEoyu89TDh2
+      network_key: 4XTTMD8VsJ78MX1ZC4sCLv3F3FeQ4dgxA7khrkmea28jgQzU8
+      rpc: ~

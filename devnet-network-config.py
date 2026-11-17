@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""devnet-network-config.py: render, merge and validate each devnet node's network-config.
+"""devnet-network-config.py: render, merge and validate each devnet node's network-config,
+and write and check the native admission maps tn-node-deployment's setup-node.sh takes.
 
 The node reads <datadir>/network-config once, at startup
 (telcoin-network crates/node/src/manager/node.rs:1014). When the file is missing it writes
@@ -47,10 +48,42 @@ hub. With the context flag --trust-observers-everywhere every validator trusts e
 each observer trusts every validator (an observer that redials the whole committee is then admitted
 everywhere, not only by the hub). bootstrap_peers stays the hub alone either way.
 
+Native admission (launch 2, TN_ADMISSION_VIA=native): tn-node-deployment's setup-node.sh writes
+the network-config itself (tn_network_config_render, lib/common.sh) from two map files, and this
+script writes those maps and checks the result:
+
+  <node>.bootstrap-peers.yaml  every node: BLS key -> {primary: P2pNode, workers: [P2pNode, ...]},
+                               committee.yaml bootstrap_servers verbatim (all genesis validators,
+                               in the committee file's order). setup-node.sh --bootstrap-peers: the
+                               node's --bootstrap-peers launch flag and network-config committee_peers.
+  <node>.trusted-nodes.yaml    roles validator and observer, when --nodes has an rpc node: BLS key ->
+                               {primary: P2pNode, workers: {0: P2pNode, ...}} for each rpc node, in
+                               --nodes order, from its node-info p2p_info (worker ids 0..the trusting
+                               node's worker count - 1). setup-node.sh --trusted-nodes. No file for an
+                               rpc node (a stale one is removed), none at all without an rpc node.
+
+  Each top-level BLS key is a plain `key:` line at column 0 with its content two spaces deeper, no
+  document marker, anchor or `? key` (PyYAML's safe_dump writes keys over 128 characters that way,
+  and the renderer refuses it). P2pNode entries are copied as committee.yaml / node-info hold them,
+  `rpc:` included: TrustedNode's deny_unknown_fields covers its own keys (primary, workers), and
+  `rpc` is a declared P2pNode field. Every network_address must be /ip4/... (the node has no DNS
+  transport): a /dns form is refused, naming the node.
+  Mode per role (setup-node.sh --admission): validator and observer Closed, rpc Open.
+
+Roles in --nodes: validator (committee member, genesis/validators/<n>.yaml), observer and rpc (not
+in the committee, genesis/observers/<n>.yaml). rpc is the public RPC node of the native path: only
+`maps` and `validate --native` accept it; render, validate and merge refuse it.
+
 Subcommands (all share the context flags --committee/--genesis-dir/--nodes/--hub
-[--trust-observers-everywhere]):
+[--trust-observers-everywhere]; maps and validate --native do not use --hub or the trust flag):
   render   --out-dir DIR                  write <node>.yaml for every node, then validate each
   validate --node N FILE [--existing E]   check FILE as node N's network-config
+  validate --native --node N FILE         check FILE, a network-config written by setup-node.sh, by
+                                          content: admission.mode, committee_peers = the
+                                          bootstrap-peers map, trusted_nodes = the trusted-nodes
+                                          map (absent when N gets none); one FAIL line per
+                                          difference, an unknown top-level key is one
+  maps     --out-dir DIR                  write the native admission maps above for every node
   merge    --rendered R [--existing E] --out O
                                           R with E's hostname line, nothing else of E
                                           (no context flags needed)
@@ -83,6 +116,11 @@ except ImportError:  # pragma: no cover - environment check
 
 ADMISSION_MODE = "Closed"
 SNAPSHOT_MAX_AGE_SECS = 300
+# Native path (maps, validate --native): setup-node.sh --admission per role.
+NATIVE_MODES = {"validator": "Closed", "observer": "Closed", "rpc": "Open"}
+ROLE_NAMES = {"validator": "a validator", "observer": "an observer", "rpc": "an rpc node"}
+# The renderer's top-level key rule (tnd lib/common.sh tn_network_config_render).
+MAP_KEY_LINE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*:$")
 # Top-level keys we write, in NetworkConfig's declaration order (network.rs:43-72).
 TOP_ORDER = ("admission", "hostname", "bootstrap_peers", "trusted_nodes", "committee_peers")
 # Every NetworkConfig field (network.rs:27-75), for "did you mean" hints on misspelt keys.
@@ -228,6 +266,23 @@ def emit_config(cfg, hostname_line=None):
     back.pop("hostname", None)
     if back != cfg:
         raise ConfigError("emitter round trip mismatch (bug in devnet-network-config.py)")
+    return text
+
+
+def emit_map(value, what):
+    """A map file for setup-node.sh: each top-level key a plain `key:` line at column 0, its
+    content two spaces deeper, a trailing newline, nothing else (no `---`, anchors or `? key`)."""
+    if not isinstance(value, dict) or not value:
+        raise ConfigError("%s: refusing to write an empty map" % what)
+    lines = []
+    _emit_node(value, 0, lines)
+    bad = [line for line in lines if not line.startswith("  ") and not MAP_KEY_LINE_RE.match(line)]
+    if bad:
+        raise ConfigError("%s: top-level line %r is not a plain `key:` line (setup-node.sh refuses it)"
+                          % (what, bad[0][:40]))
+    text = "\n".join(lines) + "\n"
+    if parse_yaml(text, what) != value:
+        raise ConfigError("%s: emitter round trip mismatch (bug in devnet-network-config.py)" % what)
     return text
 
 
@@ -398,7 +453,8 @@ def check_trusted_node(entry, where, bindings, local_workers, bls):
 class Context(object):
     """committee.yaml + every node's node-info file, cross-checked."""
 
-    def __init__(self, committee_path, genesis_dir, nodes_spec, hub, trust_everywhere=False):
+    def __init__(self, committee_path, genesis_dir, nodes_spec, hub, trust_everywhere=False, native=False):
+        """`native`: for maps and validate --native, which accept role rpc and need no hub."""
         self.committee_path = committee_path
         self.committee, self.committee_text = load_yaml_file(committee_path)
         if not isinstance(self.committee, dict) or not all(
@@ -426,8 +482,13 @@ class Context(object):
         self.bls = {}        # name -> BLS key
         for item in nodes_spec.split(","):
             name, _, role = item.partition("=")
-            if not name or role not in ("validator", "observer"):
-                raise ConfigError("--nodes: expected name=validator|observer, got %r" % item)
+            if name and role == "rpc" and not native:
+                raise ConfigError("--nodes: %r: role rpc is accepted only by `maps` and `validate --native`; "
+                                  "render, validate and merge write and check the devnet-rendered "
+                                  "network-config, which has no rpc node" % item)
+            if not name or role not in (("validator", "observer", "rpc") if native else ("validator", "observer")):
+                raise ConfigError("--nodes: expected name=validator|observer%s, got %r"
+                                  % ("|rpc" if native else "", item))
             sub = "validators" if role == "validator" else "observers"
             path = os.path.join(genesis_dir, sub, name + ".yaml")
             info, _ = load_yaml_file(path)
@@ -446,8 +507,8 @@ class Context(object):
             if role == "validator" and not in_committee:
                 raise ConfigError("%s is a validator but its BLS key is not in %s (stale committee.yaml?)"
                                   % (name, committee_path))
-            if role == "observer" and in_committee:
-                raise ConfigError("%s is an observer but its BLS key is in %s" % (name, committee_path))
+            if role != "validator" and in_committee:
+                raise ConfigError("%s is %s but its BLS key is in %s" % (name, ROLE_NAMES[role], committee_path))
             if in_committee:
                 self._same_keys(name, path)
         if len(set(self.bls.values())) != len(self.bls):
@@ -456,11 +517,13 @@ class Context(object):
         if validators != set(self.authorities):
             raise ConfigError("committee members %d != validators in --nodes %d (stale committee.yaml?)"
                               % (len(self.authorities), len(validators)))
-        if hub not in self.bls or dict(self.nodes)[hub] != "validator":
+        if (hub is not None or not native) and (hub not in self.bls or dict(self.nodes)[hub] != "validator"):
             raise ConfigError("--hub %r must be a validator in --nodes" % hub)
         self.hub = hub
+        self.roles = dict(self.nodes)
         self.observers = [n for n, r in self.nodes if r == "observer"]
         self.validators = [n for n, r in self.nodes if r == "validator"]
+        self.rpcs = [n for n, r in self.nodes if r == "rpc"]
         self.trust_everywhere = bool(trust_everywhere)
 
     def _same_keys(self, name, path):
@@ -524,6 +587,64 @@ class Context(object):
         ours = _top_block(rendered_text, "committee_peers")
         if source is None or ours is None or source != ours:
             raise ConfigError("committee_peers is not byte-identical to %s bootstrap_servers (the "
+                              "emitter's formatting differs from the source; review by hand)" % self.committee_path)
+
+    # ----------------------------------------------------------------- native admission maps
+
+    def name_of(self, bls):
+        """The --nodes name holding BLS key `bls`, or None."""
+        return next((n for n, key in self.bls.items() if key == bls), None)
+
+    def label(self, bls):
+        """`<node> <short BLS>` for a key of --nodes, else the short key."""
+        name = self.name_of(bls)
+        return "%s %s" % (name, _short(bls)) if name else _short(bls)
+
+    def _ip4_only(self, name, entry):
+        """Every network_address of a BootstrapServer- or TrustedNode-shaped entry is /ip4/..."""
+        workers = entry["workers"]
+        items = sorted(workers.items()) if isinstance(workers, dict) else enumerate(workers)
+        for where, node in [("primary", entry["primary"])] + [("workers[%s]" % k, w) for k, w in items]:
+            addr = node.get("network_address")
+            if isinstance(addr, str) and addr.startswith("/ip4/"):
+                continue
+            kind = ("a /dns multiaddr" if isinstance(addr, str) and addr.startswith("/dns")
+                    else "not an /ip4 multiaddr")
+            raise ConfigError("%s %s.network_address %r is %s: the admission maps take /ip4/... only "
+                              "(the node has no DNS transport)" % (name, where, addr, kind))
+
+    def admission_maps(self, name):
+        """(bootstrap-peers map, trusted-nodes map) for node `name`; the second is {} for none.
+
+        Checked the way render checks a network-config: the strict shapes, one PeerId per
+        (BLS key, swarm) and no other key using this node's own network keys.
+        """
+        if name not in self.roles:
+            raise ConfigError("unknown node %r (not in --nodes)" % name)
+        boot = copy.deepcopy(self.bootstrap_servers)
+        trusted = {}
+        if self.roles[name] != "rpc":
+            for peer in self.rpcs:
+                trusted[self.bls[peer]] = self.trusted_entry(peer, name)
+                self._ip4_only(peer, trusted[self.bls[peer]])
+        errs, bindings = [], []
+        for bls, entry in boot.items():
+            self._ip4_only(self.name_of(bls) or _short(bls), entry)
+            errs.extend(check_bootstrap_server(entry, "%s bootstrap-peers[%s]" % (name, _short(bls)),
+                                               bindings, self.num_workers, bls))
+        for bls, entry in trusted.items():
+            errs.extend(check_trusted_node(entry, "%s trusted-nodes[%s]" % (name, _short(bls)),
+                                           bindings, self.local_workers(name), bls))
+        errs.extend(_binding_errors(self, name, "%s admission maps" % name, bindings))
+        if errs:
+            raise ConfigError("; ".join(errs))
+        return boot, trusted
+
+    def bootstrap_verbatim_check(self, text):
+        """The bootstrap-peers map must be committee.yaml's bootstrap_servers block, two spaces shallower."""
+        source = _top_block(self.committee_text, "bootstrap_servers")
+        if source is None or [line[2:] for line in source] != text.splitlines():
+            raise ConfigError("the bootstrap-peers map is not %s bootstrap_servers line for line (the "
                               "emitter's formatting differs from the source; review by hand)" % self.committee_path)
 
 
@@ -768,10 +889,122 @@ def _binding_errors(ctx, name, what, bindings):
     return errs
 
 
+# --------------------------------------------------------------------------- validate --native
+
+def _value_diff(where, got, want, errs):
+    """One message per difference between parsed `got` and expected `want`, by path."""
+    if isinstance(want, dict) and isinstance(got, dict):
+        for key in want:
+            if key not in got:
+                errs.append("%s: missing key %r" % (where, key))
+        for key in got:
+            if key not in want:
+                errs.append("%s: unexpected key %r" % (where, key))
+            else:
+                sub = "%s.%s" % (where, key) if isinstance(key, str) else "%s[%r]" % (where, key)
+                _value_diff(sub, got[key], want[key], errs)
+    elif isinstance(want, list) and isinstance(got, list):
+        if len(got) != len(want):
+            errs.append("%s: %d entries, want %d" % (where, len(got), len(want)))
+        for index, (a, b) in enumerate(zip(got, want)):
+            _value_diff("%s[%d]" % (where, index), a, b, errs)
+    elif type(got) is not type(want) or got != want:
+        errs.append("%s: found %s, want %s" % (where, _shown(got), _shown(want)))
+
+
+def _shown(value):
+    return _describe(value) if isinstance(value, (dict, list)) else repr(value)
+
+
+def _map_diff(ctx, what, key, cfg, want):
+    """Differences between top-level map `key` of `cfg` and the expected map `want`."""
+    if key not in cfg:
+        return ["%s: missing top-level key %r (want %d entries)" % (what, key, len(want))]
+    got = cfg[key]
+    if not isinstance(got, dict):
+        return ["%s %s: must be a mapping keyed by BLS key, found %s" % (what, key, _describe(got))]
+    errs = []
+    for bls in want:
+        if bls not in got:
+            errs.append("%s %s: missing %s" % (what, key, ctx.label(bls)))
+    for bls in got:
+        if bls not in want:
+            errs.append("%s %s: unexpected key %s" % (what, key, ctx.label(bls)))
+        else:
+            _value_diff("%s %s[%s]" % (what, key, ctx.label(bls)), got[bls], want[bls], errs)
+    return errs
+
+
+def native_errors(ctx, name, text, what):
+    """(errors, other NetworkConfig fields) for `text` as the network-config setup-node.sh
+    writes for node `name` from its maps: compared by content, not byte for byte."""
+    boot, trusted = ctx.admission_maps(name)
+    role = ctx.roles[name]
+    if not text:
+        return ["%s: empty file" % what], []
+    errs = _syntax_errors(text, what)
+    try:
+        cfg = parse_yaml(text, what)
+    except ConfigError as exc:
+        return errs + [str(exc)], []
+    if not isinstance(cfg, dict):
+        return errs + ["%s: top level must be a mapping, found %s" % (what, _describe(cfg))], []
+    others = []
+    for key in cfg:
+        if key in ("admission", "trusted_nodes", "committee_peers"):
+            continue
+        if key == "hostname":
+            if not isinstance(cfg[key], str):
+                errs.append("%s hostname: must be a string, found %s" % (what, _describe(cfg[key])))
+        elif key in NETWORK_CONFIG_FIELDS:
+            others.append(key)  # a field the node's own default dump holds; not compared
+        else:
+            hint = difflib.get_close_matches(str(key), list(NETWORK_CONFIG_FIELDS), n=1)
+            errs.append("%s: unknown top-level key %r: the node silently ignores it%s"
+                        % (what, key, " (did you mean %r?)" % hint[0] if hint else ""))
+    want_mode = NATIVE_MODES[role]
+    if "admission" not in cfg:
+        errs.append("%s: missing top-level key 'admission' (want mode %s)" % (what, want_mode))
+    else:
+        adm = cfg["admission"]
+        errs.extend(_keyset(adm, what + " admission", ("mode",), ("snapshot_max_age_secs",)))
+        if isinstance(adm, dict):
+            if "mode" in adm and adm["mode"] != want_mode:
+                errs.append("%s admission.mode: found %r, want %r (%s is %s)"
+                            % (what, adm["mode"], want_mode, name, ROLE_NAMES[role]))
+            age = adm.get("snapshot_max_age_secs")
+            if "snapshot_max_age_secs" in adm and (not _is_int(age) or age < 1):
+                errs.append("%s admission.snapshot_max_age_secs: must be a positive integer, found %r" % (what, age))
+    errs.extend(_map_diff(ctx, what, "committee_peers", cfg, boot))
+    if trusted:
+        errs.extend(_map_diff(ctx, what, "trusted_nodes", cfg, trusted))
+    elif "trusted_nodes" in cfg:
+        errs.append("%s: unexpected top-level key 'trusted_nodes': %s gets no trusted-nodes map (%s)"
+                    % (what, name, "an rpc node" if role == "rpc" else "no rpc node in --nodes"))
+    return errs, others
+
+
 # --------------------------------------------------------------------------- CLI
 
-def _context(args):
-    return Context(args.committee, args.genesis_dir, args.nodes, args.hub, args.trust_observers_everywhere)
+def _context(args, native=False):
+    return Context(args.committee, args.genesis_dir, args.nodes, args.hub, args.trust_observers_everywhere,
+                   native=native)
+
+
+def _write_all(out_dir, files):
+    """Write every (path, text) to a .tmp sibling, then rename them all (no mix of fresh and stale)."""
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        for path, text in files:
+            with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+    except OSError as exc:
+        for path, _ in files:
+            if os.path.exists(path + ".tmp"):
+                os.remove(path + ".tmp")
+        raise ConfigError("cannot write under %s: %s (no file replaced)" % (out_dir, exc))
+    for path, _ in files:
+        os.replace(path + ".tmp", path)
 
 
 def cmd_render(args):
@@ -800,23 +1033,71 @@ def cmd_render(args):
         print("FAIL %d of %d node(s) failed; wrote nothing under %s"
               % (failed, len(rendered), args.out_dir), file=sys.stderr)
         return 1
-    try:
-        os.makedirs(args.out_dir, exist_ok=True)
-        for path, text in rendered:
-            with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(text)
-    except OSError as exc:
-        for path, _ in rendered:
-            if os.path.exists(path + ".tmp"):
-                os.remove(path + ".tmp")
-        raise ConfigError("cannot write under %s: %s (no file replaced)" % (args.out_dir, exc))
-    for path, _ in rendered:
-        os.replace(path + ".tmp", path)
+    _write_all(args.out_dir, rendered)
     print("wrote %d file(s) under %s" % (len(rendered), args.out_dir))
     return 0
 
 
+def cmd_maps(args):
+    """Write <out-dir>/<node>.bootstrap-peers.yaml for every node and <node>.trusted-nodes.yaml
+    for each validator and observer when --nodes has an rpc node. All or nothing, like render;
+    a <node>.trusted-nodes.yaml left from an earlier run is removed when the node now gets none."""
+    ctx = _context(args, native=True)
+    files, stale = [], []
+    for name, _ in ctx.nodes:
+        boot, trusted = ctx.admission_maps(name)
+        text = emit_map(boot, "%s bootstrap-peers map" % name)
+        ctx.bootstrap_verbatim_check(text)
+        files.append((os.path.join(args.out_dir, name + ".bootstrap-peers.yaml"), text))
+        path = os.path.join(args.out_dir, name + ".trusted-nodes.yaml")
+        if trusted:
+            files.append((path, emit_map(trusted, "%s trusted-nodes map" % name)))
+        elif os.path.lexists(path):
+            stale.append((name, path))
+    _write_all(args.out_dir, files)
+    for path, text in files:
+        print("ok   %s (%d bytes)" % (path, len(text)))
+    for name, path in stale:
+        try:
+            os.remove(path)
+        except OSError as exc:
+            raise ConfigError("cannot remove the stale %s: %s" % (path, exc))
+        print("removed stale %s (%s gets no trusted-nodes map)" % (path, name))
+    print("wrote %d file(s) under %s" % (len(files), args.out_dir))
+    return 0
+
+
+def cmd_validate_native(args):
+    ctx = _context(args, native=True)
+    failed = 0
+    for path in args.files:
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except OSError as exc:
+            print("FAIL cannot read %s: %s" % (path, exc), file=sys.stderr)
+            failed += 1
+            continue
+        errs, others = native_errors(ctx, args.node, text, path)
+        for err in errs:
+            print("FAIL %s" % err, file=sys.stderr)
+        failed += bool(errs)
+        if not errs:
+            _, trusted = ctx.admission_maps(args.node)
+            print("ok   %s is %s's native network-config (mode %s, committee_peers %d, trusted_nodes %s)%s"
+                  % (path, args.node, NATIVE_MODES[ctx.roles[args.node]], len(ctx.bootstrap_servers),
+                     len(trusted) if trusted else "none",
+                     "; not compared: %s" % ", ".join(others) if others else ""))
+    return 1 if failed else 0
+
+
 def cmd_validate(args):
+    if args.native:
+        if args.existing is not None:
+            args.parser.error("--existing does not apply to --native")
+        return cmd_validate_native(args)
+    if args.hub is None:
+        args.parser.error("the following arguments are required: --hub")
     ctx = _context(args)
     existing = None
     if args.existing is not None:
@@ -869,26 +1150,43 @@ def main(argv):
     sub = parser.add_subparsers(dest="cmd")
     sub.required = True
 
-    def context_flags(p):
+    def context_flags(p, hub_help="the validator that trusts the observers (node1)", hub_required=True):
         p.add_argument("--committee", required=True, help="genesis/committee.yaml")
         p.add_argument("--genesis-dir", required=True, help="dir with validators/<n>.yaml, observers/<n>.yaml")
-        p.add_argument("--nodes", required=True, help="fleet order: node1=validator,...,node5=observer")
-        p.add_argument("--hub", required=True, help="the validator that trusts the observers (node1)")
+        p.add_argument("--nodes", required=True,
+                       help="fleet order: node1=validator,...,node5=observer[,node6=rpc] "
+                            "(role rpc: maps and validate --native only)")
+        p.add_argument("--hub", required=hub_required, help=hub_help)
         p.add_argument("--trust-observers-everywhere", action="store_true",
                        help="every validator trusts every observer and each observer every validator "
-                            "(default: only the hub and the observers trust each other)")
+                            "(default: only the hub and the observers trust each other; "
+                            "not used by maps or validate --native)")
 
     p_render = sub.add_parser("render", help="write <out-dir>/<node>.yaml for every node and validate it")
     context_flags(p_render)
     p_render.add_argument("--out-dir", required=True)
     p_render.set_defaults(func=cmd_render)
 
-    p_val = sub.add_parser("validate", help="check files as one node's network-config")
-    context_flags(p_val)
+    p_val = sub.add_parser("validate", help="check files as one node's network-config "
+                                            "(--native: one written by setup-node.sh from the maps)")
+    context_flags(p_val, hub_help="the validator that trusts the observers (node1); "
+                                  "required except with --native", hub_required=False)
     p_val.add_argument("--node", required=True)
-    p_val.add_argument("--existing", help="the pre-merge file: its hostname line must be kept")
+    p_val.add_argument("--existing", help="the pre-merge file: its hostname line must be kept (not with --native)")
+    p_val.add_argument("--native", action="store_true",
+                       help="FILE is a <datadir>/network-config written by setup-node.sh "
+                            "(tn_network_config_render): compare admission.mode (Closed, rpc: Open), "
+                            "committee_peers and trusted_nodes by content with what `maps` writes for "
+                            "--node; roles validator, observer and rpc")
     p_val.add_argument("files", nargs="+")
-    p_val.set_defaults(func=cmd_validate)
+    p_val.set_defaults(func=cmd_validate, parser=p_val)
+
+    p_maps = sub.add_parser("maps", help="write <out-dir>/<node>.bootstrap-peers.yaml for every node and "
+                                         "<node>.trusted-nodes.yaml for each validator and observer "
+                                         "(entries: the rpc nodes) for setup-node.sh")
+    context_flags(p_maps, hub_help="optional, not used (when given it must be a validator)", hub_required=False)
+    p_maps.add_argument("--out-dir", required=True)
+    p_maps.set_defaults(func=cmd_maps)
 
     p_merge = sub.add_parser("merge", help="rendered file + the existing file's hostname line")
     p_merge.add_argument("--rendered", required=True)
