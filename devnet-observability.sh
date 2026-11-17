@@ -49,11 +49,35 @@
 # that one file, :949), so a gateway's metrics are read on its host:
 # curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics.
 #
-# --staged (deploy step 12: flags into the launch file of a STOPPED node before its first
-# start) is not available and refuses before touching a host: when setup-observability.sh
-# --json has to add a reth log/metrics flag it restarts the node unit, and a restart STARTS
-# a stopped unit (tn-node-deployment lib/observability.sh:1404-1408; its confirm is forced
-# by TN_ASSUME_YES=true at setup-observability.sh:651, and no switch turns the restart off).
+# --staged (deploy step 12; run it AFTER step 10 and BEFORE step 14): puts the flags and
+# the Alloy agent on nodes that step 10 (devnet-finalize.sh --stage-only) left installed,
+# enabled and STOPPED, and leaves them that way for the coordinated start. The installer
+# cannot do that by itself: when setup-observability.sh --json adds a reth log/metrics flag
+# it restarts the node unit, and a restart STARTS a stopped unit (tn-node-deployment
+# lib/observability.sh:1404-1408; its confirm is forced by TN_ASSUME_YES=true at
+# setup-observability.sh:651, and no switch turns the restart off). So the driver does what
+# step 10 does: it lets the installer start the node and stops it again. Each node is
+# briefly started ALONE (the same thing step 10 does); nothing waits for it to be healthy
+# (a genesis validator alone forms no committee, node 5 has no peer yet), it only has to
+# be stopped again. One host at a time:
+#   1. before (read-only): the node unit exists, is enabled and inactive (an active one is
+#      refused, use the normal mode; one not installed or not enabled: deploy step 10);
+#      its NRestarts, start stamp and the launch file's sha256 are recorded;
+#   2. the normal mode's remote command (same flags, region, push URLs, token on stdin,
+#      TN_SKIP_EPOCH_WAIT=1, which --staged requires), judged by its done line. A restart
+#      the quorum guard or epoch wait refused ("Not restarting") is the good case here:
+#      the flags are in the file and the node never started;
+#   3. if the node unit is not inactive afterwards: sudo systemctl stop, then reset-failed
+#      (the docker-wrapped unit can end `failed`), never disable, and a wait until it is
+#      inactive with no running container (OBS_STAGED_STOP_WAIT_SECS, default 90);
+#   4. asserted (read-only): node unit inactive and enabled; telcoin-alloy.service active
+#      when logs or metrics are on; the launch file carries the flags the toggles ask for
+#      (logs: --log.file.format json and --log.file.directory; metrics: --metrics; health:
+#      --healthcheck), read on its non-comment lines. Any failed assertion fails the host;
+#   5. one line: OBS_STAGED <instance> node=inactive enabled=yes agent=<active|off>
+#      started_by_installer=<yes|no> flags=<ok|not-checked>.
+# A failed host stops the sweep (the rest are listed untouched) and the exit is 1: a
+# half-staged fleet is looked at before step 14.
 #
 # Reaches nodes only via the lib's IAP helpers (the always-on wg-allow-iap-ssh door).
 # Targets (index, instance name or node name) narrow the sweep; with none it sweeps every
@@ -63,7 +87,10 @@
 #   ./devnet-observability.sh                       # all node hosts (a live fleet)
 #   ./devnet-observability.sh validator-1-devnet    # some, by index, instance or node name
 #   TN_SKIP_EPOCH_WAIT=0 ./devnet-observability.sh  # live chain: keep v2's epoch wait
-# Exit: 0 ok, 1 a node failed, 2 usage or config (and --staged, see above).
+#   ./devnet-observability.sh --staged [target …]   # deploy step 12: nodes step 10 staged
+#                                                   # (each started briefly by the installer,
+#                                                   # stopped again here); before step 14
+# Exit: 0 ok (--staged: every targeted node host staged), 1 a node failed, 2 usage or config.
 
 set -euo pipefail
 
@@ -91,19 +118,28 @@ esac
 # --- arguments: flags, then targets (index, instance name or node name) ----------
 # Validated up front so a typo fails before we touch a single node.
 TARGETS=()
+STAGED=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --staged)
-            echo "❌ --staged is not available: setup-observability.sh --json would START a stopped node when it" >&2
-            echo "   adds the reth log/metrics flags (tn-node-deployment lib/observability.sh:1404-1408; its" >&2
-            echo "   confirm is forced by TN_ASSUME_YES=true, setup-observability.sh:651). Nothing was touched." >&2
-            exit 2 ;;
+        --staged) STAGED=1 ;;
         -h|--help) sed -n '/^# Usage:/,/^# Exit:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "❌ unknown flag '$1'" >&2; exit 2 ;;
         *) TARGETS+=("$1") ;;
     esac
     shift
 done
+# OBS_STAGED_STOP_WAIT_SECS (--staged): how long a node the installer started may take to
+# be inactive again after the stop (polled every OBS_POLL_SECS).
+OBS_STAGED_STOP_WAIT_SECS="${OBS_STAGED_STOP_WAIT_SECS:-90}"
+if [ "${STAGED}" -eq 1 ]; then
+    case "${OBS_STAGED_STOP_WAIT_SECS}" in
+        ''|*[!0-9]*) echo "❌ OBS_STAGED_STOP_WAIT_SECS='${OBS_STAGED_STOP_WAIT_SECS}' must be whole seconds" >&2; exit 2 ;;
+    esac
+    if [ "${TN_SKIP_EPOCH_WAIT}" != 1 ]; then
+        echo "❌ --staged needs TN_SKIP_EPOCH_WAIT=1: the chain has not started, there is no epoch boundary to wait for" >&2
+        exit 2
+    fi
+fi
 tn_fleet_check || { echo "❌ the fleet arrays in config.sh are inconsistent (lines above)" >&2; exit 2; }
 
 # tn_obs_resolve <target> — prints the fleet index an index, instance name or node name names.
@@ -222,6 +258,194 @@ tn_obs_restart_pending() {
     return 1
 }
 
+# tn_obs_judge_run <instance> <stdout> <ssh-rc> <node-log> — print the run's warn/error
+# events, then judge its done line: rc 0 when it says ok and ssh exited 0.
+tn_obs_judge_run() {
+    local events ev done_line
+    # Every warn/error event, for the operator (the rest is in the node log).
+    events="$(printf '%s\n' "$2" | grep -E '"event":"(warn|error)"' || true)"
+    if [ -n "${events}" ]; then
+        while IFS= read -r ev; do
+            echo "      [$(tn_json_str "${ev}" event)] $(tn_json_str "${ev}" msg)"
+        done <<< "${events}"
+    fi
+
+    done_line="$(tn_json_done_line "$2")"
+    if [ -z "${done_line}" ]; then
+        echo "    ❌ no done line from setup-observability.sh on $1 (ssh rc=$3; see $4)" >&2
+    elif ! tn_json_true "${done_line}" ok; then
+        echo "    ❌ setup-observability.sh failed on $1: $(tn_json_str "${done_line}" msg)" >&2
+    elif [ "$3" -ne 0 ]; then
+        echo "    ❌ setup-observability.sh said ok on $1 but exited rc=$3 (see $4)" >&2
+    else
+        echo "    done: ok, applied [$(printf '%s' "${done_line}" | sed -n 's/.*"applied":\[\([^]]*\)\].*/\1/p' | tr -d '"')]"
+        return 0
+    fi
+    return 1
+}
+
+# --- --staged helpers --------------------------------------------------------------
+# The launch file step 10 leaves: the v2 docker start script (devnet-finalize.sh asserts it
+# is the unit's ExecStart, its TN_START_DOCKER), the file tn-node-deployment's
+# tn_node_launch_target picks and setup-observability.sh patches.
+OBS_LAUNCH_FILE="/usr/local/libexec/telcoin/tn-start-docker"
+
+# tn_obs_staged_probe_cmd <unit> — one read-only round trip ON THE NODE: the unit's
+# ActiveState, is-enabled, NRestarts and ActiveEnterTimestampMonotonic (it moves on every
+# start, so a start is seen even when the node is down again), the Alloy unit, whether a
+# container named <unit> runs, the launch file's sha256 and which of the flags the remote
+# script adds stand on a non-comment line of it (lib/observability.sh:146 and :195,
+# health: --healthcheck). Ends with one "__tn_obs_st ..." line.
+tn_obs_staged_probe_cmd() {
+    printf "svc='%s'\nlf='%s'\n" "$1" "${OBS_LAUNCH_FILE}"
+    cat <<'EOF'
+st="$(systemctl show -p ActiveState --value "$svc" 2>/dev/null)"
+en="$(systemctl is-enabled "$svc" 2>/dev/null)"
+nr="$(systemctl show -p NRestarts --value "$svc" 2>/dev/null)"
+at="$(systemctl show -p ActiveEnterTimestampMonotonic --value "$svc" 2>/dev/null)"
+al="$(systemctl is-active telcoin-alloy.service 2>/dev/null)"
+ct="$(sudo docker inspect -f '{{.State.Running}}' "$svc" 2>/dev/null)"
+sum="$(sudo sha256sum "$lf" 2>/dev/null | cut -c1-64)"
+body="$(sudo grep -v '^[[:space:]]*#' "$lf" 2>/dev/null)"
+L="(^|[[:space:]\"'(])"; R="([[:space:]=\"')]|\$)"
+has() { printf '%s\n' "$body" | grep -Eq -- "$1"; }
+f=""
+has "${L}--log\\.file\\.format[\"']?[[:space:]=]+[\"']?json${R}" && f="${f},log-json"
+has "${L}--log\\.file\\.directory${R}" && f="${f},log-dir"
+has "${L}--metrics${R}" && f="${f},metrics"
+has "${L}--healthcheck${R}" && f="${f},healthcheck"
+f="${f#,}"
+echo "__tn_obs_st state=${st:-unknown} enabled=${en:-unknown} nrestarts=${nr:-?} enter=${at:-?} alloy=${al:-unknown} container=${ct:-none} sum=${sum:-none} flags=${f:-none}"
+EOF
+}
+
+# tn_obs_staged_probe <instance> <zone> <unit> <node-log> — the fields of that line; one
+# retry on ssh rc 255 (read-only); rc 1 (nothing printed) when the node did not answer.
+tn_obs_staged_probe() {
+    local cmd out r=0
+    cmd="$(tn_obs_staged_probe_cmd "$3")"
+    out="$(tn_iap_ssh "$1" "$2" "${cmd}" </dev/null 2>>"$4")" || r=$?
+    if [ "${r}" -eq 255 ]; then
+        out="$(tn_iap_ssh "$1" "$2" "${cmd}" </dev/null 2>>"$4")" || true
+    fi
+    out="$(printf '%s\n' "${out}" | tr -d '\r' | grep '^__tn_obs_st ' | tail -n 1)" || true
+    [ -n "${out}" ] || return 1
+    printf '%s\n' "${out#__tn_obs_st }"
+    printf '%s\n' "--- probe: ${out#__tn_obs_st }" >>"$4"
+}
+
+# tn_obs_staged_down <probe-fields> — rc 0 when the node is down: unit inactive and no
+# running container.
+tn_obs_staged_down() {
+    [ "$(tn_obs_field "$1" state)" = inactive ] && [ "$(tn_obs_field "$1" container)" != true ]
+}
+
+# tn_obs_stage_host <index> — --staged on one node host (steps 1-5 of the header). rc 0
+# when it ends staged (prints the OBS_STAGED line); rc 1 when not (why, on stderr).
+tn_obs_stage_host() {
+    local i="$1" inst zone region nlog unit pre post st en sum remote_cmd out ssh_rc=0 done_ok=0
+    local started=no waited=0 agent=off flags_res=ok want missing="" w bad=""
+    inst="${INSTANCE_NAMES[$i]}"
+    zone="${ZONES[$i]}"
+    region="$(tn_region_from_zone "${zone}")"
+    unit="$(tn_service_for_role "$(tn_node_role "${i}")")"
+    nlog="${RUN_LOG_DIR}/${inst}.log"
+    echo ""
+    echo ">>> ${inst} (${zone}, region=${region}): staged: setup-observability.sh ${enable_flags[*]}"
+
+    # (1) Before (read-only): installed, enabled and stopped, as step 10 leaves it.
+    pre="$(tn_obs_staged_probe "${inst}" "${zone}" "${unit}" "${nlog}")" || {
+        echo "    ❌ ${inst} did not answer the state probe (see ${nlog}); nothing was changed there." >&2
+        return 1
+    }
+    st="$(tn_obs_field "${pre}" state)"
+    en="$(tn_obs_field "${pre}" enabled)"
+    sum="$(tn_obs_field "${pre}" sum)"
+    case "${st}" in
+        active|activating|reloading|deactivating)
+            echo "    ❌ ${unit} is ${st} on ${inst}: --staged takes a node step 10 left stopped; a running node takes" >&2
+            echo "       the normal mode (./devnet-observability.sh ${inst}). Nothing was changed there." >&2
+            return 1 ;;
+    esac
+    if [ "${st}" != inactive ] || [ "${en}" != enabled ] || [ "${sum}" = none ]; then
+        echo "    ❌ ${inst} is not staged (${unit} ActiveState=${st} is-enabled=${en}, launch file ${OBS_LAUNCH_FILE}" >&2
+        echo "       $([ "${sum}" = none ] && echo 'missing or unreadable' || echo present)): run deploy step 10 (devnet-finalize.sh --stage-only) first. Nothing was changed there." >&2
+        return 1
+    fi
+    echo "    before: ${unit} inactive, enabled, NRestarts=$(tn_obs_field "${pre}" nrestarts); launch file sha256 $(printf '%.12s' "${sum}")…"
+
+    # (2) The run: the normal mode's command; stdout = JSON (parsed), stderr = node log.
+    remote_cmd="$(tn_obs_cmd "${region}")"
+    echo "    + ${remote_cmd}$([ "${want_alloy}" -eq 1 ] && printf '   [token on stdin]')"
+    out="$(printf '%s\n' "${token}" | tn_iap_ssh_cmd_stdin "${inst}" "${zone}" "${remote_cmd}" 2>>"${nlog}")" || ssh_rc=$?
+    { echo "--- setup-observability.sh --json stdout (rc=${ssh_rc})"; printf '%s\n' "${out}"; } >>"${nlog}"
+    tn_obs_judge_run "${inst}" "${out}" "${ssh_rc}" "${nlog}" && done_ok=1
+    case "${out}" in
+        *'"event":"warn","msg":"Not restarting'*)
+            echo "    the installer did not restart the node (its guard refused): the flags are in the file and the node never started" ;;
+    esac
+    case "${out}" in
+        *'"event":"warn","msg":"Added --healthcheck'*)
+            echo "    --healthcheck added to the launch file: the node binds it at its first start (step 14)" ;;
+    esac
+
+    # (3) After: whatever the run's result, a node it started is stopped again (never
+    # disabled). One stop, then read-only polls.
+    post="$(tn_obs_staged_probe "${inst}" "${zone}" "${unit}" "${nlog}")" || {
+        echo "    ❌ ${inst} did not answer after the run: ${unit} may be RUNNING. On the host: sudo systemctl stop ${unit} (see ${nlog})." >&2
+        return 1
+    }
+    if ! tn_obs_staged_down "${post}"; then
+        started=yes
+        echo "    the installer started ${unit} ($(tn_obs_field "${post}" state)): stopping it again"
+        echo "    + sudo systemctl stop ${unit}; sudo systemctl reset-failed ${unit}"
+        tn_iap_ssh "${inst}" "${zone}" "sudo systemctl stop '${unit}'; echo \"__tn_obs_stop rc=\$?\"; sudo systemctl reset-failed '${unit}' >/dev/null 2>&1 || true" \
+            </dev/null >>"${nlog}" 2>&1 || true
+        while :; do
+            post="$(tn_obs_staged_probe "${inst}" "${zone}" "${unit}" "${nlog}")" || post=""
+            tn_obs_staged_down "${post}" && break
+            if [ "${waited}" -ge "${OBS_STAGED_STOP_WAIT_SECS}" ]; then
+                echo "    ❌ ${unit} on ${inst} not inactive ${OBS_STAGED_STOP_WAIT_SECS}s after the stop (state=$(tn_obs_field "${post}" state) container=$(tn_obs_field "${post}" container)): it may be RUNNING ALONE. Stop it by hand before step 14." >&2
+                return 1
+            fi
+            sleep "${OBS_POLL_SECS}"
+            waited=$((waited + OBS_POLL_SECS))
+        done
+        echo "    stopped (${waited}s after the stop)"
+    elif [ "$(tn_obs_field "${post}" enter)" != "$(tn_obs_field "${pre}" enter)" ] \
+        || [ "$(tn_obs_field "${post}" nrestarts)" != "$(tn_obs_field "${pre}" nrestarts)" ]; then
+        started=yes
+        echo "    ⚠️  ${unit} was started during the run and is down again (start stamp/NRestarts moved): see ${nlog}"
+    fi
+
+    # (4) Asserted on the last probe (read-only).
+    [ "$(tn_obs_field "${post}" enabled)" = enabled ] || bad="${bad} is-enabled=$(tn_obs_field "${post}" enabled);"
+    if [ "${want_alloy}" -eq 1 ]; then
+        agent="$(tn_obs_field "${post}" alloy)"
+        [ "${agent}" = active ] || bad="${bad} telcoin-alloy.service=${agent};"
+    fi
+    want=""
+    tn_obs_on "${TN_OBS_ENABLE_LOGS}"    && want="${want} log-json log-dir"
+    tn_obs_on "${TN_OBS_ENABLE_METRICS}" && want="${want} metrics"
+    tn_obs_on "${TN_OBS_ENABLE_HEALTH}"  && want="${want} healthcheck"
+    if [ "$(tn_obs_field "${post}" sum)" = none ]; then
+        flags_res=not-checked
+        echo "    ⚠️  ${OBS_LAUNCH_FILE} unreadable after the run: its flags were NOT checked"
+    else
+        for w in ${want}; do
+            case ",$(tn_obs_field "${post}" flags)," in *",${w},"*) ;; *) missing="${missing} ${w}" ;; esac
+        done
+        [ -z "${missing}" ] || bad="${bad} launch file lacks:${missing};"
+        [ "$(tn_obs_field "${post}" sum)" = "${sum}" ] && echo "    launch file unchanged (its flags were already on it)"
+    fi
+    [ "${done_ok}" -eq 1 ] || bad="${bad} setup-observability.sh did not end ok;"
+    if [ -n "${bad}" ]; then
+        echo "    ❌ ${inst} not staged:${bad} (node is stopped; see ${nlog})" >&2
+        return 1
+    fi
+    echo "OBS_STAGED ${inst} node=inactive enabled=yes agent=${agent} started_by_installer=${started} flags=${flags_res}"
+}
+
 RUN_LOG_DIR="${DEVNET_LIB_DIR}/logs/$(date +%Y%m%d_%H%M%S)-observability"
 
 echo "=========================================="
@@ -232,6 +456,7 @@ echo "Metrics:    ${OBS_METRICS_PUSH_URL}"
 echo "Toggles:    logs=${TN_OBS_ENABLE_LOGS} metrics=${TN_OBS_ENABLE_METRICS} health=${TN_OBS_ENABLE_HEALTH} (dashboard=${TN_OBS_ENABLE_DASHBOARD}: hub-only, not applied here)"
 echo "Epoch wait: $([ "${TN_SKIP_EPOCH_WAIT}" = 1 ] && echo "skipped (TN_SKIP_EPOCH_WAIT=1)" || echo "v2 default (TN_SKIP_EPOCH_WAIT=0)")"
 [ "${#TARGETS[@]}" -gt 0 ] && echo "Subset:     ${TARGETS[*]}"
+[ "${STAGED}" -eq 1 ] && echo "Mode:       --staged (deploy step 12): stopped nodes stay stopped; a node the installer starts is stopped again (wait ${OBS_STAGED_STOP_WAIT_SECS}s)"
 echo "Gateways:   not scraped (Alloy takes one config file); on the host: curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics"
 echo "Logs:       ${RUN_LOG_DIR}"
 echo "=========================================="
@@ -272,6 +497,36 @@ for i in $(tn_indices_by_role gateway); do
         echo "↪ ${INSTANCE_NAMES[$i]}: gateway host, no node: skipped (metrics on the host: curl 127.0.0.1:${GATEWAY_METRICS_PORT}/metrics)"
     fi
 done
+
+# --staged: one host after another; the first that is not staged stops the sweep.
+if [ "${STAGED}" -eq 1 ]; then
+    for i in $(tn_node_indices); do
+        tn_obs_selected "${i}" || continue
+        if [ "${stop}" -eq 1 ]; then
+            untouched_nodes+=("${INSTANCE_NAMES[$i]}")
+        elif tn_obs_stage_host "${i}"; then
+            ok_nodes+=("${INSTANCE_NAMES[$i]}")
+        else
+            echo "    ❌ stopping the sweep: a half-staged fleet is looked at before step 14." >&2
+            failed_nodes+=("${INSTANCE_NAMES[$i]}")
+            rc=1
+            stop=1
+        fi
+    done
+    echo ""
+    echo "=========================================="
+    [ "${#ok_nodes[@]}" -gt 0 ]        && echo "staged:    ${ok_nodes[*]}"
+    [ "${#failed_nodes[@]}" -gt 0 ]    && echo "FAILED:    ${failed_nodes[*]}"
+    [ "${#untouched_nodes[@]}" -gt 0 ] && echo "untouched: ${untouched_nodes[*]} (sweep stopped; re-run with these names once the failure is fixed)"
+    echo "per-node logs: ${RUN_LOG_DIR}"
+    if [ "${rc}" -eq 0 ]; then
+        echo "every targeted node host is staged (stopped, enabled, flags on): ready for step 14."
+    else
+        echo "staged observability finished WITH ERRORS — see the ❌ lines above; do not run step 14 yet." >&2
+    fi
+    echo "=========================================="
+    exit "${rc}"
+fi
 for i in $(tn_node_indices); do
     inst="${INSTANCE_NAMES[$i]}"
     zone="${ZONES[$i]}"
@@ -312,26 +567,8 @@ for i in $(tn_node_indices); do
     out="$(printf '%s\n' "${token}" | tn_iap_ssh_cmd_stdin "${inst}" "${zone}" "${remote_cmd}" 2>>"${nlog}")" || ssh_rc=$?
     { echo "--- setup-observability.sh --json stdout (rc=${ssh_rc})"; printf '%s\n' "${out}"; } >>"${nlog}"
 
-    # Every warn/error event, for the operator (the rest is in the node log).
-    events="$(printf '%s\n' "${out}" | grep -E '"event":"(warn|error)"' || true)"
-    if [ -n "${events}" ]; then
-        while IFS= read -r ev; do
-            echo "      [$(tn_json_str "${ev}" event)] $(tn_json_str "${ev}" msg)"
-        done <<< "${events}"
-    fi
-
-    done_line="$(tn_json_done_line "${out}")"
     done_ok=0
-    if [ -z "${done_line}" ]; then
-        echo "    ❌ no done line from setup-observability.sh on ${inst} (ssh rc=${ssh_rc}; see ${nlog})" >&2
-    elif ! tn_json_true "${done_line}" ok; then
-        echo "    ❌ setup-observability.sh failed on ${inst}: $(tn_json_str "${done_line}" msg)" >&2
-    elif [ "${ssh_rc}" -ne 0 ]; then
-        echo "    ❌ setup-observability.sh said ok on ${inst} but exited rc=${ssh_rc} (see ${nlog})" >&2
-    else
-        done_ok=1
-        echo "    done: ok, applied [$(printf '%s' "${done_line}" | sed -n 's/.*"applied":\[\([^]]*\)\].*/\1/p' | tr -d '"')]"
-    fi
+    tn_obs_judge_run "${inst}" "${out}" "${ssh_rc}" "${nlog}" && done_ok=1
 
     pending=0
     if tn_obs_restart_pending "${out}"; then
