@@ -4,7 +4,9 @@
 #
 # Genesis seats nodes 1-4 with nextCommitteeSize 4. Node 5 is a unified node outside the
 # genesis committee that syncs as an observer. This script mints its ConsensusNFT, stakes it
-# and activates it, so five eligible validators rotate through the four seats.
+# and activates it, so five eligible validators rotate through the four seats. Node 5 is found
+# by role: the first `observer` entry of NODE_ROLES (config.sh); the reference validator of
+# step 4 is the first `validator` entry. No `observer` entry: exit 2.
 #
 #   1. preflight     read-only checks; refuses on any mismatch (below)
 #   2. mint          Safe.execTransaction(registry, 0, mint(node5), CALL, 0,0,0, 0x0, 0x0, sig)
@@ -16,11 +18,15 @@
 #                    node-info.yaml (the image's own encoder, so the ABI always matches the
 #                    image's genesis registry); value = stakeConfig(getCurrentStakeVersion())
 #                    .stakeAmount; sent from node 5's key after an eth_call simulation passes.
-#   4. sync gate     node 5's eth_blockNumber within SYNC_MAX_LAG (5) blocks of node 1's and
-#                    tn_nodeMode == "Observer", polled until SYNC_TIMEOUT_SECS.
+#   4. sync gate     node 5's eth_blockNumber within SYNC_MAX_LAG (5) blocks of the reference
+#                    validator's and node 5's tn_nodeMode == "Observer", polled until
+#                    SYNC_TIMEOUT_SECS; each node read on its own loopback over IAP (STEP 4 below).
 #   5. activate      ConsensusRegistry.activate() from node 5's key -> PendingActivation.
 #   6. watch         getValidator(node5) -> Active at the next epoch boundary, then committee
-#                    membership for --watch-epochs K epochs, stating whether it changed.
+#                    membership for --watch-epochs K epochs, stating whether it changed. Two
+#                    lines per epoch from activationEpoch: node 5's status, its tn_nodeMode,
+#                    whether it is in that epoch's committee, and what to check on the
+#                    validators (allowlist entry, admission window one epoch later, first seat).
 #
 # Seating arithmetic (tn-contracts ConsensusRegistry, the copy pinned by the image): activate()
 # in epoch N sets activationEpoch = N+1. At the close of N, concludeEpoch flips it to Active and
@@ -28,9 +34,24 @@
 # N+1 and N+2 committees were fixed before activation, so N+3 is the first epoch node 5 can sit
 # in. Five eligible for four seats means any single draw can leave it out.
 #
+# WHERE EACH READ GOES (launch 2). Every chain read and every send (steps 1-3, 5, 6) uses --rpc,
+# by default RPC_URL from config.sh: the public RPC node (https://rpc.<BASE_DOMAIN>). A
+# transaction submitted there is forwarded by the RPC node to the committee's gateways.
+# tn_getNextCommitteeSize (preflight) is a tn_* call to the same URL: the RPC node answers it
+# natively, and a failure is tolerated (shown as n/a). Step 4 is different, see its note.
+#
+# STEP 4 READS THE NODES THEMSELVES. https://nodeN.<BASE_DOMAIN> is now a worker gateway that sends
+# every read and every tn_* call to the RPC node, so a head or tn_nodeMode read through it is
+# answered by the RPC node, not by node N, and the gate would not be measuring node 5. By default
+# step 4 runs each probe on the node's own host: `curl http://127.0.0.1:${NODE_RPC_PORT}` (config.sh,
+# 8545) through the lib's tn_iap_ssh, one ssh round trip per probe, an ssh rc 255 retried once:
+# node 5's head and tn_nodeMode on node 5's instance, the reference head on the first validator's.
+# The same IAP read gives node 5's tn_nodeMode in step 6. --node5-rpc / --ref-rpc URL switch that
+# read back to the URL (a fleet without gateways).
+#
 # Preflight refuses unless: chain id == CHAIN_ID; the registry has code and owner() == SAFE_ADDR;
 # the Safe threshold is 1 and isOwner(SAFE_EXTRA_OWNER); the registry is not paused; node 5's
-# address is set (no placeholder) and equals the execution_address in genesis/observers/node5.yaml;
+# address is set (no placeholder) and equals the execution_address in its node-info file;
 # node 5 is not retired or past PendingActivation in a way this script cannot continue; node 5
 # holds stake + gas and the admin holds gas; each secret's key belongs to the expected address;
 # the stake simulation shows the PoP and value accepted (before the mint it may revert ONLY with
@@ -52,23 +73,30 @@
 #   ./devnet-stake-node5.sh --yes              # do it
 #   ./devnet-stake-node5.sh --yes --from-step 5   # resume (step 1 always runs; every step
 #                                              # also skips itself when the chain shows it done)
+#   ./devnet-stake-node5.sh --yes --node5-rpc http://<node5>:8545 --ref-rpc http://<node1>:8545
+#                                              # a fleet without gateways: step 4 reads these URLs
 # Options:
-#   --rpc URL            chain RPC for reads and sends (default RPC_URL from config.sh)
+#   --rpc URL            chain RPC for reads and sends (default RPC_URL from config.sh, the
+#                        public RPC node; it forwards a submitted transaction to the committee)
 #   --from-step N        skip steps 2..N-1
 #   --watch-epochs K     epochs of committee membership to log in step 6 (default 3; 0 = none)
-#   --node-info PATH     node 5's node-info (default genesis/observers/node5.yaml)
-#   --node5-rpc URL      node 5's own RPC for step 4 (default https://node5.${BASE_DOMAIN})
-#   --ref-rpc URL        reference RPC for step 4 (default https://node1.${BASE_DOMAIN})
-#   --node5-via-iap      step 4 asks node 5 over tn_iap_ssh (curl 127.0.0.1:<RPC_PORT> on the
-#                        node, RPC_PORT from .node-meta) instead of --node5-rpc
+#   --node-info PATH     node 5's node-info (default genesis/<tn_role_dir>/<NODE_NAME>.yaml of the
+#                        observer entry, i.e. genesis/observers/node5.yaml)
+#   --node5-rpc URL      read node 5's head and tn_nodeMode (steps 4, 6) from URL instead of over
+#                        IAP (default: over IAP, 127.0.0.1:${NODE_RPC_PORT} on node 5's host)
+#   --ref-rpc URL        read the reference head (step 4) from URL instead of over IAP (default:
+#                        over IAP on the first validator's host)
+#   --node5-via-iap      accepted for old command lines: IAP is the default (it still wins over
+#                        --node5-rpc)
 #   --poll SECS          poll interval (default 30)
 # Env: ADMIN_PK_SECRET (default devnet-contracts-admin-pk), KEYTOOL_IMAGE (default DOCKER_IMAGE),
 #      SYNC_TIMEOUT_SECS (1800), SYNC_MAX_LAG (5), EPOCH_TIMEOUT_SECS (2 x EPOCH_DURATION_SECS + 600).
 #
 # REHEARSAL HOOK (tests only): TN_STAKE_NODE5_TEST_HOOKS=<file> is sourced after every function
 # below is defined, so a rehearsal can replace tn_secret (stub keys), node5_mode (anvil has no
-# tn_nodeMode) or any other function. A banner is printed when it is set. CONFIG_FILE (honoured
-# by devnet-lib.sh) points the run at a rehearsal config. Never set either on a live run.
+# tn_nodeMode), host_rpc / node5_head / ref_head (no IAP) or any other function. A banner is
+# printed when it is set. CONFIG_FILE (honoured by devnet-lib.sh) points the run at a rehearsal
+# config. Never set either on a live run.
 
 set -euo pipefail
 case "$-" in
@@ -96,9 +124,9 @@ CONFIRM=0
 RPC="${RPC_URL}"
 FROM_STEP=1
 WATCH_EPOCHS=3
-NODE5_INFO="${REPO_DIR}/genesis/observers/node5.yaml"
-NODE5_RPC="https://${NODE_NAMES[4]}.${BASE_DOMAIN}"
-REF_RPC="https://${NODE_NAMES[0]}.${BASE_DOMAIN}"
+NODE5_INFO=""                     # default set after the role lookup below
+NODE5_RPC=""                      # empty: step 4 reads node 5 over IAP (the default)
+REF_RPC=""                        # empty: step 4 reads the reference validator over IAP
 NODE5_VIA_IAP=0
 POLL=30
 usage() { sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]:-$0}" | sed '$d' | sed 's/^# \{0,1\}//'; }
@@ -124,12 +152,24 @@ for _n in FROM_STEP WATCH_EPOCHS POLL; do
 done
 [ "${FROM_STEP}" -ge 1 ] && [ "${FROM_STEP}" -le 6 ] || { echo "❌ --from-step must be 1..6" >&2; exit 1; }
 [ "${POLL}" -ge 1 ] || POLL=1
+# --node5-via-iap is the default now; kept for old command lines, and as before it wins over --node5-rpc
+if [ "${NODE5_VIA_IAP}" -eq 1 ]; then NODE5_RPC=""; fi
+
+# Node 5 and the reference validator by role (config.sh NODE_ROLES), not by array index:
+# node 5 = the first `observer` entry, the reference = the first `validator` entry.
+NODE5_IDX="$(tn_indices_by_role observer)" || exit 2
+NODE5_IDX="${NODE5_IDX%%$'\n'*}"
+REF_IDX="$(tn_indices_by_role validator)" || exit 2
+REF_IDX="${REF_IDX%%$'\n'*}"
+[ -n "${NODE5_IDX}" ] || { echo "❌ no 'observer' entry in NODE_ROLES (config.sh): no node 5 to stake" >&2; exit 2; }
+[ -n "${REF_IDX}" ] || { echo "❌ no 'validator' entry in NODE_ROLES (config.sh): no reference validator for step 4" >&2; exit 2; }
+[ -n "${NODE5_INFO}" ] || NODE5_INFO="${REPO_DIR}/genesis/$(tn_role_dir "${NODE5_IDX}")/${NODE_NAMES[$NODE5_IDX]}.yaml"
 
 ADMIN_PK_SECRET="${ADMIN_PK_SECRET:-devnet-contracts-admin-pk}"
 ADMIN_ADDR="${SAFE_EXTRA_OWNER}"
-NODE5_ADDR="${EXECUTION_ADDRESSES[4]}"
-NODE5_INSTANCE="${INSTANCE_NAMES[4]}"
-NODE5_ZONE="${ZONES[4]}"
+NODE5_ADDR="${EXECUTION_ADDRESSES[$NODE5_IDX]}"
+NODE5_INSTANCE="${INSTANCE_NAMES[$NODE5_IDX]}"
+REF_NAME="${NODE_NAMES[$REF_IDX]}"
 KEYTOOL_IMAGE="${KEYTOOL_IMAGE:-${DOCKER_IMAGE}}"
 SYNC_TIMEOUT_SECS="${SYNC_TIMEOUT_SECS:-1800}"
 SYNC_MAX_LAG="${SYNC_MAX_LAG:-5}"
@@ -168,7 +208,40 @@ show_validator() {
     echo "    node 5 getValidator: $(rd "${REGISTRY}" "getValidator(address)(${VINFO_T})" "${NODE5_ADDR}")"
     echo "      = status $(status_name "${V_STATUS}") (${V_STATUS}), activationEpoch ${V_ACT_EPOCH}"
 }
-current_epoch() { first "$(rd "${REGISTRY}" "getCurrentEpoch()(uint32)")"; }
+# current_epoch: the registry's current epoch as a decimal, or rc 1 with a message. A failed,
+# empty or non-numeric read is retried (3 tries, 5 s apart). Every epoch read goes through here:
+# `first "$(rd …)"` alone loses rd's failure and can print "" with rc 0.
+current_epoch() {
+    local out="" try=1
+    while :; do
+        if out="$(rd "${REGISTRY}" "getCurrentEpoch()(uint32)")"; then
+            out="$(first "${out}")"
+            case "${out}" in ''|*[!0-9]*) ;; *) printf '%s\n' "${out}"; return 0 ;; esac
+        fi
+        [ "${try}" -lt 3 ] || break
+        try=$((try + 1)); sleep 5
+    done
+    echo "❌ getCurrentEpoch() at ${RPC}: no decimal epoch after ${try} tries (last answer '${out}')" >&2
+    return 1
+}
+# wait_for_epoch <n>: return once the current epoch is >= n, leaving it in EPOCH_SEEN. An
+# unreadable epoch keeps waiting, it never ends the wait (that would read a committee that is
+# not final yet); 10 unreadable polls in a row, or EPOCH_TIMEOUT_SECS, stop the run.
+wait_for_epoch() {
+    local start=${SECONDS} fails=0
+    while :; do
+        if EPOCH_SEEN="$(current_epoch)"; then
+            fails=0
+            [ "${EPOCH_SEEN}" -lt "$1" ] || return 0
+        else
+            fails=$((fails + 1))
+            [ "${fails}" -lt 10 ] || die "the current epoch was unreadable ${fails} polls in a row while waiting for epoch $1"
+            echo "      (current epoch unreadable, ${fails}/10 in a row; still waiting for epoch $1)"
+        fi
+        [ $((SECONDS - start)) -lt "${EPOCH_TIMEOUT_SECS}" ] || die "epoch $1 did not begin within ${EPOCH_TIMEOUT_SECS}s"
+        sleep "${POLL}"
+    done
+}
 # committee <epoch>: sorted lower-case member addresses, space separated; rc 1 if the read fails
 committee() {
     local out
@@ -224,38 +297,56 @@ load_key() {
     echo "    ✓ Secret Manager ${2} → keystore for ${got} (matches)"
 }
 
-# node 5 sync probes (step 4); the rehearsal hook may replace node5_head / node5_mode
-NODE5_RPC_PORT=""
-node5_rpc_iap() {
-    local body
-    if [ -z "${NODE5_RPC_PORT}" ]; then
-        NODE5_RPC_PORT="$(tn_node_meta_get "${NODE5_INSTANCE}" "${NODE5_ZONE}" RPC_PORT)" || NODE5_RPC_PORT=8545
-        [ -n "${NODE5_RPC_PORT}" ] || NODE5_RPC_PORT=8545
+# Node probes (step 4, and tn_nodeMode in step 6). https://nodeN.<domain> is a worker gateway
+# that answers reads from the RPC node, so each node is asked on its own loopback over IAP,
+# unless --node5-rpc / --ref-rpc gave a URL. The rehearsal hook may replace any of these.
+# host_rpc <index> <method>: one JSON-RPC call (no params) to http://127.0.0.1:NODE_RPC_PORT on
+# that host: one ssh round trip through the lib's tn_iap_ssh, an ssh rc 255 retried once.
+host_rpc() {
+    local inst="${INSTANCE_NAMES[$1]}" zone="${ZONES[$1]}" body cmd out rc=0
+    body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":[]}"
+    cmd="curl -fsS --max-time 10 -H 'content-type: application/json' --data '${body}' http://127.0.0.1:${NODE_RPC_PORT:-8545}"
+    out="$(tn_iap_ssh "${inst}" "${zone}" "${cmd}" </dev/null)" || rc=$?
+    if [ "${rc}" -eq 255 ]; then
+        echo "⚠️  ${inst}: ssh rc 255 reading $2; retrying once" >&2
+        rc=0; out="$(tn_iap_ssh "${inst}" "${zone}" "${cmd}" </dev/null)" || rc=$?
     fi
-    body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":[]}"
-    tn_iap_ssh "${NODE5_INSTANCE}" "${NODE5_ZONE}" \
-        "curl -fsS --max-time 10 -H 'content-type: application/json' --data '${body}' http://127.0.0.1:${NODE5_RPC_PORT}" \
-        </dev/null | python3 "${HELPER}" rpc-result
+    [ "${rc}" -eq 0 ] || return "${rc}"
+    printf '%s\n' "${out}" | python3 "${HELPER}" rpc-result
 }
 node5_head() {
-    if [ "${NODE5_VIA_IAP}" -eq 1 ]; then cast to-dec "$(node5_rpc_iap eth_blockNumber)"
-    else cast block-number --rpc-url "${NODE5_RPC}"; fi
+    local h
+    if [ -n "${NODE5_RPC}" ]; then cast block-number --rpc-url "${NODE5_RPC}"
+    else h="$(host_rpc "${NODE5_IDX}" eth_blockNumber)" && cast to-dec "${h}"; fi
 }
 node5_mode() {
-    if [ "${NODE5_VIA_IAP}" -eq 1 ]; then node5_rpc_iap tn_nodeMode
-    else cast rpc tn_nodeMode --rpc-url "${NODE5_RPC}" | tr -d '"'; fi
+    if [ -n "${NODE5_RPC}" ]; then cast rpc tn_nodeMode --rpc-url "${NODE5_RPC}" | tr -d '"'
+    else host_rpc "${NODE5_IDX}" tn_nodeMode; fi
 }
-ref_head() { cast block-number --rpc-url "${REF_RPC}"; }
+ref_head() {
+    local h
+    if [ -n "${REF_RPC}" ]; then cast block-number --rpc-url "${REF_RPC}"
+    else h="$(host_rpc "${REF_IDX}" eth_blockNumber)" && cast to-dec "${h}"; fi
+}
 # sync_probe: prints one status line; rc 0 iff in sync (lag <= SYNC_MAX_LAG and mode Observer)
 sync_probe() {
     local h5 h1 mode lag
     h5="$(node5_head 2>/dev/null)" || h5=""
     h1="$(ref_head 2>/dev/null)" || h1=""
     mode="$(node5_mode 2>/dev/null)" || mode=""
-    case "${h5}${h1}" in ''|*[!0-9]*) echo "      node 5 head '${h5:-?}', node 1 head '${h1:-?}', mode '${mode:-?}' (unreachable?)"; return 1 ;; esac
+    case "${h5}${h1}" in ''|*[!0-9]*) echo "      node 5 head '${h5:-?}', ${REF_NAME} head '${h1:-?}', mode '${mode:-?}' (unreachable?)"; return 1 ;; esac
     lag=$((h1 - h5)); [ "${lag}" -lt 0 ] && lag=$((-lag))
-    echo "      node 5 head ${h5}, node 1 head ${h1} (lag ${lag}), tn_nodeMode '${mode:-?}'"
+    echo "      node 5 head ${h5}, ${REF_NAME} head ${h1} (lag ${lag}), tn_nodeMode '${mode:-?}'"
     [ "${lag}" -le "${SYNC_MAX_LAG}" ] && [ "${mode}" = "Observer" ]
+}
+# epoch_line <epoch> <committee> <membership note> <what to check>: step 6's two lines per epoch.
+# The status is the last getValidator read (no extra chain call); tn_nodeMode is node 5's own
+# answer now (over IAP unless --node5-rpc).
+epoch_line() {
+    local mode
+    mode="$(node5_mode 2>/dev/null)" || mode=""
+    echo "    epoch $1: node 5 $(status_name "${V_STATUS}"), tn_nodeMode now '${mode:-?}'; committee($1): $2 — $3"
+    echo "      from the start of epoch $1, check on the validators: $4"
 }
 
 if [ -n "${TN_STAKE_NODE5_TEST_HOOKS:-}" ]; then
@@ -294,7 +385,7 @@ step_header 1 "preflight"
 for bin in cast python3 docker; do
     command -v "${bin}" >/dev/null 2>&1 || die "'${bin}' not on PATH"
 done
-is_addr "${NODE5_ADDR}" || die "EXECUTION_ADDRESSES[4] is '${NODE5_ADDR}', not an address: fill config.sh with node 5's address first"
+is_addr "${NODE5_ADDR}" || die "EXECUTION_ADDRESSES[${NODE5_IDX}] is '${NODE5_ADDR}', not an address: fill config.sh with node 5's address first"
 is_addr "${ADMIN_ADDR}" || die "SAFE_EXTRA_OWNER '${ADMIN_ADDR}' is not an address"
 case "${KEYTOOL_IMAGE}" in *PLACEHOLDER*) die "KEYTOOL_IMAGE/DOCKER_IMAGE still holds a placeholder: '${KEYTOOL_IMAGE}'" ;; esac
 [ -f "${NODE5_INFO}" ] || die "node-info not found: ${NODE5_INFO}"
@@ -310,13 +401,14 @@ echo "    ✓ registry owner() = Safe ${reg_owner}"
 
 info_addr="$(sed -n 's/^execution_address:[[:space:]]*"\{0,1\}\(0x[0-9a-fA-F]\{40\}\)"\{0,1\}[[:space:]]*$/\1/p' "${NODE5_INFO}")"
 [ -n "${info_addr}" ] || die "no execution_address in ${NODE5_INFO}"
-[ "$(lc "${info_addr}")" = "$(lc "${NODE5_ADDR}")" ] || die "address mismatch: EXECUTION_ADDRESSES[4] = ${NODE5_ADDR} but ${NODE5_INFO} execution_address = ${info_addr}"
-echo "    ✓ node 5 address ${NODE5_ADDR} == EXECUTION_ADDRESSES[4] == node-info execution_address"
+[ "$(lc "${info_addr}")" = "$(lc "${NODE5_ADDR}")" ] || die "address mismatch: EXECUTION_ADDRESSES[${NODE5_IDX}] = ${NODE5_ADDR} but ${NODE5_INFO} execution_address = ${info_addr}"
+echo "    ✓ node 5 address ${NODE5_ADDR} == EXECUTION_ADDRESSES[${NODE5_IDX}] == node-info execution_address"
 
 next_size="$(first "$(rd "${REGISTRY}" "getNextCommitteeSize()(uint16)")")"
+# a tn_* call to the chain RPC (the RPC node answers it natively); tolerated if absent
 tn_next="$(cast rpc tn_getNextCommitteeSize --rpc-url "${RPC}" 2>/dev/null)" || tn_next="n/a (no tn_ namespace at this RPC)"
 eligible="$(first "$(rd "${REGISTRY}" "getEligibleValidatorCount()(uint256)")")"
-EPOCH_NOW="$(current_epoch)"
+EPOCH_NOW="$(current_epoch)" || die "cannot read the current epoch (see above)"
 echo "    nextCommitteeSize ${next_size} (tn_getNextCommitteeSize: ${tn_next}); eligible validators ${eligible}; current epoch ${EPOCH_NOW}"
 cm="$(committee "${EPOCH_NOW}")" || die "getCommitteeValidators(${EPOCH_NOW}) failed"
 echo "    committee(${EPOCH_NOW}): ${cm}"
@@ -443,8 +535,8 @@ fi
 # ================================================================================
 step_header 4 "wait for node 5 to be in sync (lag <= ${SYNC_MAX_LAG}, tn_nodeMode Observer)"
 if ! skip_step 4; then
-    if [ "${NODE5_VIA_IAP}" -eq 1 ]; then echo "    node 5 over IAP (${NODE5_INSTANCE}), node 1 ${REF_RPC}"
-    else echo "    node 5 ${NODE5_RPC}, node 1 ${REF_RPC}"; fi
+    echo "    node 5: ${NODE5_RPC:-${NODE5_INSTANCE} over IAP, 127.0.0.1:${NODE_RPC_PORT:-8545}}"
+    echo "    reference ${REF_NAME}: ${REF_RPC:-${INSTANCE_NAMES[$REF_IDX]} over IAP, 127.0.0.1:${NODE_RPC_PORT:-8545}}"
     if [ "${V_STATUS}" -ge 2 ]; then
         echo "    already $(status_name "${V_STATUS}"): skipping"
     elif [ "${CONFIRM}" -eq 0 ]; then
@@ -479,7 +571,7 @@ fi
 # ================================================================================
 step_header 6 "watch activation and committee membership"
 if [ "${CONFIRM}" -eq 0 ]; then
-    plan "poll getValidator(node5) every ${POLL}s until Active (up to ${EPOCH_TIMEOUT_SECS}s), then log committee(e) for ${WATCH_EPOCHS} epoch(s) from activationEpoch+2"
+    plan "poll getValidator(node5) every ${POLL}s until Active (up to ${EPOCH_TIMEOUT_SECS}s), then log committee(e) for ${WATCH_EPOCHS} epoch(s) from activationEpoch+2; per epoch from activationEpoch: status, tn_nodeMode, membership, what to check on the validators"
     echo ""
     echo "DRY RUN complete: nothing was sent. Re-run with --yes to apply."
     exit 0
@@ -489,32 +581,35 @@ read_validator
 start=${SECONDS}
 while [ "${V_STATUS}" -eq 2 ]; do
     [ $((SECONDS - start)) -lt "${EPOCH_TIMEOUT_SECS}" ] || die "still PendingActivation after ${EPOCH_TIMEOUT_SECS}s"
-    echo "      epoch $(current_epoch): PendingActivation (activationEpoch ${V_ACT_EPOCH}); next poll in ${POLL}s"
+    ep="$(current_epoch 2>/dev/null)" || ep="unreadable"
+    echo "      epoch ${ep}: PendingActivation (activationEpoch ${V_ACT_EPOCH}); next poll in ${POLL}s"
     sleep "${POLL}"
     read_validator
 done
 [ "${V_STATUS}" -eq 3 ] || die "node 5 went from PendingActivation to $(status_name "${V_STATUS}")"
-echo "    ✓ node 5 Active in epoch $(current_epoch) (activationEpoch ${V_ACT_EPOCH})"
+ep="$(current_epoch 2>/dev/null)" || ep="unreadable"
+echo "    ✓ node 5 Active in epoch ${ep} (activationEpoch ${V_ACT_EPOCH})"
 
 first_seat=$((V_ACT_EPOCH + 2))      # activate() in N: activationEpoch N+1, first drawable committee N+3
 for e in $((V_ACT_EPOCH)) $((V_ACT_EPOCH + 1)); do
     c="$(committee "${e}")" || die "getCommitteeValidators(${e}) failed"
     if has_node5 "${c}"; then m="node 5 IN"; else m="node 5 out (drawn before activation)"; fi
-    echo "    committee(${e}): ${c}  — ${m}"
+    if [ "${e}" -eq "${V_ACT_EPOCH}" ]; then chk="node 5's allowlist entry (the first epoch start after activate())"
+    else chk="node 5's admission window (one epoch after the allowlist entry)"; fi
+    epoch_line "${e}" "${c}" "${m}" "${chk}"
 done
 prev="$(committee $((first_seat - 1)))" || die "getCommitteeValidators($((first_seat - 1))) failed"
 seated=""; changes=0; e=${first_seat}
 while [ "${e}" -lt $((first_seat + WATCH_EPOCHS)) ]; do
-    start=${SECONDS}
     # committee(e) is final once epoch e-2 has begun: the close of e-3 stored it (newEpoch + 2)
-    while [ "$(current_epoch)" -lt $((e - 2)) ]; do
-        [ $((SECONDS - start)) -lt "${EPOCH_TIMEOUT_SECS}" ] || die "epoch $((e - 2)) did not begin within ${EPOCH_TIMEOUT_SECS}s"
-        sleep "${POLL}"
-    done
+    wait_for_epoch $((e - 2))
     c="$(committee "${e}")" || die "getCommitteeValidators(${e}) failed"
     if has_node5 "${c}"; then m="node 5 IN"; seated="${seated} ${e}"; else m="node 5 out"; fi
     if [ "${c}" = "${prev}" ]; then d="unchanged vs $((e - 1))"; else d="CHANGED vs $((e - 1))"; changes=$((changes + 1)); fi
-    echo "    committee(${e}): ${c}  — ${m}; ${d}"
+    if [ "${e}" -eq "${first_seat}" ]; then chk="the first possible seat"; else chk="a later seat"; fi
+    if has_node5 "${c}"; then chk="${chk}: node 5 drawn, it joins the committee"
+    else chk="${chk}: node 5 not drawn, it stays outside the committee"; fi
+    epoch_line "${e}" "${c}" "${m}; ${d}" "${chk}"
     prev="${c}"; e=$((e + 1))
 done
 echo ""
