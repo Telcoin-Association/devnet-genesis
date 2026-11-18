@@ -75,7 +75,9 @@ SEL_GET_CURRENT_EPOCH_INFO = "0xbabc394f"
 GET_WORKER_CONFIG_SIG = "getWorkerConfig(uint16)(uint8,uint64,uint184)"
 WORKER_ID = 0
 
-BATCH_SIZE = 500  # headers per JSON-RPC batch request
+# Headers per JSON-RPC batch request. 100 is the RPC node's limit: a larger batch is refused
+# with -32010 "The batch request was too large" ("Exceeded max limit of 100").
+BATCH_SIZE = 100
 FETCH_THREADS = 4
 BISECT_FANOUT = 64  # probes per bisection round
 
@@ -148,7 +150,7 @@ class Chain(object):
         sys.stderr.flush()
 
     def _post(self, payload, timeout=30):
-        # A 500-header batch answers in ~0.5 s; a short timeout retries a stalled request
+        # A 100-header batch answers in ~0.3 s; a short timeout retries a stalled request
         # instead of waiting it out.
         body = json.dumps(payload).encode()
         last = None

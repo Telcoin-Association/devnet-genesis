@@ -15,7 +15,7 @@
 #   fee(N)      WorkerConfigs.data at the block before epoch N (max 7; epoch 0 = 7), checked
 #               against every header's baseFeePerGas in epoch N
 #   gas_used(N) the sum of header gasUsed over epoch N, closing block included (batched
-#               eth_getBlockByNumber, 500 per request)
+#               eth_getBlockByNumber, 100 per request: the RPC node's batch limit)
 #   target      WorkerConfigs.getWorkerConfig(0).value at epoch N's last block, checked against
 #               WORKER_FEE_CONFIG unless --expect-target any
 #   fee(N+1)    WorkerConfigs.data at epoch N's last block, checked against epoch N+1's first
