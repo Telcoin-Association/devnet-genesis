@@ -1,0 +1,32 @@
+==========================================
+devnet committee P2P allowlist (tn-node-deployment firewall-setup.sh --p2p-committee)
+Project:  tn-devnet
+Mode:     status (read-only)
+Targets:  validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+Knobs:    wait=300s poll=5s retries=8x15s settle=60s head-lag=5 require-advance=1
+Logs:     /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_202710-p2p-committee
+==========================================
+
+>>> validator-1-devnet (us-west2-a, validator): status
+    state: P2P_COMMITTEE=off unit=active mode=CvvActive head=2511
+    check: no result line (exit 1)
+    ->  P2P committee allowlist: off (sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee on turns it on)
+P2P_COMMITTEE_STATUS validator-1-devnet state=off check=n/a accept=? drop=?
+
+>>> validator-2-devnet (us-south1-a, validator): status
+    state: P2P_COMMITTEE=off unit=active mode=CvvActive head=2513
+    check: no result line (exit 1)
+    ->  P2P committee allowlist: off (sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee on turns it on)
+P2P_COMMITTEE_STATUS validator-2-devnet state=off check=n/a accept=? drop=?
+
+>>> validator-3-devnet (northamerica-northeast1-b, validator): status
+    state: P2P_COMMITTEE=off unit=active mode=CvvActive head=2517
+    check: no result line (exit 1)
+    ->  P2P committee allowlist: off (sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee on turns it on)
+P2P_COMMITTEE_STATUS validator-3-devnet state=off check=n/a accept=? drop=?
+
+>>> validator-4-devnet (europe-west4-a, validator): status
+    state: P2P_COMMITTEE=off unit=active mode=CvvActive head=2517
+    check: no result line (exit 1)
+    ->  P2P committee allowlist: off (sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee on turns it on)
+P2P_COMMITTEE_STATUS validator-4-devnet state=off check=n/a accept=? drop=?

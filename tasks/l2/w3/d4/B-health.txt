@@ -1,0 +1,12 @@
+-- B-health round 1 02:29:17Z..02:29:22Z public_head=2720
+02:29:17Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=2720 chdr=6428 nrestarts=0
+02:29:17Z i4 observer-5-devnet    mode=Observer   peers=2 head=2721 chdr=6430 nrestarts=0
+02:29:17Z i5 rpc-6-devnet         mode=Observer   peers=5 head=2720 chdr=6428 nrestarts=0
+-- B-health round 2 02:30:07Z..02:30:11Z public_head=2928
+02:30:07Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=2932 chdr=6511 nrestarts=0
+02:30:07Z i4 observer-5-devnet    mode=Observer   peers=2 head=2920 chdr=6510 nrestarts=0
+02:30:07Z i5 rpc-6-devnet         mode=Observer   peers=5 head=2932 chdr=6510 nrestarts=0
+-- B-health round 3 02:30:56Z..02:31:02Z public_head=3132
+02:30:56Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=3132 chdr=6593 nrestarts=0
+02:30:56Z i4 observer-5-devnet    mode=Observer   peers=2 head=3132 chdr=6596 nrestarts=0
+02:30:56Z i5 rpc-6-devnet         mode=Observer   peers=5 head=3132 chdr=6593 nrestarts=0

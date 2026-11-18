@@ -1,0 +1,14 @@
+-- C-fleet round 1 02:35:29Z..02:35:35Z public_head=4732
+02:35:29Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=4780 chdr=7051 nrestarts=0
+02:35:29Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=4770 chdr=7050 nrestarts=0
+02:35:29Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=4787 chdr=7052 nrestarts=0
+02:35:29Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=4809 chdr=7054 nrestarts=0
+02:35:29Z i4 observer-5-devnet    mode=Observer   peers=3 head=4634 chdr=7035 nrestarts=0
+02:35:29Z i5 rpc-6-devnet         mode=Observer   peers=5 head=4788 chdr=7052 nrestarts=0
+-- C-fleet round 2 02:36:35Z..02:36:41Z public_head=5240
+02:36:35Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=5241 chdr=7163 nrestarts=0
+02:36:35Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=5241 chdr=7162 nrestarts=0
+02:36:35Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=5241 chdr=7163 nrestarts=0
+02:36:35Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=5241 chdr=7165 nrestarts=0
+02:36:35Z i4 observer-5-devnet    mode=Observer   peers=1 head=5240 chdr=7165 nrestarts=0
+02:36:35Z i5 rpc-6-devnet         mode=Observer   peers=5 head=5241 chdr=7163 nrestarts=0

@@ -1,0 +1,31 @@
+4
+ 02:35:16 up  3:00,  9 users,  load average: 0.93, 0.62, 0.41
+Mem:            7933        1287        4799           1        2131        6645
+telcoin cpu=121.73% mem=329.1MiB / 6.973GiB
+telcoin-gateway cpu=0.01% mem=3.684MiB / 7.748GiB
+telcoin-alloy cpu=9.56% mem=137.1MiB / 512MiB
+ts=2026-11-18T02:35:11.537020408Z level=info target=epoch-manager message="failed to retrieve epoch from a peer 2: Peers do not have the epoch record" definitive=true
+ts=2026-11-18T02:35:11.838885468Z level=info target=state-sync message="fetching consensus from peer" number=7014 hash=Evj8BqYCua5eHHbrFeQL4PJPHcqbuQMJeC7vwG9GdbZP end_number=7014
+ts=2026-11-18T02:35:12.383356113Z level=info target=state-sync message="fetching consensus from peer" number=7015 hash=3FJXukeuMdHnY4a4kSsF5rTzUWnLHZjzG24k2V6uT8s1 end_number=7015
+ts=2026-11-18T02:35:12.868288677Z level=info target=state-sync message="fetching consensus from peer" number=7016 hash=7J3Xpq81veTMNEN6jJz4FXaxYoaBiQVRBfiwtLD5Lu6u end_number=7016
+ts=2026-11-18T02:35:13.47707404Z level=info target=state-sync message="fetching consensus from peer" number=7017 hash=33QH2ouyd94foTM8m7kamcs3WKpG98gaQTTtP1fPfSE8 end_number=7017
+ts=2026-11-18T02:35:14.186195541Z level=info target=state-sync message="fetching consensus from peer" number=7018 hash=9MZaiUaj3wwJDkssUriYeb3T9RDL5j1dNmUXnoidYm5V end_number=7018
+ts=2026-11-18T02:35:14.832882564Z level=info target=state-sync message="fetching consensus from peer" number=7019 hash=87hqGeKKgXX6DH6QJGmo5rGPSJQ9qBnsgfrLxxHPKab4 end_number=7019
+ts=2026-11-18T02:35:15.242529803Z level=warn target=primary::network message="consensus output sync exchange failed; trying next peer" peer=24JYGVN999i3hsLbTB4HA5Kq9etsVa7TgBLzdEUFTBbWLjnkwjfc2z9icrs3Lma348sTzMLLPZwEEjGMpi46u9aU2d8oVCLSBiB9ND7WEcHwrwkXvYaXKmFB7zHSdyUC3SJN number=7005 e=Stream(NotConnected)
+ts=2026-11-18T02:35:15.242572882Z level=warn target=primary::network message="consensus output sync exchange failed; trying next peer" peer=24JYGVN999i3hsLbTB4HA5Kq9etsVa7TgBLzdEUFTBbWLjnkwjfc2z9icrs3Lma348sTzMLLPZwEEjGMpi46u9aU2d8oVCLSBiB9ND7WEcHwrwkXvYaXKmFB7zHSdyUC3SJN number=0 e=Stream(NotConnected)
+ts=2026-11-18T02:35:15.242609928Z level=warn target=primary::network message="consensus output sync exchange failed; trying next peer" peer=24JYGVN999i3hsLbTB4HA5Kq9etsVa7TgBLzdEUFTBbWLjnkwjfc2z9icrs3Lma348sTzMLLPZwEEjGMpi46u9aU2d8oVCLSBiB9ND7WEcHwrwkXvYaXKmFB7zHSdyUC3SJN number=6998 e=Stream(NotConnected)
+ts=2026-11-18T02:35:15.242804751Z level=warn target=primary::network message="consensus output sync exchange failed; trying next peer" peer=24JYGVN999i3hsLbTB4HA5Kq9etsVa7TgBLzdEUFTBbWLjnkwjfc2z9icrs3Lma348sTzMLLPZwEEjGMpi46u9aU2d8oVCLSBiB9ND7WEcHwrwkXvYaXKmFB7zHSdyUC3SJN number=7019 e=Stream(NotConnected)
+ts=2026-11-18T02:35:15.382564171Z level=warn target=tn::observer message="failed to fetch/verify consensus output from peer, will retry" e="no peer served the consensus output over the sync protocol" hash=2nhnn5srHhLhsmWxi8VYWwHRqt6eUdNtggTjheoiEnoi number=7005 attempt=0
+ts=2026-11-18T02:35:15.533726874Z level=info target=state-sync message="fetching consensus from peer" number=7020 hash=4sgbaeUxoL8d345RoBoR4Kqdu77t6bCFXsvTZTe85p3G end_number=7020
+ts=2026-11-18T02:35:16.081971697Z level=info target=state-sync message="fetching consensus from peer" number=7021 hash=29XieQ7nvSjuVEr8JBgxGtZw6xcbtjqy23U9nWJG84Zz end_number=7021
+ts=2026-11-18T02:35:16.72206939Z level=info target=state-sync message="fetching consensus from peer" number=7022 hash=4r4McaLczrPdW7bE4b6tJpKSkUP9CjG3E4b2SUScVgxG end_number=7022
+ts=2026-11-18T02:35:16.97154692Z level=info target=epoch-manager message="failed to retrieve epoch from a peer 2: Peers do not have the epoch record" definitive=true
+ts=2026-11-18T02:35:17.274236034Z level=info target=state-sync message="fetching consensus from peer" number=7023 hash=9Pmt6dj5hZK1wHb8aVE6u4YLy8SG6VbcDK9GuKbCPBJt end_number=7023
+ts=2026-11-18T02:35:17.42762611Z level=info target=tn::observer message="catching up consensus blocks" last_consensus_height=6997 max_consensus_height=7006 catchup_distance=9
+ts=2026-11-18T02:35:17.430588074Z level=info target=tn::observer message="catching up consensus blocks" last_consensus_height=7006 max_consensus_height=7023 catchup_distance=17
+ts=2026-11-18T02:35:17.619987501Z level=info target=tn::network message="peer metrics heartbeat" connected_count=1 connected_or_dialing=4 banned_count=0
+ts=2026-11-18T02:35:17.631024705Z level=info target=tn::network message="peer metrics heartbeat" connected_count=1 connected_or_dialing=2 banned_count=0
+ts=2026-11-18T02:35:17.984718634Z level=info target=state-sync message="fetching consensus from peer" number=7024 hash=564G1zj6SAVQAH4NN6bhtMKcRZLCD48QYaXVBtZqRQ8Y end_number=7024
+ts=2026-11-18T02:35:18.285150442Z level=info target=tn::observer message="catching up consensus blocks" last_consensus_height=7023 max_consensus_height=7024 catchup_distance=1
+ts=2026-11-18T02:35:18.590448286Z level=info target=state-sync message="fetching consensus from peer" number=7025 hash=3HTDzpbJchUV8iTZDQucpGR1hZ5uso65wGg3N4RF282x end_number=7025
+ts=2026-11-18T02:35:18.731242508Z level=info target=tn::observer message="catching up consensus blocks" last_consensus_height=7024 max_consensus_height=7025 catchup_distance=1

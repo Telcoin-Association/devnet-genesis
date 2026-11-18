@@ -18,7 +18,7 @@ echo "== $(date -u +%FT%TZ) label=${label} node5 peer=${NODE5_PEER} ip=${NODE5_I
 for i in 0 1 2 3; do
     inst="${INSTANCE_NAMES[$i]}"
     f="${out}/snap-${inst}-${label}.json"
-    r="$(tn_iap_ssh "${inst}" "${ZONES[$i]}" "curl -s -m 10 -X POST -H 'Content-Type: application/json' --data '$(body tn_admissionSnapshot)' http://127.0.0.1:8545 > /tmp/l2-snap.json; echo SNAPRC=\$?; cat /tmp/l2-snap.json; echo; echo ---; sudo tn-p2p-allow-sync check >/dev/null 2>&1; echo CHECKRC=\$?; echo NFTHITS=\$(sudo nft list table inet tn_p2p_allow 2>/dev/null | grep -c -F '${NODE5_IP}'); echo NFTELEMS=\$(sudo nft list table inet tn_p2p_allow 2>/dev/null | grep -o -E '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u | tr '\n' ' ')" 2>/dev/null </dev/null)"
+    r="$(tn_iap_ssh "${inst}" "${ZONES[$i]}" "curl -s -m 10 -X POST -H 'Content-Type: application/json' --data '$(body tn_admissionSnapshot)' http://127.0.0.1:8545 > /tmp/l2-snap.json; echo SNAPRC=\$?; cat /tmp/l2-snap.json; echo; echo ---; sudo /usr/local/libexec/telcoin/tn-p2p-allow-sync check >/dev/null 2>&1; echo CHECKRC=\$?; echo NFTHITS=\$(sudo nft list table inet tn_p2p_allow 2>/dev/null | grep -c -F '${NODE5_IP}'); echo NFTELEMS=\$(sudo nft list table inet tn_p2p_allow 2>/dev/null | grep -o -E '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u | tr '\n' ' ')" 2>/dev/null </dev/null)"
     printf '%s\n' "${r}" | sed -n '2p' > "${f}"
     printf '%s ' "${inst}"
     printf '%s\n' "${r}" | grep -E '^(CHECKRC|NFTHITS|NFTELEMS)=' | tr '\n' ' '

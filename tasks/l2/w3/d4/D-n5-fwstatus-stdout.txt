@@ -1,0 +1,6 @@
+  [OK]  Running as root
+  [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (5 keys, 4 floor), epoch 2
+  ->  Last sync: unchanged; last good one 109s ago
+  ->  P2P committee allowlist counters: 2618 packets accepted from listed sources, 0 dropped from others
+  [OK]  P2P committee allowlist sync: telcoin-p2p-allow-sync.timer enabled and active
+rc=0

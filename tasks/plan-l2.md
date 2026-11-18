@@ -81,7 +81,7 @@ devnet-genesis (`dg-l2`):
 - [x] P2 operator DNS: `rpc.devnet` → 34.20.254.166, `node4.devnet` → 34.12.238.199, `admin.node4.devnet` deleted, `admin.node6.devnet` added; all eleven right on the authoritative server and locally at 23:50Z
 - [x] D2 steps 5-10, rc=3 `RELEASE_SIG_PENDING` at 23:57Z as expected; keys, genesis (committee of 4), 11 admission maps, VPC rules (three `devnet-` rules), obs wiped · [x] P3 the owner signed with the rotated key 95A38484…AE47 (00:34Z); verify rc=0 VALIDSIG; the allow-list now comes from the `tn-release-signing` submodule (0f26db7); genesis and release committed (46bb9bc)
 - [x] D3 steps 10-19 (canary first): steps 10-13 DONE 01:20Z (unit D3a: six nodes staged and stopped, ufw on seven VMs, staged observability, five gateways with certificates; no stop); steps 14-19 DONE 02:17Z (unit D3b: coordinated start with spread 0, RPC edge, post-checks 64 ok / 0 FAIL, dashboards 401, contracts verified, txgen live; own read-back 02:21Z agrees)
-- [ ] D4 step 20 on validators 1-4, then tried on node 5 before staking
+- [x] D4 step 20 on validators 1-4 (canary 02:28Z, the other three 02:31-02:34Z, all `state=on check=ok`, chain whole; own read 02:44Z agrees), then tried on node 5 before staking: rc=0, mode=Observer, left on. Found: the validators' firewall makes node 5's sync through rpc-6 uneven (challenge 67)
 - [ ] S1 stake node 5; allowlist entry (N+1), admission window (N+2), first seat (N+3 or later)
 - [ ] V verification table → `tasks/verification-l2-2026-11-17.md`
 - [ ] close-out: challenges report, local issue drafts, tasks/todo.md review section, lessons, memory, commit and push

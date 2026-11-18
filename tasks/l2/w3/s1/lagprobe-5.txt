@@ -1,0 +1,7 @@
+rpc-6-devnet 1794969253.774 4060
+rpc-6-devnet 1794969258.797 4071
+rpc-6-devnet 1794969263.816 4084
+rpc-6-devnet 1794969268.834 4111
+rpc-6-devnet 1794969273.853 4158
+rpc-6-devnet 1794969278.873 4206
+rpc-6-devnet {"jsonrpc":"2.0","id":1,"result":"0x5"}

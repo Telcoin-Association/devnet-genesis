@@ -1,0 +1,17 @@
+== bare
+sudo: tn-p2p-allow-sync: command not found
+rc=1
+== check
+result=ok missing_total=0 mismatch_total=0
+rc=0
+== set
+table inet tn_p2p_allow {
+	set allow_v4 {
+		type ipv4_addr
+		elements = { 34.7.93.35, 34.19.189.1,
+			     34.20.254.166, 34.174.181.214,
+			     35.236.51.63 }
+	}
+}
+== timer
+Wed 2026-11-18 02:37:33 UTC 2min 16s Wed 2026-11-18 02:32:24 UTC 2min 51s ago telcoin-p2p-allow-sync.timer telcoin-p2p-allow-sync.service

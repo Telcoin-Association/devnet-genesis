@@ -1,0 +1,7 @@
+validator-4-devnet 1794969254.770 4062
+validator-4-devnet 1794969259.791 4074
+validator-4-devnet 1794969264.808 4085
+validator-4-devnet 1794969269.826 4121
+validator-4-devnet 1794969274.846 4171
+validator-4-devnet 1794969279.869 4223
+validator-4-devnet {"jsonrpc":"2.0","id":1,"result":"0x4"}

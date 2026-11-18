@@ -1,0 +1,12 @@
+validator-1-devnet 1794969315.065 4484
+validator-1-devnet 1794969325.095 4656
+validator-1-devnet 1794969335.116 4813
+validator-1-devnet 1794969345.135 4969
+validator-1-devnet 1794969355.155 5137
+validator-1-devnet 1794969365.174 5235
+validator-1-devnet 1794969375.199 5237
+validator-1-devnet 1794969385.219 5238
+validator-1-devnet 1794969395.237 5240
+validator-1-devnet 1794969405.257 5241
+validator-1-devnet 1794969415.278 5255
+validator-1-devnet 1794969425.300 5266

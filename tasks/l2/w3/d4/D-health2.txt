@@ -1,0 +1,21 @@
+-- D-health2 round 1 02:40:42Z..02:40:47Z public_head=6016
+02:40:42Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=6020 chdr=7572 nrestarts=0
+02:40:42Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=6020 chdr=7571 nrestarts=0
+02:40:42Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=6020 chdr=7573 nrestarts=0
+02:40:42Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=6020 chdr=7575 nrestarts=0
+02:40:42Z i4 observer-5-devnet    mode=Observer   peers=4 head=6020 chdr=7572 nrestarts=0
+02:40:42Z i5 rpc-6-devnet         mode=Observer   peers=5 head=6020 chdr=7571 nrestarts=0
+-- D-health2 round 2 02:41:17Z..02:41:24Z public_head=6048
+02:41:17Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=6053 chdr=7633 nrestarts=0
+02:41:17Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=6053 chdr=7632 nrestarts=0
+02:41:17Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=6053 chdr=7633 nrestarts=0
+02:41:17Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=6057 chdr=7636 nrestarts=0
+02:41:17Z i4 observer-5-devnet    mode=Observer   peers=1 head=6021 chdr=7626 nrestarts=0
+02:41:17Z i5 rpc-6-devnet         mode=Observer   peers=5 head=6053 chdr=7634 nrestarts=0
+-- D-health2 round 3 02:41:54Z..02:42:02Z public_head=6192
+02:41:54Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=6195 chdr=7697 nrestarts=0
+02:41:54Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=6194 chdr=7696 nrestarts=0
+02:41:54Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=6195 chdr=7697 nrestarts=0
+02:41:54Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=6197 chdr=7699 nrestarts=0
+02:41:54Z i4 observer-5-devnet    mode=Observer   peers=4 head=6192 chdr=7699 nrestarts=0
+02:41:54Z i5 rpc-6-devnet         mode=Observer   peers=5 head=6195 chdr=7697 nrestarts=0

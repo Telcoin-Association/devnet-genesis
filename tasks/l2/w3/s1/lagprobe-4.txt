@@ -1,0 +1,7 @@
+observer-5-devnet 1794969254.591 4060
+observer-5-devnet 1794969259.609 4070
+observer-5-devnet 1794969264.627 4070
+observer-5-devnet 1794969269.647 4070
+observer-5-devnet 1794969274.666 4070
+observer-5-devnet 1794969279.685 4085
+observer-5-devnet {"jsonrpc":"2.0","id":1,"result":"0x2"}

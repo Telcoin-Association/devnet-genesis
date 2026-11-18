@@ -1,0 +1,37 @@
+==========================================
+devnet committee P2P allowlist (tn-node-deployment firewall-setup.sh --p2p-committee)
+Project:  tn-devnet
+Mode:     --p2p-committee on
+Targets:  validator-1-devnet
+Knobs:    wait=300s poll=5s retries=8x15s settle=60s head-lag=5 require-advance=1
+Logs:     /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_202754-p2p-committee
+==========================================
+
+>>> step 0: the committee is whole before any change
+    committee whole (0s): node1=CvvActive@2531 node2=CvvActive@2531 node3=CvvActive@2531 node4=CvvActive@2532
+
+>>> validator-1-devnet (us-west2-a, validator): --p2p-committee on
+    before: unit=active ufw=active nft=yes P2P_COMMITTEE=off mode=CvvActive head=2542
+    + (every 5s, at most 300s) curl tn_admissionSnapshot on 127.0.0.1:8545
+    snapshot authoritative (0s): epoch=2 effective=Closed fallback=null
+    + sudo bash '/opt/telcoin-node-scripts/firewall-setup.sh' --p2p-committee on </dev/null 2>&1; echo "__tn_pc_rc=$?"
+      |   [OK]  Running as root
+      |   ->  Installed tn-p2p-allow-sync v0.1.1 as /usr/local/libexec/telcoin/tn-p2p-allow-sync.
+      |   [OK]  P2P committee mode is on: only the sources the allowlist lists reach UDP 49590 and 49594 (epoch 2: 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor, 0 static)).
+      |   ->  telcoin-p2p-allow-sync.timer syncs it every 5 minutes; sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee off returns to the earlier P2P rules.
+    on: rc 0
+    + sudo /usr/local/libexec/telcoin/tn-p2p-allow-sync check; sudo /usr/local/libexec/telcoin/tn-p2p-allow-sync status; sudo cat /var/lib/telcoin-p2p-allow/status; sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --p2p-committee status
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor), epoch 2
+    ->  P2P committee allowlist counters: 1027 packets accepted from listed sources, 23 dropped from others
+    committee-whole check (≤ 60s): validator-1-devnet mode CvvActive, its head above the highest head at a baseline read now; every validator active + CvvActive; heads within 5
+    … 0s/60s: heads 2598..2615 differ by more than 5 baseline head=2615 (highest after the change); validator-1-devnet must pass it
+    committee whole (12s): node1=CvvActive@2682 node2=CvvActive@2685 node3=CvvActive@2685 node4=CvvActive@2687 (head 2682 > baseline 2615)
+P2P_COMMITTEE validator-1-devnet on epoch=2 v4=5 v6=0 keys=4 check=ok mode=CvvActive head=2682
+
+==========================================
+P2P_COMMITTEE validator-1-devnet on epoch=2 v4=5 v6=0 keys=4 check=ok mode=CvvActive head=2682
+ok:        validator-1-devnet
+logs: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_202754-p2p-committee
+--p2p-committee on done on every target; the committee is whole.
+==========================================

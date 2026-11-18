@@ -1,0 +1,36 @@
+==========================================
+devnet committee P2P allowlist (tn-node-deployment firewall-setup.sh --p2p-committee)
+Project:  tn-devnet
+Mode:     status (read-only)
+Targets:  validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+Knobs:    wait=300s poll=5s retries=8x15s settle=60s head-lag=5 require-advance=1
+Logs:     /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_203446-p2p-committee
+==========================================
+
+>>> validator-1-devnet (us-west2-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=4245
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor), epoch 2
+    ->  P2P committee allowlist counters: 72954 packets accepted from listed sources, 420 dropped from others
+P2P_COMMITTEE_STATUS validator-1-devnet state=on check=ok accept=72920 drop=420
+
+>>> validator-2-devnet (us-south1-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=4245
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor), epoch 2
+    ->  P2P committee allowlist counters: 28643 packets accepted from listed sources, 132 dropped from others
+P2P_COMMITTEE_STATUS validator-2-devnet state=on check=ok accept=28603 drop=132
+
+>>> validator-3-devnet (northamerica-northeast1-b, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=4271
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor), epoch 2
+    ->  P2P committee allowlist counters: 25024 packets accepted from listed sources, 100 dropped from others
+P2P_COMMITTEE_STATUS validator-3-devnet state=on check=ok accept=24981 drop=100
+
+>>> validator-4-devnet (europe-west4-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=4407
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 5 IPv4 and 0 IPv6 sources (4 keys, 4 floor), epoch 2
+    ->  P2P committee allowlist counters: 15230 packets accepted from listed sources, 74 dropped from others
+P2P_COMMITTEE_STATUS validator-4-devnet state=on check=ok accept=15168 drop=74

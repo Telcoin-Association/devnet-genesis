@@ -1,0 +1,7 @@
+-- A-fleet round 1 02:27:34Z..02:27:41Z public_head=2517
+02:27:34Z i0 validator-1-devnet   mode=CvvActive  peers=4 head=2518 chdr=6260 nrestarts=0
+02:27:34Z i1 validator-2-devnet   mode=CvvActive  peers=4 head=2518 chdr=6258 nrestarts=0
+02:27:34Z i2 validator-3-devnet   mode=CvvActive  peers=4 head=2518 chdr=6259 nrestarts=0
+02:27:34Z i3 validator-4-devnet   mode=CvvActive  peers=4 head=2518 chdr=6260 nrestarts=0
+02:27:34Z i4 observer-5-devnet    mode=Observer   peers=1 head=2518 chdr=6260 nrestarts=0
+02:27:34Z i5 rpc-6-devnet         mode=Observer   peers=5 head=2518 chdr=6259 nrestarts=0
