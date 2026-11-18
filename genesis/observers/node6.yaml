@@ -1,0 +1,14 @@
+---
+name: node-Xkpjr1jMTFF
+bls_public_key: 26LkT9gpruAKPX4vuDo8pE8UhkL7nENwgP1rQN64MUJgKx2mYUPF6ZbuK45EaL4oL3jiS1yfQEicGV5DarzjzSQXv9iRKC4Fxy784XA7tCvQh8dFXRF9ACzhbhXn39CoRfZD
+p2p_info:
+  primary:
+    network_address: /ip4/34.20.254.166/udp/49590/quic-v1/p2p/12D3KooWGF5jykomNyg1UYHonKPXk3eBAmeACGnpqbwuYRwS355K
+    network_key: 4XTTM7ZmPpuGqzLofWCkDuMHMteHqeSdcKVQ4ZpMfafYxzqrR
+    rpc: ~
+  workers:
+    - network_address: /ip4/34.20.254.166/udp/49594/quic-v1/p2p/12D3KooWSmqJCCkJfzrfBbNj1FYv62rBeNrNSvoLUXfPeDN2gKJX
+      network_key: 4XTTMJ6Wx3MDPHMzKDFq98HSkEdVr83qpa9QaCk59gSyZe65d
+      rpc: ~
+execution_address: "0x00000000000000000000000000000000000007a0"
+proof_of_possession: 7Ma2ULfGez5JvNPmkZ75RrAXBbyJLGQpaw5eQCQek7tnGbxcsLrCxRsP7iPtDgt19w
