@@ -1767,3 +1767,36 @@ the remaining arms measure the wrong thing. Report an arm that fails a criterion
   - A unit that writes a test for an existing function first greps the existing tests for that function's name and copies their stubs.
   - After a run "on N variants", read the line in which each run names its variant. After a re-run of an earlier clean run, diff the invocation against the recorded one before reading the result.
   - Open the PR, then wait for CI before pinning its head anywhere or calling the branch complete.
+
+## 2026-11-18 — launch 2 live run: two heads read one after another over IAP are not the same instant
+
+- **What happened.** The staking driver's sync gate read node 5's head, then validator 1's one ssh round trip (3-5 s) later, and took the absolute difference against a 5-block limit. At 2.5 to 7 blocks a second the gap between the reads alone was 10 blocks or more, so the gate could not pass (dry run: "lag 11" for a node that was level). The committee driver's settle check has the same shape and passed node 5 at 63 s of a 60 s window. Both were written and rehearsed against a chain that made one block every few seconds.
+- **Rules.**
+  - A check that compares two hosts' heads reads the reference FIRST and counts only how far the other is behind; or it reads both in one remote command with the host's own clock beside each value. An absolute difference of two sequential reads is never the test.
+  - A threshold in blocks is stated with the block rate it was chosen for; the rehearsal runs the check once at the fastest rate the chain can show (a loaded shim or a fixture), not only on an idle chain.
+  - With a clamp (`behind < 0 -> 0`), an unreadable value must fail the check by itself: test "reference unreadable" and "node unreadable" as separate cases.
+
+## 2026-11-18 — launch 2 live run: I watched the hosts a change targets, and the damage was on a host it does not target
+
+- **What happened.** Turning on the committee firewall on the validators was guarded by stop conditions on the validators only (mode, peers, head). They stayed healthy. Node 5, which the change does not touch, began to stall for up to 30 s from the minute validator 1's firewall went on. I found it only because a dry run of the next step happened to print node 5's head.
+- **Rules.**
+  - For every fleet change, the brief names the hosts the change is NOT applied to and gives them a before/after read too: at least mode, peers and head against a reference, and for a node that syncs through another, its catch-up distance per minute from its own log.
+  - A firewall or admission change gets a "who used to reach this host and no longer can" line in its plan, with what that peer does when it is dropped (times out, retries, backs off).
+
+## 2026-11-18 — launch 2 live run: a load test that cannot exceed the limit proves nothing
+
+- **What happened.** The rate-limit row ran 300 requests through `xargs -P 16 curl`: 70 requests a second, against a limit of 200 burst plus 100 a second. All 300 passed and the row came back "not verified". A client with kept-alive connections (24 threads, 6,000 requests in 11 s) showed the limit and, beside it, Caddy turning 6 % of the throttled requests into 502s.
+- **Rules.**
+  - Before a limit test, work out the client's achievable rate (a new TLS handshake per request is about 5 requests a second per worker) and compare it with the limit; the brief gives the client, not only the request count.
+  - Read every status code of the burst, not only the one the test expects.
+
+## 2026-11-18 — launch 2 live run: clock times in my log were estimates
+
+- **What happened.** Several orchestrator-log entries and a memory status line carried times I had guessed from the flow of the work; they were up to 15 minutes off (a hand-back logged at 02:30Z happened at 02:19Z). I corrected them from the commands' own `date -u` output.
+- **Rule.** Every log entry's time comes from a `date -u` printed by the command that the entry reports (end each recording command with it); a time I did not read is written "about".
+
+## 2026-11-18 — launch 2 live run: what worked and is kept
+
+- A process that must outlive every unit (the three-hour staking watch, a watcher that starts at a clock time) is started by the orchestrator as a background task with its own log, rc and start files; units are for bounded segments.
+- A unit that drafts from a list re-reads the cited code at the pinned commits and reports every mismatch: three draft units corrected seven rows of the challenges list and four statements of the report that I had taken from earlier notes.
+- Late information goes to a running unit only after its checkpoint shows it has not finished; both messages sent tonight were picked up without a resume.
