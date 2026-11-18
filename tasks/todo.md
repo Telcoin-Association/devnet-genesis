@@ -1566,3 +1566,76 @@ Left open, with the user:
 Left open, not waiting on the user:
 - Harness unit HB-N with the next image (drop the conflict-halt switch; credentials check in the chain; the idle check's `up` rule; the endpoint sampler as a segment; first-and-last-sample export check).
 - `bench/bench7-2026-11` on the remote still carries the old-base commit bodies.
+
+## Review: launch 2 — worker gateways, committee firewall, public RPC node; the mainnet rehearsal (2026-11-17 / 2026-11-18, xerxes)
+
+Outcome: the devnet (chain 32285) was torn down 2026-11-17 23:32Z and relaunched in the shape mainnet will
+have. The new chain started 2026-11-18 01:24:45Z: four genesis validators with closed admission, each behind
+a worker gateway (validators 1-3 and node 5 on the same host, validator 4's on its own VM `gateway-4-devnet`),
+a native public RPC node `rpc-6-devnet` at `rpc.devnet` (the Google load balancer is deleted), the committee
+P2P allowlist on the validators and on node 5, image adiri@sha256:0aec3e7c…ad11c1 (telcoin-network 5533ff73a,
+no `faucet` feature), gateway image worker-gateway@sha256:8b887098…f8c231, release v0.3.0-devnet signed with
+the rotated key 95A38484…AE47. Everything was installed with tn-node-deployment at PR #68's head 79fb24e7
+(scripts 2.2.0: `setup-gateway.sh`, the Caddy gateway block, `--gateway-from`, `gateway_upstream`).
+All 20 deploy steps: 1-3 by 23:37Z, 5-9 by 23:57Z, the signature 00:34Z, 10-13 by 01:20Z, 14-19 by 02:17Z,
+20 by 02:38Z. Node 5 minted, staked and activated at 02:46Z (epoch 2), was Active in epoch 3, admitted in
+epoch 4 and took its first seat in epoch 5 (05:24:45Z), in validator 2's place: 728 of its certificates
+committed in the first four minutes, against 703-777 for the other three members.
+Verification with numbers: `tasks/verification-l2-2026-11-17.md` (rows 1-14 pass; 15 optional, not run).
+Runbook as run: `tasks/runbook-l2-2026-11-17.md`. Challenges: `tasks/challenges-l2.md` (87 rows), report
+`tasks/challenges-l2-report.md` (7 fixed in PR #68, 10 worked around or fixed on the devnet side, 70 open),
+26 local issue drafts `tasks/issue-bodies/l2-*.md` with the index `TITLES-l2.md`: NOT posted.
+Code: tn-node-deployment PR #68 (open, CI 12/12, not merged); devnet-genesis `main` (launch-2 drivers merged
+at 2689476; during the run c00ebe5 contracts submodule, 0f26db7 release keys from tn-release-signing, 46bb9bc
+genesis and signed release, 42f2850 the staking sync gate, 3188ecd the base-fee check's batch size).
+
+What went to plan: the teardown's refusal on "state unknown" and its clean second run; the two-VM bring-up
+and DNS pause; keys, genesis, admission maps and the signature gate (rc 3 until signed); staging all six
+nodes stopped, then one coordinated start with spread 0; five gateways with their own certificates; the
+post-checks (64 of 64); contracts and the generator; the committee allowlist one validator at a time; the
+stake through the public RPC and the gateways; the allowlist entry (4.5 min after the epoch start), the
+admission window and the seat exactly on the planned epochs; the record-based forwarding following the
+committee change without a restart; a validator restart (7 s down: no gap in its certificates) and a
+one-minute stop (about 73 s lost, not the epoch); the allowlist sync keeping its set with the node down.
+
+What did not, and what it cost:
+- The validators' firewall degraded node 5's sync (challenge 67, mainnet-relevant): from the minute
+  validator 1's allowlist went on until node 5 was listed an epoch after `activate()` (02:28Z-03:28Z), node 5
+  stalled for up to about 30 s at a time. Shown by the run to be the dropped packets, not load. Found by
+  accident through a dry run: the step's stop conditions watched the validators only (lesson recorded).
+- The release signer's key had been rotated; the devnet's allow-list and tn-node-deployment's shipped keys
+  still held only the old one. Cost: about 35 min at the signature (a submodule for tn-release-signing, new
+  fingerprint, the laptop one-liner again). tn-node-deployment still ships the old key: the owner's PR.
+- The contracts checkout was a worktree that a cron job on xerxes had removed. Now a submodule (owner's call).
+- The staking driver's sync gate and the committee driver's settle check compared heads read seconds apart;
+  at 2 to 18 blocks a second the gap alone exceeded their 5-block limit. The gate was fixed before the stake
+  (42f2850, with a test); the settle check passed node 5 at 63 s of a 60 s window and is an open follow-up.
+- The new RPC node refuses batches over 100 calls: the base-fee check failed until its batch size was cut
+  (3188ecd). Explorers and indexers will meet the same limit (challenge 80).
+- One transient gcloud TLS timeout stopped the teardown's first run (nothing changed; 5 min).
+- Step 14's per-host checks run one host at a time: 17 min for a 60 s start.
+- My own slips: a rate-limit test too slow to reach the limit (redone with a faster client, which also showed
+  Caddy turning 6 % of a throttled client's requests into 502s); "block rate unchanged" and "voting again
+  within 21 s" written before they were measured (both corrected in the records the same hour); log times
+  written from memory instead of from `date -u` (corrected).
+
+For the owner (nothing here is done without their word):
+- PR #68: merge decision. Review items from the run: rows 45 and 53, and `rpc-private-address-bind`.
+- The key-rotation PR for tn-node-deployment's `lib/release-keys` (in the owner's hands). Existing installs
+  trust only the old key: plan how they get the new one.
+- A published worker-gateway image and its digest pinned in a signed scripts release: mainnet refuses the
+  gateway until then (report 2.1).
+- The 26 issue drafts: which to file. Each needs a figure-check against its sources table first. The joiner
+  finding (`l2-joiner-sync-stalls-behind-allowlist`) and the 429/502 one (`l2-gateway-keepalive-close-after-429`)
+  carry live evidence and are the two I would file first.
+- P4: move the Kuma monitors to `https://nodeN.devnet.telcoin.network/ready/any` (all five answer 200).
+- The login: the run ended inside the 01:15Z one; nothing is waiting on a new one.
+
+Left open, not waiting on the owner (devnet-genesis follow-ups, report section 3.6): per-host checks in
+parallel after the coordinated start (59); node 5's peer check in the post-checks (60); the generator's
+metrics check as a gate (61); the committee driver's settle check and its `--status` after an epoch start
+(70, 87, 69); log directories in UTC everywhere (56); `config.sh` losing environment overrides (50);
+retries for the drivers' gcloud reads (47); pool seeding for the generator's mix (81). Not mine:
+`benchmark/config.sh` `BENCH_CONTRACTS_SRC_DIR` still names the removed worktree (the bench program's);
+the ` M tn-node-deployment` submodule state in the main tree. `/tmp/l2-row12.sh` and `.log` remain on
+validator-2-devnet (harmless test leftovers).

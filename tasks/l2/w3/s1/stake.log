@@ -1,0 +1,149 @@
+==========================================
+devnet: mint + stake + activate node 5
+RPC:         https://rpc.devnet.telcoin.network
+Registry:    0x07E17e17E17e17E17e17E17E17E17e17e17E17e1
+Safe:        0x00000000000000000000000000000000000007a0 (admin owner 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f, key: Secret Manager devnet-contracts-admin-pk)
+Node 5:      0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 (key: Secret Manager devnet-node5-validator-pk)
+Node info:   /home/drtnarg/coding/telcoin/devnet-genesis/genesis/observers/node5.yaml
+Keytool:     us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+Mode:        APPLY (--yes), from step 1
+==========================================
+
+>>> step 1: preflight
+    ✓ chain id 32285
+    ✓ registry owner() = Safe 0x00000000000000000000000000000000000007A0
+    ✓ node 5 address 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 == EXECUTION_ADDRESSES[4] == node-info execution_address
+    nextCommitteeSize 4 (tn_getNextCommitteeSize: 4); eligible validators 4; current epoch 2
+    committee(2): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0x7489025dfbaad94f2366d88a62989147d9c8b5d3 0xefaacf04b92298a88200aa50aa6bb7bfce587b17
+    node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8: no ConsensusNFT (not minted), retired=false
+    Safe owners (1-of-8): [0xAee2797478Cb5EfaF1869A2e33e369421EBf520f, 0x2358CF87e62618663E781CE52EE7a7F777aC4e65, 0x389C4bd707FAb237578A9603F55A02554CAa034b, 0xDE5346d15Dc5e0D7b3bE7feFF5d96f548c321e88, 0xf5b3944629F9303fa94670B2a6611eE1b11Cd538, 0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA, 0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248, 0x5b9e70501a845FA8105B2f8228a0d243A98d97Fc]
+    Safe nonce 0
+    ✓ admin 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f isOwner, threshold 1
+    stake version 0: stakeAmount 1000000000000000000000000 wei (1000000.000000000000000000 TEL); gas price 8 wei
+    ✓ node 5 balance 1000100.000000000000000000 TEL >= 1000000.000000000024000000 TEL needed
+    ✓ admin balance 999999999999.999999997338177096 TEL
+    ✓ Secret Manager devnet-contracts-admin-pk → keystore for 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f (matches)
+    ✓ Secret Manager devnet-node5-validator-pk → keystore for 0xd0154a8091dE71Cc81B3C6F95b73D0aA129dA7b8 (matches)
+    ✓ stake calldata from keytool: 0x2fb0d025…, 324 bytes; selector present in the registry
+    ✓ stake simulation: PoP and value accepted; reverts only with InvalidTokenId(uint256): no ConsensusNFT (minted in step 2)
+    ✓ preflight passed
+
+>>> step 2: mint node 5's ConsensusNFT through the Safe
+    Safe nonce 0; safeTxHash 0x2d81b0eb86a29ca224058d31a2fa8f498172ebbe90eafad5c440627e16f1541c
+    → cast send 0x00000000000000000000000000000000000007a0 'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)(bool)' 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 0 0x6a627842000000000000000000000000d0154a8091de71cc81b3c6f95b73d0aa129da7b8 0 0 0 0 0x0000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000 0x000000000000000000000000aee2797478cb5efaf1869a2e33e369421ebf520f000000000000000000000000000000000000000000000000000000000000000001  (from admin 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f)
+    ✓ Safe.execTransaction(mint): tx 0x8b2c724ada21cdc0e0fc328e19f45d9a5f020d3bff6778ba75bba21438f48c96 status 1 (success) block 6791 gasUsed 220915
+    node 5 getValidator: (0xd0154a8091dE71Cc81B3C6F95b73D0aA129dA7b8, 0, 0, 0, false, 0, 0)
+      = status Undefined (0), activationEpoch 0
+    Safe nonce now 1
+
+>>> step 3: stake 1000000000000000000000000 wei from node 5
+    → cast send 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 <keytool calldata 0x2fb0d025…> --value 1000000000000000000000000  (from node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8)
+    ✓ stake: tx 0x5d1b0ada85a307aaa2901e76c4f8761185d3c28d5b3faf5e3a83820e35e825d9 status 1 (success) block 6801 gasUsed 415331
+    node 5 getValidator: (0xd0154a8091dE71Cc81B3C6F95b73D0aA129dA7b8, 4294967295 [4.294e9], 0, 1, false, 0, 0)
+      = status Staked (1), activationEpoch 4294967295
+
+>>> step 4: wait for node 5 to be in sync (lag <= 5, tn_nodeMode Observer)
+    node 5: observer-5-devnet over IAP, 127.0.0.1:8545
+    reference node1: validator-1-devnet over IAP, 127.0.0.1:8545
+      node1 head 6821, then node 5 head 6824 (behind by 0), tn_nodeMode 'Observer'
+    ✓ node 5 in sync
+
+>>> step 5: activate() from node 5
+    → cast send 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 'activate()'  (from node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8)
+    ✓ activate: tx 0x1ce1763e193ef9df866db9c324fe4fd3a3ba78a69b31a22b9cfdf6bd05b86cf5 status 1 (success) block 6844 gasUsed 131566
+    node 5 getValidator: (0xd0154a8091dE71Cc81B3C6F95b73D0aA129dA7b8, 3, 0, 2, false, 0, 0)
+      = status PendingActivation (2), activationEpoch 3
+
+>>> step 6: watch activation and committee membership
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+      epoch 2: PendingActivation (activationEpoch 3); next poll in 30s
+    ✓ node 5 Active in epoch 3 (activationEpoch 3)
+    epoch 3: node 5 status at activation Active, tn_nodeMode now 'Observer'; committee(3): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0x7489025dfbaad94f2366d88a62989147d9c8b5d3 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 — node 5 out (drawn before activation)
+      from the start of epoch 3, check on the validators: node 5's allowlist entry (the first epoch start after activate())
+    epoch 4: node 5 status at activation Active, tn_nodeMode now 'Observer'; committee(4): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0x7489025dfbaad94f2366d88a62989147d9c8b5d3 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 — node 5 out (drawn before activation)
+      from the start of epoch 4, check on the validators: node 5's admission window (one epoch after the allowlist entry)
+    epoch 5: node 5 status at activation Active, tn_nodeMode now 'Observer'; committee(5): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 — node 5 IN; CHANGED vs 4
+      from the start of epoch 5, check on the validators: the first possible seat: node 5 drawn, it joins the committee
+Error: failed to retrieve chain ID from fork endpoint
+
+Context:
+- MPP HTTP request to https://rpc.devnet.telcoin.network/ failed: HTTP request failed: error sending request: error sending request: client error (Connect): Connection timed out (os error 110)
+Error: MPP HTTP request to https://rpc.devnet.telcoin.network/ failed: HTTP request failed: error sending request: error sending request: client error (Connect): Connection timed out (os error 110)
+    epoch 6: node 5 status at activation Active, tn_nodeMode now 'Observer'; committee(6): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0x7489025dfbaad94f2366d88a62989147d9c8b5d3 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 — node 5 out; CHANGED vs 5
+      from the start of epoch 6, check on the validators: a later seat: node 5 not drawn, it stays outside the committee
+    epoch 7: node 5 status at activation Active, tn_nodeMode now 'CvvActive'; committee(7): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 — node 5 IN; CHANGED vs 6
+      from the start of epoch 7, check on the validators: a later seat: node 5 drawn, it joins the committee
+
+Summary: node 5 Active; seated in epoch(s): 5 7 of 5..7;
+         committee membership changed 3 time(s) across the watched epochs.

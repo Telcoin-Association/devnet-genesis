@@ -1,13 +1,13 @@
 # Launch 2 rehearsal: challenges report
 
-Rows covered: 1-84 of `tasks/challenges-l2.md`.
+Rows covered: 1-87 of `tasks/challenges-l2.md`.
 Sources: that list, the text of tn-node-deployment PR #68 (branch `worker-gateway`, scripts 2.2.0, open, not merged), the approved plan (`tasks/l2/plan-approved-2026-11-17.md`), the verification table (`tasks/verification-l2-2026-11-17.md`) and the index of issue drafts (`tasks/issue-bodies/TITLES-l2.md`).
 Rows 1-15 were seeded from the plan before the run; apart from row 10 they carry no run evidence, and the report says so where a consequence depends on it. Rows 73-84 come from the verification run (runbook section 10, the restart check included) and from the generator's journal read during it (81).
 
 ## 1. Summary
 
 The devnet was redeployed in mainnet shape with tn-node-deployment: four genesis validators behind worker gateways (validator 4's on its own host), a committee P2P allowlist on the validators, a native public RPC node, and a fifth node that stakes after genesis.
-84 challenges: 7 fixed in PR #68, 10 worked around or fixed on the devnet side, 67 open (14 of the open ones are devnet-genesis follow-ups and 1 is the operator host).
+87 challenges: 7 fixed in PR #68, 10 worked around or fixed on the devnet side, 70 open (15 of the open ones are devnet-genesis follow-ups and 2 are the operator host).
 Counted from each row's status column as it stands now (the list now carries PR #68's fixes for rows 1, 5, 6 and 24 itself). A row whose upstream side is still open counts as open even where the devnet has a workaround or its own fix (14, 15, 23, 49, 80); "fixed in the record" (78, 84, runbook corrections) counts as fixed on the devnet side. Section 3 holds one status cell per row, and these counts are those cells.
 Before mainnet, the ones that matter most:
 - Build and publish a worker-gateway image in telcoin-network CI and pin its digest in a signed scripts release; until then mainnet refuses the gateway (2, 29).
@@ -83,11 +83,12 @@ Most serious first. "PR #68" is the open tn-node-deployment branch; anything it 
 - Who meets it: any tool that batches against a public RPC node of this release: explorers, indexers.
 - Proposed: document the limit for RPC users. Whether it is a setting the RPC operator can change is not checked.
 
-### 2.12 The committee allowlist is hard to drive and to read (rows 7, 23, 68, 72, 73, 74, 79)
+### 2.12 The committee allowlist is hard to drive and to read (rows 7, 23, 68, 72, 73, 74, 79, 86)
 - What happens: `firewall-setup.sh --p2p-committee` is a manual step per host with no `--json`. Its `--wait 30` waits for the tool's lock, not for an authoritative snapshot, so a node that is not yet authoritative is refused at once and a driver must retry (the devnet driver does). The tool sits in `/usr/local/libexec/telcoin/`, off sudo's PATH: `sudo tn-p2p-allow-sync check` answers `command not found`; with the full path it gives `result=ok missing_total=0 mismatch_total=0`. Its status shows `keys=4` beside five addresses without saying the fifth is the trusted RPC node, and the drop counter (`accept=177128 drop=992` on validator-1, 16 min after `on`) does not say which sources were dropped, so a scanner cannot be told from a peer that should have been listed.
 - `check` exits 3 on a validator for up to five minutes after every epoch start, until its own timer runs, because its set is from the epoch before (79). In epoch 3, from 03:24:45Z, it exited 3 on all four at 03:25:15Z, on validators 1 and 4 still at 03:27:15Z, and 0 on all four at 03:29:15Z; node 5 was in the snapshots within 30 s and in the sets 2.5 to 4.5 min later (verification row 3). In that window a node that became eligible at the boundary is still dropped by that validator, and a monitor that alarms on a non-zero `check` fires at every epoch change. The seat is covered (the entry comes two epochs before it), so this is about the monitor and the wording, not about joining.
 - `check-node.sh` prints `Bootstrap peers:  $(cat /etc/telcoin/bootstrap-peers.yaml)`, the launch flag's text, not the peers (73). It prints nothing about the allowlist when it is on and healthy, so its report cannot show an operator, or a reviewer of that report, that the allowlist is on (74: no line on validator-4-devnet, where it is on with `check=ok`).
-- Who meets it: every validator operator turning the allowlist on or reading `check-node.sh`, any monitor that alarms on `check` (79), and whoever debugs a joiner (2.3).
+- A failed sync is easy to miss (86). With the node stopped for a minute the sync printed `result=stale reason=rpc-unreachable … action=kept` and kept its set, which is the right behaviour (verification row 12). But `status` shows `RESULT=stale` beside `STALE=false` and exits 0, and the sync unit ends with `Result=success` although its exit status is 3, so an alert on failed units never fires; only `check` exits 3, the code it also gives after every epoch start.
+- Who meets it: every validator operator turning the allowlist on or reading `check-node.sh`, any monitor that alarms on `check` (79) or on failed units (86), and whoever debugs a joiner (2.3).
 - Proposed: `--json`, a wait for an authoritative snapshot, the tool on PATH or its full path in OPERATOR.md, and a status that names each address's source and the dropped sources. In `check-node.sh`, the peers instead of the flag's text and one OK line with the set's size and the last sync (73, 74). A sync run at the epoch change, or a monitor rule and wording that allow the five-minute window (79).
 
 ### 2.13 Scripts start a node that was left stopped (rows 15, 16, 37)
@@ -199,12 +200,13 @@ Also here: 75 (the Caddy block could hide the 502s), 79 (the 5-min sync timer), 
 | 80 | The RPC node refuses a JSON-RPC batch of more than 100 calls (launch 1's took 500); whether the limit is a setting is not checked; also devnet-genesis (`devnet-basefee-check.py`) | open for the note; the devnet script is fixed (batches of 100) | yes (explorers, indexers) |
 | 82 | `tn_nodeMode` answers "CvvActive" about 3 s after a start, before the node has signed anything; also tn-node-deployment (restart guards that read it) | open | yes |
 
-### 3.3 tn-p2p-allow-sync (2 rows)
+### 3.3 tn-p2p-allow-sync (3 rows)
 
 | # | Statement | Status | Mainnet |
 |---|---|---|---|
 | 72 | Status shows `keys=4` beside five addresses without naming the trusted RPC node, and the drop counter names no source; also tn-node-deployment | open | yes |
 | 79 | For up to five minutes after every epoch start `check` exits 3 on a validator until its own timer runs, so a monitor that alarms on it fires at every epoch change; also tn-node-deployment (the 5-min timer) | open (note) | yes (monitoring) |
+| 86 | A failed sync is easy to miss: `status` prints `RESULT=stale` beside `STALE=false` and exits 0, and the sync unit ends `Result=success` with exit status 3; only `check` exits non-zero; also tn-node-deployment (the unit's success codes) | open | yes |
 
 Also here: 23 (the tool's contract defines `--wait` as a lock wait, `docs/contract.md:287-288`) and 68 (its install path).
 
@@ -221,7 +223,7 @@ Also here: 81 (the generator's Uniswap operations, which revert on the pools the
 
 No row's fix belongs here. Also here: 63, whose revert is a tn-contracts error. Rows 25 and 48 are about the devnet's checkout of tn-contracts, not the contracts, and sit under devnet-genesis.
 
-### 3.6 devnet-genesis: the devnet's own drivers (19 rows, local follow-ups)
+### 3.6 devnet-genesis: the devnet's own drivers (20 rows, local follow-ups)
 
 | # | Statement | Status | Mainnet |
 |---|---|---|---|
@@ -244,14 +246,16 @@ No row's fix belongs here. Also here: 63, whose revert is a tn-contracts error. 
 | 78 | The runbook's check of the firewall counters sent three UDP packets, which the counters' own movement (about 160 accepts and 1 drop a second) hides | fixed in the record (500 packets from an unlisted host, 3,000 from a listed one, counters every 2 s: drops +501, accepts +3,341) | only for the devnet runbook (a mainnet check needs the same method) |
 | 81 | The generator's Uniswap operations revert in `eth_estimateGas` several times a minute (9 warnings among 178 submits in three minutes): the contracts step leaves two of the three pools empty (its gate asks for one); also tn-transaction-generator | open (devnet only) | only for the devnet |
 | 84 | "Compare the allowlist table before and after" (runbook rows 11 and 12) proves nothing, since the listing carries packet counters; `nft -s list table inet tn_p2p_allow` is stateless | fixed in the record (stateless md5 from 04:11Z on) | only for the devnet runbook (a mainnet check needs the same method) |
+| 87 | `devnet-p2p-committee.sh --status` exits 1 after every epoch start until each host's sync timer has run (`check=behind`, nothing missing) | open (treat "behind" with nothing missing as a note) | only for the devnet |
 
 Also here: 49 (the devnet's release check, worked around in 0f26db7), 68 (the runbook, corrected in its as-run lines) and 80 (`devnet-basefee-check.py`, fixed: batches of 100).
 
-### 3.7 Operator host (1 row)
+### 3.7 Operator host (2 rows)
 
 | # | Statement | Status | Mainnet |
 |---|---|---|---|
 | 55 | Every IAP `gcloud compute ssh` prints a three-line NumPy warning that buries the scripts' `[WARN]` lines | open (install NumPy for gcloud's Python, or filter the line) | only for the devnet |
+| 85 | Two reads from the operator host to the public RPC name failed with a connect timeout between 03:25Z and 04:25Z; a 20 s sampler of the same name saw none from 04:06Z to 04:36Z; time and cause not known; also the single public RPC node | open (note, not reproduced) | not known |
 
 Also here: 48 (the cron job that removes worktrees).
 

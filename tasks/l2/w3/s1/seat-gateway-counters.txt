@@ -1,0 +1,2 @@
+observer-5-devnet: worker-route forwarded 746 -> 760 in 30 s; ready=200
+validator-2-devnet: worker-route forwarded 1347 -> 1347 in 30 s; ready=200

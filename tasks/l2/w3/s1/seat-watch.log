@@ -1,0 +1,28 @@
+== 2026-11-18T05:25:15Z
+validator-1-devnet: "CvvActive" "0x5" "0x8a22" 
+validator-2-devnet: "Observer" "0x5" "0x8a48" 
+validator-3-devnet: "CvvActive" "0x5" "0x8a8b" 
+validator-4-devnet: "CvvActive" "0x5" "0x8ae3" 
+observer-5-devnet: "CvvActive" "0x5" "0x8b30" 
+rpc-6-devnet: "Observer" "0x5" "0x8b65" 
+origins of certificates committed since 05:24:45Z, as validator-1 logs them:
+    165 6JTxzzah;    157 CgQ3xoAY;    150 EKumMhAf;    154 FjbqwQaB;     21 GgVKMyi7;
+node 5 log since 05:24:40Z (mode lines):
+05:24:51.866169624Z level=info target=epoch-manager message="epoch boundary detected" epoch=4 commit=1794979491 epoch_boundary=1794979491
+05:24:51.934797473Z level=info target=epoch-manager message="epoch boundary success - clearing consensus db tables for next epoch"
+05:24:52.271032827Z level=info target=tn::observer message="subscriber starting in mode" node_mode=CvvActive
+public head: {"jsonrpc":"2.0","id":1,"result":"0x8bc9"}
+== 2026-11-18T05:28:30Z
+validator-1-devnet: "CvvActive" "0x5" "0x8d84" 
+validator-2-devnet: "Observer" "0x5" "0x8d88" 
+validator-3-devnet: "CvvActive" "0x5" "0x8d8e" 
+validator-4-devnet: "CvvActive" "0x5" "0x8d93" 
+observer-5-devnet: "CvvActive" "0x5" "0x8d94" 
+rpc-6-devnet: "Observer" "0x5" "0x8d94" 
+origins of certificates committed since 05:24:45Z, as validator-1 logs them:
+    777 6JTxzzah;    703 CgQ3xoAY;    728 EKumMhAf;    739 FjbqwQaB;     21 GgVKMyi7;
+node 5 log since 05:24:40Z (mode lines):
+05:24:51.866169624Z level=info target=epoch-manager message="epoch boundary detected" epoch=4 commit=1794979491 epoch_boundary=1794979491
+05:24:51.934797473Z level=info target=epoch-manager message="epoch boundary success - clearing consensus db tables for next epoch"
+05:24:52.271032827Z level=info target=tn::observer message="subscriber starting in mode" node_mode=CvvActive
+public head: {"jsonrpc":"2.0","id":1,"result":"0x8d96"}
