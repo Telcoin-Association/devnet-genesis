@@ -40,4 +40,5 @@ Before any draft is posted it needs a figure-check against its sources table, as
 
 - ship-rotated-release-key (tn-node-deployment, row 49): the owner is preparing that pull request.
 - Rows 45 and 53 (PR #68's own code): for that pull request's review, with `rpc-private-address-bind`.
-- devnet-genesis rows (26, 27, 47, 50, 56, 58-61, 65, 66, 69-71, 78): local follow-ups, listed in the report's section 3.
+- devnet-genesis rows (26, 27, 47, 50, 56, 58-61, 65, 69-71, 81; 66, 78 and 84 are already fixed): local follow-ups, listed in the report's section 3.
+- Rows 77 and 79-83 (added after the drafts were written): notes or small points; the report's sections 2.5, 2.7, 2.11 and 2.12 carry them. Row 80 (the RPC node's batch limit of 100) and row 82 (`tn_nodeMode` says "CvvActive" before the node votes) are the two that could become telcoin-network issues.
