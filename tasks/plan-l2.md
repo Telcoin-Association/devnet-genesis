@@ -79,7 +79,7 @@ devnet-genesis (`dg-l2`):
 - [x] teardown: dry-run list shown, owner said go; try 1 refused on a gcloud network timeout (nothing changed), try 2 rc=0 at 23:32Z; read back: five node VMs and the LB gone, addresses RESERVED
 - [x] D1 steps 1-3, rc=0 at 23:37Z: rpc-6 34.20.254.166, gateway-4 34.12.238.199; seven VMs READY with the pinned scripts ref; VPC dry run rc=0 with the expected plan
 - [x] P2 operator DNS: `rpc.devnet` → 34.20.254.166, `node4.devnet` → 34.12.238.199, `admin.node4.devnet` deleted, `admin.node6.devnet` added; all eleven right on the authoritative server and locally at 23:50Z
-- [x] D2 steps 5-10, rc=3 `RELEASE_SIG_PENDING` at 23:57Z as expected; keys, genesis (committee of 4), 11 admission maps, VPC rules (three `devnet-` rules), obs wiped · [ ] P3 operator signs the manifest (one-liner handed over 23:55Z)
+- [x] D2 steps 5-10, rc=3 `RELEASE_SIG_PENDING` at 23:57Z as expected; keys, genesis (committee of 4), 11 admission maps, VPC rules (three `devnet-` rules), obs wiped · [x] P3 the owner signed with the rotated key 95A38484…AE47 (00:34Z); verify rc=0 VALIDSIG; the allow-list now comes from the `tn-release-signing` submodule (0f26db7); genesis and release committed (46bb9bc)
 - [ ] D3 steps 10-19 (canary first)
 - [ ] D4 step 20 on validators 1-4, then tried on node 5 before staking
 - [ ] S1 stake node 5; allowlist entry (N+1), admission window (N+2), first seat (N+3 or later)
