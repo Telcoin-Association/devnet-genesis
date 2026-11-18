@@ -1,0 +1,7 @@
+devnet-basefee-check: https://rpc.devnet.telcoin.network at epoch 3; expected worker-0 target: 10000000
+rpc https://rpc.devnet.telcoin.network  chain 32285  tip 15735  current epoch 3 (started @13966, duration 3600s)
+WorkerConfigs(0) @latest(15735): strategy 0 (eip1559)  target 10000000  data 9  | expected target 10000000
+boundary      blocks       gas_used                target                 fee_N       fee_N1_expected         fee_N1_actual  verdict  notes
+1->2            1244      360424534              10000000                     7                     8                     8     PASS  blocks 2..1245, 3.1s
+2->3           12720      392086095              10000000                     8                     9                     9     PASS  blocks 1246..13965, 12.1s
+summary: 2 boundaries  PASS 2  FAIL 0  SKIP 0  | 157 RPC requests, 16.0s wall
