@@ -1,0 +1,41 @@
+devnet-postcheck: probing validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet (in parallel; gateway readiness wait up to 120s, settle wait up to 180s)
+POSTCHECK validator-1-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-1-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-1-devnet public-chainid ok https://node1.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-1-devnet public-tls ok certificate for node1.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-1-devnet public-ws ok WebSocket upgrade to wss://node1.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-1-devnet public-ready-any ok GET https://node1.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-1-devnet public-identity ok answered by another node: tn_nodeMode Observer via node1.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mSH2Z2EMBy…) = the rpc node's key (query node)
+POSTCHECK validator-2-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-2-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-2-devnet public-chainid ok https://node2.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-2-devnet public-tls ok certificate for node2.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-2-devnet public-ws ok WebSocket upgrade to wss://node2.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-2-devnet public-ready-any ok GET https://node2.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-2-devnet public-identity ok answered by another node: tn_nodeMode Observer via node2.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mr6CmGy1Yc…) = the rpc node's key (query node)
+POSTCHECK validator-3-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-3-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-3-devnet public-chainid ok https://node3.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-3-devnet public-tls ok certificate for node3.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-3-devnet public-ws ok WebSocket upgrade to wss://node3.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-3-devnet public-ready-any ok GET https://node3.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-3-devnet public-identity ok answered by another node: tn_nodeMode Observer via node3.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mHFt5nrAqf…) = the rpc node's key (query node)
+POSTCHECK validator-4-devnet rpc-bind ok port 8545 on 0.0.0.0:8545 (all interfaces, standalone gateway upstream)
+POSTCHECK validator-4-devnet health-bind ok port 43174 on 0.0.0.0:43174 (all interfaces, standalone gateway upstream)
+POSTCHECK validator-4-devnet upstream-from-gateway ok gateway-4-devnet -> 10.164.0.11:8545 eth_chainId=0x7e1d
+POSTCHECK validator-4-devnet upstream-from-other ok validator-1-devnet -> 10.164.0.11:8545 got no answer in 3s (curl rc 28)
+POSTCHECK validator-4-devnet gateway-meta ok GATEWAY_ALLOW_FROM=10.164.0.17 GATEWAY_UPSTREAM=10.164.0.17 (gateway internal IP 10.164.0.17)
+POSTCHECK validator-4-devnet public-chainid ok https://node4.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-4-devnet public-tls ok certificate for node4.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-4-devnet public-ws ok WebSocket upgrade to wss://node4.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-4-devnet public-ready-any ok GET https://node4.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-4-devnet public-identity ok answered by another node: tn_nodeMode Observer via node4.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own 24JYGVN999…) = the rpc node's key (query node)
+POSTCHECK observer-5-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK observer-5-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK observer-5-devnet public-chainid ok https://node5.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK observer-5-devnet public-tls ok certificate for node5.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK observer-5-devnet public-ws ok WebSocket upgrade to wss://node5.devnet.telcoin.network refused: HTTP 405
+POSTCHECK observer-5-devnet public-ready-any ok GET https://node5.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK observer-5-devnet public-identity ok answered by another node: tn_nodeMode Observer via node5.devnet.telcoin.network (own Observer); tn_info bls_public_key 26LkT9gpru… (own 22JLHkuyfD…) = the rpc node's key (query node)
+devnet-postcheck: 38 checks, 0 failed, 0 not decisive; probe outputs in /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118T025253Z-postcheck
+rc=0

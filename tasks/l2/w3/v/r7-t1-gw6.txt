@@ -1,0 +1,5 @@
+T=1794970522
+tn_worker_gateway_rejections_total{reason="upstream_timeout"} 186
+tn_worker_gateway_routed_requests_total{route="worker",result="forwarded"} 3377
+tn_worker_gateway_routed_requests_total{route="query",result="timeout"} 186
+tn_worker_gateway_routed_requests_total{route="query",result="forwarded"} 311

@@ -1,0 +1,7 @@
+SEND_START 1794970191.878500121
+SEND_END 1794970191.902665300 rc=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+

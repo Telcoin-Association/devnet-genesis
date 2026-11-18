@@ -1,0 +1,10 @@
+genesis/validators/node2.yaml:13:        http: "https://node2.devnet.telcoin.network/"
+genesis/validators/node2.yaml:14:        ws: ~
+genesis/validators/node1.yaml:13:        http: "https://node1.devnet.telcoin.network/"
+genesis/validators/node1.yaml:14:        ws: ~
+genesis/validators/node3.yaml:13:        http: "https://node3.devnet.telcoin.network/"
+genesis/validators/node3.yaml:14:        ws: ~
+genesis/observers/node5.yaml:13:        http: "https://node5.devnet.telcoin.network/"
+genesis/observers/node5.yaml:14:        ws: ~
+genesis/validators/node4.yaml:13:        http: "https://node4.devnet.telcoin.network/"
+genesis/validators/node4.yaml:14:        ws: ~

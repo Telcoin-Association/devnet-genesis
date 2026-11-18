@@ -1,0 +1,11 @@
+devnet-postcheck: probing validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet (in parallel; gateway readiness wait up to 120s, settle wait up to 180s)
+POSTCHECK rpc-6-devnet rpc-https ok https://rpc.devnet.telcoin.network eth_chainId=0x7e1d, certificate verified
+POSTCHECK rpc-6-devnet rpc-wss ok WebSocket upgrade to wss://rpc.devnet.telcoin.network: HTTP 101
+POSTCHECK validator-1-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=2; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-2-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=2; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-3-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=2; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-4-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=2; rpc node matched by BLS key (genesis/observers)
+POSTCHECK observer-5-devnet admission ok primary effective=Closed fallback=null connected=0 epoch=2; rpc node matched by BLS key (genesis/observers)
+POSTCHECK rpc-6-devnet rpc-admission ok primary effective=Open fallback=null connected=4 epoch=2
+devnet-postcheck: 8 checks, 0 failed, 0 not decisive; probe outputs in /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118T024818Z-postcheck
+rc=0

@@ -1,0 +1,94 @@
+
+================================================================
+  Telcoin Network Node Health Check  v2.2.0
+================================================================
+
+  ->  Service:      telcoin
+  ->  Local RPC:    http://127.0.0.1:8545
+  ->  Network:      devnet (chain 32285, from .node-meta)
+  ->  Network RPC:  https://rpc.devnet.telcoin.network (devnet public RPC)
+  ->  Time:        2026-11-18 02:56:59 UTC
+
+
+>>> Checking systemd service...
+  [OK]  Service 'telcoin' is running
+  ->  Running since: Wed 2026-11-18 01:24:45 UTC
+  ->  Runs:             docker image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+  ->  Bootstrap peers:  $(cat /etc/telcoin/bootstrap-peers.yaml)
+  ->  P2P ports (UDP):  primary 49590, worker 0 49594
+  ->  Advertised RPC:   http=https://node4.devnet.telcoin.network/ ws=none
+  [OK]  BLS key is passphrase-wrapped (node-keys/bls.kw, no cleartext bls.key)
+  [OK]  Update lock: /run/telcoin/update.lock is free (mode 600)
+  [OK]  Ownership layout 2: install, config and start-script paths are root's; the data dir is telcoin's
+  [OK]  BLS passphrase reaches the node on stdin, not through its environment
+  [OK]  Docker container runs with dropped capabilities, no-new-privileges and a read-only root
+  ->  Private alerts: off (enable them with setup-alerts.sh)
+
+>>> Probing local RPC...
+  [OK]  Local RPC responds to eth_chainId
+  ->    Chain ID:        0x7e1d (32285 -- devnet)
+
+>>> Querying network consensus state (https://rpc.devnet.telcoin.network)...
+  [OK]  Network consensus current
+  ->  Network: block 9203 · epoch 2 · 4 authors in the latest commit · commit 1s ago
+
+>>> Querying local consensus state...
+  [OK]  Consensus tip tracked: block 9203 (1s ago)
+  ->    Local epoch:     2
+  [OK]    Tip vs network:  matched (delta 0) -- tracking the network tip
+  ->  Consensus role: CvvActive (voting in the current committee)
+
+>>> Querying EVM execution state...
+  [OK]  EVM: local 8870 / network 8870 (lag 0)
+  ->  No prior reading -- run check-node.sh again to measure block advancement
+
+>>> Checking epoch and committee...
+  ->  Epoch 2 (network): next boundary in 27m 45s, at 2026-11-18 03:24:51 UTC
+  ->  Committee of epoch 2: 4 members (on-chain)
+  ->  Committee membership of 0xefaacf04b92298a88200aa50aa6bb7bfce587b17 (from tn_info):
+  ->    epoch 2: member · 3: member · 4: member
+  ->  Activation epoch: 0 (genesis validator)
+  ->  Workers: 1 configured, 1 required on-chain
+
+>>> Checking your participation in network consensus...
+  ->  Authority ID: CgQ3xoAYRwiUxjFzGfK3QDS5aYoyjd9irf8YEJmmoNmM (from tn_info on the local node)
+  ->  Committee: member of epoch 2 (on-chain)
+  [OK]  Your authority appears as an author in recent headers -- participating
+  ->  Your reputation score: 25 (committee avg: 43)
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0xefaacf04b92298a88200aa50aa6bb7bfce587b17
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [OK]  ConsensusNFT: Found
+  [OK]  Status: Active (participating in consensus)
+
+  ->  Next step:
+    Your validator is fully active. No action needed.
+
+
+>>> Checking disk space...
+  [OK]  Disk at / (data: /var/lib/telcoin): 7G used / 96G total (7% full)
+
+>>> Checking memory and CPU...
+  [OK]  Memory: 1GB / 7GB (15%)
+  ->  CPU: 2 physical cores
+  ->  public RPC: not configured (private node)
+
+
+>>> Checking the script release...
+  ->  Scripts release: scripts-v2.1.0 (serial 1), released 2026-11-10, 8 days ago
+  [OK]  Scripts release expires 2027-02-08 (in 82 days)
+
+
+>>> Checking the gateway upstream (validator side)...
+  [OK]  ufw lets 10.164.0.17 reach the RPC port 8545 and the health port 43174
+  [OK]  RPC and --healthcheck listen on 0.0.0.0 for the gateway at 10.164.0.17
+  [OK]  node-info.yaml advertises https://node4.devnet.telcoin.network/ and no ws URL
+
+----------------------------------------------------------------
+
+  [OK]  All checks passed -- node is healthy and caught up (EVM lag 0)
+
+rc=0

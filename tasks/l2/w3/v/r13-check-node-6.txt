@@ -1,0 +1,33 @@
+
+================================================================
+  Telcoin Network Node Health Check  v2.2.0
+================================================================
+
+  ->  No Telcoin node on this server, only a worker gateway: the node sections are skipped.
+  ->  Time:        2026-11-18 02:56:59 UTC
+
+
+>>> Checking disk space...
+  [OK]  Disk at /: 4G used / 96G total (5% full)
+
+>>> Checking memory and CPU...
+  [OK]  Memory: 0GB / 7GB (9%)
+  ->  CPU: 2 physical cores
+
+
+>>> Checking the script release...
+  ->  Scripts release: scripts-v2.1.0 (serial 1), released 2026-11-10, 8 days ago
+  [OK]  Scripts release expires 2027-02-08 (in 82 days)
+
+
+>>> Checking the worker gateway...
+  [OK]  Worker gateway: standalone, front caddy, ready; listen 127.0.0.1:8655 (https://node4.devnet.telcoin.network/ through Caddy), worker http://10.164.0.11:8545, queries to https://rpc.devnet.telcoin.network.
+  [OK]  Gateway listen listener on 127.0.0.1:8655
+  [OK]  Gateway probe listener on 127.0.0.1:8656
+  [OK]  Gateway metrics listener on 127.0.0.1:9655
+
+----------------------------------------------------------------
+
+  [OK]  All checks passed -- the worker gateway appears healthy
+
+rc=0

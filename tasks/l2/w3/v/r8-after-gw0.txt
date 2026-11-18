@@ -1,0 +1,9 @@
+T=1794970588.365065815
+# TYPE tn_worker_gateway_rejections_total counter
+tn_worker_gateway_rejections_total{reason="upstream_timeout"} 202
+tn_worker_gateway_rejections_total{reason="upstream_unreachable"} 8
+# TYPE tn_worker_gateway_routed_requests_total counter
+tn_worker_gateway_routed_requests_total{route="query",result="timeout"} 202
+tn_worker_gateway_routed_requests_total{route="query",result="forwarded"} 616
+tn_worker_gateway_routed_requests_total{route="query",result="unreachable"} 8
+tn_worker_gateway_routed_requests_total{route="worker",result="forwarded"} 4203

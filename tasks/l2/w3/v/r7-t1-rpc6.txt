@@ -1,0 +1,12 @@
+T=1794970521
+tn_reth_forward_endpoints_demoted_total 0
+tn_reth_forwarded_batches_shed_total 0
+tn_reth_forwarded_txns_queued_total 12864
+tn_reth_forwarded_txns_dropped_total{reason="unreached"} 0
+tn_reth_forwarded_txns_dropped_total{reason="rejected"} 959
+tn_reth_forwarded_txns_dropped_total{reason="empty_committee"} 0
+tn_reth_forwarded_txns_dropped_total{reason="batch_shed"} 0
+tn_reth_forwarded_txns_dropped_total{reason="no_usable_endpoint"} 0
+tn_reth_forwarded_txns_abandoned_total 14
+tn_reth_forwarded_txns_requeued_total 770
+tn_reth_forwarded_rejections_overridden_total 1

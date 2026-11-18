@@ -1,0 +1,12 @@
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess 
+LISTEN 0 128 127.0.0.1:43174 0.0.0.0:* users:(("telcoin",pid=15158,fd=41)) 
+LISTEN 0 128 127.0.0.1:8080 0.0.0.0:* users:(("python",pid=16178,fd=3)) 
+LISTEN 0 4096 127.0.0.1:12345 0.0.0.0:* users:(("alloy",pid=10522,fd=8)) 
+LISTEN 0 128 127.0.0.1:8545 0.0.0.0:* users:(("telcoin",pid=15158,fd=83)) 
+LISTEN 0 128 127.0.0.1:8546 0.0.0.0:* users:(("telcoin",pid=15158,fd=82)) 
+LISTEN 0 4096 127.0.0.54:53 0.0.0.0:* users:(("systemd-resolve",pid=445,fd=17)) 
+LISTEN 0 128 127.0.0.1:9101 0.0.0.0:* users:(("telcoin",pid=15158,fd=65)) 
+LISTEN 0 128 0.0.0.0:20202 0.0.0.0:* users:(("fluent-bit",pid=4038,fd=146)) 
+LISTEN 0 4096 *:443 *:* users:(("caddy",pid=14808,fd=22)) 
+LISTEN 0 4096 *:80 *:* users:(("caddy",pid=14808,fd=4)) 
+LISTEN 0 4096 *:20201 *:* users:(("otelopscol",pid=4070,fd=4)) 

@@ -1,0 +1,6 @@
+LISTEN 0      128        127.0.0.1:8545       0.0.0.0:*    users:(("telcoin",pid=14115,fd=77))                    
+LISTEN 0      128        127.0.0.1:8546       0.0.0.0:*    users:(("telcoin",pid=14115,fd=76))                    
+LISTEN 0      128        127.0.0.1:8656       0.0.0.0:*    users:(("worker-gateway",pid=12112,fd=10))             
+LISTEN 0      128        127.0.0.1:8655       0.0.0.0:*    users:(("worker-gateway",pid=12112,fd=11))             
+LISTEN 0      128        127.0.0.1:9655       0.0.0.0:*    users:(("worker-gateway",pid=12112,fd=9))              
+LISTEN 0      128        127.0.0.1:43174      0.0.0.0:*    users:(("telcoin",pid=14115,fd=36))                    

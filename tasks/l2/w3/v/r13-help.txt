@@ -1,0 +1,17 @@
+
+Usage: /opt/telcoin-node-scripts/check-node.sh [OPTIONS]
+
+  (no flag)                Check the installed node (service and RPC port auto-detected)
+  --rpc <URL>              Local RPC endpoint (default: http://127.0.0.1:<RPC_PORT from .node-meta, or 8545>)
+  --network-rpc <URL>      Network RPC for ground truth (default: the public RPC of the network in
+                           .node-meta: testnet https://rpc.adiri.tel, devnet https://rpc.devnet.telcoin.network,
+                           mainnet https://rpc.telcoin.network; none when the network is unknown)
+  --no-network             Skip the network RPC query (local-only mode)
+  --audit                  Only audit this host's node security settings (systemd floor,
+                           passphrase delivery, credential, unit) and exit 1 on any warning
+  --service <name>         systemd service name override
+  --address <0x...>        Validator address for on-chain status check
+  --authority-id <BASE58>  Authority ID to look for in the consensus headers when the local
+                           node does not answer tn_info (the node's own answer wins)
+
+rc=0

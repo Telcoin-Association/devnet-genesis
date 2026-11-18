@@ -1,0 +1,5 @@
+txgen N=500: interval 1794970191.779->1794970193.813 dt=2.03s accept_pkts+=352 accept_bytes+=84972 drop_pkts+=501 drop_bytes+=17428
+v2 N=3000: interval 1794970224.283->1794970226.317 dt=2.03s accept_pkts+=3341 accept_bytes+=169994 drop_pkts+=4 drop_bytes+=7312
+baseline over 72 intervals (146s): accept 157.7/s (min 139 max 196 per s), drop 1.08/s (max 4.9/s); per-interval accept stdev 26 pkts, drop per-interval max 10 pkts
+first row: [232748.0, 53924522.0, 1250.0, 2628455.0] last row: [259508.0, 59706813.0, 1913.0, 2982819.0]
+t0..t0+10.2s: accept +1511, drop +13
