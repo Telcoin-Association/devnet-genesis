@@ -1,0 +1,291 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_012254-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    ONLY step 14
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+
+##########################################
+>>> Step 14: coordinated start
+>>> verifying local genesis artifacts
+>>> verifying release signature (v0.3.0-devnet)
+✓ VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 (key id 28FD56AD2F9FAE47): a good signature by an allow-listed primary key
+    [GNUPG:] VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 2026-11-18 1794962065 0 4 0 22 10 00 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47
+✓ SHA256SUMS: IMAGE_DIGEST GATEWAY_IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml match the current files
+✓ IMAGE_DIGEST = DOCKER_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1)
+✓ GATEWAY_IMAGE_DIGEST = GATEWAY_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231)
+release v0.3.0-devnet verified
+    ✓ release v0.3.0-devnet: SHA256SUMS.asc verified against the release keys
+>>> finalize targets: 6 node(s) — 0 1 2 3 4 5
+>>> mode --start-all
+>>> image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+
+>>> coordinated start: checking 6 node(s) (unit installed and enabled; inactive to start)
+>>> [node1] telcoin on validator-1-devnet: installed, enabled, inactive: will start
+>>> [node2] telcoin on validator-2-devnet: installed, enabled, inactive: will start
+>>> [node3] telcoin on validator-3-devnet: installed, enabled, inactive: will start
+>>> [node4] telcoin on validator-4-devnet: installed, enabled, inactive: will start
+>>> [node5] telcoin on observer-5-devnet: installed, enabled, inactive: will start
+>>> [node6] telcoin on rpc-6-devnet: installed, enabled, inactive: will start
+>>> coordinated start of 6 node(s): due=1794965085 (now + 60s, on each node's clock), one ssh per node 1s apart
+START_AT validator-1-devnet due=1794965085 began=1794965085 late_secs=0
+START_AT validator-2-devnet due=1794965085 began=1794965085 late_secs=0
+START_AT validator-3-devnet due=1794965085 began=1794965085 late_secs=0
+START_AT validator-4-devnet due=1794965085 began=1794965085 late_secs=0
+START_AT observer-5-devnet due=1794965085 began=1794965085 late_secs=0
+START_AT rpc-6-devnet due=1794965085 began=1794965085 late_secs=0
+      ✓ telcoin on validator-1-devnet active AND :43174 responds (after 0s)
+      ✓ telcoin on validator-2-devnet active AND :43174 responds (after 0s)
+      ✓ telcoin on validator-3-devnet active AND :43174 responds (after 0s)
+      ✓ telcoin on validator-4-devnet active AND :43174 responds (after 0s)
+      ✓ telcoin on observer-5-devnet active AND :43174 responds (after 0s)
+      ✓ telcoin on rpc-6-devnet active AND :43174 responds (after 0s)
+COORDINATED_START due=1794965085 nodes=6 started=6 skipped_running=0 spread_secs=0 max_late_secs=0
+
+>>> post-finalize assertions (6 node(s); stability window 60s every 10s)
+>>> [node1] asserting validator-1-devnet
+    ✓ [node1] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node1] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node1] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator --native ok for node1; hostname: "node1"
+    ✓ [node1] A4 logs: 4180 lines scanned (files: /var/log/telcoin/telcoin.log(skip=124145,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node1] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 17754 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [17809 17754]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node1] A6 admission meta: ADMISSION_MODE=closed, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=/etc/telcoin/trusted-nodes.yaml
+>>> [node2] asserting validator-2-devnet
+    ✓ [node2] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node2] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node2] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator --native ok for node2; hostname: "node2"
+    ✓ [node2] A4 logs: 7275 lines scanned (files: /var/log/telcoin/telcoin.log(skip=125615,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node2] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 13964 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [14015 13964]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node2] A6 admission meta: ADMISSION_MODE=closed, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=/etc/telcoin/trusted-nodes.yaml
+>>> [node3] asserting validator-3-devnet
+    ✓ [node3] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node3] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node3] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator --native ok for node3; hostname: "node3"
+    ✓ [node3] A4 logs: 10800 lines scanned (files: /var/log/telcoin/telcoin.log(skip=144999,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node3] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 14061 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [14115 14061]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node3] A6 admission meta: ADMISSION_MODE=closed, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=/etc/telcoin/trusted-nodes.yaml
+>>> [node4] asserting validator-4-devnet
+    ✓ [node4] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node4] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node4] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator --native ok for node4; hostname: "node4"
+    ✓ [node4] A4 logs: 15197 lines scanned (files: /var/log/telcoin/telcoin.log(skip=126340,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node4] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 15402 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [15455 15402]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node4] A6 admission meta: ADMISSION_MODE=closed, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=/etc/telcoin/trusted-nodes.yaml
+>>> [node5] asserting observer-5-devnet
+    ✓ [node5] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node5] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node5] A3 network-config: /var/lib/telcoin/network-config: Closed admission, committee_peers, validator --native ok for node5; hostname: "node5"
+    ✓ [node5] A4 logs: 6707 lines scanned (files: /var/log/telcoin/telcoin.log(skip=109999,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node5] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 13975 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [14030 13975]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node5] A6 admission meta: ADMISSION_MODE=closed, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=/etc/telcoin/trusted-nodes.yaml
+>>> [node6] asserting rpc-6-devnet
+    ✓ [node6] A1 service: is-active=active for 60s (7 polls), is-enabled=enabled, NRestarts=0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node6] A2 node-meta: NETWORK=devnet, DOCKER_IMAGE_DIGEST=sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+    ✓ [node6] A3 network-config: /var/lib/telcoin/network-config: Open admission, committee_peers, validator --native ok for node6; hostname: "node6"
+    ✓ [node6] A4 logs: 7177 lines scanned (files: /var/log/telcoin/telcoin.log(skip=109164,after-gate) /var/log/telcoin/telcoin-error.log(skip=110,after-gate); journal: 2 lines after-gate-cursor): 'bad yaml data'=0 'committee_peers:'=0 'committee_peers: missing validator'=0 'trusted_nodes['=0 'bootstrap_peers['=0 'panicked'=0
+    ✓ [node6] A5 runtime: ExecStart=/usr/local/libexec/telcoin/tn-start-docker; container running=true ReadonlyRootfs=true image=us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1; MainPID 11563 '/usr/bin/docker run -i --rm --name telco...' --pull=never=1 --read-only=1; TN_BLS_PASSPHRASE in environ of pids [11619 11563]: 0
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ [node6] A6 admission meta: ADMISSION_MODE=open, BOOTSTRAP_PEERS_FILE=/etc/telcoin/bootstrap-peers.yaml, TRUSTED_NODES_FILE=
+
+=========================================
+finalize summary
+mode: --start-all
+=========================================
+finalized + verified (6):
+  - node1 (telcoin)
+  - node2 (telcoin)
+  - node3 (telcoin)
+  - node4 (telcoin)
+  - node5 (telcoin)
+  - node6 (telcoin)
+all targeted nodes finalized, started, enabled and verified.
+    note: node 5 connects to the RPC node about 45 s after both are up, and an idle chain shows no new block before the first epoch close.
+## step 14 done (1014 s)
+##########################################
+
+==========================================
+Step 14 complete.
+Resume with: ./devnet-deploy.sh --yes --from 15
+Log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_012254-deploy/deploy.log
+==========================================

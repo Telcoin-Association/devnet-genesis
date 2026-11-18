@@ -1,0 +1,6 @@
+validator-1-devnet {"jsonrpc":"2.0","id":1,"result":"CvvActive"}
+validator-2-devnet {"jsonrpc":"2.0","id":1,"result":"CvvActive"}
+validator-3-devnet {"jsonrpc":"2.0","id":1,"result":"CvvActive"}
+validator-4-devnet {"jsonrpc":"2.0","id":1,"result":"CvvActive"}
+observer-5-devnet {"jsonrpc":"2.0","id":1,"result":"Observer"}
+rpc-6-devnet {"jsonrpc":"2.0","id":1,"result":"Observer"}

@@ -1,0 +1,6 @@
+02:18:11Z validator-1-devnet 503 raw={"jsonrpc":"2.0","id":1,"result":"0x1f7"}
+02:18:16Z validator-2-devnet 514 raw={"jsonrpc":"2.0","id":1,"result":"0x202"}
+02:18:23Z validator-3-devnet 527 raw={"jsonrpc":"2.0","id":1,"result":"0x20f"}
+02:18:31Z validator-4-devnet 534 raw={"jsonrpc":"2.0","id":1,"result":"0x216"}
+02:18:38Z observer-5-devnet 556 raw={"jsonrpc":"2.0","id":1,"result":"0x22c"}
+02:18:45Z rpc-6-devnet 594 raw={"jsonrpc":"2.0","id":1,"result":"0x252"}

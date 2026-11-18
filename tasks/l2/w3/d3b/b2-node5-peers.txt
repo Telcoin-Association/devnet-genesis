@@ -1,0 +1,4 @@
+observer-5-devnet net_peerCount {"jsonrpc":"2.0","id":1,"result":"0x1"}
+observer-5-devnet tn_admissionSnapshot "epoch":1 "tracked_epoch":1 "effective":"Closed" "epoch":1 "connected_current":0 "tracked_epoch":1 "effective":"Closed" "epoch":1 "connected_current":0 
+rpc-6-devnet net_peerCount {"jsonrpc":"2.0","id":1,"result":"0x5"}
+rpc-6-devnet tn_admissionSnapshot "epoch":1 "tracked_epoch":1 "effective":"Open" "epoch":1 "connected_current":4 "tracked_epoch":1 "effective":"Open" "epoch":1 "connected_current":4 

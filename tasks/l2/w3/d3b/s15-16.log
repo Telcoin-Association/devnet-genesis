@@ -1,0 +1,105 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_014053-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    steps 15..16
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+
+##########################################
+>>> Step 15: rpc-6 public edge
+==========================================
+devnet public RPC edge (install-caddy.sh rpc-enable)
+Project:    tn-devnet
+Domain:     rpc.devnet.telcoin.network
+Note:       restarts each rpc node once: run after devnet-finalize.sh --start-all
+==========================================
+>>> per-host logs: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_194053-gateway
+    rpc-6-devnet: telcoin is active
+
+>>> [rpc-6-devnet] install-caddy.sh rpc-enable (public RPC edge; restarts the node once)
+    sudo bash /opt/telcoin-node-scripts/install-caddy.sh --json --phase rpc-enable --rpc-domain rpc.devnet.telcoin.network --yes
+    ✓ ok: public RPC endpoint enabled -- certificate issues on first request
+RPC-EDGE rpc-6-devnet domain=rpc.devnet.telcoin.network enabled=true advertised_http=https://rpc.devnet.telcoin.network/ advertised_ws=wss://rpc.devnet.telcoin.network/
+
+public RPC edge enabled on every rpc host.
+## step 15 done (59 s)
+##########################################
+
+##########################################
+>>> Step 16: post-checks
+devnet-postcheck: probing validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet gateway-4-devnet (in parallel; gateway readiness wait up to 120s, settle wait up to 180s)
+POSTCHECK validator-1-devnet gateway-status ok installed=true active=true ready=true issues=0 mode=same-host (/ready 200 after 0s)
+POSTCHECK validator-1-devnet gateway-listeners ok loopback only: 8655=[127.0.0.1:8655] 8656=[127.0.0.1:8656] 9655=[127.0.0.1:9655]
+POSTCHECK validator-1-devnet gateway-metrics ok tn_worker_gateway_upstream_ready = 1 (1 series on 127.0.0.1:9655)
+POSTCHECK validator-1-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-1-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-1-devnet public-chainid ok https://node1.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-1-devnet public-tls ok certificate for node1.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-1-devnet public-ws ok WebSocket upgrade to wss://node1.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-1-devnet public-ready-any ok GET https://node1.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-1-devnet public-identity ok answered by another node: tn_nodeMode Observer via node1.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mSH2Z2EMBy…) = the rpc node's key (query node)
+POSTCHECK validator-2-devnet gateway-status ok installed=true active=true ready=true issues=0 mode=same-host (/ready 200 after 0s)
+POSTCHECK validator-2-devnet gateway-listeners ok loopback only: 8655=[127.0.0.1:8655] 8656=[127.0.0.1:8656] 9655=[127.0.0.1:9655]
+POSTCHECK validator-2-devnet gateway-metrics ok tn_worker_gateway_upstream_ready = 1 (1 series on 127.0.0.1:9655)
+POSTCHECK validator-2-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-2-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-2-devnet public-chainid ok https://node2.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-2-devnet public-tls ok certificate for node2.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-2-devnet public-ws ok WebSocket upgrade to wss://node2.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-2-devnet public-ready-any ok GET https://node2.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-2-devnet public-identity ok answered by another node: tn_nodeMode Observer via node2.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mr6CmGy1Yc…) = the rpc node's key (query node)
+POSTCHECK validator-3-devnet gateway-status ok installed=true active=true ready=true issues=0 mode=same-host (/ready 200 after 0s)
+POSTCHECK validator-3-devnet gateway-listeners ok loopback only: 8655=[127.0.0.1:8655] 8656=[127.0.0.1:8656] 9655=[127.0.0.1:9655]
+POSTCHECK validator-3-devnet gateway-metrics ok tn_worker_gateway_upstream_ready = 1 (1 series on 127.0.0.1:9655)
+POSTCHECK validator-3-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK validator-3-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK validator-3-devnet public-chainid ok https://node3.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-3-devnet public-tls ok certificate for node3.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-3-devnet public-ws ok WebSocket upgrade to wss://node3.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-3-devnet public-ready-any ok GET https://node3.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-3-devnet public-identity ok answered by another node: tn_nodeMode Observer via node3.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own mHFt5nrAqf…) = the rpc node's key (query node)
+POSTCHECK validator-4-devnet rpc-bind ok port 8545 on 0.0.0.0:8545 (all interfaces, standalone gateway upstream)
+POSTCHECK validator-4-devnet health-bind ok port 43174 on 0.0.0.0:43174 (all interfaces, standalone gateway upstream)
+POSTCHECK validator-4-devnet upstream-from-gateway ok gateway-4-devnet -> 10.164.0.11:8545 eth_chainId=0x7e1d
+POSTCHECK validator-4-devnet upstream-from-other ok validator-1-devnet -> 10.164.0.11:8545 got no answer in 3s (curl rc 28)
+POSTCHECK validator-4-devnet gateway-meta ok GATEWAY_ALLOW_FROM=10.164.0.17 GATEWAY_UPSTREAM=10.164.0.17 (gateway internal IP 10.164.0.17)
+POSTCHECK validator-4-devnet public-chainid ok https://node4.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK validator-4-devnet public-tls ok certificate for node4.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK validator-4-devnet public-ws ok WebSocket upgrade to wss://node4.devnet.telcoin.network refused: HTTP 405
+POSTCHECK validator-4-devnet public-ready-any ok GET https://node4.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK validator-4-devnet public-identity ok answered by another node: tn_nodeMode Observer via node4.devnet.telcoin.network (own CvvActive); tn_info bls_public_key 26LkT9gpru… (own 24JYGVN999…) = the rpc node's key (query node)
+POSTCHECK observer-5-devnet gateway-status ok installed=true active=true ready=true issues=0 mode=same-host (/ready 200 after 0s)
+POSTCHECK observer-5-devnet gateway-listeners ok loopback only: 8655=[127.0.0.1:8655] 8656=[127.0.0.1:8656] 9655=[127.0.0.1:9655]
+POSTCHECK observer-5-devnet gateway-metrics ok tn_worker_gateway_upstream_ready = 1 (1 series on 127.0.0.1:9655)
+POSTCHECK observer-5-devnet rpc-bind ok port 8545 on 127.0.0.1:8545 (loopback only, same-host gateway)
+POSTCHECK observer-5-devnet health-bind ok port 43174 on 127.0.0.1:43174 (loopback only, same-host gateway)
+POSTCHECK observer-5-devnet public-chainid ok https://node5.devnet.telcoin.network eth_chainId=0x7e1d (32285)
+POSTCHECK observer-5-devnet public-tls ok certificate for node5.devnet.telcoin.network verified by curl (CA chain and host name), GET /health HTTP 200
+POSTCHECK observer-5-devnet public-ws ok WebSocket upgrade to wss://node5.devnet.telcoin.network refused: HTTP 405
+POSTCHECK observer-5-devnet public-ready-any ok GET https://node5.devnet.telcoin.network/ready/any 200 {"ready":true,"submissions":true,"queries":true}
+POSTCHECK observer-5-devnet public-identity ok answered by another node: tn_nodeMode Observer via node5.devnet.telcoin.network (own Observer); tn_info bls_public_key 26LkT9gpru… (own 22JLHkuyfD…) = the rpc node's key (query node)
+POSTCHECK rpc-6-devnet rpc-https ok https://rpc.devnet.telcoin.network eth_chainId=0x7e1d, certificate verified
+POSTCHECK rpc-6-devnet rpc-wss ok WebSocket upgrade to wss://rpc.devnet.telcoin.network: HTTP 101
+POSTCHECK gateway-4-devnet gateway-status ok installed=true active=true ready=true issues=0 mode=standalone (/ready 200 after 0s)
+POSTCHECK gateway-4-devnet gateway-listeners ok loopback only: 8655=[127.0.0.1:8655] 8656=[127.0.0.1:8656] 9655=[127.0.0.1:9655]
+POSTCHECK gateway-4-devnet gateway-metrics ok tn_worker_gateway_upstream_ready = 1 (1 series on 127.0.0.1:9655)
+POSTCHECK validator-1-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=1; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-2-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=1; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-3-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=1; rpc node matched by BLS key (genesis/observers)
+POSTCHECK validator-4-devnet admission ok primary effective=Closed fallback=null connected=3 epoch=1; rpc node matched by BLS key (genesis/observers)
+POSTCHECK observer-5-devnet admission ok primary effective=Closed fallback=null connected=0 epoch=1; rpc node matched by BLS key (genesis/observers)
+POSTCHECK rpc-6-devnet rpc-admission ok primary effective=Open fallback=null connected=4 epoch=1
+POSTCHECK chain validators-active ok 4/4 genesis validators report CvvActive
+POSTCHECK chain heads ok spread 0 <= 5 blocks (eth_blockNumber, sampled in parallel): node1=1 node2=1 node3=1 node4=1 node5=1 node6=1
+POSTCHECK chain consensus-progress ok tn_latestConsensusHeader .number rose over 15s on every validator: node1=1710->1735 node2=1709->1734 node3=1710->1735 node4=1713->1738
+devnet-postcheck: 64 checks, 0 failed, 0 not decisive; probe outputs in /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118T014152Z-postcheck
+## step 16 done (46 s)
+##########################################
+
+==========================================
+Steps 15..16 complete.
+Resume with: ./devnet-deploy.sh --yes --from 17
+Log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_014053-deploy/deploy.log
+==========================================

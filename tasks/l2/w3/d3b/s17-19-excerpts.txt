@@ -1,0 +1,44 @@
+# Excerpts of s17-19.log (852 KB, not committed; the same text is in logs/20261118_014353-deploy/deploy.log on xerxes). Left column = line number in that log.
+78:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+79:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+84:    public: https://admin.node1.devnet.telcoin.network/ answers 401 without credentials
+141:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+142:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+147:    public: https://admin.node2.devnet.telcoin.network/ answers 401 without credentials
+204:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+205:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+210:    public: https://admin.node3.devnet.telcoin.network/ answers 401 without credentials
+267:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+268:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+326:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+327:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+332:    public: https://admin.node5.devnet.telcoin.network/ answers 401 without credentials
+389:    curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Couldn't connect to server
+390:    ✅ telcoin-ui install: enabled, answering on 127.0.0.1:8080
+395:    public: https://admin.node6.devnet.telcoin.network/ answers 401 without credentials
+403:## step 17 done (228 s)
+8597:    ✓ eUSD_eEUR_Pool (0xbaf6323bdbc15971d76c08f931dadfa7c1f68fae) reserve0=1000000
+8601:app-contract stack deployed and verified.
+8603:  address book: /home/drtnarg/coding/telcoin/devnet-genesis/tn-contracts/deployments/deployments-devnet.json
+8607:  1. commit the regenerated address book on deploy/devnet-relaunch:
+8610:  3. ./devnet-txgen.sh --yes    (Step 16)
+8611:## step 18 done (476 s)
+8617:devnet transaction generator (Step 16)
+8634:## step 1 done
+8641:## step 2 done
+8647:## step 3 done
+8652:## step 4 done
+9072:## step 5 done
+9133:## step 6 done
+9156:## step 7 done
+9174:## step 8 done
+9197:{"timestamp":"2026-11-18T02:15:52.095139Z","level":"WARN","fields":{"message":"tx submit failed","label":"faucet_drip:native:635271581257683523wei","e":"fill tx (nonce / gas / 1559 caps)\n\nCaused by:\n    server returned an error response: error code 3: execution reverted, data: \"0x37f33ed800000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000\""},"target":"tn_transaction_generator::wallets::actor"}
+9226:--- startup markers ---
+9237:    ✓ service active with the expected startup markers
+9238:## step 9 done
+9262:  ❌ no txgen_* metrics on 127.0.0.1:9090
+9274:    ✓ observability wired
+9275:## step 10 done
+9278:transaction generator live on txgen-devnet.
+9287:## step 19 done (1290 s)
+9291:Steps 17..19 complete.
