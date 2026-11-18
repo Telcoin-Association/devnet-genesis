@@ -1,0 +1,20 @@
+post-check 2026-11-18T04:11:15Z
+NRestarts=0 ExecMainStartTimestamp=Wed 2026-11-18 04:09:18 UTC ActiveEnterTimestamp=Wed 2026-11-18 04:09:18 UTC InactiveEnterTimestamp=Wed 2026-11-18 04:09:18 UTC 
+nft tables: table ip nat;table ip filter;table ip6 nat;table ip6 filter;table ip raw;table inet tn_p2p_allow;
+md5: fcb98ca05679e4871b7480bab4119f3a  -
+check rc=0 result=ok missing_total=0 mismatch_total=0
+timer: active
+ready=200
+first log line after restart: n=296379
+ts=2026-11-18T04:09:15.201565325Z level=info target=consensus::metrics message="certificate committed" round=8889 origin=CgQ3xoAYRwiUxjFzGfK3QDS5aYoyjd9irf8YEJmmoNmM digest=9KeBHDmAhN9CwqfJ7yUeaqMgh7NBSRmbCcHFgfwfvGQ9 co
+--- voting lines since restart:
+ts=2026-11-18T04:09:22.842498318Z level=info target=tn::observer message="subscriber starting in mode" node_mode=CvvActive
+--- rpc/started lines:
+ts=2026-11-18T04:09:22.842780202Z level=info target=primary::certifier message="Certifier on node GgVKMyi79ZnXs7Bj2EoE4fSqDjRAyLpPXucwUQt1zXtZ has started successfully."
+ts=2026-11-18T04:09:22.842808005Z level=info target=primary::certifier message="Certifier on node GgVKMyi79ZnXs7Bj2EoE4fSqDjRAyLpPXucwUQt1zXtZ has started successfully."
+--- warn/error count since restart: 0
+--- rpc-6 demot 04:05-now (journal + syslog + telcoin log, excluding our own sudo/grep lines):
+journal: 0
+syslog: 1
+telcoin.log: 0
+2026-11-17T23:35:14.341653+00:00 rpc-6-devnet kernel: Demotion targets for Node 0: null

@@ -1,0 +1,28 @@
+A start 2026-11-18T04:05:25Z
+04:05:28 i=0 validator-1-devnet pub=21419 | tn_nodeMode="CvvActive" net_peerCount="0x4" eth_blockNumber="0x53ab" 
+04:05:31 i=1 validator-2-devnet pub=21419 | tn_nodeMode="CvvActive" net_peerCount="0x4" eth_blockNumber="0x53ad" 
+04:05:35 i=2 validator-3-devnet pub=21421 | tn_nodeMode="CvvActive" net_peerCount="0x4" eth_blockNumber="0x53b7" 
+04:05:40 i=3 validator-4-devnet pub=21433 | tn_nodeMode="CvvActive" net_peerCount="0x4" eth_blockNumber="0x53c6" 
+04:05:45 i=4 observer-5-devnet pub=21446 | tn_nodeMode="Observer" net_peerCount="0x1" eth_blockNumber="0x53cd" 
+04:05:49 i=5 rpc-6-devnet pub=21453 | tn_nodeMode="Observer" net_peerCount="0x5" eth_blockNumber="0x53d9" 
+public head 04:05:49 21465 -> 04:05:59 21473
+--- validator 2 detail
+NRestarts=0
+Id=telcoin.service
+ActiveEnterTimestamp=Wed 2026-11-18 01:24:45 UTC
+
+NRestarts=0
+Id=telcoin-gateway.service
+ActiveEnterTimestamp=Wed 2026-11-18 01:17:02 UTC
+nft tables:
+table ip nat
+table ip filter
+table ip6 nat
+table ip6 filter
+table ip raw
+table inet tn_p2p_allow
+md5: 381d93a7eab2d25e53ac5ba0016efd53  -
+check rc=0
+result=ok missing_total=0 mismatch_total=0
+ready=200
+2026-11-18T04:06:01Z

@@ -1,0 +1,7 @@
+certificates committed since restart, by origin:
+    685 6JTxzzah
+    597 CgQ3xoAY
+    708 FjbqwQaB
+    657 GgVKMyi7
+first committed cert with origin GgVKMy after restart: 2026-11-18T04:09:23.602498847Z
+last committed round: 2026-11-18T04:13:00.808854566Z round=9584

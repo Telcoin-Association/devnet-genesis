@@ -1,0 +1,41 @@
+B start 2026-11-18T04:06:20Z
+restart-begin 04:06:21.888
+restart-returned 04:06:22.481 rc=0
+04:06:22 000
+04:06:23 503
+04:06:24 503
+04:06:25 503
+04:06:26 503
+04:06:27 503
+04:06:28 200
+04:06:29 200
+04:06:30 200
+04:06:31 200
+04:06:32 200
+04:06:33 200
+04:06:34 200
+04:06:35 200
+04:06:36 200
+04:06:37 200
+04:06:38 200
+04:06:39 200
+04:06:40 200
+04:06:41 200
+04:06:42 200
+04:06:43 200
+04:06:44 200
+04:06:45 200
+04:06:46 200
+NRestarts=0
+Id=telcoin.service
+ActiveEnterTimestamp=Wed 2026-11-18 01:24:45 UTC
+
+NRestarts=0
+Id=telcoin-gateway.service
+ActiveEnterTimestamp=Wed 2026-11-18 04:06:22 UTC
+--- from xerxes 04:06:48
+node2 /ready/any: {"ready":true,"submissions":true,"queries":true} http=200
+node2 eth_chainId: {"jsonrpc":"2.0","id":1,"result":"0x7e1d"}
+--- rpc-6 demot last 2 min 04:06:48
+journal demot count=0
+units with demot (last 2 min):

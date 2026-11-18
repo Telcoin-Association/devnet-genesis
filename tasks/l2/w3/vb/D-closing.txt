@@ -1,0 +1,64 @@
+--- v2 detail 04:11:49
+md5 full twice 3s apart: fb6dc4ff 8dac60b6; counters in table: 0; stateless md5: 52227139a722; elements lines: 37
+warn/error since restart: 12
+      4 level=warn target=network message="received inbound stream from unknown peer" peer="PeerId(\"12D3KooWGHfeJyynQfkiYyw1mbFjUQAjfoexa6C3Rju6KedffxSE\")"
+      1 level=warn target=primary::proposer message="re-proposing last header after max delay interval expired for round 8894" interval=1s
+      1 level=warn target=primary::proposer message="Repropose 0 batches in undelivered headers [9167] at commit round 9168, remaining headers 1"
+      1 level=warn target=primary message="queue dropped messages while no consumer was subscribed" queue=primary_network_events kept=0 dropped=65 over_budget
+      1 level=warn target=network::diagnostics message="repeated network diagnostics suppressed" event_class=Stream site=crates/network-libp2p/src/consensus.r
+      1 level=warn target=epoch-manager message="failed to dial 24JYGVN999i3hsLbTB4HA5Kq9etsVa7TgBLzdEUFTBbWLjnkwjfc2z9icrs3Lma348sTzMLLPZwEEjGMpi46u9aU2d8oVC
+--- startup markers:
+ts=2026-11-18T04:09:17.003874084Z level=info target=epoch-manager message="network reachability changed" readiness="NetworkReadiness { version: 1, status: NotReady, primary: Unavailable, workers: [Wor
+ts=2026-11-18T04:09:19.864336156Z level=info target=cli span=node-startup span_path=node-startup message="telcoin-network 0.1.0 (5533ff73addac1f823ef37881a3907c67f54506e) starting"
+ts=2026-11-18T04:09:20.370308485Z level=info target=epoch-manager message="opened consensus storage" consensus_db_path="\"/home/nonroot/consensus-db\""
+ts=2026-11-18T04:09:20.758187722Z level=info target=epoch-manager message="starting node and launching first epoch"
+ts=2026-11-18T04:09:20.849233777Z level=info target=epoch-manager message="healthcheck listening" listen_on=127.0.0.1:43174
+ts=2026-11-18T04:09:21.737383221Z level=info target=epoch-manager message="creating committee from state"
+ts=2026-11-18T04:09:21.738128448Z level=info target=epoch-manager message="read entered-epoch base fees from the closing block\'s on-chain record" entered=3 closing_block=13965 num_workers=1 fees=[9]
+ts=2026-11-18T04:09:21.743744667Z level=info target=tn::execution message="tn rpc extension successfully merged"
+--- D closing read 2026-11-18T04:11:55Z
+04:11:55 i=0 validator-1-devnet pub=21785 | act=active mode=CvvActive peers=4 head=21785
+04:11:58 i=1 validator-2-devnet pub=21785 | act=active mode=CvvActive peers=4 head=21785
+04:12:00 i=2 validator-3-devnet pub=21786 | act=active mode=CvvActive peers=4 head=21792
+04:12:03 i=3 validator-4-devnet pub=21793 | act=active mode=CvvActive peers=4 head=21802
+04:12:08 i=4 observer-5-devnet pub=21802 | act=active mode=Observer peers=1 head=21805
+04:12:13 i=5 rpc-6-devnet pub=21806 | act=active mode=Observer peers=5 head=21813
+public head 04:12:15 21813 -> 04:12:25 21832
+--- devnet-p2p-committee.sh --status 04:12:25
+==========================================
+devnet committee P2P allowlist (tn-node-deployment firewall-setup.sh --p2p-committee)
+Project:  tn-devnet
+Mode:     status (read-only)
+Targets:  validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet
+Knobs:    wait=300s poll=5s retries=8x15s settle=60s head-lag=5 require-advance=1
+Logs:     /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_221225-p2p-committee
+==========================================
+
+>>> validator-1-devnet (us-west2-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=21840
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 6 IPv4 and 0 IPv6 sources (5 keys, 4 floor), epoch 3
+    ->  P2P committee allowlist counters: 1107785 packets accepted from listed sources, 3898 dropped from others
+P2P_COMMITTEE_STATUS validator-1-devnet state=on check=ok accept=1107734 drop=3898
+
+>>> validator-2-devnet (us-south1-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=21847
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 6 IPv4 and 0 IPv6 sources (5 keys, 4 floor), epoch 3
+    ->  P2P committee allowlist counters: 1026216 packets accepted from listed sources, 2988 dropped from others
+P2P_COMMITTEE_STATUS validator-2-devnet state=on check=ok accept=1026167 drop=2988
+
+>>> validator-3-devnet (northamerica-northeast1-b, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=21851
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 6 IPv4 and 0 IPv6 sources (5 keys, 4 floor), epoch 3
+    ->  P2P committee allowlist counters: 1067411 packets accepted from listed sources, 2961 dropped from others
+P2P_COMMITTEE_STATUS validator-3-devnet state=on check=ok accept=1067378 drop=2961
+
+>>> validator-4-devnet (europe-west4-a, validator): status
+    state: P2P_COMMITTEE=on unit=active mode=CvvActive head=21857
+    check: result=ok missing_total=0 mismatch_total=0 (exit 0)
+    [OK]  P2P committee allowlist: on; table inet tn_p2p_allow holds 6 IPv4 and 0 IPv6 sources (5 keys, 4 floor), epoch 3
+    ->  P2P committee allowlist counters: 1048785 packets accepted from listed sources, 2914 dropped from others
+P2P_COMMITTEE_STATUS validator-4-devnet state=on check=ok accept=1048751 drop=2914
+status rc=0

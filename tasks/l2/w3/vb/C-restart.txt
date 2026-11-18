@@ -1,0 +1,23 @@
+rpc-6 files mentioning demot (04:08:13):
+/var/log/kern.log
+/var/log/syslog
+/var/log/auth.log
+/var/log/dmesg
+caddy.service
+telcoin-alloy.service
+telcoin-ui.service
+telcoin.service
+C recheck 04:09:00
+v1=CvvActive
+v3=CvvActive
+v4=CvvActive
+pub 21658 -> 21662 (04:09:13)
+2026-11-18T04:09:15Z
+rc=0
+2026-11-18T04:09:18Z
+04:09:24 #0 v2 act=active mode=NA peers=NA head=NA pub=21663 lag=NA | v1=CvvActive v3=CvvActive v4=CvvActive
+04:09:36 #1 v2 act=active mode=CvvActive peers=5 head=21672 pub=21671 lag=-1
+04:09:50 #2 v2 act=active mode=CvvActive peers=4 head=21694 pub=21690 lag=-4
+04:10:09 #3 v2 act=active mode=CvvActive peers=4 head=21718 pub=21718 lag=0 | v1=CvvActive v3=CvvActive v4=CvvActive
+DONE: v2 CvvActive on 3 consecutive polls at 04:10:09
+poll rc=0
