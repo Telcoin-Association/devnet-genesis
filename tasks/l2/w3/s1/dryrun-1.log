@@ -1,0 +1,51 @@
+==========================================
+devnet: mint + stake + activate node 5
+RPC:         https://rpc.devnet.telcoin.network
+Registry:    0x07E17e17E17e17E17e17E17E17E17e17e17E17e1
+Safe:        0x00000000000000000000000000000000000007a0 (admin owner 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f, key: Secret Manager devnet-contracts-admin-pk)
+Node 5:      0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 (key: Secret Manager devnet-node5-validator-pk)
+Node info:   /home/drtnarg/coding/telcoin/devnet-genesis/genesis/observers/node5.yaml
+Keytool:     us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+Mode:        DRY RUN (no --yes): reads only, every send is printed, nothing is sent
+==========================================
+
+>>> step 1: preflight
+    ✓ chain id 32285
+    ✓ registry owner() = Safe 0x00000000000000000000000000000000000007A0
+    ✓ node 5 address 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8 == EXECUTION_ADDRESSES[4] == node-info execution_address
+    nextCommitteeSize 4 (tn_getNextCommitteeSize: 4); eligible validators 4; current epoch 2
+    committee(2): 0x0033a370616805b1fd275b7ffab83fc41d665ccb 0x3518b301b86ceb53b5a3dff62e55cd43ef59d024 0x7489025dfbaad94f2366d88a62989147d9c8b5d3 0xefaacf04b92298a88200aa50aa6bb7bfce587b17
+    node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8: no ConsensusNFT (not minted), retired=false
+    Safe owners (1-of-8): [0xAee2797478Cb5EfaF1869A2e33e369421EBf520f, 0x2358CF87e62618663E781CE52EE7a7F777aC4e65, 0x389C4bd707FAb237578A9603F55A02554CAa034b, 0xDE5346d15Dc5e0D7b3bE7feFF5d96f548c321e88, 0xf5b3944629F9303fa94670B2a6611eE1b11Cd538, 0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA, 0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248, 0x5b9e70501a845FA8105B2f8228a0d243A98d97Fc]
+    Safe nonce 0
+    ✓ admin 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f isOwner, threshold 1
+    stake version 0: stakeAmount 1000000000000000000000000 wei (1000000.000000000000000000 TEL); gas price 8 wei
+    ✓ node 5 balance 1000100.000000000000000000 TEL >= 1000000.000000000024000000 TEL needed
+    ✓ admin balance 999999999999.999999997338177096 TEL
+    ✓ Secret Manager devnet-contracts-admin-pk → keystore for 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f (matches)
+    ✓ Secret Manager devnet-node5-validator-pk → keystore for 0xd0154a8091dE71Cc81B3C6F95b73D0aA129dA7b8 (matches)
+    ✓ stake calldata from keytool: 0x2fb0d025…, 324 bytes; selector present in the registry
+    ✓ stake simulation: PoP and value accepted; reverts only with InvalidTokenId(uint256): no ConsensusNFT (minted in step 2)
+    ✓ preflight passed
+
+>>> step 2: mint node 5's ConsensusNFT through the Safe
+    Safe nonce 0; safeTxHash 0x2d81b0eb86a29ca224058d31a2fa8f498172ebbe90eafad5c440627e16f1541c
+    → cast send 0x00000000000000000000000000000000000007a0 'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)(bool)' 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 0 0x6a627842000000000000000000000000d0154a8091de71cc81b3c6f95b73d0aa129da7b8 0 0 0 0 0x0000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000 0x000000000000000000000000aee2797478cb5efaf1869a2e33e369421ebf520f000000000000000000000000000000000000000000000000000000000000000001  (from admin 0xAee2797478Cb5EfaF1869A2e33e369421EBf520f)
+
+>>> step 3: stake 1000000000000000000000000 wei from node 5
+    → cast send 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 <keytool calldata 0x2fb0d025…> --value 1000000000000000000000000  (from node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8)
+
+>>> step 4: wait for node 5 to be in sync (lag <= 5, tn_nodeMode Observer)
+    node 5: observer-5-devnet over IAP, 127.0.0.1:8545
+    reference node1: validator-1-devnet over IAP, 127.0.0.1:8545
+      node 5 head 2465, node1 head 2476 (lag 11), tn_nodeMode 'Observer'
+    (not in sync now; --yes waits up to 1800s)
+
+>>> step 5: activate() from node 5
+    → cast send 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1 'activate()'  (from node 5 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8)
+
+>>> step 6: watch activation and committee membership
+    → poll getValidator(node5) every 30s until Active (up to 7800s), then log committee(e) for 3 epoch(s) from activationEpoch+2; per epoch from activationEpoch: status, tn_nodeMode, membership, what to check on the validators
+
+DRY RUN complete: nothing was sent. Re-run with --yes to apply.
+rc=0

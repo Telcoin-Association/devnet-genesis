@@ -18,9 +18,10 @@
 #                    node-info.yaml (the image's own encoder, so the ABI always matches the
 #                    image's genesis registry); value = stakeConfig(getCurrentStakeVersion())
 #                    .stakeAmount; sent from node 5's key after an eth_call simulation passes.
-#   4. sync gate     node 5's eth_blockNumber within SYNC_MAX_LAG (5) blocks of the reference
-#                    validator's and node 5's tn_nodeMode == "Observer", polled until
-#                    SYNC_TIMEOUT_SECS; each node read on its own loopback over IAP (STEP 4 below).
+#   4. sync gate     node 5's eth_blockNumber at most SYNC_MAX_LAG (5) blocks behind the reference
+#                    validator's (read first, node 5's right after) and node 5's tn_nodeMode ==
+#                    "Observer", polled until SYNC_TIMEOUT_SECS; each node read on its own
+#                    loopback over IAP (STEP 4 below).
 #   5. activate      ConsensusRegistry.activate() from node 5's key -> PendingActivation.
 #   6. watch         getValidator(node5) -> Active at the next epoch boundary, then committee
 #                    membership for --watch-epochs K epochs, stating whether it changed. Two
@@ -328,15 +329,19 @@ ref_head() {
     if [ -n "${REF_RPC}" ]; then cast block-number --rpc-url "${REF_RPC}"
     else h="$(host_rpc "${REF_IDX}" eth_blockNumber)" && cast to-dec "${h}"; fi
 }
-# sync_probe: prints one status line; rc 0 iff in sync (lag <= SYNC_MAX_LAG and mode Observer)
+# sync_probe: prints one status line; rc 0 iff in sync (node 5 at most SYNC_MAX_LAG blocks behind
+# the reference validator, and tn_nodeMode Observer). The reference head is read FIRST: the reads
+# are seconds apart (an ssh round trip each) and a busy chain adds blocks in between. Read in the
+# other order, that gap itself looks like lag; read this way, a node 5 that keeps up is behind by 0.
 sync_probe() {
-    local h5 h1 mode lag
-    h5="$(node5_head 2>/dev/null)" || h5=""
+    local h1 h5 mode lag
     h1="$(ref_head 2>/dev/null)" || h1=""
+    h5="$(node5_head 2>/dev/null)" || h5=""
     mode="$(node5_mode 2>/dev/null)" || mode=""
-    case "${h5}${h1}" in ''|*[!0-9]*) echo "      node 5 head '${h5:-?}', ${REF_NAME} head '${h1:-?}', mode '${mode:-?}' (unreachable?)"; return 1 ;; esac
-    lag=$((h1 - h5)); [ "${lag}" -lt 0 ] && lag=$((-lag))
-    echo "      node 5 head ${h5}, ${REF_NAME} head ${h1} (lag ${lag}), tn_nodeMode '${mode:-?}'"
+    # each head must be a non-empty run of digits (the ':' only separates the two)
+    case "${h1}:${h5}" in :*|*:|*:*:*|*[!0-9:]*) echo "      ${REF_NAME} head '${h1:-?}', node 5 head '${h5:-?}', mode '${mode:-?}' (unreachable?)"; return 1 ;; esac
+    lag=$((h1 - h5)); [ "${lag}" -lt 0 ] && lag=0
+    echo "      ${REF_NAME} head ${h1}, then node 5 head ${h5} (behind by ${lag}), tn_nodeMode '${mode:-?}'"
     [ "${lag}" -le "${SYNC_MAX_LAG}" ] && [ "${mode}" = "Observer" ]
 }
 # epoch_line <epoch> <committee> <membership note> <what to check>: step 6's two lines per epoch.
