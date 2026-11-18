@@ -1,0 +1,32 @@
+==========================================
+devnet observability rollout (Alloy logs/metrics/health)
+Project:    tn-devnet
+Push URL:   https://obs.devnet.telcoin.network/loki/api/v1/push
+Metrics:    https://obs.devnet.telcoin.network/api/v1/write
+Toggles:    logs=1 metrics=1 health=1 (dashboard=1: hub-only, not applied here)
+Epoch wait: skipped (TN_SKIP_EPOCH_WAIT=1)
+Subset:     validator-1-devnet
+Mode:       --staged (deploy step 12): stopped nodes stay stopped; a node the installer starts is stopped again (wait 90s)
+Gateways:   not scraped (Alloy takes one config file); on the host: curl 127.0.0.1:9655/metrics
+Logs:       /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_185946-observability
+==========================================
+
+>>> fetching obs ingest token from Secret Manager (obs-ingest-token) — value is NEVER printed
+    token retrieved (redacted)
+
+>>> validator-1-devnet (us-west2-a, region=us-west2): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'us-west2' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED validator-1-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+==========================================
+staged:    validator-1-devnet
+per-node logs: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_185946-observability
+every targeted node host is staged (stopped, enabled, flags on): ready for step 14.
+==========================================

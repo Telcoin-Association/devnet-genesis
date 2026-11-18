@@ -1,0 +1,12 @@
+OK node1.devnet.telcoin.network want=35.236.51.63 auth=35.236.51.63  local=35.236.51.63 
+OK node2.devnet.telcoin.network want=34.174.181.214 auth=34.174.181.214  local=34.174.181.214 
+OK node3.devnet.telcoin.network want=34.19.189.1 auth=34.19.189.1  local=34.19.189.1 
+OK node4.devnet.telcoin.network want=34.12.238.199 auth=34.12.238.199  local=34.12.238.199 
+OK node5.devnet.telcoin.network want=35.242.150.70 auth=35.242.150.70  local=35.242.150.70 
+OK rpc.devnet.telcoin.network want=34.20.254.166 auth=34.20.254.166  local=34.20.254.166 
+OK admin.node1.devnet.telcoin.network want=35.236.51.63 auth=35.236.51.63  local=35.236.51.63 
+OK admin.node2.devnet.telcoin.network want=34.174.181.214 auth=34.174.181.214  local=34.174.181.214 
+OK admin.node3.devnet.telcoin.network want=34.19.189.1 auth=34.19.189.1  local=34.19.189.1 
+OK admin.node5.devnet.telcoin.network want=35.242.150.70 auth=35.242.150.70  local=35.242.150.70 
+OK admin.node6.devnet.telcoin.network want=34.20.254.166 auth=34.20.254.166  local=34.20.254.166 
+admin.node4 auth=[]

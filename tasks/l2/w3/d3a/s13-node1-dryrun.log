@@ -1,0 +1,16 @@
+==========================================
+devnet worker gateways (setup-gateway.sh --enable)
+Project:    tn-devnet
+Image:      us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231
+Redirect:   https://rpc.devnet.telcoin.network (every call but a submission)
+Nodes:      validator-1-devnet(same-host) 
+Readiness:  reported, not asserted (the nodes may be stopped)
+==========================================
+Internal IPs are not looked up in a dry run: <internal-ip:INSTANCE> stands for the address
+--yes reads with tn_internal_ip before the first change.
+DRY RUN (no --yes): nothing below runs; no host is touched and no gcloud call is made.
+
+>>> [validator-1-devnet] setup-gateway.sh --enable (same-host, node1.devnet.telcoin.network)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode same-host --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node1.devnet.telcoin.network --front caddy --redirect-queries 'https://rpc.devnet.telcoin.network'
+
+dry run: 1 remote step(s); run again with --yes to apply.

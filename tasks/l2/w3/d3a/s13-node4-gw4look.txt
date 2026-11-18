@@ -1,0 +1,19 @@
+active
+active
+503
+80/tcp                     ALLOW       Anywhere                  
+443/tcp                    ALLOW       Anywhere                  
+80/tcp (v6)                ALLOW       Anywhere (v6)             
+443/tcp (v6)               ALLOW       Anywhere (v6)             
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal systemd[1]: Starting telcoin-gateway.service - Telcoin worker gateway (standalone, front caddy)...
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal systemd[1]: Started telcoin-gateway.service - Telcoin worker gateway (standalone, front caddy).
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.656839Z  INFO gateway: starting worker gateway listen_addr=127.0.0.1:8655 upstreams=1 redirect_queries=https://rpc.devnet.telcoin.network:443 redirect_queries_header=false recent_submission_ttl=Some(60s) shutdown_delay=0ns graceful_shutdown_timeout=45s cors="off"
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.656880Z  INFO gateway: edge protections configured rate_limiting=true trusted_proxies=1 proxy_protocol=false submission_budget=false rate_limit_per_ip_max_entries=Some(100000) max_connections_per_ip=Some(32) rate_limit_v4_prefix=32 rate_limit_v6_prefix=64 max_request_bytes=1048576 max_batch_len=Some(50) max_inflight_submissions=256 max_inflight_queries=256 max_upstream_inflight=100 max_worker_pool_reads=Some(20) submission_reserve=80 max_inflight_request_bytes=536870912 http1_max_buf_size=65536 tcp_user_timeout=Some(30s) max_connection_duration=Some(600s) dns_cache_ttl=30s max_concurrent_dns_lookups=8 method_policy=off (--redirect-queries is set) access_log=off access_log_max_lines_per_second=1000
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.657793Z  INFO tn::listener: operator listener bound listener="metrics" listen_on=127.0.0.1:9655 exposure=loopback
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.657816Z  INFO tn::metrics: prometheus metrics endpoint listening listen_on=127.0.0.1:9655
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.657846Z  INFO gateway: metrics endpoint listening bound=127.0.0.1:9655
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.658256Z  INFO gateway::server: worker gateway listening local_addr=127.0.0.1:8655
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.658292Z  INFO gateway::server: probe listener listening local_addr=127.0.0.1:8656
+Nov 18 01:15:33 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:33.659987Z  INFO gateway::readiness: upstream worker not ready since startup worker_id=0 upstream=http://10.164.0.11:8545 readiness=http://10.164.0.11:43174 cause=connection error (connect)
+Nov 18 01:15:35 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:15:35.659719Z  INFO gateway: could not compare the chain ids of --redirect-queries and the worker; continuing without the check worker="error sending request: client error (Connect): tcp connect error: Connection refused (os error 111)" query="error sending request: client error (Connect): operation timed out" worker_upstream=http://10.164.0.11:8545 query_upstream=https://rpc.devnet.telcoin.network:443
+Nov 18 01:16:09 gateway-4-devnet.europe-west4-a.c.tn-devnet.internal docker[6296]: 2026-11-18T01:16:09.447666Z  WARN gateway::proxy: forwarding to upstream failed err=UpstreamTimeout route="query" upstream=https://rpc.devnet.telcoin.network:443 cause=error sending request: client error (Connect): tcp connect error: deadline has elapsed suppressed=0

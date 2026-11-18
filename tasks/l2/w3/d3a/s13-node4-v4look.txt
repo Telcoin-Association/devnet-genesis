@@ -1,0 +1,6 @@
+43174/tcp                  ALLOW       104.155.184.201           
+8545/tcp                   ALLOW       10.164.0.17               
+43174/tcp                  ALLOW       10.164.0.17               
+inactive
+GATEWAY_ALLOW_FROM=10.164.0.17
+GATEWAY_UPSTREAM=10.164.0.17

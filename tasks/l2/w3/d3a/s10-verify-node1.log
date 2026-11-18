@@ -1,0 +1,40 @@
+>>> rendering admission maps for node1=validator,node2=validator,node3=validator,node4=validator,node5=observer,node6=rpc into /tmp/tn-network-config.eChCZl/maps-now
+ok   /tmp/tn-network-config.eChCZl/maps-now/node1.bootstrap-peers.yaml (2443 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node1.trusted-nodes.yaml (555 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node2.bootstrap-peers.yaml (2443 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node2.trusted-nodes.yaml (555 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node3.bootstrap-peers.yaml (2443 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node3.trusted-nodes.yaml (555 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node4.bootstrap-peers.yaml (2443 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node4.trusted-nodes.yaml (555 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node5.bootstrap-peers.yaml (2443 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node5.trusted-nodes.yaml (555 bytes)
+ok   /tmp/tn-network-config.eChCZl/maps-now/node6.bootstrap-peers.yaml (2443 bytes)
+wrote 11 file(s) under /tmp/tn-network-config.eChCZl/maps-now
+    node1      validator --admission closed maps: bootstrap-peers.yaml trusted-nodes.yaml
+    node2      validator --admission closed maps: bootstrap-peers.yaml trusted-nodes.yaml
+    node3      validator --admission closed maps: bootstrap-peers.yaml trusted-nodes.yaml
+    node4      validator --admission closed maps: bootstrap-peers.yaml trusted-nodes.yaml
+    node5      observer  --admission closed maps: bootstrap-peers.yaml trusted-nodes.yaml
+    node6      rpc       --admission open   maps: bootstrap-peers.yaml
+    ✓ the local maps in /home/drtnarg/coding/telcoin/devnet-genesis/genesis/admission-maps = this render
+
+>>> verify targets: 1 node(s) — 0
+
+>>> [node1] verify admission maps on validator-1-devnet (us-west2-a) role=validator admission=closed
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+    ✓ /etc/telcoin/devnet-admission/bootstrap-peers.yaml = local node1.bootstrap-peers.yaml (sha256 445b441b8959…, root:root 644)
+    ✓ /etc/telcoin/devnet-admission/trusted-nodes.yaml = local node1.trusted-nodes.yaml (sha256 f414ce72d9c5…, root:root 644)
+ok   /tmp/tn-network-config.eChCZl/node1.network-config is node1's native network-config (mode Closed, committee_peers 4, trusted_nodes 1)
+    ✓ /var/lib/telcoin/network-config passes validate --native
+
+=========================================
+admission maps verify summary
+=========================================
+ok (1):
+  - node1
+all targeted nodes: verify ok.

@@ -1,0 +1,103 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_010222-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    ONLY step 12
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+
+##########################################
+>>> Step 12: observability, staged
+==========================================
+devnet observability rollout (Alloy logs/metrics/health)
+Project:    tn-devnet
+Push URL:   https://obs.devnet.telcoin.network/loki/api/v1/push
+Metrics:    https://obs.devnet.telcoin.network/api/v1/write
+Toggles:    logs=1 metrics=1 health=1 (dashboard=1: hub-only, not applied here)
+Epoch wait: skipped (TN_SKIP_EPOCH_WAIT=1)
+Mode:       --staged (deploy step 12): stopped nodes stay stopped; a node the installer starts is stopped again (wait 90s)
+Gateways:   not scraped (Alloy takes one config file); on the host: curl 127.0.0.1:9655/metrics
+Logs:       /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_190222-observability
+==========================================
+
+>>> fetching obs ingest token from Secret Manager (obs-ingest-token) — value is NEVER printed
+    token retrieved (redacted)
+
+↪ gateway-4-devnet: gateway host, no node: skipped (metrics on the host: curl 127.0.0.1:9655/metrics)
+
+>>> validator-1-devnet (us-west2-a, region=us-west2): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 190f659ebd8a…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'us-west2' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    launch file unchanged (its flags were already on it)
+OBS_STAGED validator-1-devnet node=inactive enabled=yes agent=active started_by_installer=no flags=ok
+
+>>> validator-2-devnet (us-south1-a, region=us-south1): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'us-south1' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED validator-2-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+>>> validator-3-devnet (northamerica-northeast1-b, region=northamerica-northeast1): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'northamerica-northeast1' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED validator-3-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+>>> validator-4-devnet (europe-west4-a, region=europe-west4): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'europe-west4' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED validator-4-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+>>> observer-5-devnet (europe-west2-b, region=europe-west2): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'europe-west2' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED observer-5-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+>>> rpc-6-devnet (us-west2-b, region=us-west2): staged: setup-observability.sh --enable-logs --enable-metrics --enable-health
+    before: telcoin inactive, enabled, NRestarts=0; launch file sha256 5af95a6f7c1d…
+    + sudo env TN_SKIP_EPOCH_WAIT=1 bash '/opt/telcoin-node-scripts/setup-observability.sh' --json --enable-logs --enable-metrics --enable-health --token-stdin --region 'us-west2' --push-url 'https://obs.devnet.telcoin.network/loki/api/v1/push' --metrics-push-url 'https://obs.devnet.telcoin.network/api/v1/write'   [token on stdin]
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+      [warn] could not count the committee members that are down (the committee could not be read; https://rpc.devnet.telcoin.network does not answer with chain 32285); going ahead on devnet.
+    done: ok, applied [logs:enabled,metrics:enabled,health:enabled]
+    the installer started telcoin (active): stopping it again
+    + sudo systemctl stop telcoin; sudo systemctl reset-failed telcoin
+    stopped (0s after the stop)
+OBS_STAGED rpc-6-devnet node=inactive enabled=yes agent=active started_by_installer=yes flags=ok
+
+==========================================
+staged:    validator-1-devnet validator-2-devnet validator-3-devnet validator-4-devnet observer-5-devnet rpc-6-devnet
+per-node logs: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_190222-observability
+every targeted node host is staged (stopped, enabled, flags on): ready for step 14.
+==========================================
+## step 12 done (634 s)
+##########################################
+
+==========================================
+Step 12 complete.
+Resume with: ./devnet-deploy.sh --yes --from 13
+Log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_010222-deploy/deploy.log
+==========================================

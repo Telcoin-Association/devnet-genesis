@@ -1,0 +1,6 @@
+validator-1-devnet: telcoin=inactive gw=active caddy=active ready=503 ufw80_443=4
+validator-2-devnet: telcoin=inactive gw=active caddy=active ready=503 ufw80_443=4
+validator-3-devnet: telcoin=inactive gw=active caddy=active ready=503 ufw80_443=4
+validator-4-devnet: telcoin=inactive gw=inactive caddy=inactive ready=000 ufw80_443=0
+observer-5-devnet: telcoin=inactive gw=active caddy=active ready=503 ufw80_443=4
+rpc-6-devnet: telcoin=inactive gw=inactive caddy=inactive ready=000 ufw80_443=0

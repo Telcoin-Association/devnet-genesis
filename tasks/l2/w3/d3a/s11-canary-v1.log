@@ -1,0 +1,21 @@
+==========================================
+devnet HOST firewall (ufw) — lockout-safe ENABLE (one VM at a time)
+Project:    tn-devnet
+Method:     firewall-setup.sh --json --enable (SSH allowed BEFORE enable; rpc: --p2p-anywhere)
+Safety:     re-verify SSH after each VM; ABORT on loss (no further VM touched)
+Subset:     validator-1-devnet
+==========================================
+
+>>> validator-1-devnet (us-west2-a, role=validator): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+host ufw enabled (lockout-safe) on all targeted VMs.

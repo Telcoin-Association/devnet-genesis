@@ -1,0 +1,500 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_004541-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    ONLY step 10
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+
+##########################################
+>>> Step 10: finalize, stage only
+>>> verifying local genesis artifacts
+>>> verifying release signature (v0.3.0-devnet)
+✓ VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 (key id 28FD56AD2F9FAE47): a good signature by an allow-listed primary key
+    [GNUPG:] VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 2026-11-18 1794962065 0 4 0 22 10 00 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47
+✓ SHA256SUMS: IMAGE_DIGEST GATEWAY_IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml match the current files
+✓ IMAGE_DIGEST = DOCKER_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1)
+✓ GATEWAY_IMAGE_DIGEST = GATEWAY_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231)
+release v0.3.0-devnet verified
+    ✓ release v0.3.0-devnet: SHA256SUMS.asc verified against the release keys
+>>> finalize targets: 6 node(s) — 0 1 2 3 4 5
+>>> mode --stage-only
+>>> image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1
+>>> admission maps: the 11 local file(s) in /home/drtnarg/coding/telcoin/devnet-genesis/genesis/admission-maps = a fresh render from /home/drtnarg/coding/telcoin/devnet-genesis/genesis/committee.yaml
+
+>>> [node1] finalize on validator-1-devnet (us-west2-a) role=validator service=telcoin
+PRESTAGED validator-1-devnet
+
+>>> [node2] finalize on validator-2-devnet (us-south1-a) role=validator service=telcoin
+>>> [node2] ready: setup-node.sh present, keygen recorded, no unit yet, admission maps: installed = local by sha256: bootstrap-peers 445b441b8959… trusted-nodes f414ce72d9c5…
+>>> [node2] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node2] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node2] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)
+>>> [node2] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x7489025dfbaad94f2366d88a62989147d9c8b5d3' '--advertised-name' 'node2' '--public-rpc-url' 'https://node2.devnet.telcoin.network' '--listener-primary' '/ip4/10.206.0.3/udp/49590/quic-v1' '--listener-worker' '/ip4/10.206.0.3/udp/49594/quic-v1' '--external-primary' '/ip4/34.174.181.214/udp/49590/quic-v1' '--external-worker' '/ip4/34.174.181.214/udp/49594/quic-v1' '--public-ip' '34.174.181.214' '--enable-healthcheck-monitor' '--admission' 'closed' '--bootstrap-peers' '/etc/telcoin/devnet-admission/bootstrap-peers.yaml' '--trusted-nodes' '/etc/telcoin/devnet-admission/trusted-nodes.yaml'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given.
+
+================================================================
+  Step 6 of 8: Writing Configuration
+================================================================
+
+  [OK]  Found chain-configs at: /etc/telcoin/chain-configs/devnet
+  [WARN] devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is.
+  [OK]  Chain config files copied (sha256 checked)
+  [OK]  Advertised node name set: node2
+  [OK]  Configuration ready under: /var/lib/telcoin
+
+================================================================
+  Step 7 of 8: Creating Systemd Service
+================================================================
+
+  [OK]  RPC port: 8545, WS port: 8546
+  ->  P2P listener (internal): /ip4/10.206.0.3/udp/49590/quic-v1
+  [WARN] Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway.
+  [OK]  Bootstrap peers map installed: /etc/telcoin/bootstrap-peers.yaml
+  [OK]  Trusted nodes map installed: /etc/telcoin/trusted-nodes.yaml
+  [OK]  Node flags: --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"
+  [OK]  Admission settings written to /var/lib/telcoin/network-config (mode Closed)
+  [OK]  Listener addresses written: /etc/telcoin/node.env
+  [OK]  Start script written: /usr/local/libexec/telcoin/tn-start-docker
+  [OK]  Service file written: /etc/systemd/system/telcoin.service
+  [OK]  Node metadata written: /etc/telcoin/.node-meta
+
+  [OK]  Service is running
+
+>>> Waiting for RPC at http://127.0.0.1:8545...
+  [OK]  RPC responding. Chain ID: 0x7e1d
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0x7489025dfbaad94f2366d88a62989147d9c8b5d3
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [OK]  ConsensusNFT: Found
+  [OK]  Status: Active (participating in consensus)
+
+  ->  Next step:
+    Your validator is fully active. No action needed.
+
+Created symlink /etc/systemd/system/multi-user.target.wants/telcoin.service → /etc/systemd/system/telcoin.service.
+  [OK]  Auto-start enabled
+    json: {"event":"log","msg":"Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given."}
+    json: {"event":"step","msg":"Writing configuration"}
+    json: {"event":"log","msg":"WARNING: devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is."}
+    json: {"event":"step","msg":"Creating service and starting node"}
+    json: {"event":"log","msg":"WARNING: Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway."}
+    json: {"event":"log","msg":"node flags: --bootstrap-peers \"$(cat /etc/telcoin/bootstrap-peers.yaml)\""}
+    json: {"event":"log","msg":"admission: closed, trusted nodes /etc/telcoin/trusted-nodes.yaml, committee peers /etc/telcoin/bootstrap-peers.yaml"}
+    json: {"event":"done","ok":true,"phase":"finalize","node_type":"observer","service":"telcoin","rpc_port":"8545","operator_guide":"https://github.com/Telcoin-Association/tn-node-deployment/blob/main/OPERATOR.md","public_rpc":{"enabled":false,"domain":null,"http":"https://node2.devnet.telcoin.network","ws":null},"host_baseline":false,"msg":"telcoin finalized and started -- following consensus as a full node; staking to validate is optional (see docs)"}
+>>> [node2] finalize ok
+      ✓ telcoin on validator-2-devnet active AND :43174 responds (after 0s)
+STAGED validator-2-devnet state=inactive enabled=enabled
+
+>>> [node3] finalize on validator-3-devnet (northamerica-northeast1-b) role=validator service=telcoin
+>>> [node3] ready: setup-node.sh present, keygen recorded, no unit yet, admission maps: installed = local by sha256: bootstrap-peers 445b441b8959… trusted-nodes f414ce72d9c5…
+>>> [node3] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node3] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node3] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)
+>>> [node3] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x0033a370616805b1fd275b7ffab83fc41d665ccb' '--advertised-name' 'node3' '--public-rpc-url' 'https://node3.devnet.telcoin.network' '--listener-primary' '/ip4/10.162.0.49/udp/49590/quic-v1' '--listener-worker' '/ip4/10.162.0.49/udp/49594/quic-v1' '--external-primary' '/ip4/34.19.189.1/udp/49590/quic-v1' '--external-worker' '/ip4/34.19.189.1/udp/49594/quic-v1' '--public-ip' '34.19.189.1' '--enable-healthcheck-monitor' '--admission' 'closed' '--bootstrap-peers' '/etc/telcoin/devnet-admission/bootstrap-peers.yaml' '--trusted-nodes' '/etc/telcoin/devnet-admission/trusted-nodes.yaml'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given.
+
+================================================================
+  Step 6 of 8: Writing Configuration
+================================================================
+
+  [OK]  Found chain-configs at: /etc/telcoin/chain-configs/devnet
+  [WARN] devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is.
+  [OK]  Chain config files copied (sha256 checked)
+  [OK]  Advertised node name set: node3
+  [OK]  Configuration ready under: /var/lib/telcoin
+
+================================================================
+  Step 7 of 8: Creating Systemd Service
+================================================================
+
+  [OK]  RPC port: 8545, WS port: 8546
+  ->  P2P listener (internal): /ip4/10.162.0.49/udp/49590/quic-v1
+  [WARN] Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway.
+  [OK]  Bootstrap peers map installed: /etc/telcoin/bootstrap-peers.yaml
+  [OK]  Trusted nodes map installed: /etc/telcoin/trusted-nodes.yaml
+  [OK]  Node flags: --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"
+  [OK]  Admission settings written to /var/lib/telcoin/network-config (mode Closed)
+  [OK]  Listener addresses written: /etc/telcoin/node.env
+  [OK]  Start script written: /usr/local/libexec/telcoin/tn-start-docker
+  [OK]  Service file written: /etc/systemd/system/telcoin.service
+  [OK]  Node metadata written: /etc/telcoin/.node-meta
+
+  [OK]  Service is running
+
+>>> Waiting for RPC at http://127.0.0.1:8545...
+  [OK]  RPC responding. Chain ID: 0x7e1d
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0x0033a370616805b1fd275b7ffab83fc41d665ccb
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [OK]  ConsensusNFT: Found
+  [OK]  Status: Active (participating in consensus)
+
+  ->  Next step:
+    Your validator is fully active. No action needed.
+
+Created symlink /etc/systemd/system/multi-user.target.wants/telcoin.service → /etc/systemd/system/telcoin.service.
+  [OK]  Auto-start enabled
+    json: {"event":"log","msg":"Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given."}
+    json: {"event":"step","msg":"Writing configuration"}
+    json: {"event":"log","msg":"WARNING: devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is."}
+    json: {"event":"step","msg":"Creating service and starting node"}
+    json: {"event":"log","msg":"WARNING: Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway."}
+    json: {"event":"log","msg":"node flags: --bootstrap-peers \"$(cat /etc/telcoin/bootstrap-peers.yaml)\""}
+    json: {"event":"log","msg":"admission: closed, trusted nodes /etc/telcoin/trusted-nodes.yaml, committee peers /etc/telcoin/bootstrap-peers.yaml"}
+    json: {"event":"done","ok":true,"phase":"finalize","node_type":"observer","service":"telcoin","rpc_port":"8545","operator_guide":"https://github.com/Telcoin-Association/tn-node-deployment/blob/main/OPERATOR.md","public_rpc":{"enabled":false,"domain":null,"http":"https://node3.devnet.telcoin.network","ws":null},"host_baseline":false,"msg":"telcoin finalized and started -- following consensus as a full node; staking to validate is optional (see docs)"}
+>>> [node3] finalize ok
+      ✓ telcoin on validator-3-devnet active AND :43174 responds (after 0s)
+STAGED validator-3-devnet state=inactive enabled=enabled
+
+>>> [node4] finalize on validator-4-devnet (europe-west4-a) role=validator service=telcoin
+>>> [node4] ready: setup-node.sh present, keygen recorded, no unit yet, admission maps: installed = local by sha256: bootstrap-peers 445b441b8959… trusted-nodes f414ce72d9c5…
+>>> [node4] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node4] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node4] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)
+>>> [node4] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0xefaacf04b92298a88200aa50aa6bb7bfce587b17' '--advertised-name' 'node4' '--public-rpc-url' 'https://node4.devnet.telcoin.network' '--listener-primary' '/ip4/10.164.0.11/udp/49590/quic-v1' '--listener-worker' '/ip4/10.164.0.11/udp/49594/quic-v1' '--external-primary' '/ip4/34.7.93.35/udp/49590/quic-v1' '--external-worker' '/ip4/34.7.93.35/udp/49594/quic-v1' '--public-ip' '34.7.93.35' '--enable-healthcheck-monitor' '--admission' 'closed' '--bootstrap-peers' '/etc/telcoin/devnet-admission/bootstrap-peers.yaml' '--trusted-nodes' '/etc/telcoin/devnet-admission/trusted-nodes.yaml'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given.
+
+================================================================
+  Step 6 of 8: Writing Configuration
+================================================================
+
+  [OK]  Found chain-configs at: /etc/telcoin/chain-configs/devnet
+  [WARN] devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is.
+  [OK]  Chain config files copied (sha256 checked)
+  [OK]  Advertised node name set: node4
+  [OK]  Configuration ready under: /var/lib/telcoin
+
+================================================================
+  Step 7 of 8: Creating Systemd Service
+================================================================
+
+  [OK]  RPC port: 8545, WS port: 8546
+  ->  P2P listener (internal): /ip4/10.164.0.11/udp/49590/quic-v1
+  [WARN] Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway.
+  [OK]  Bootstrap peers map installed: /etc/telcoin/bootstrap-peers.yaml
+  [OK]  Trusted nodes map installed: /etc/telcoin/trusted-nodes.yaml
+  [OK]  Node flags: --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"
+  [OK]  Admission settings written to /var/lib/telcoin/network-config (mode Closed)
+  [OK]  Listener addresses written: /etc/telcoin/node.env
+  [OK]  Start script written: /usr/local/libexec/telcoin/tn-start-docker
+  [OK]  Service file written: /etc/systemd/system/telcoin.service
+  [OK]  Node metadata written: /etc/telcoin/.node-meta
+
+  [OK]  Service is running
+
+>>> Waiting for RPC at http://127.0.0.1:8545...
+  [OK]  RPC responding. Chain ID: 0x7e1d
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0xefaacf04b92298a88200aa50aa6bb7bfce587b17
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [OK]  ConsensusNFT: Found
+  [OK]  Status: Active (participating in consensus)
+
+  ->  Next step:
+    Your validator is fully active. No action needed.
+
+Created symlink /etc/systemd/system/multi-user.target.wants/telcoin.service → /etc/systemd/system/telcoin.service.
+  [OK]  Auto-start enabled
+    json: {"event":"log","msg":"Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given."}
+    json: {"event":"step","msg":"Writing configuration"}
+    json: {"event":"log","msg":"WARNING: devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is."}
+    json: {"event":"step","msg":"Creating service and starting node"}
+    json: {"event":"log","msg":"WARNING: Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway."}
+    json: {"event":"log","msg":"node flags: --bootstrap-peers \"$(cat /etc/telcoin/bootstrap-peers.yaml)\""}
+    json: {"event":"log","msg":"admission: closed, trusted nodes /etc/telcoin/trusted-nodes.yaml, committee peers /etc/telcoin/bootstrap-peers.yaml"}
+    json: {"event":"done","ok":true,"phase":"finalize","node_type":"observer","service":"telcoin","rpc_port":"8545","operator_guide":"https://github.com/Telcoin-Association/tn-node-deployment/blob/main/OPERATOR.md","public_rpc":{"enabled":false,"domain":null,"http":"https://node4.devnet.telcoin.network","ws":null},"host_baseline":false,"msg":"telcoin finalized and started -- following consensus as a full node; staking to validate is optional (see docs)"}
+>>> [node4] finalize ok
+      ✓ telcoin on validator-4-devnet active AND :43174 responds (after 0s)
+STAGED validator-4-devnet state=inactive enabled=enabled
+
+>>> [node5] finalize on observer-5-devnet (europe-west2-b) role=observer service=telcoin
+>>> [node5] ready: setup-node.sh present, keygen recorded, no unit yet, admission maps: installed = local by sha256: bootstrap-peers 445b441b8959… trusted-nodes f414ce72d9c5…
+>>> [node5] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node5] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node5] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)
+>>> [node5] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8' '--advertised-name' 'node5' '--public-rpc-url' 'https://node5.devnet.telcoin.network' '--listener-primary' '/ip4/10.154.0.15/udp/49590/quic-v1' '--listener-worker' '/ip4/10.154.0.15/udp/49594/quic-v1' '--external-primary' '/ip4/35.242.150.70/udp/49590/quic-v1' '--external-worker' '/ip4/35.242.150.70/udp/49594/quic-v1' '--public-ip' '35.242.150.70' '--enable-healthcheck-monitor' '--admission' 'closed' '--bootstrap-peers' '/etc/telcoin/devnet-admission/bootstrap-peers.yaml' '--trusted-nodes' '/etc/telcoin/devnet-admission/trusted-nodes.yaml'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given.
+
+================================================================
+  Step 6 of 8: Writing Configuration
+================================================================
+
+  [OK]  Found chain-configs at: /etc/telcoin/chain-configs/devnet
+  [WARN] devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is.
+  [OK]  Chain config files copied (sha256 checked)
+  [OK]  Advertised node name set: node5
+  [OK]  Configuration ready under: /var/lib/telcoin
+
+================================================================
+  Step 7 of 8: Creating Systemd Service
+================================================================
+
+  [OK]  RPC port: 8545, WS port: 8546
+  ->  P2P listener (internal): /ip4/10.154.0.15/udp/49590/quic-v1
+  [WARN] Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway.
+  [OK]  Bootstrap peers map installed: /etc/telcoin/bootstrap-peers.yaml
+  [OK]  Trusted nodes map installed: /etc/telcoin/trusted-nodes.yaml
+  [OK]  Node flags: --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"
+  [OK]  Admission settings written to /var/lib/telcoin/network-config (mode Closed)
+  [OK]  Listener addresses written: /etc/telcoin/node.env
+  [OK]  Start script written: /usr/local/libexec/telcoin/tn-start-docker
+  [OK]  Service file written: /etc/systemd/system/telcoin.service
+  [OK]  Node metadata written: /etc/telcoin/.node-meta
+
+  [OK]  Service is running
+
+>>> Waiting for RPC at http://127.0.0.1:8545...
+  [OK]  RPC responding. Chain ID: 0x7e1d
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [WARN] No validator record found for 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8
+  ->  This means no ConsensusNFT has been minted for this address yet.
+
+  ->  Next step:
+    Submit your ECDSA validator address to the Telcoin Association
+    for governance approval: 0xd0154a8091de71cc81b3c6f95b73d0aa129da7b8
+    Once approved, governance will mint a ConsensusNFT to your address.
+Created symlink /etc/systemd/system/multi-user.target.wants/telcoin.service → /etc/systemd/system/telcoin.service.
+  [OK]  Auto-start enabled
+    json: {"event":"log","msg":"Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given."}
+    json: {"event":"step","msg":"Writing configuration"}
+    json: {"event":"log","msg":"WARNING: devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is."}
+    json: {"event":"step","msg":"Creating service and starting node"}
+    json: {"event":"log","msg":"WARNING: Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway."}
+    json: {"event":"log","msg":"node flags: --bootstrap-peers \"$(cat /etc/telcoin/bootstrap-peers.yaml)\""}
+    json: {"event":"log","msg":"admission: closed, trusted nodes /etc/telcoin/trusted-nodes.yaml, committee peers /etc/telcoin/bootstrap-peers.yaml"}
+    json: {"event":"done","ok":true,"phase":"finalize","node_type":"observer","service":"telcoin","rpc_port":"8545","operator_guide":"https://github.com/Telcoin-Association/tn-node-deployment/blob/main/OPERATOR.md","public_rpc":{"enabled":false,"domain":null,"http":"https://node5.devnet.telcoin.network","ws":null},"host_baseline":false,"msg":"telcoin finalized and started -- following consensus as a full node; staking to validate is optional (see docs)"}
+>>> [node5] finalize ok
+      ✓ telcoin on observer-5-devnet active AND :43174 responds (after 0s)
+STAGED observer-5-devnet state=inactive enabled=enabled
+
+>>> [node6] finalize on rpc-6-devnet (us-west2-b) role=rpc service=telcoin
+>>> [node6] ready: setup-node.sh present, keygen recorded, no unit yet, admission maps: installed = local by sha256: bootstrap-peers 445b441b8959…
+>>> [node6] staging committee/genesis/parameters to /etc/telcoin/chain-configs/devnet
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node6] running: sudo install -d -o root -g root -m 0755 '/etc/telcoin/chain-configs' '/etc/telcoin/chain-configs/devnet' && sudo install -o root -g root -m 0644 /tmp/committee.yaml '/etc/telcoin/chain-configs/devnet/committee.yaml' && sudo install -o root -g root -m 0644 /tmp/genesis.yaml '/etc/telcoin/chain-configs/devnet/genesis.yaml' && sudo install -o root -g root -m 0644 /tmp/parameters.yaml '/etc/telcoin/chain-configs/devnet/parameters.yaml'; rc=$?; rm -f /tmp/committee.yaml /tmp/genesis.yaml /tmp/parameters.yaml; exit $rc
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+>>> [node6] genesis staged in /etc/telcoin/chain-configs/devnet (root:root 0644)
+>>> [node6] running: sudo bash '/opt/telcoin-node-scripts/setup-node.sh' '--json' '--phase=finalize' '--network' 'devnet' '--install-method' 'docker' '--docker-image' 'us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1' '--genesis-dir' '/etc/telcoin/chain-configs/devnet' '--data-dir' '/var/lib/telcoin' '--service-user' 'telcoin' '--address' '0x00000000000000000000000000000000000007a0' '--advertised-name' 'node6' '--public-rpc-url' 'https://rpc.devnet.telcoin.network' '--public-ws-url' 'wss://rpc.devnet.telcoin.network' '--listener-primary' '/ip4/10.168.0.27/udp/49590/quic-v1' '--listener-worker' '/ip4/10.168.0.27/udp/49594/quic-v1' '--external-primary' '/ip4/34.20.254.166/udp/49590/quic-v1' '--external-worker' '/ip4/34.20.254.166/udp/49594/quic-v1' '--public-ip' '34.20.254.166' '--enable-healthcheck-monitor' '--admission' 'open' '--bootstrap-peers' '/etc/telcoin/devnet-admission/bootstrap-peers.yaml'
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given.
+
+================================================================
+  Step 6 of 8: Writing Configuration
+================================================================
+
+  [OK]  Found chain-configs at: /etc/telcoin/chain-configs/devnet
+  [WARN] devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is.
+  [OK]  Chain config files copied (sha256 checked)
+  [OK]  Advertised node name set: node6
+  [OK]  Configuration ready under: /var/lib/telcoin
+
+================================================================
+  Step 7 of 8: Creating Systemd Service
+================================================================
+
+  [OK]  RPC port: 8545, WS port: 8546
+  ->  P2P listener (internal): /ip4/10.168.0.27/udp/49590/quic-v1
+  [WARN] Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway.
+  [OK]  Bootstrap peers map installed: /etc/telcoin/bootstrap-peers.yaml
+  [OK]  Node flags: --bootstrap-peers "$(cat /etc/telcoin/bootstrap-peers.yaml)"
+  [OK]  Admission settings written to /var/lib/telcoin/network-config (mode Open)
+  [OK]  Listener addresses written: /etc/telcoin/node.env
+  [OK]  Start script written: /usr/local/libexec/telcoin/tn-start-docker
+  [OK]  Service file written: /etc/systemd/system/telcoin.service
+  [OK]  Node metadata written: /etc/telcoin/.node-meta
+
+  [OK]  Service is running
+
+>>> Waiting for RPC at http://127.0.0.1:8545...
+  [OK]  RPC responding. Chain ID: 0x7e1d
+
+
+>>> Checking validator on-chain status...
+  ->  Address:  0x00000000000000000000000000000000000007a0
+  ->  Contract: 0x07e17e17e17e17e17e17e17e17e17e17e17e17e1
+
+  [WARN] No validator record found for 0x00000000000000000000000000000000000007a0
+  ->  This means no ConsensusNFT has been minted for this address yet.
+
+  ->  Next step:
+    Submit your ECDSA validator address to the Telcoin Association
+    for governance approval: 0x00000000000000000000000000000000000007a0
+    Once approved, governance will mint a ConsensusNFT to your address.
+Created symlink /etc/systemd/system/multi-user.target.wants/telcoin.service → /etc/systemd/system/telcoin.service.
+  [OK]  Auto-start enabled
+    json: {"event":"log","msg":"Devnet images are not checked for their build features: us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is used as given."}
+    json: {"event":"step","msg":"Writing configuration"}
+    json: {"event":"log","msg":"WARNING: devnet chain configs have no pinned hashes; /etc/telcoin/chain-configs/devnet is used as it is."}
+    json: {"event":"step","msg":"Creating service and starting node"}
+    json: {"event":"log","msg":"WARNING: Could not tell whether the image us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1 is release 0.17.0 or later, which --admission needs (an older release ignores the admission settings); writing them anyway."}
+    json: {"event":"log","msg":"node flags: --bootstrap-peers \"$(cat /etc/telcoin/bootstrap-peers.yaml)\""}
+    json: {"event":"log","msg":"admission: open, trusted nodes none, committee peers /etc/telcoin/bootstrap-peers.yaml"}
+    json: {"event":"done","ok":true,"phase":"finalize","node_type":"observer","service":"telcoin","rpc_port":"8545","operator_guide":"https://github.com/Telcoin-Association/tn-node-deployment/blob/main/OPERATOR.md","public_rpc":{"enabled":false,"domain":null,"http":"https://rpc.devnet.telcoin.network","ws":"wss://rpc.devnet.telcoin.network"},"host_baseline":false,"msg":"telcoin finalized and started -- following consensus as a full node; staking to validate is optional (see docs)"}
+>>> [node6] finalize ok
+      ✓ telcoin on rpc-6-devnet active AND :43174 responds (after 0s)
+STAGED rpc-6-devnet state=inactive enabled=enabled
+
+=========================================
+finalize --stage-only summary
+=========================================
+staged: finalized, then stopped, enabled (5):
+  - node2 (validator-2-devnet)
+  - node3 (validator-3-devnet)
+  - node4 (validator-4-devnet)
+  - node5 (observer-5-devnet)
+  - node6 (rpc-6-devnet)
+prestaged, skipped (1):
+  - node1 (validator-1-devnet)
+running, skipped, NOT stopped (0):
+every targeted node is staged (stopped, enabled) or was already; start them with --start-all.
+## step 10 done (617 s)
+##########################################
+
+==========================================
+Step 10 complete.
+Resume with: ./devnet-deploy.sh --yes --from 11
+Log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_004541-deploy/deploy.log
+==========================================

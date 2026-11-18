@@ -1,0 +1,24 @@
+==========================================
+devnet worker gateways (setup-gateway.sh --enable)
+Project:    tn-devnet
+Image:      us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231
+Redirect:   https://rpc.devnet.telcoin.network (every call but a submission)
+Nodes:      validator-4-devnet(standalone) 
+Readiness:  reported, not asserted (the nodes may be stopped)
+==========================================
+>>> per-host logs: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261117_191501-gateway
+
+>>> [validator-4-devnet] firewall-setup.sh --gateway-from 10.164.0.17 (for gateway-4-devnet)
+    sudo bash /opt/telcoin-node-scripts/firewall-setup.sh --json --enable --gateway-from 10.164.0.17
+    ✓ ok: ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)
+
+>>> [validator-4-devnet] edit-config.sh gateway_upstream=10.164.0.17 (a stopped node stays stopped)
+    sudo bash /opt/telcoin-node-scripts/edit-config.sh --json --set gateway_upstream=10.164.0.17
+    ✓ ok: applied; telcoin was stopped and stays stopped (not started or restarted), so the change takes effect at its next start
+
+>>> [gateway-4-devnet] setup-gateway.sh --enable (standalone, node4.devnet.telcoin.network, upstream validator-4-devnet)
+    sudo bash /opt/telcoin-node-scripts/setup-gateway.sh --enable --yes --json --mode standalone --network devnet --image 'us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231' --domain node4.devnet.telcoin.network --front caddy --upstream 10.164.0.11 --rpc-port 8545 --health-port 43174 --redirect-queries 'https://rpc.devnet.telcoin.network'
+    ✓ ok: worker gateway enabled
+GATEWAY gateway-4-devnet mode=standalone applied=gateway:enabled,gateway:caddy installed=true active=true health=true ready=false
+
+worker gateways installed (or already in place) for: node4 

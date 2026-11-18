@@ -1,0 +1,110 @@
+log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_005729-deploy/deploy.log
+==========================================
+devnet deploy runbook
+Project:  tn-devnet
+Domain:   devnet.telcoin.network
+Scope:    ONLY step 11
+This triggers MUTATING GCP/fleet operations via sub-scripts.
+==========================================
+
+##########################################
+>>> Step 11: host ufw
+==========================================
+devnet HOST firewall (ufw) — lockout-safe ENABLE (one VM at a time)
+Project:    tn-devnet
+Method:     firewall-setup.sh --json --enable (SSH allowed BEFORE enable; rpc: --p2p-anywhere)
+Safety:     re-verify SSH after each VM; ABORT on loss (no further VM touched)
+==========================================
+
+>>> validator-1-devnet (us-west2-a, role=validator): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit unchanged: UDP 49590 and 49594 already accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40, and its boot copy is current.
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> validator-2-devnet (us-south1-a, role=validator): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> validator-3-devnet (northamerica-northeast1-b, role=validator): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> validator-4-devnet (europe-west4-a, role=validator): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> observer-5-devnet (europe-west2-b, role=observer): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> rpc-6-devnet (us-west2-b, role=rpc): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable --p2p-anywhere
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+  [OK]  Running as root
+  ->  P2P new-flow limit: UDP 49590 and 49594 accept at most 20 packets of new, not yet answered flows per minute from one IPv4 address or IPv6 /64 after a burst of 40 (nftables table inet tn_p2p).
+  ->  telcoin-p2p-limit.service loads it again at boot (from /etc/telcoin/p2p-limit.nft).
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+
+>>> gateway-4-devnet (europe-west4-a, role=gateway): sudo /opt/telcoin-node-scripts/firewall-setup.sh --json --enable
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+Warning: Permanently added 'compute.1873656662449019512' (ED25519) to the list of known hosts.
+  [OK]  Running as root
+    result: {"event":"done","ok":true,"action":"enable","ssh_port":"22","active":true,"msg":"ufw enabled with recommended lockout-safe defaults (SSH + overlay + kuma pre-allowed)"}
+    ✓ SSH still reachable after enable
+    note: 80/443 stay closed here until the gateway is installed (step 13): install-caddy.sh opens them itself
+
+host ufw enabled (lockout-safe) on all targeted VMs.
+## step 11 done (89 s)
+##########################################
+
+==========================================
+Step 11 complete.
+Resume with: ./devnet-deploy.sh --yes --from 12
+Log: /home/drtnarg/coding/telcoin/devnet-genesis/logs/20261118_005729-deploy/deploy.log
+==========================================
