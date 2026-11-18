@@ -1,0 +1,57 @@
+2026-11-18T05:01:55Z
+UNIT FILE                      STATE   PRESET
+telcoin-p2p-allow-sync.service static  -
+telcoin-p2p-allow.service      enabled enabled
+telcoin-p2p-allow-sync.timer   enabled enabled
+
+3 unit files listed.
+NEXT                        LEFT LAST                              PASSED UNIT                         ACTIVATES
+Wed 2026-11-18 05:02:36 UTC  41s Wed 2026-11-18 04:57:11 UTC 4min 44s ago telcoin-p2p-allow-sync.timer telcoin-p2p-allow-sync.service
+
+1 timers listed.
+Pass --all to see loaded but inactive timers, too.
+NRestarts=0
+ActiveEnterTimestamp=Wed 2026-11-18 04:09:18 UTC
+--md5
+52227139a722a7c8e9418f120967d095  -
+--elements
+		elements = { 34.7.93.35, 34.19.189.1,
+			     34.20.254.166, 34.174.181.214,
+			     35.236.51.63, 35.242.150.70 }
+--status
+STATUS_VERSION=1
+TOOL_VERSION=0.1.1
+RESULT=unchanged
+LAST_RUN=1794977832
+LAST_GOOD=1794977832
+EPOCH=4
+EPOCH_DURATION=3600
+STALE_SINCE=
+STALE_REASON=
+ALLOWED_V4=6
+ALLOWED_V6=0
+STATIC_V4=0
+STATIC_V6=0
+FLOOR=4
+KEYS=5
+DNS_SKIPPED=0
+UNPARSED=0
+UNKNOWN_SLOTS=0
+LOADED=true
+AGE_SECS=283
+STALE=false
+COUNTER_ACCEPT_PACKETS=1511881
+COUNTER_ACCEPT_BYTES=364202686
+COUNTER_DROP_PACKETS=2988
+COUNTER_DROP_BYTES=6386064
+status_rc=0
+--check
+result=ok missing_total=0 mismatch_total=0
+check_rc=0
+--log
+ls: cannot access '/var/log/telcoin/telcoin.log': Permission denied
+--own certs
+29521
+ts=2026-11-18T05:01:55.847385548Z level=info target=consensus::metrics message="certificate committed" round=7411 origin=GgVKMyi79ZnXs7Bj2EoE4fSqDjRAyLpPXucwUQt1zXtZ digest=5zEfivFoX6gMgUhgrxCWmC6FauBWagHXyvsqSDAop8fz committed_round=7411 gc_round=7361 created_at_ms=1794978115091 age_ms=756
+ts=2026-11-18T05:01:55.847414599Z level=info target=consensus::metrics message="certificate committed" round=7412 origin=GgVKMyi79ZnXs7Bj2EoE4fSqDjRAyLpPXucwUQt1zXtZ digest=9wx3yvFVTtLDemU1GMMDX8jodpLmhnJXGKAN4ZTDhLaU committed_round=7412 gc_round=7362 created_at_ms=1794978115361 age_ms=486
+ts=2026-11-18T05:01:56.417434508Z level=info target=consensus::metrics message="certificate committed" round=7413 origin=GgVKMyi79ZnXs7Bj2EoE4fSqDjRAyLpPXucwUQt1zXtZ digest=8NTsWhkhUJnB564G3jFpjBrLDXBC6tiGgfTMteTM78yP committed_round=7413 gc_round=7363 created_at_ms=1794978115714 age_ms=703

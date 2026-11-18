@@ -1,0 +1,4 @@
+2026-11-18T05:10:46Z poll=1 pub=0x7d54(32084) v2_behind=-3 | host_ts=2026-11-18T05:10:45Z active=active tn_nodeMode=CvvActive net_peerCount=0x5 eth_blockNumber=0x7d57 own_since_start=48 own_created_after_start=48 first_new=ts=2026-11-18T05:10:29.425332066Z
+2026-11-18T05:10:57Z others: v1=CvvActive v3=CvvActive v4=CvvActive
+2026-11-18T05:11:05Z poll=2 pub=0x7d93(32147) v2_behind=-20 | host_ts=2026-11-18T05:11:04Z active=active tn_nodeMode=CvvActive net_peerCount=0x5 eth_blockNumber=0x7da7 own_since_start=103 own_created_after_start=103 first_new=ts=2026-11-18T05:10:29.425332066Z
+2026-11-18T05:11:05Z PROVEN voting: own certs created after start 48 -> 103

@@ -1,0 +1,4 @@
+2026-11-18T05:01:54Z
+tn_nodeMode {"jsonrpc":"2.0","id":1,"result":"CvvActive"}
+net_peerCount {"jsonrpc":"2.0","id":1,"result":"0x5"}
+eth_blockNumber {"jsonrpc":"2.0","id":1,"result":"0x7598"}

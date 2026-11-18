@@ -1,0 +1,13 @@
+2026-11-18T05:26:08Z
+active
+--mode lines since 05:24:30
+ts=2026-11-18T05:24:52.083120838Z level=info target=tn::tasks message="Epoch Task Manager: batch builder was cancelled"
+ts=2026-11-18T05:24:52.279296031Z level=info target=tn::observer message="subscriber starting in mode" node_mode=Observer
+ts=2026-11-18T05:24:52.337301103Z level=info target=epoch-manager message="EPOCH TASKS\n" tasks="Epoch Task Manager\nTask: batch builder (critical)\nTask: forward-txns (not critical)\nTask: forward-txns (not critical)\nTask: ConsensusOutputReq-22JLHkuyfDoRKwyC5Eqp4K4o4JSxctWeoeu16uDpsrhfMsEf6CnKQW9R
+--batch builder lines since start
+ts=2026-11-18T05:10:23.751750574Z level=info target=epoch-manager message="EPOCH TASKS\n" tasks="Epoch Task Manager\nTask: batch builder (critical)\nTask: re-propose header after delay (not critical)\nTask: Publish tracked validator keys (not critical)\nTask: worker network events (critical)\nTask: 
+ts=2026-11-18T05:10:24.014643374Z level=info target=tn::tasks message="Epoch Task Manager: batch builder was cancelled"
+ts=2026-11-18T05:10:24.125830267Z level=info target=epoch-manager message="batch builder not started: node is in committee but not an active CVV; accepted transactions stay pooled until a later epoch entry starts a builder: rejoin as CvvActive, or the next epoch as a non-member that forwards" worker
+ts=2026-11-18T05:10:28.33532029Z level=info target=epoch-manager message="EPOCH TASKS\n" tasks="Epoch Task Manager\nTask: batch builder (critical)\nTask: VoteRequest-k26EmeqLqZDPDQ8A (not critical)\nTask: Publish tracked validator keys (not critical)\nTask: worker network events (critical)\nTask: Di
+ts=2026-11-18T05:24:52.083120838Z level=info target=tn::tasks message="Epoch Task Manager: batch builder was cancelled"
+ts=2026-11-18T05:24:52.337301103Z level=info target=epoch-manager message="EPOCH TASKS\n" tasks="Epoch Task Manager\nTask: batch builder (critical)\nTask: forward-txns (not critical)\nTask: forward-txns (not critical)\nTask: ConsensusOutputReq-22JLHkuyfDoRKwyC5Eqp4K4o4JSxctWeoeu16uDpsrhfMsEf6CnKQW9R

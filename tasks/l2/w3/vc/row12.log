@@ -1,0 +1,71 @@
+2026-11-18T05:09:16.729Z step1 stateless md5 + element lines (before)
+52227139a722a7c8e9418f120967d095  -
+		elements = { 34.7.93.35, 34.19.189.1,
+			     34.20.254.166, 34.174.181.214,
+			     35.236.51.63, 35.242.150.70 }
+2026-11-18T05:09:16.741Z step2 systemctl stop telcoin
+stop_rc=0
+2026-11-18T05:09:19.408Z step2 stop returned; is-active=inactive
+2026-11-18T05:09:19.418Z step3 systemctl start telcoin-p2p-allow-sync.service
+start_sync_rc=0
+2026-11-18T05:09:19.801Z step3 systemctl show telcoin-p2p-allow-sync.service
+Result=success
+ExecMainStatus=3
+ActiveState=inactive
+2026-11-18T05:09:19.814Z step3 tool status
+STATUS_VERSION=1
+TOOL_VERSION=0.1.1
+RESULT=stale
+LAST_RUN=1794978559
+LAST_GOOD=1794978502
+EPOCH=4
+EPOCH_DURATION=3600
+STALE_SINCE=1794978559
+STALE_REASON=rpc-unreachable
+ALLOWED_V4=6
+ALLOWED_V6=0
+STATIC_V4=0
+STATIC_V6=0
+FLOOR=4
+KEYS=5
+DNS_SKIPPED=0
+UNPARSED=0
+UNKNOWN_SLOTS=0
+LOADED=true
+AGE_SECS=57
+STALE=false
+COUNTER_ACCEPT_PACKETS=1591801
+COUNTER_ACCEPT_BYTES=383177117
+COUNTER_DROP_PACKETS=2988
+COUNTER_DROP_BYTES=6386064
+status_rc=0
+2026-11-18T05:09:19.834Z step3 tool check
+result=stale missing_total=0 mismatch_total=0
+stale reason=rpc-unreachable
+check_rc=3
+2026-11-18T05:09:19.859Z step3 journal of telcoin-p2p-allow-sync.service (last 15)
+2026-11-18T04:57:12.140526+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: telcoin-p2p-allow-sync.service: Deactivated successfully.
+2026-11-18T04:57:12.140936+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Finished telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync).
+2026-11-18T05:02:51.816091+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Starting telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync)...
+2026-11-18T05:02:52.183708+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal tn-p2p-allow[93554]: result=unchanged reason= epoch=4 v4=6 v6=0 static=0 floor=4 keys=5 dns_skipped=0 unparsed=0
+2026-11-18T05:02:52.184547+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: telcoin-p2p-allow-sync.service: Deactivated successfully.
+2026-11-18T05:02:52.185039+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Finished telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync).
+2026-11-18T05:08:21.814182+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Starting telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync)...
+2026-11-18T05:08:22.240373+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal tn-p2p-allow[96737]: result=unchanged reason= epoch=4 v4=6 v6=0 static=0 floor=4 keys=5 dns_skipped=0 unparsed=0
+2026-11-18T05:08:22.241740+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: telcoin-p2p-allow-sync.service: Deactivated successfully.
+2026-11-18T05:08:22.242162+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Finished telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync).
+2026-11-18T05:09:19.435229+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Starting telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync)...
+2026-11-18T05:09:19.795993+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal tn-p2p-allow[97090]: result=stale reason=rpc-unreachable epoch=4 v4=6 v6=0 static=0 floor=4 keys=5 dns_skipped=0 unparsed=0
+2026-11-18T05:09:19.795993+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal tn-p2p-allow[97090]: stale reason=rpc-unreachable action=kept
+2026-11-18T05:09:19.796868+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: telcoin-p2p-allow-sync.service: Deactivated successfully.
+2026-11-18T05:09:19.797266+00:00 validator-2-devnet.us-south1-a.c.tn-devnet.internal systemd[1]: Finished telcoin-p2p-allow-sync.service - Telcoin Network P2P committee allowlist sync (tn-p2p-allow-sync).
+2026-11-18T05:09:19.872Z step4 stateless md5 + element lines (after)
+52227139a722a7c8e9418f120967d095  -
+		elements = { 34.7.93.35, 34.19.189.1,
+			     34.20.254.166, 34.174.181.214,
+			     35.236.51.63, 35.242.150.70 }
+2026-11-18T05:09:19.894Z step5 sleep 60 (node stopped since 2026-11-18T05:09:19Z)
+2026-11-18T05:10:19.900Z step5 systemctl start telcoin
+start_rc=0
+2026-11-18T05:10:20.021Z step6 is-active=active
+2026-11-18T05:10:20.031Z DONE
