@@ -39,7 +39,7 @@ Most serious first. "PR #68" is the open tn-node-deployment branch; anything it 
 
 ### 2.4 Health checks bind loopback and monitors fail silently (rows 3, 38)
 - What happens: on telcoin-network `main` a bare `--healthcheck <port>` binds 127.0.0.1. `setup-observability.sh --enable-health` still writes the bare port plus a ufw rule for the monitor's address, so the rule admits a monitor that can reach nothing, and the monitor or a load-balancer check sees a healthy node as down. Comments in `lib/common.sh` and `setup-observability.sh` still say the bare port binds every interface. Read from code; not run against a real monitor.
-- Who meets it: every validator and RPC operator who turns on health monitoring with a main-based image, which mainnet will run.
+- Who meets it: testnet and devnet operators who turn on health monitoring with a main-based image. On mainnet the scripts refuse the health add-on (`require_testnet`, `lib/common.sh:9205-9212`) and `check-node.sh:2138-2151` fails a mainnet node that carries `--healthcheck`, so a mainnet validator has no health endpoint for a monitor at all; the gateway's public `/ready/any` is the path left (the owner's Kuma monitors move there, P4). The scripts' README on `main` (line 454) already says the bare port will bind loopback from the next release: known, documented, not fixed.
 - Proposed: write an explicit address with the port that matches the ufw rule, and correct the comments. PR #68 writes `--healthcheck 0.0.0.0:43174` only for the standalone gateway case.
 
 ### 2.5 The public RPC node is one client to every gateway (rows 10, 42, 43, 44)
@@ -55,12 +55,12 @@ Most serious first. "PR #68" is the open tn-node-deployment branch; anything it 
 ### 2.7 Caddy's ACME account has no email (row 54)
 - What happens: Caddy registers its Let's Encrypt account with `"email":""` (journal on validator-1-devnet, step 13), so a certificate that fails to renew warns nobody.
 - Who meets it: every operator whose gateway host or RPC node runs Caddy.
-- Proposed: `install-caddy.sh` takes an email and writes it into Caddy's global options; refuse to run without one off devnet.
+- Proposed: a certificate-expiry check (in `check-node.sh` or the monitoring), since an email alone no longer brings a warning: Let's Encrypt ended its expiry emails in 2025 (from memory, not re-checked). An ACME email in Caddy's global options is still worth having as the account's contact.
 
 ### 2.8 Genesis validators are told they are observers (row 51)
 - What happens: `setup-node.sh`'s closing JSON says `"node_type":"observer"` and "following consensus as a full node; staking to validate is optional" on every host, the four genesis validators included, right after its own on-chain check printed "Status: Active".
 - Who meets it: every genesis validator operator at install time, and any tool that reads that JSON.
-- Proposed: build the closing message from the on-chain status the script has just read.
+- Proposed: build the closing message from the on-chain status the script has just read, and add a status field beside `node_type`. The fixed `"node_type":"observer"` is deliberate (`setup-node.sh:222-226`: the Node Manager UI's slot), so the field stays; the sentence beside it is what misleads.
 
 ### 2.9 `tn_*` is public on the public RPC node (row 12)
 - What happens: on a native public-RPC node the `tn_*` namespace, admission snapshot included, answers any caller. Seeded from the plan; the row has no run evidence.
@@ -78,7 +78,7 @@ Most serious first. "PR #68" is the open tn-node-deployment branch; anything it 
 - Proposed: `--no-start` for finalize, and return before the restart when the unit is not active (row 37's smallest fix) in `setup-observability.sh` and `edit-config.sh`.
 
 ### 2.12 Admission settings have no version floor (rows 14, 57)
-- What happens: `MIN_ADMISSION_VERSION` is still a TODO. With a digest-pinned image `setup-node.sh` prints `[WARN] Could not tell whether the image … is release 0.17.0 or later … writing them anyway`. On devnet it writes them; what it does on mainnet was not run.
+- What happens: `MIN_ADMISSION_VERSION` is set to `0.17.0` (`lib/common.sh:2769`) under a `TODO(node team): confirm` comment, and the check behind it returns "unknown" for an image pinned by digest. With a digest-pinned image `setup-node.sh` prints `[WARN] Could not tell whether the image … is release 0.17.0 or later … writing them anyway`. On devnet it writes them; what it does on mainnet was not run.
 - Who meets it: every validator operator at install time, since mainnet images are pinned by digest.
 - Proposed: set the floor, and record the image's version next to the pinned digest so the check can be made.
 
