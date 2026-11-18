@@ -26,3 +26,17 @@ node 5 log since 05:24:40Z (mode lines):
 05:24:51.934797473Z level=info target=epoch-manager message="epoch boundary success - clearing consensus db tables for next epoch"
 05:24:52.271032827Z level=info target=tn::observer message="subscriber starting in mode" node_mode=CvvActive
 public head: {"jsonrpc":"2.0","id":1,"result":"0x8d96"}
+== 2026-11-18T05:33:00Z
+validator-1-devnet: "CvvActive" "0x5" "0x8f88" 
+validator-2-devnet: "Observer" "0x5" "0x8f8f" 
+validator-3-devnet: "CvvActive" "0x5" "0x8f95" 
+validator-4-devnet: "CvvActive" "0x5" "0x8f9b" 
+observer-5-devnet: "CvvActive" "0x5" "0x8fa1" 
+rpc-6-devnet: "Observer" "0x5" "0x8fa5" 
+origins of certificates committed since 05:24:45Z, as validator-1 logs them:
+   1618 6JTxzzah;   1488 CgQ3xoAY;   1584 EKumMhAf;   1464 FjbqwQaB;     21 GgVKMyi7;
+node 5 log since 05:24:40Z (mode lines):
+05:24:51.866169624Z level=info target=epoch-manager message="epoch boundary detected" epoch=4 commit=1794979491 epoch_boundary=1794979491
+05:24:51.934797473Z level=info target=epoch-manager message="epoch boundary success - clearing consensus db tables for next epoch"
+05:24:52.271032827Z level=info target=tn::observer message="subscriber starting in mode" node_mode=CvvActive
+public head: {"jsonrpc":"2.0","id":1,"result":"0x8ff6"}
