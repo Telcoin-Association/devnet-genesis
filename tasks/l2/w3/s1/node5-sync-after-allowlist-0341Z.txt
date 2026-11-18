@@ -1,0 +1,17 @@
+03:20  n=15  max=31  03:21  n=3   max=100  03:22  n=67  max=23
+03:23  n=63  max=37  03:24  n=36  max=32   03:25  n=60  max=24
+03:26  n=39  max=36  03:27  n=73  max=19   03:28  n=96  max=3
+03:29  n=95  max=3   03:30  n=99  max=3    03:31  n=99  max=2
+03:32  n=97  max=3   03:33  n=99  max=3    03:34  n=96  max=3
+03:35  n=99  max=3   03:36  n=99  max=2    03:37  n=96  max=3
+03:38  n=96  max=3   03:39  n=94  max=4    03:40  n=96  max=3
+03:41  n=9   max=1                                      
+--- notconnected per minute
+     25 03:22;     26 03:23;     41 03:24;     25 03:25;     30 03:26;     18 03:27;      1 03:39;
+--- unavailable per minute
+     25 03:22;     24 03:23;     11 03:24;      8 03:25;     15 03:26;     26 03:27;     59 03:28;     26 03:29;     28 03:30;     27 03:31;     52 03:32;     36 03:33;     27 03:34;     44 03:35;     44 03:36;     43 03
+--- connections since 03:26
+389
+385
+03:40:47.620731416Z level=info target=tn::network message="peer metrics heartbeat" connected_count=1 connected_or_dialing=1 ba
+03:40:47.631507941Z level=info target=tn::network message="peer metrics heartbeat" connected_count=1 connected_or_dialing=1 ba

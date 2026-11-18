@@ -1,7 +1,7 @@
 # A node not yet in the validators' P2P allowlists falls up to 476 blocks behind while its dials to them hang.
 
 A node that is not yet admitted by the validators syncs from the public RPC node alone, yet once the validators' P2P allowlist firewall is on it stalls for up to 48 consensus outputs while its dials to them hang.
-Every validator that joins after genesis is in this state from its first start until the epoch after its `activate()`. The mechanism is inferred from the log, not read from code.
+Every validator that joins after genesis is in this state from its first start until the epoch after its `activate()`. The stalls ended in the minute the validators' allowlists began to list the node, with the block rate unchanged, so the dropped packets are the cause; the code path was not read.
 
 ## What happens
 
@@ -20,13 +20,16 @@ Node 5 (`observer-5-devnet`) was not yet staked, so it was not in any validator'
   02:35:17.430 INFO tn::observer catching up consensus blocks last_consensus_height=7006 max_consensus_height=7023 catchup_distance=17
   02:35:17.619 INFO tn::network peer metrics heartbeat connected_count=1 connected_or_dialing=4 banned_count=0
   ```
-- Two things changed together: the block rate rose from about 2.5 to 7 blocks/s while the firewall went on. The cause is not separated.
+- The block rate rose from about 2.5 to 7 blocks/s in the same half hour, so at that point the two causes were not separated. The next epoch separated them.
+- 03:24:45 UTC, the epoch after node 5's `activate()` begins. Thirty seconds later all four validators list it as `scheduled, eligible` in `tn_admissionSnapshot`, still `admitted: false`. Its address enters their firewall sets at each validator's next 5-minute sync: two validators by 03:27:15, all four by 03:29:15.
+- From 03:28 UTC on, with the block rate still about 7 blocks/s: 94 to 99 catch-ups a minute and never more than 4 outputs behind (03:28-03:40), where the minutes 03:20-03:27 had maxima of 19 to 100. `Stream(NotConnected)` falls from 18-41 a minute to none. Node 5 completes handshakes with the validators again (389 `new connection established` in 15 minutes) and is still connected to the RPC node only (`connected_count=1`): the validators' admission keeps refusing it, as before the firewall. So what stalls the sync is the firewall dropping its packets, not the refusal.
 - Node 5 also logged `peer denied consensus output sync request: Unavailable` from the RPC node, 30 to 60 a minute since 02:12 UTC, before any firewall (2,752 by 02:38 UTC).
 - With the firewall on, node 5's record reaches the validators only through the bootstrap hub until a validator fetches it there. The deployment plan says lookup backoff can delay a joiner's allowlist entry by up to 30 minutes. No run measured this and the code was not read for it.
 
 ## Evidence
 
 - Per-minute `catchup_distance` maxima, the catch-up rate and the handshakes before the firewall: node 5's `/var/log/telcoin/telcoin.log`, as summarised in devnet-genesis `tasks/challenges-l2.md` row 67. The log itself was not re-read for this draft.
+- After the allowlist entry: `tasks/l2/w3/s1/node5-sync-after-allowlist-0341Z.txt` (per-minute counts from the same log, read at 03:41 UTC) and `tasks/l2/w3/s1/allowlist-watch.log` (snapshots, `check` exit codes and firewall sets of the four validators at 03:25:15, 03:27:15 and 03:29:15 UTC).
 - Block lags: `tasks/l2/w3/s1/lagprobe2-0.txt` (validator 1), `lagprobe2-4.txt` (node 5) and `lagprobe2-5.txt` (RPC node), one block number with its host timestamp every 10 s. Node 5 was read about 1.9 s after validator 1; the raw pairs give 230, 22, 179, 335, 458, 0, -1, 0, 2, 1, 15, 17 blocks, and the figures above are those pairs taken to the same instant.
 - Log excerpt and heartbeat: `tasks/l2/w3/s1/node5-view-0235Z.txt`, a log tail taken on node 5 at 02:35:16 UTC.
 - `Stream(NotConnected)` counts, the `Unavailable` count, and the rate change: the orchestrator log `tasks/ckpt-l2-orch.md`, entry 02:38Z.
@@ -34,11 +37,10 @@ Node 5 (`observer-5-devnet`) was not yet staked, so it was not in any validator'
 
 ## What is not known
 
-- Whether the observer's sync waits on dials to the validators that the firewall drops. Inferred from the log; the dial and sync path was not read.
-- How much of the stall the rate change alone explains.
+- Where in the observer's dial and sync path a dial that gets no answer holds the sync up. The run shows that it does (the stalls start and end with the packet drops, at an unchanged block rate); the code was not read.
 - Why the RPC node answers `Unavailable` 30 to 60 times a minute on a healthy chain.
 - The 30-minute figure: from the deployment plan, not measured, not read in code.
-- How node 5 syncs once it is in the validators' allowlists. This draft is to get that evidence when node 5 is admitted.
+- Whether a joiner whose record the validators do not already hold enters their allowlists as quickly. Here they held it: node 5 had published its record to each validator directly before their firewalls went on.
 
 ## What could be done (suggestions, none tried)
 
