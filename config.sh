@@ -55,6 +55,10 @@ export GATEWAY_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway
 # On mainnet a release is a GPG detached signature (SHA256SUMS.asc) over SHA256SUMS, the
 # hash list of IMAGE_DIGEST (the pinned image digest) and the chain configs; nodes verify
 # it with gpgv against the release keys shipped in tn-node-deployment (lib/release-keys).
+# The maintainers' keys now live in the tn-release-signing repository (keys/, with the
+# table in KEYS.md); devnet reads them from the tn-release-signing submodule, pinned at a
+# commit of that repository's main. Until 2026-11-17 it read tn-node-deployment's copy,
+# which still holds the RSA key that was rotated out that day.
 # Devnet rehearses that with devnet-release-sign.sh: devnet-deploy.sh step 6 runs
 # `prepare` right after the genesis build (writes releases/<tag>/IMAGE_DIGEST + SHA256SUMS),
 # and devnet-finalize.sh runs `verify` before any node is finalized (stops with
@@ -63,8 +67,8 @@ export GATEWAY_IMAGE="us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway
 # trusts the keyring allow-list in RELEASE_KEYS_DIR, not this value. A rerun of keygen or
 # the genesis build changes the chain configs, so it needs a new prepare and a new signature.
 export RELEASE_TAG="v0.3.0-devnet"
-export RELEASE_KEYS_DIR="${REPO_ROOT}/tn-node-deployment/lib/release-keys"
-export RELEASE_SIGNER_FPR="4E36D35A4AB61B589861D01AC7173F2377CA7573"
+export RELEASE_KEYS_DIR="${REPO_ROOT}/tn-release-signing/keys"
+export RELEASE_SIGNER_FPR="95A38484E1CBD31D773F6AF928FD56AD2F9FAE47"
 
 # TN_BLS_PASSPHRASE is deliberately NOT set here. devnet-lib.sh:tn_require_bls_passphrase
 # checks $TN_BLS_PASSPHRASE first, so exporting it here would shadow (and defeat) the

@@ -37,13 +37,17 @@ After the signature, every file the node uses must match its `SHA256SUMS` line, 
 The Docker image itself carries no signature (there is no cosign step).
 It is bound to the release only through its digest: the signed `SHA256SUMS` covers `IMAGE_DIGEST`, the node pulls by that digest, and the scripts check that Docker holds the image under the same digest.
 
-One key ships today:
+Since 2026-11-17 the devnet check reads the maintainers' keys from the `tn-release-signing` submodule (`keys/`, with the table and the rules in its `KEYS.md`), pinned at a commit of that repository's `main`.
+At the pinned commit, 813fcf4, two keys are listed:
 
 | handle | primary key fingerprint | expires |
 |---|---|---|
-| grantkee | `4E36D35A4AB61B589861D01AC7173F2377CA7573` | 2028-10-16 |
+| grantkee | `95A38484E1CBD31D773F6AF928FD56AD2F9FAE47` | 2028-11-16 |
+| MavenRain | `32F886ADE9C3A88218E4B67CA0A69159FC76DBFD` | 2028-11-10 |
 
-`lib/release-keys/README` in tn-node-deployment has the full rules, the key list and how a key is renewed.
+grantkee's earlier RSA key, `4E36D35A4AB61B589861D01AC7173F2377CA7573`, was rotated out on 2026-11-17 and the devnet check no longer accepts it.
+tn-node-deployment still ships that RSA key in `lib/release-keys`, so a testnet or mainnet node verifies a release against it until the scripts take the new key; `lib/release-keys/README` there has the node's rules.
+To take a later key change, move the submodule to the new commit of `tn-release-signing` and read the fingerprints against `KEYS.md`.
 
 ## What devnet does instead
 
@@ -73,8 +77,8 @@ In `config.sh`:
 | variable | this launch | meaning |
 |---|---|---|
 | `RELEASE_TAG` | `v0.2.0-devnet` | names the release directory, `releases/<tag>/` |
-| `RELEASE_KEYS_DIR` | `tn-node-deployment/lib/release-keys` (default) | the public keys `verify` accepts |
-| `RELEASE_SIGNER_FPR` | `4E36D35A4AB61B589861D01AC7173F2377CA7573` | the shipped grantkee key the signer is expected to use; informational |
+| `RELEASE_KEYS_DIR` | `tn-release-signing/keys` (default, the submodule) | the public keys `verify` accepts |
+| `RELEASE_SIGNER_FPR` | `95A38484E1CBD31D773F6AF928FD56AD2F9FAE47` | the grantkee key the signer is expected to use; informational |
 
 `verify` also loads `<repo>/release-keys/*.asc`, which holds no keys unless Path 3 is used.
 
@@ -147,7 +151,7 @@ xerxes, the build and deploy host, runs Linux with gpg 2.4.8 and `gpgv`.
 It has no scdaemon or pcscd, no YubiKey attached, and an empty keyring.
 It can verify a signature, since `gpgv` needs only public keys, but it cannot sign with the release key.
 
-The signer's YubiKey holds the shipped release key (grantkee, primary `4E36D35A4AB61B589861D01AC7173F2377CA7573`) in its OpenPGP applet.
+The signer's YubiKey holds the shipped release key (grantkee, primary `95A38484E1CBD31D773F6AF928FD56AD2F9FAE47`) in its OpenPGP applet.
 Each signature needs the user PIN and a touch.
 
 The signer's laptop runs macOS with GnuPG and the YubiKey plugged in.
@@ -171,7 +175,7 @@ Copy it from the deploy output, which has the real host name and repo path.
 Its form is:
 
 ```bash
-ssh <xerxes> 'cat <repo>/releases/v0.2.0-devnet/SHA256SUMS' > /tmp/SHA256SUMS && gpg --detach-sign --armor --local-user 4E36D35A4AB61B589861D01AC7173F2377CA7573 --output /tmp/SHA256SUMS.asc /tmp/SHA256SUMS && scp /tmp/SHA256SUMS.asc <xerxes>:<repo>/releases/v0.2.0-devnet/SHA256SUMS.asc
+ssh <xerxes> 'cat <repo>/releases/v0.2.0-devnet/SHA256SUMS' > /tmp/SHA256SUMS && gpg --detach-sign --armor --local-user 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 --output /tmp/SHA256SUMS.asc /tmp/SHA256SUMS && scp /tmp/SHA256SUMS.asc <xerxes>:<repo>/releases/v0.2.0-devnet/SHA256SUMS.asc
 ```
 
 gpg asks for the PIN on the laptop, then the YubiKey blinks until it is touched.
@@ -190,7 +194,7 @@ cat /tmp/SHA256SUMS
 Then sign, check the signature locally, and copy it back:
 
 ```bash
-gpg --detach-sign --armor --local-user 4E36D35A4AB61B589861D01AC7173F2377CA7573 --output /tmp/SHA256SUMS.asc /tmp/SHA256SUMS
+gpg --detach-sign --armor --local-user 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 --output /tmp/SHA256SUMS.asc /tmp/SHA256SUMS
 gpg --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS
 scp /tmp/SHA256SUMS.asc <xerxes>:<repo>/releases/v0.2.0-devnet/SHA256SUMS.asc
 ```
@@ -210,7 +214,7 @@ The private key never leaves the YubiKey, and the YubiKey never meets the build 
 xerxes sends a text file and receives a signature, so a compromised or misconfigured build host cannot make a release signature by itself.
 
 The check on xerxes does not depend on the signing side.
-`verify` runs `gpgv` against the public key files in `RELEASE_KEYS_DIR`, the same files a mainnet node uses, and not against the signer's GnuPG setup or trust database.
+`verify` runs `gpgv` against the public key files in `RELEASE_KEYS_DIR` and not against the signer's GnuPG setup or trust database. (Until 2026-11-17 these were the files a mainnet node uses, tn-node-deployment's `lib/release-keys`; they are now the maintainers' keys in `tn-release-signing`, which the node scripts have yet to take.)
 That is the split mainnet relies on: the signer holds the key, and the verifier holds only the public key that ships with the node scripts.
 
 ## Path 2: gpg-agent forwarding (alternative)
@@ -250,7 +254,7 @@ Import it from the shipped key file, then either give it ownertrust or pass `--t
 ```bash
 cd <repo>
 gpg --import tn-node-deployment/lib/release-keys/grantkee.asc
-echo '4E36D35A4AB61B589861D01AC7173F2377CA7573:6:' | gpg --import-ownertrust
+echo '95A38484E1CBD31D773F6AF928FD56AD2F9FAE47:6:' | gpg --import-ownertrust
 ```
 
 ### Each signing session
@@ -280,7 +284,7 @@ ssh -o 'RemoteForward /run/user/1000/gnupg/S.gpg-agent /Users/<u>/.gnupg/S.gpg-a
 In that session, check the forward is live:
 
 ```bash
-gpg --list-secret-keys 4E36D35A4AB61B589861D01AC7173F2377CA7573
+gpg --list-secret-keys 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47
 ```
 
 It should list the key.
@@ -290,7 +294,7 @@ Sign, and check:
 
 ```bash
 cd <repo>/releases/v0.2.0-devnet
-gpg --detach-sign --armor --local-user 4E36D35A4AB61B589861D01AC7173F2377CA7573 SHA256SUMS
+gpg --detach-sign --armor --local-user 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 SHA256SUMS
 cd <repo>
 ./devnet-release-sign.sh verify
 ```
@@ -376,7 +380,7 @@ cat releases/v0.2.0-devnet/IMAGE_DIGEST | tee -a tasks/verification/release-sign
 
 The record must hold:
 
-- The `VALIDSIG` line, with its fingerprint and timestamp. Its form is `[GNUPG:] VALIDSIG <signing key fpr> <YYYY-MM-DD> <signature timestamp> <expire> <version> <reserved> <pubkey algo> <hash algo> <class> <primary key fpr>`. The last field must be `4E36D35A4AB61B589861D01AC7173F2377CA7573`, or the devnet key for Path 3. The shipped key has no signing subkey (its primary key signs), so with it the first and last fields are the same. `date -u -d @<signature timestamp>` turns the timestamp into a date.
+- The `VALIDSIG` line, with its fingerprint and timestamp. Its form is `[GNUPG:] VALIDSIG <signing key fpr> <YYYY-MM-DD> <signature timestamp> <expire> <version> <reserved> <pubkey algo> <hash algo> <class> <primary key fpr>`. The last field must be `95A38484E1CBD31D773F6AF928FD56AD2F9FAE47`, or the devnet key for Path 3. The shipped key has no signing subkey (its primary key signs), so with it the first and last fields are the same. `date -u -d @<signature timestamp>` turns the timestamp into a date.
 - The sha256 of `SHA256SUMS` and `SHA256SUMS.asc`, and the content of `IMAGE_DIGEST`.
 - Which path was used, and any bypass or devnet key.
 - The fleet repo commit that holds the release files.

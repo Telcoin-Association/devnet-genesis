@@ -1,0 +1,6 @@
+✓ VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 (key id 28FD56AD2F9FAE47): a good signature by an allow-listed primary key
+    [GNUPG:] VALIDSIG 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 2026-11-18 1794962065 0 4 0 22 10 00 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47
+✓ SHA256SUMS: IMAGE_DIGEST GATEWAY_IMAGE_DIGEST genesis.yaml committee.yaml parameters.yaml match the current files
+✓ IMAGE_DIGEST = DOCKER_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/adiri@sha256:0aec3e7cd1457488ed052a3cff8371a235f213f57e9fc727a3a62fb7abad11c1)
+✓ GATEWAY_IMAGE_DIGEST = GATEWAY_IMAGE (us-docker.pkg.dev/telcoin-network/tn-public/worker-gateway@sha256:8b887098f5cc5cb5ebc591bc82b1347513b23ae3ecca4f22787b2e4204f8c231)
+release v0.3.0-devnet verified

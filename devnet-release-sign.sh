@@ -80,9 +80,10 @@
 #                       or empty = no GATEWAY_IMAGE_DIGEST, the manifest of before)
 #   TN_GATEWAY_ENABLE   1 = the fleet runs worker gateways; anything else (or unset) = the
 #                       gateway is not part of the release, as with GATEWAY_IMAGE unset
-#   RELEASE_KEYS_DIR    allow-listed public keys (default <repo>/tn-node-deployment/lib/release-keys)
+#   RELEASE_KEYS_DIR    allow-listed public keys (default <repo>/tn-release-signing/keys, the
+#                       tn-release-signing submodule)
 #   RELEASE_SIGNER_FPR  key the printed one-liner signs with (default
-#                       4E36D35A4AB61B589861D01AC7173F2377CA7573); informational only
+#                       95A38484E1CBD31D773F6AF928FD56AD2F9FAE47); informational only
 #   RELEASES_DIR        parent of the release directories (default <repo>/releases)
 #   RELEASE_SIGN_SSH_HOST  (environment) <host> in the one-liner (default: hostname -s)
 #
@@ -130,8 +131,8 @@ done
 source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/devnet-lib.sh"
 
 RELEASE_TAG="${RELEASE_TAG:-}"
-RELEASE_KEYS_DIR="${RELEASE_KEYS_DIR:-${REPO_ROOT}/tn-node-deployment/lib/release-keys}"
-RELEASE_SIGNER_FPR="${RELEASE_SIGNER_FPR:-4E36D35A4AB61B589861D01AC7173F2377CA7573}"
+RELEASE_KEYS_DIR="${RELEASE_KEYS_DIR:-${REPO_ROOT}/tn-release-signing/keys}"
+RELEASE_SIGNER_FPR="${RELEASE_SIGNER_FPR:-95A38484E1CBD31D773F6AF928FD56AD2F9FAE47}"
 RELEASES_DIR="${RELEASES_DIR:-${REPO_ROOT}/releases}"
 DEVNET_KEYS_DIR="${REPO_ROOT}/release-keys"   # devnet-only keys, read when present
 

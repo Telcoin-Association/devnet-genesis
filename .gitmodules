@@ -8,3 +8,6 @@
 	path = tn-contracts
 	url = git@github.com:Telcoin-Association/tn-contracts.git
 	branch = deploy/devnet-relaunch
+[submodule "tn-release-signing"]
+	path = tn-release-signing
+	url = git@github.com:Telcoin-Association/tn-release-signing.git

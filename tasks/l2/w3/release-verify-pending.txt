@@ -1,0 +1,6 @@
+RELEASE_SIG_PENDING
+release v0.3.0-devnet: /home/drtnarg/coding/telcoin/devnet-genesis/releases/v0.3.0-devnet/SHA256SUMS.asc is absent, so SHA256SUMS is not signed yet.
+sign SHA256SUMS on the signing laptop (macOS, the key 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 in its gpg):
+  ssh xerxes 'cat /home/drtnarg/coding/telcoin/devnet-genesis/releases/v0.3.0-devnet/SHA256SUMS' > /tmp/SHA256SUMS && gpg --detach-sign --armor --local-user 95A38484E1CBD31D773F6AF928FD56AD2F9FAE47 --output /tmp/SHA256SUMS.asc /tmp/SHA256SUMS && scp /tmp/SHA256SUMS.asc xerxes:/home/drtnarg/coding/telcoin/devnet-genesis/releases/v0.3.0-devnet/SHA256SUMS.asc
+  (<host> = xerxes: set RELEASE_SIGN_SSH_HOST to the name the laptop's ssh uses for this machine)
+then re-run: ./devnet-release-sign.sh verify
