@@ -1,0 +1,5 @@
+devnet-basefee-check: https://rpc.devnet.telcoin.network at epoch 3; expected worker-0 target: 10000000
+rpc https://rpc.devnet.telcoin.network  chain 32285  tip 15297  current epoch 3 (started @13966, duration 3600s)
+WorkerConfigs(0) @latest(15297): strategy 0 (eip1559)  target 10000000  data 9  | expected target 10000000
+boundary      blocks       gas_used                target                 fee_N       fee_N1_expected         fee_N1_actual  verdict  notes
+error: batch request rejected: {"jsonrpc": "2.0", "id": null, "error": {"code": -32010, "message": "The batch request was too large", "data": "Exceeded max limit of 100"}}
